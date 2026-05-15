@@ -1,26 +1,26 @@
-pub mod agents;
+pub mod commands;
 pub mod pty;
 
-use std::sync::Arc;
-use tauri::Manager;
-
-pub use pty::PtyManager;
+use commands::pty::{pty_kill, pty_list, pty_resize, pty_spawn, pty_write};
+use pty::PtyManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info"),
+    )
+    .try_init();
+
     tauri::Builder::default()
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
-            app.manage(Arc::new(PtyManager::new()));
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![])
+        .manage(PtyManager::new())
+        .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![
+            pty_spawn,
+            pty_write,
+            pty_resize,
+            pty_kill,
+            pty_list,
+        ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("erro fatal rodando Maestri Linux");
 }
