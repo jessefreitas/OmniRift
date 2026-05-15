@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "GTK_MODULES= LD_PRELOAD=/lib/x86_64-linux-gnu/libpthread.so.0 PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

@@ -9,8 +9,8 @@
   "scripts": {
     "dev": "npm run dev --workspace=apps/desktop",
     "build": "npm run build --workspace=apps/desktop",
-    "tauri:dev": "npm run tauri dev --workspace=apps/desktop",
-    "tauri:build": "npm run tauri build --workspace=apps/desktop",
+    "tauri:dev": "npm run tauri:dev --workspace=apps/desktop",
+    "tauri:build": "npm run tauri:build --workspace=apps/desktop",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   }
