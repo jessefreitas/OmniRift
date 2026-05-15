@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+
+# Rust
+target/
+apps/desktop/src-tauri/target/
+
+# Tauri
+apps/desktop/src-tauri/WixTools/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

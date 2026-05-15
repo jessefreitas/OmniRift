@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/skycracker/.claude/hooks/verify-skills.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/vps-sync-hook.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /home/skycracker/.claude/hooks/dispatch-enforcer.py",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/vps-gate.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /home/skycracker/.claude/hooks/pattern-learner.py",
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ]
+  },
+  "autoMode": {
+    "allow": [
+      "Use Agent tool to dispatch subtasks",
+      "Decompose multi-part tasks into parallel Agent calls",
+      "Show dispatch table before sending agents",
+      "Integrate results from multiple agents"
+    ],
+    "soft_deny": [
+      "Implement all parts of a multi-part task yourself without using Agent tool",
+      "Skip decomposition when task has 2+ independent parts"
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npm ci)",
+      "Bash(pnpm run:*)",
+      "Bash(pnpm test:*)",
+      "Bash(pytest:*)",
+      "Bash(uv run:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh issue list:*)"
+    ]
+  },
+  "commands": {
+    "/skill-transformer": {
+      "description": "Inicializar projeto OmniForge: estrutura .claude/, hooks, .omniforge, VPS access control, plugins, audit",
+      "command": "bash scripts/omniforge-init.sh --root $PROJECT_DIR"
+    }
+  }
+}

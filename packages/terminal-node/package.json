@@ -1,0 +1,23 @@
+{
+  "name": "@maestri/terminal-node",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xterm/xterm": "^5",
+    "@xterm/addon-fit": "^0.10",
+    "@xterm/addon-web-links": "^0.11"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
+  },
+  "peerDependencies": {
+    "react": "^19",
+    "react-dom": "^19"
+  }
+}

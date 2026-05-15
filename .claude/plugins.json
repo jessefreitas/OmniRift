@@ -1,0 +1,22 @@
+{
+  "marketplace": "omniforge/skills_transformers",
+  "required": [
+    "excellence-core",
+    "omniforge-workflow",
+    "infra-core",
+    "methodology-core"
+  ],
+  "optional": [
+    "mega-tooling",
+    "ops-runbooks"
+  ],
+  "omniforge": {
+    "gitHost": "https://git.omnimemory.com.br",
+    "gitOwner": "TODO_CONFIGURAR_ORG",
+    "auditProfile": "standard",
+    "version": "v2.1.0",
+    "updateChannel": "minor",
+    "autoUpdate": false,
+    "auditCacheHours": 24
+  }
+}
