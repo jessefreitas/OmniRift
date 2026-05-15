@@ -76,3 +76,18 @@ export async function listenPtyExit(
     }
   });
 }
+
+/** Cria um pipe PTY entre dois terminais (source → target). */
+export async function ptyPipeCreate(sourceId: string, targetId: string): Promise<void> {
+  await invoke("pty_pipe_create", { sourceId, targetId });
+}
+
+/** Remove um pipe PTY entre dois terminais. */
+export async function ptyPipeRemove(sourceId: string, targetId: string): Promise<void> {
+  await invoke("pty_pipe_remove", { sourceId, targetId });
+}
+
+/** Lista todos os pipes PTY ativos como pares [sourceId, targetId]. */
+export async function ptyPipeList(): Promise<[string, string][]> {
+  return await invoke<[string, string][]>("pty_pipe_list");
+}

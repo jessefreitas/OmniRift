@@ -10,6 +10,7 @@ import {
   BackgroundVariant,
   Controls,
   applyEdgeChanges,
+  MarkerType,
   type Connection,
   type Edge,
   type Node,
@@ -21,6 +22,7 @@ import "@xyflow/react/dist/style.css";
 
 import { TerminalNode } from "@/components/nodes/TerminalNode";
 import { useCanvasStore } from "@/store/canvas-store";
+import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
 
 // Tipos de nó disponíveis no React Flow.
 // O `terminal` cobre Fase 1; note/sketch/portal entram nas fases seguintes.
@@ -61,6 +63,14 @@ export function Canvas() {
         source: e.source,
         target: e.target,
         animated: e.kind === "pty-pipe",
+        style:
+          e.kind === "pty-pipe"
+            ? { stroke: "rgb(41, 162, 167)", strokeWidth: 2 }
+            : { stroke: "rgb(46, 45, 50)", strokeWidth: 1.5 },
+        markerEnd:
+          e.kind === "pty-pipe"
+            ? { type: MarkerType.ArrowClosed, color: "rgb(41, 162, 167)" }
+            : undefined,
       })),
     [edges],
   );
@@ -88,21 +98,36 @@ export function Canvas() {
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      // Para edges, deixamos React Flow gerir; espelhamos apenas remoção.
       const next = applyEdgeChanges(changes, rfEdges);
       const removed = rfEdges.filter((e) => !next.find((n) => n.id === e.id));
-      for (const r of removed) removeEdge(r.id);
+      for (const r of removed) {
+        const storeEdge = edges.find((e) => e.id === r.id);
+        if (storeEdge?.kind === "pty-pipe") {
+          ptyPipeRemove(r.source, r.target).catch(console.error);
+        }
+        removeEdge(r.id);
+      }
     },
-    [rfEdges, removeEdge],
+    [rfEdges, edges, removeEdge],
   );
 
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
-      // Por hora todas as conexões são "generic"; Fase 2 introduz "pty-pipe".
-      addEdge(connection.source, connection.target, "generic");
+      const srcNode = nodes.find((n) => n.id === connection.source);
+      const dstNode = nodes.find((n) => n.id === connection.target);
+      if (srcNode?.kind === "terminal" && dstNode?.kind === "terminal") {
+        ptyPipeCreate(connection.source, connection.target)
+          .then(() => addEdge(connection.source!, connection.target!, "pty-pipe"))
+          .catch((err) => {
+            console.error("Falha ao criar pipe PTY:", err);
+            addEdge(connection.source!, connection.target!, "generic");
+          });
+      } else {
+        addEdge(connection.source, connection.target, "generic");
+      }
     },
-    [addEdge],
+    [nodes, addEdge],
   );
 
   return (

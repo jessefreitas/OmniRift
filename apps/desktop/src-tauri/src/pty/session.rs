@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::io::{Read, Write};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
+use tokio::sync::broadcast;
 
 pub type SessionId = String;
 
@@ -42,6 +43,7 @@ pub struct PtySession {
     pub id: SessionId,
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    output_tx: broadcast::Sender<Vec<u8>>,
 }
 
 impl PtySession {
@@ -75,10 +77,13 @@ impl PtySession {
         let writer: Box<dyn Write + Send> = master.lock().take_writer().context("falha ao tomar writer do master")?;
         let writer = Arc::new(Mutex::new(writer));
 
+        let (output_tx, _) = broadcast::channel::<Vec<u8>>(64);
+        let tx_for_reader = output_tx.clone();
+
         let id_for_reader = id.clone();
         let app_for_reader = app.clone();
         std::thread::spawn(move || {
-            read_loop(id_for_reader, reader, app_for_reader);
+            read_loop(id_for_reader, reader, app_for_reader, tx_for_reader);
         });
 
         let id_for_waiter = id.clone();
@@ -96,7 +101,7 @@ impl PtySession {
             }
         });
 
-        Ok(Self { id, master, writer })
+        Ok(Self { id, master, writer, output_tx })
     }
 
     pub fn write(&self, data: &[u8]) -> Result<()> {
@@ -112,16 +117,31 @@ impl PtySession {
             .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| anyhow!("falha ao redimensionar PTY: {e}"))
     }
+
+    pub(crate) fn subscribe(&self) -> broadcast::Receiver<Vec<u8>> {
+        self.output_tx.subscribe()
+    }
+
+    pub(crate) fn writer_arc(&self) -> Arc<Mutex<Box<dyn Write + Send>>> {
+        Arc::clone(&self.writer)
+    }
 }
 
-fn read_loop(id: SessionId, mut reader: Box<dyn Read + Send>, app: AppHandle) {
+fn read_loop(
+    id: SessionId,
+    mut reader: Box<dyn Read + Send>,
+    app: AppHandle,
+    tx: broadcast::Sender<Vec<u8>>,
+) {
     let mut buf = [0u8; 4096];
     loop {
         match reader.read(&mut buf) {
             Ok(0) => { log::info!("PTY {id} EOF"); break; }
             Ok(n) => {
-                let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
-                if let Err(e) = app.emit("pty://output", PtyOutputEvent { session_id: id.clone(), data: chunk }) {
+                let chunk = buf[..n].to_vec();
+                let _ = tx.send(chunk.clone());
+                let text = String::from_utf8_lossy(&chunk).to_string();
+                if let Err(e) = app.emit("pty://output", PtyOutputEvent { session_id: id.clone(), data: text }) {
                     log::error!("falha ao emitir output do PTY {id}: {e}");
                     break;
                 }

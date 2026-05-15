@@ -1,7 +1,7 @@
 pub mod commands;
 pub mod pty;
 
-use commands::pty::{pty_kill, pty_list, pty_resize, pty_spawn, pty_write};
+use commands::pty::{pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_resize, pty_spawn, pty_write};
 use pty::PtyManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -20,6 +20,9 @@ pub fn run() {
             pty_resize,
             pty_kill,
             pty_list,
+            pty_pipe_create,
+            pty_pipe_remove,
+            pty_pipe_list,
         ])
         .run(tauri::generate_context!())
         .expect("erro fatal rodando Maestri Linux");

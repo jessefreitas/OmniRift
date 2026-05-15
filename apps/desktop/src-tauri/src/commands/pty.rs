@@ -1,3 +1,4 @@
+use crate::pty::manager::relay_task;
 use crate::pty::{PtyManager, PtySpawnConfig, SessionId};
 use tauri::{AppHandle, State};
 
@@ -41,4 +42,32 @@ pub fn pty_kill(
 #[tauri::command]
 pub fn pty_list(manager: State<'_, PtyManager>) -> Vec<SessionId> {
     manager.list()
+}
+
+#[tauri::command]
+pub async fn pty_pipe_create(
+    source_id: SessionId,
+    target_id: SessionId,
+    manager: State<'_, PtyManager>,
+) -> Result<(), String> {
+    let (rx, writer) = manager
+        .pipe_parts(&source_id, &target_id)
+        .map_err(|e| format!("{e:#}"))?;
+    let handle = tokio::spawn(relay_task(rx, writer, source_id.clone(), target_id.clone()));
+    manager.pipe_store(source_id, target_id, handle);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn pty_pipe_remove(
+    source_id: SessionId,
+    target_id: SessionId,
+    manager: State<'_, PtyManager>,
+) -> Result<(), String> {
+    manager.pipe_remove(&source_id, &target_id).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn pty_pipe_list(manager: State<'_, PtyManager>) -> Vec<[SessionId; 2]> {
+    manager.pipe_list()
 }
