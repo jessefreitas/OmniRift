@@ -33,13 +33,19 @@ pub struct McpState {
     pub(crate) agent_registry: Arc<AgentRegistry>,
     /// session_id (UUID gerado pelo SSE) → sender para o stream SSE daquela sessão
     pub(crate) sessions: Arc<DashMap<String, broadcast::Sender<String>>>,
+    pub(crate) app: tauri::AppHandle,
 }
 
-pub fn mcp_router(pty_manager: Arc<PtyManager>, agent_registry: Arc<AgentRegistry>) -> Router {
+pub fn mcp_router(
+    pty_manager: Arc<PtyManager>,
+    agent_registry: Arc<AgentRegistry>,
+    app: tauri::AppHandle,
+) -> Router {
     let state = Arc::new(McpState {
         pty_manager,
         agent_registry,
         sessions: Arc::new(DashMap::new()),
+        app,
     });
     Router::new()
         .route("/sse", get(sse_handler))

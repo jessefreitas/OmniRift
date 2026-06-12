@@ -37,7 +37,10 @@ pub fn output_matches(buf: &str, pattern: &str, use_regex: bool) -> Option<Strin
 use crate::mcp::server::McpState;
 use crate::pty::text::{bottom_lines, clean_terminal_output};
 use serde_json::{json, Value};
+use std::sync::Mutex as StdMutex;
 use std::time::Duration;
+use tauri::{Emitter, Listener};
+use tokio::sync::oneshot;
 
 /// Resolve o handle (label do registry) → session_id.
 fn resolve(state: &McpState, terminal: &str) -> Result<String, String> {
@@ -92,6 +95,16 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "regex": { "type": "boolean" },
                 "timeout_ms": { "type": "number" } },
                 "required": ["terminal", "pattern"] } }),
+        json!({ "name": "terminal_spawn",
+            "description": "Cria um novo terminal no canvas e o registra como agente addressável.",
+            "inputSchema": { "type": "object", "properties": {
+                "command": { "type": "string" },
+                "label": { "type": "string" },
+                "role": { "type": "string" },
+                "cwd": { "type": "string" },
+                "position": { "type": "object", "properties": {
+                    "x": { "type": "number" }, "y": { "type": "number" } } } },
+                "required": ["command", "label"] } }),
     ]
 }
 
@@ -227,6 +240,47 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                 Ok(Some(line)) => format!("matched: {line}"),
                 Ok(None) => "❌ canal fechado antes do match".into(),
                 Err(_) => format!("timeout após {timeout_ms}ms sem casar o padrão"),
+            }
+        }
+        "terminal_spawn" => {
+            let command = arg_str(&args, "command");
+            let label = arg_str(&args, "label");
+            if command.is_empty() || label.is_empty() {
+                return "❌ 'command' e 'label' são obrigatórios".into();
+            }
+            let role = arg_str(&args, "role");
+            let cwd = args.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let position = args.get("position").cloned();
+            let id = uuid::Uuid::new_v4().to_string();
+
+            // Ouvir o ack pty://ready ANTES de pedir o spawn, filtrando pelo id.
+            let (tx, rx) = oneshot::channel::<()>();
+            let tx = std::sync::Arc::new(StdMutex::new(Some(tx)));
+            let want = id.clone();
+            let listener_id = state.app.listen_any("pty://ready", move |event| {
+                if let Ok(v) = serde_json::from_str::<Value>(event.payload()) {
+                    if v.get("id").and_then(|x| x.as_str()) == Some(want.as_str()) {
+                        if let Some(s) = tx.lock().unwrap().take() {
+                            let _ = s.send(());
+                        }
+                    }
+                }
+            });
+
+            let _ = state.app.emit("canvas://spawn-request", json!({
+                "id": id, "command": command, "label": label,
+                "role": role, "cwd": cwd, "position": position
+            }));
+
+            let acked = tokio::time::timeout(Duration::from_secs(8), rx).await.is_ok();
+            state.app.unlisten(listener_id);
+
+            state.agent_registry.register(label.clone(), id.clone(), command.clone());
+
+            if acked {
+                format!("criado: {label} (id {id})")
+            } else {
+                format!("criado: {label} (id {id}) — aviso: terminal não confirmou prontidão em 8s")
             }
         }
         other => format!("❌ tool de terminal desconhecida: {other}"),
