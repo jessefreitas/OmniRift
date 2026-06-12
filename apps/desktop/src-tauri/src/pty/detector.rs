@@ -84,6 +84,110 @@ pub fn classify(
     }
 }
 
+use crate::pty::text::bottom_lines;
+use dashmap::DashMap;
+use parking_lot::Mutex;
+use portable_pty::MasterPty;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter};
+use tokio::sync::broadcast;
+
+const POLL: Duration = Duration::from_millis(300);
+const QUIET: Duration = Duration::from_millis(400);
+const STARTUP_GRACE: Duration = Duration::from_millis(1500);
+const BUF_CAP: usize = 8192;
+
+/// Mapa central de estado por sessão (contrato consumido pelo Sub-projeto B).
+pub type AgentStateMap = Arc<DashMap<SessionId, AgentState>>;
+
+/// Lançador do loop de detecção. Uma task tokio por sessão.
+pub struct StateDetector;
+
+impl StateDetector {
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn(
+        session_id: SessionId,
+        mut rx: broadcast::Receiver<Vec<u8>>,
+        master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
+        root_pid: Option<u32>,
+        profile: &'static AgentProfile,
+        app: AppHandle,
+        state_map: AgentStateMap,
+        state_tx: broadcast::Sender<(SessionId, AgentState)>,
+    ) {
+        tokio::spawn(async move {
+            let mut raw: Vec<u8> = Vec::new();
+            let mut last_activity = Instant::now();
+            let spawned_at = Instant::now();
+            let mut prev = AgentState::Idle;
+            let mut ticker = tokio::time::interval(POLL);
+
+            let emit = |st: AgentState, msg: Option<String>| {
+                let _ = app.emit(
+                    "agent://status",
+                    AgentStatusEvent {
+                        session_id: session_id.clone(),
+                        state: st,
+                        agent: profile.name.to_string(),
+                        message: msg,
+                    },
+                );
+                state_map.insert(session_id.clone(), st);
+                let _ = state_tx.send((session_id.clone(), st));
+            };
+
+            loop {
+                tokio::select! {
+                    recv = rx.recv() => match recv {
+                        Ok(bytes) => {
+                            raw.extend_from_slice(&bytes);
+                            if raw.len() > BUF_CAP {
+                                let cut = raw.len() - BUF_CAP;
+                                raw.drain(0..cut);
+                            }
+                            last_activity = Instant::now();
+                            if spawned_at.elapsed() > STARTUP_GRACE
+                                && prev != AgentState::Working
+                                && prev != AgentState::Dead
+                            {
+                                prev = AgentState::Working;
+                                emit(AgentState::Working, None);
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            if prev != AgentState::Dead {
+                                emit(AgentState::Dead, None);
+                            }
+                            break;
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    },
+                    _ = ticker.tick() => {
+                        if spawned_at.elapsed() < STARTUP_GRACE {
+                            continue;
+                        }
+                        let quiescent = last_activity.elapsed() > QUIET;
+                        let fg_pid = master.lock().process_group_leader();
+                        let fg = classify_fg(root_pid, fg_pid);
+                        let bottom = bottom_lines(&raw, 24);
+                        let next = classify(prev, quiescent, fg, &bottom, profile);
+                        if next != prev {
+                            let msg = if next == AgentState::Blocked {
+                                bottom.lines().last().map(|s| s.to_string())
+                            } else {
+                                None
+                            };
+                            prev = next;
+                            emit(next, msg);
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
