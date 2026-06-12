@@ -34,6 +34,123 @@ pub fn output_matches(buf: &str, pattern: &str, use_regex: bool) -> Option<Strin
     }
 }
 
+use crate::mcp::server::McpState;
+use crate::pty::text::bottom_lines;
+use serde_json::{json, Value};
+
+/// Resolve o handle (label do registry) → session_id.
+fn resolve(state: &McpState, terminal: &str) -> Result<String, String> {
+    state
+        .agent_registry
+        .get_session_id(terminal)
+        .ok_or_else(|| format!("terminal '{terminal}' não encontrado (use terminal_list)"))
+}
+
+fn arg_str(args: &Value, key: &str) -> String {
+    args.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
+}
+
+/// Schemas das tools de orquestração (concatenados no tools/list do server).
+pub fn terminal_tool_defs() -> Vec<Value> {
+    vec![
+        json!({ "name": "terminal_list",
+            "description": "Lista os terminais-agente do canvas com seu estado (idle/working/blocked/done/dead).",
+            "inputSchema": { "type": "object", "properties": {} } }),
+        json!({ "name": "terminal_read",
+            "description": "Lê as últimas linhas da tela de um terminal sem enviar nada.",
+            "inputSchema": { "type": "object", "properties": {
+                "terminal": { "type": "string" }, "lines": { "type": "number" } },
+                "required": ["terminal"] } }),
+        json!({ "name": "terminal_send_text",
+            "description": "Injeta texto no terminal (sem Enter).",
+            "inputSchema": { "type": "object", "properties": {
+                "terminal": { "type": "string" }, "text": { "type": "string" } },
+                "required": ["terminal", "text"] } }),
+        json!({ "name": "terminal_run",
+            "description": "Envia um comando seguido de Enter.",
+            "inputSchema": { "type": "object", "properties": {
+                "terminal": { "type": "string" }, "command": { "type": "string" } },
+                "required": ["terminal", "command"] } }),
+        json!({ "name": "terminal_send_keys",
+            "description": "Envia teclas nomeadas (enter, tab, esc, up/down/left/right, ctrl-c, ctrl-d, backspace), separadas por espaço.",
+            "inputSchema": { "type": "object", "properties": {
+                "terminal": { "type": "string" }, "keys": { "type": "string" } },
+                "required": ["terminal", "keys"] } }),
+    ]
+}
+
+/// Despacha as tools `terminal_*`. Devolve o texto do envelope MCP.
+pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    match tool {
+        "terminal_list" => {
+            let agents = state.agent_registry.list();
+            if agents.is_empty() {
+                return "Nenhum terminal-agente. Marque terminais na sidebar do Maestri.".into();
+            }
+            agents
+                .iter()
+                .map(|(label, entry)| {
+                    let st = state
+                        .pty_manager
+                        .agent_state(&entry.session_id)
+                        .map(|s| format!("{s:?}").to_lowercase())
+                        .unwrap_or_else(|| "unknown".into());
+                    format!("• {label} [{st}] — {}", entry.description)
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        "terminal_read" => {
+            let terminal = arg_str(&args, "terminal");
+            let lines = args.get("lines").and_then(|v| v.as_u64()).unwrap_or(40) as usize;
+            match resolve(state, &terminal) {
+                Ok(id) => match state.pty_manager.read_scrollback(&id) {
+                    Ok(buf) => {
+                        let text = bottom_lines(&buf, lines);
+                        if text.is_empty() { "(tela vazia)".into() } else { text }
+                    }
+                    Err(e) => format!("❌ {e}"),
+                },
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "terminal_send_text" => {
+            let terminal = arg_str(&args, "terminal");
+            let text = arg_str(&args, "text");
+            match resolve(state, &terminal) {
+                Ok(id) => match state.pty_manager.write(&id, text.as_bytes()) {
+                    Ok(()) => "ok".into(),
+                    Err(e) => format!("❌ {e}"),
+                },
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "terminal_run" => {
+            let terminal = arg_str(&args, "terminal");
+            let command = arg_str(&args, "command");
+            match resolve(state, &terminal) {
+                Ok(id) => match state.pty_manager.write(&id, format!("{command}\r").as_bytes()) {
+                    Ok(()) => "ok".into(),
+                    Err(e) => format!("❌ {e}"),
+                },
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "terminal_send_keys" => {
+            let terminal = arg_str(&args, "terminal");
+            let keys = arg_str(&args, "keys");
+            match resolve(state, &terminal) {
+                Ok(id) => match state.pty_manager.write(&id, &keys_to_bytes(&keys)) {
+                    Ok(()) => "ok".into(),
+                    Err(e) => format!("❌ {e}"),
+                },
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        other => format!("❌ tool de terminal desconhecida: {other}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
