@@ -3,7 +3,8 @@ use parking_lot::Mutex;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::io::{Read, Write};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::broadcast;
 
@@ -44,6 +45,7 @@ pub struct PtySession {
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     output_tx: broadcast::Sender<Vec<u8>>,
+    root_pid: Option<u32>,
 }
 
 impl PtySession {
@@ -70,6 +72,7 @@ impl PtySession {
         }
 
         let mut child = pair.slave.spawn_command(cmd).context("falha ao spawnar processo no PTY")?;
+        let root_pid = child.process_id();
         drop(pair.slave);
 
         let master = Arc::new(Mutex::new(pair.master));
@@ -80,10 +83,50 @@ impl PtySession {
         let (output_tx, _) = broadcast::channel::<Vec<u8>>(64);
         let tx_for_reader = output_tx.clone();
 
-        let id_for_reader = id.clone();
-        let app_for_reader = app.clone();
+        // Canal std (não precisa de runtime tokio): debounce de 16ms antes de emitir evento Tauri
+        let (emit_tx, emit_rx) = mpsc::channel::<Vec<u8>>();
+
+        let id_for_emit = id.clone();
+        let app_for_emit = app.clone();
         std::thread::spawn(move || {
-            read_loop(id_for_reader, reader, app_for_reader, tx_for_reader);
+            const DEBOUNCE: Duration = Duration::from_millis(16);
+            let mut pending: Vec<u8> = Vec::new();
+            loop {
+                // Bloqueia até chegar o primeiro chunk do frame
+                match emit_rx.recv() {
+                    Ok(bytes) => { pending.extend_from_slice(&bytes); }
+                    Err(_) => {
+                        // Canal fechado — emite o que sobrou e encerra
+                        if !pending.is_empty() {
+                            let text = String::from_utf8_lossy(&pending).to_string();
+                            let _ = app_for_emit.emit("pty://output", PtyOutputEvent {
+                                session_id: id_for_emit.clone(), data: text,
+                            });
+                        }
+                        break;
+                    }
+                }
+                // Drena tudo que chegou nos próximos 16ms sem bloquear depois disso
+                let deadline = Instant::now() + DEBOUNCE;
+                loop {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() { break; }
+                    match emit_rx.recv_timeout(remaining) {
+                        Ok(more) => { pending.extend_from_slice(&more); }
+                        Err(_) => break,
+                    }
+                }
+                let text = String::from_utf8_lossy(&pending).to_string();
+                let _ = app_for_emit.emit("pty://output", PtyOutputEvent {
+                    session_id: id_for_emit.clone(), data: text,
+                });
+                pending.clear();
+            }
+        });
+
+        let id_for_reader = id.clone();
+        std::thread::spawn(move || {
+            read_loop(id_for_reader, reader, tx_for_reader, emit_tx);
         });
 
         let id_for_waiter = id.clone();
@@ -101,7 +144,7 @@ impl PtySession {
             }
         });
 
-        Ok(Self { id, master, writer, output_tx })
+        Ok(Self { id, master, writer, output_tx, root_pid })
     }
 
     pub fn write(&self, data: &[u8]) -> Result<()> {
@@ -125,13 +168,21 @@ impl PtySession {
     pub(crate) fn writer_arc(&self) -> Arc<Mutex<Box<dyn Write + Send>>> {
         Arc::clone(&self.writer)
     }
+
+    pub(crate) fn master_arc(&self) -> Arc<Mutex<Box<dyn MasterPty + Send>>> {
+        Arc::clone(&self.master)
+    }
+
+    pub(crate) fn root_pid(&self) -> Option<u32> {
+        self.root_pid
+    }
 }
 
 fn read_loop(
     id: SessionId,
     mut reader: Box<dyn Read + Send>,
-    app: AppHandle,
     tx: broadcast::Sender<Vec<u8>>,
+    emit_tx: mpsc::Sender<Vec<u8>>,
 ) {
     let mut buf = [0u8; 4096];
     loop {
@@ -139,12 +190,8 @@ fn read_loop(
             Ok(0) => { log::info!("PTY {id} EOF"); break; }
             Ok(n) => {
                 let chunk = buf[..n].to_vec();
-                let _ = tx.send(chunk.clone());
-                let text = String::from_utf8_lossy(&chunk).to_string();
-                if let Err(e) = app.emit("pty://output", PtyOutputEvent { session_id: id.clone(), data: text }) {
-                    log::error!("falha ao emitir output do PTY {id}: {e}");
-                    break;
-                }
+                let _ = tx.send(chunk.clone()); // broadcast imediato (MCP/pipes)
+                let _ = emit_tx.send(chunk);    // debounced → Tauri event
             }
             Err(e) => { log::warn!("erro lendo do PTY {id}: {e}"); break; }
         }
