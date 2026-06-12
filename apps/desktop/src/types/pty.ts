@@ -35,3 +35,14 @@ export type AgentRole =
   | "codex"
   | "opencode"
   | "custom";
+
+/** Estado de um agente num terminal — espelha o enum Rust `AgentState`. */
+export type AgentState = "working" | "blocked" | "done" | "idle" | "dead";
+
+/** Evento emitido pelo Rust em `agent://status`. */
+export interface AgentStatusEvent {
+  session_id: SessionId;
+  state: AgentState;
+  agent: string;
+  message: string | null;
+}

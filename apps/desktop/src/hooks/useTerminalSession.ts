@@ -9,13 +9,14 @@
 // Idempotente: chama spawn apenas uma vez por sessionId.
 // Trata corretamente Strict Mode do React (double-mount em dev).
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import {
+  listenAgentStatus,
   listenPtyExit,
   listenPtyOutput,
   ptyKill,
@@ -23,6 +24,7 @@ import {
   ptySpawn,
   ptyWrite,
 } from "@/lib/pty-client";
+import { useCanvasStore } from "@/store/canvas-store";
 import type { PtySpawnConfig, SessionId } from "@/types/pty";
 
 interface UseTerminalSessionOptions {
@@ -32,14 +34,13 @@ interface UseTerminalSessionOptions {
 }
 
 interface UseTerminalSessionReturn {
-  /** Ref para anexar ao <div> que vai hospedar o xterm. */
   containerRef: React.MutableRefObject<HTMLDivElement | null>;
-  /** True quando o spawn foi concluído com sucesso. */
   ready: boolean;
-  /** Erro de spawn, se houver. */
   error: string | null;
-  /** Força um fit() — útil quando o nó é redimensionado externamente. */
   fit: () => void;
+  getSelection: () => string;
+  /** Mata o PTY atual e re-spawna com a mesma config, sem recriar o xterm.js. */
+  reconnect: () => Promise<void>;
 }
 
 export function useTerminalSession({
@@ -54,6 +55,8 @@ export function useTerminalSession({
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const setTerminalStatus = useCanvasStore((s) => s.setTerminalStatus);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -101,25 +104,31 @@ export function useTerminalSession({
     term.open(containerRef.current);
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
+    term.focus();
 
-    // Ajusta tamanho inicial — precisa ser feito DEPOIS do .open()
-    requestAnimationFrame(() => {
-      try {
-        fitAddon.fit();
-      } catch {
-        // Container pode estar com 0px na primeira frame; ignoramos.
-      }
+    // ResizeObserver → fit() sempre que o container mudar de tamanho
+    const ro = new ResizeObserver(() => {
+      try { fitAddon.fit(); } catch { /* layout ainda não estabilizado */ }
     });
+    ro.observe(containerRef.current);
 
     // --- Listeners cleanup pendentes ------------------------------------
     let unlistenOutput: UnlistenFn | null = null;
+    let unlistenStatus: UnlistenFn | null = null;
     let unlistenExit: UnlistenFn | null = null;
     let disposed = false;
     let dataDisposable: { dispose: () => void } | null = null;
 
-    // --- Pipeline assíncrono: spawn → listeners → stdin -----------------
+    // --- Pipeline assíncrono: fit → spawn → listeners → stdin -----------
+    // IMPORTANTE: fit() ANTES do spawn garante que o PTY nasce com as
+    // dimensões corretas. Dois rAF deixam o browser pintar o canvas do
+    // xterm (cell.width > 0) antes de medirmos cols/rows.
     (async () => {
       try {
+        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        if (disposed) return;
+        try { fitAddon.fit(); } catch { /* container ainda sem dimensões */ }
+
         const { cols, rows } = term;
         await ptySpawn(sessionId, {
           ...config,
@@ -131,10 +140,15 @@ export function useTerminalSession({
           term.write(data);
         });
 
+        unlistenStatus = await listenAgentStatus(sessionId, (state) => {
+          setTerminalStatus(sessionId, state);
+        });
+
         unlistenExit = await listenPtyExit(sessionId, (code) => {
           term.write(
             `\r\n\x1b[2;37m[processo encerrou — código ${code ?? "?"}]\x1b[0m\r\n`,
           );
+          setTerminalStatus(sessionId, "dead");
           onExit?.(code);
         });
 
@@ -163,9 +177,12 @@ export function useTerminalSession({
 
     // --- Cleanup --------------------------------------------------------
     return () => {
+      ro.disconnect();
       disposed = true;
+      spawnedRef.current = false; // Permite remount (React StrictMode faz double-mount em dev)
       dataDisposable?.dispose();
       unlistenOutput?.();
+      unlistenStatus?.();
       unlistenExit?.();
       // Mata o PTY no Rust — mas não bloqueia o cleanup
       ptyKill(sessionId).catch(() => {
@@ -179,13 +196,48 @@ export function useTerminalSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  const fit = () => {
+  const fit = useCallback(() => {
     try {
       fitAddonRef.current?.fit();
+      terminalRef.current?.focus();
     } catch {
       // ResizeObserver pode chamar antes do layout estabilizar; ignorar.
     }
-  };
+  }, []);
 
-  return { containerRef, ready, error, fit };
+  const getSelection = useCallback(() => {
+    return terminalRef.current?.getSelection() ?? "";
+  }, []);
+
+  const reconnect = useCallback(async () => {
+    const term = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!term) return;
+
+    setReady(false);
+    setError(null);
+    setTerminalStatus(sessionId, "idle");
+
+    term.reset();
+    term.write("\r\n\x1b[2;37m[reconectando…]\x1b[0m\r\n");
+
+    try { await ptyKill(sessionId); } catch { /* já morreu */ }
+
+    // Pequeno delay para o Rust liberar a sessão antes de re-spawnar
+    await new Promise<void>((r) => setTimeout(r, 200));
+
+    try {
+      fitAddon?.fit();
+      const { cols, rows } = term;
+      await ptySpawn(sessionId, { ...config, cols, rows });
+      // Os listeners de output/exit do useEffect continuam ativos
+      // e vão capturar os eventos do novo PTY (mesmo sessionId)
+      setReady(true);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+    }
+  }, [sessionId, config, setTerminalStatus]);
+
+  return { containerRef, ready, error, fit, getSelection, reconnect };
 }

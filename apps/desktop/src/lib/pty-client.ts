@@ -9,6 +9,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AgentState,
+  AgentStatusEvent,
   PtyExitEvent,
   PtyOutputEvent,
   PtySpawnConfig,
@@ -77,9 +79,26 @@ export async function listenPtyExit(
   });
 }
 
-/** Cria um pipe PTY entre dois terminais (source → target). */
-export async function ptyPipeCreate(sourceId: string, targetId: string): Promise<void> {
-  await invoke("pty_pipe_create", { sourceId, targetId });
+/** Inscreve um listener de estado de agente (agent://status) de UMA sessão. */
+export async function listenAgentStatus(
+  sessionId: SessionId,
+  handler: (state: AgentState, message: string | null) => void,
+): Promise<UnlistenFn> {
+  return listen<AgentStatusEvent>("agent://status", (event) => {
+    if (event.payload.session_id === sessionId) {
+      handler(event.payload.state, event.payload.message);
+    }
+  });
+}
+
+/** Cria um pipe PTY entre dois terminais (source → target).
+ *  sourceLabel é prefixado em cada linha encaminhada: "[Orquestrador]: ..." */
+export async function ptyPipeCreate(
+  sourceId: string,
+  targetId: string,
+  sourceLabel?: string,
+): Promise<void> {
+  await invoke("pty_pipe_create", { sourceId, targetId, sourceLabel });
 }
 
 /** Remove um pipe PTY entre dois terminais. */
