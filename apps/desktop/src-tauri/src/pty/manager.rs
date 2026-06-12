@@ -99,6 +99,13 @@ impl PtyManager {
             .subscribe())
     }
 
+    pub fn read_scrollback(&self, id: &str) -> Result<Vec<u8>> {
+        Ok(self.sessions
+            .get(id)
+            .ok_or_else(|| anyhow!("sessão '{id}' não encontrada"))?
+            .read_scrollback())
+    }
+
     pub fn pipe_parts(
         &self,
         src: &str,
