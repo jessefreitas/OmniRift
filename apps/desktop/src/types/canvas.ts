@@ -24,6 +24,8 @@ export interface TerminalNode extends BaseCanvasNode {
   role: AgentRole;
   /** Nome amigável que o usuário deu — opcional. */
   label?: string;
+  /** Pasta de trabalho do processo. */
+  cwd?: string;
 }
 
 export interface NoteNode extends BaseCanvasNode {

@@ -11,7 +11,7 @@
           },
           {
             "type": "command",
-            "command": "bash scripts/vps-sync-hook.sh",
+            "command": "bash /home/skycracker/.claude/hooks/vps-sync-hook.sh",
             "timeout": 10
           }
         ]
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .claude/hooks/vps-gate.py",
+            "command": "python3 /home/skycracker/.claude/hooks/vps-gate.py",
             "timeout": 5
           }
         ]

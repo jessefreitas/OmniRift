@@ -6,7 +6,7 @@ use tauri::{AppHandle, State};
 pub fn pty_spawn(
     id: SessionId,
     config: PtySpawnConfig,
-    manager: State<'_, PtyManager>,
+    manager: State<'_, std::sync::Arc<PtyManager>>,
     app: AppHandle,
 ) -> Result<SessionId, String> {
     manager.spawn(id, config, app).map_err(|e| format!("{e:#}"))
@@ -16,7 +16,7 @@ pub fn pty_spawn(
 pub fn pty_write(
     session_id: SessionId,
     data: String,
-    manager: State<'_, PtyManager>,
+    manager: State<'_, std::sync::Arc<PtyManager>>,
 ) -> Result<(), String> {
     manager.write(&session_id, data.as_bytes()).map_err(|e| format!("{e:#}"))
 }
@@ -26,7 +26,7 @@ pub fn pty_resize(
     session_id: SessionId,
     cols: u16,
     rows: u16,
-    manager: State<'_, PtyManager>,
+    manager: State<'_, std::sync::Arc<PtyManager>>,
 ) -> Result<(), String> {
     manager.resize(&session_id, cols, rows).map_err(|e| format!("{e:#}"))
 }
@@ -34,13 +34,13 @@ pub fn pty_resize(
 #[tauri::command]
 pub fn pty_kill(
     session_id: SessionId,
-    manager: State<'_, PtyManager>,
+    manager: State<'_, std::sync::Arc<PtyManager>>,
 ) -> Result<(), String> {
     manager.kill(&session_id).map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
-pub fn pty_list(manager: State<'_, PtyManager>) -> Vec<SessionId> {
+pub fn pty_list(manager: State<'_, std::sync::Arc<PtyManager>>) -> Vec<SessionId> {
     manager.list()
 }
 
@@ -48,12 +48,14 @@ pub fn pty_list(manager: State<'_, PtyManager>) -> Vec<SessionId> {
 pub async fn pty_pipe_create(
     source_id: SessionId,
     target_id: SessionId,
-    manager: State<'_, PtyManager>,
+    source_label: Option<String>,
+    manager: State<'_, std::sync::Arc<PtyManager>>,
 ) -> Result<(), String> {
     let (rx, writer) = manager
         .pipe_parts(&source_id, &target_id)
         .map_err(|e| format!("{e:#}"))?;
-    let handle = tokio::spawn(relay_task(rx, writer, source_id.clone(), target_id.clone()));
+    let label = source_label.unwrap_or_else(|| source_id.clone());
+    let handle = tokio::spawn(relay_task(rx, writer, source_id.clone(), target_id.clone(), label));
     manager.pipe_store(source_id, target_id, handle);
     Ok(())
 }
@@ -62,12 +64,12 @@ pub async fn pty_pipe_create(
 pub fn pty_pipe_remove(
     source_id: SessionId,
     target_id: SessionId,
-    manager: State<'_, PtyManager>,
+    manager: State<'_, std::sync::Arc<PtyManager>>,
 ) -> Result<(), String> {
     manager.pipe_remove(&source_id, &target_id).map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
-pub fn pty_pipe_list(manager: State<'_, PtyManager>) -> Vec<[SessionId; 2]> {
+pub fn pty_pipe_list(manager: State<'_, std::sync::Arc<PtyManager>>) -> Vec<[SessionId; 2]> {
     manager.pipe_list()
 }

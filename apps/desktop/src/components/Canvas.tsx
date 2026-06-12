@@ -117,7 +117,10 @@ export function Canvas() {
       const srcNode = nodes.find((n) => n.id === connection.source);
       const dstNode = nodes.find((n) => n.id === connection.target);
       if (srcNode?.kind === "terminal" && dstNode?.kind === "terminal") {
-        ptyPipeCreate(connection.source, connection.target)
+        const srcLabel = srcNode.kind === "terminal"
+          ? (srcNode.label ?? srcNode.command)
+          : connection.source!;
+        ptyPipeCreate(connection.source, connection.target, srcLabel)
           .then(() => addEdge(connection.source!, connection.target!, "pty-pipe"))
           .catch((err) => {
             console.error("Falha ao criar pipe PTY:", err);
