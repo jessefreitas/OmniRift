@@ -35,8 +35,9 @@ pub fn output_matches(buf: &str, pattern: &str, use_regex: bool) -> Option<Strin
 }
 
 use crate::mcp::server::McpState;
-use crate::pty::text::bottom_lines;
+use crate::pty::text::{bottom_lines, clean_terminal_output};
 use serde_json::{json, Value};
+use std::time::Duration;
 
 /// Resolve o handle (label do registry) → session_id.
 fn resolve(state: &McpState, terminal: &str) -> Result<String, String> {
@@ -76,6 +77,21 @@ pub fn terminal_tool_defs() -> Vec<Value> {
             "inputSchema": { "type": "object", "properties": {
                 "terminal": { "type": "string" }, "keys": { "type": "string" } },
                 "required": ["terminal", "keys"] } }),
+        json!({ "name": "terminal_wait_status",
+            "description": "Bloqueia até o terminal atingir um estado (idle/working/blocked/done/dead) ou timeout.",
+            "inputSchema": { "type": "object", "properties": {
+                "terminal": { "type": "string" },
+                "status": { "type": "string" },
+                "timeout_ms": { "type": "number" } },
+                "required": ["terminal", "status"] } }),
+        json!({ "name": "terminal_wait_output",
+            "description": "Bloqueia até o output do terminal casar um padrão (substring ou regex) ou timeout.",
+            "inputSchema": { "type": "object", "properties": {
+                "terminal": { "type": "string" },
+                "pattern": { "type": "string" },
+                "regex": { "type": "boolean" },
+                "timeout_ms": { "type": "number" } },
+                "required": ["terminal", "pattern"] } }),
     ]
 }
 
@@ -145,6 +161,72 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                     Err(e) => format!("❌ {e}"),
                 },
                 Err(e) => format!("❌ {e}"),
+            }
+        }
+        "terminal_wait_status" => {
+            let terminal = arg_str(&args, "terminal");
+            let target = arg_str(&args, "status").to_lowercase();
+            let timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(30000);
+            let id = match resolve(state, &terminal) { Ok(i) => i, Err(e) => return format!("❌ {e}") };
+
+            let matches = |s: &crate::pty::AgentState| format!("{s:?}").to_lowercase() == target;
+            if state.pty_manager.agent_state(&id).map(|s| matches(&s)).unwrap_or(false) {
+                return format!("reached {target}");
+            }
+            let mut rx = state.pty_manager.subscribe_state();
+            let wait = async {
+                loop {
+                    match rx.recv().await {
+                        Ok((sid, st)) if sid == id && matches(&st) => return,
+                        Ok(_) => continue,
+                        Err(_) => return,
+                    }
+                }
+            };
+            match tokio::time::timeout(Duration::from_millis(timeout_ms), wait).await {
+                Ok(()) => format!("reached {target}"),
+                Err(_) => {
+                    let cur = state.pty_manager.agent_state(&id)
+                        .map(|s| format!("{s:?}").to_lowercase()).unwrap_or_else(|| "unknown".into());
+                    format!("timeout após {timeout_ms}ms (estado atual: {cur})")
+                }
+            }
+        }
+        "terminal_wait_output" => {
+            let terminal = arg_str(&args, "terminal");
+            let pattern = arg_str(&args, "pattern");
+            let use_regex = args.get("regex").and_then(|v| v.as_bool()).unwrap_or(false);
+            let timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(30000);
+            let id = match resolve(state, &terminal) { Ok(i) => i, Err(e) => return format!("❌ {e}") };
+            let mut rx = match state.pty_manager.subscribe_by_id(&id) {
+                Ok(r) => r, Err(e) => return format!("❌ {e}"),
+            };
+            // Já tem o padrão na tela atual?
+            if let Ok(buf) = state.pty_manager.read_scrollback(&id) {
+                let clean = clean_terminal_output(&buf);
+                if let Some(line) = output_matches(&clean, &pattern, use_regex) {
+                    return format!("matched: {line}");
+                }
+            }
+            let wait = async {
+                let mut acc: Vec<u8> = Vec::new();
+                loop {
+                    match rx.recv().await {
+                        Ok(bytes) => {
+                            acc.extend_from_slice(&bytes);
+                            let clean = clean_terminal_output(&acc);
+                            if let Some(line) = output_matches(&clean, &pattern, use_regex) {
+                                return Some(line);
+                            }
+                        }
+                        Err(_) => return None,
+                    }
+                }
+            };
+            match tokio::time::timeout(Duration::from_millis(timeout_ms), wait).await {
+                Ok(Some(line)) => format!("matched: {line}"),
+                Ok(None) => "❌ canal fechado antes do match".into(),
+                Err(_) => format!("timeout após {timeout_ms}ms sem casar o padrão"),
             }
         }
         other => format!("❌ tool de terminal desconhecida: {other}"),
