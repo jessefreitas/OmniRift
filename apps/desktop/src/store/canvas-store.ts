@@ -19,6 +19,7 @@ interface CanvasState {
     role?: AgentRole;
     position?: { x: number; y: number };
     label?: string;
+    id?: string;
   }) => TerminalNode;
   setCurrentCwd: (cwd: string | null) => void;
   removeNode: (id: string) => void;
@@ -73,13 +74,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       terminalStatuses: { ...s.terminalStatuses, [sessionId]: status },
     })),
 
-  addTerminal: ({ command, role = "shell", position, label }) => {
-    const id = nanoid();
+  addTerminal: ({ command, role = "shell", position, label, id }) => {
+    const nodeId = id ?? nanoid();
     const cwd = get().currentCwd ?? undefined;
     const node: TerminalNode = {
-      id,
+      id: nodeId,
       kind: "terminal",
-      session_id: id,
+      session_id: nodeId,
       command,
       role,
       label,

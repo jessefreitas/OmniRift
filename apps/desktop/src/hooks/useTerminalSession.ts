@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { emit } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import {
@@ -167,7 +168,10 @@ export function useTerminalSession({
           });
         });
 
-        if (!disposed) setReady(true);
+        if (!disposed) {
+          setReady(true);
+          void emit("pty://ready", { id: sessionId });
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("[omni-canvas] falha no spawn:", msg);
