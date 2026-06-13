@@ -25,6 +25,14 @@ export async function mcpServerUrl(): Promise<string> {
   return invoke<string>("mcp_server_url");
 }
 
+/** Envia o estado dos floors ao espelho do backend (para workspace_list). */
+export async function floorMirrorSet(
+  floors: { id: string; name: string; nodes: number }[],
+  activeFloorId: string,
+): Promise<void> {
+  await invoke("floor_mirror_set", { floors: { floors, activeFloorId } });
+}
+
 /**
  * Gera o comando para adicionar o MCP server ao Claude Code.
  * Deve ser digitado (ou injetado via PTY write) no terminal do Orquestrador.
