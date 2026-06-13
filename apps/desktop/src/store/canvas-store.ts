@@ -23,6 +23,7 @@ interface CanvasState {
   setCurrentCwd: (cwd: string | null) => void;
   addTerminal: (params: {
     command: string;
+    args?: string[];
     role?: AgentRole;
     position?: { x: number; y: number };
     label?: string;
@@ -111,7 +112,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       floors: s.floors.map((f) => (f.id === s.activeFloorId ? { ...f, cwd } : f)),
     })),
 
-  addTerminal: ({ command, role = "shell", position, label, id }) => {
+  addTerminal: ({ command, args, role = "shell", position, label, id }) => {
     const nodeId = id ?? nanoid();
     const cwd = get().currentCwd ?? undefined;
     const node: TerminalNode = {
@@ -119,6 +120,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       kind: "terminal",
       session_id: nodeId,
       command,
+      args,
       role,
       label,
       cwd,

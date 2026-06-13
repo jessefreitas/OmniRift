@@ -47,6 +47,7 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
       sessionId: data.session_id,
       config: {
         command: data.command,
+        args: data.args,
         cwd: data.cwd,
       },
     });

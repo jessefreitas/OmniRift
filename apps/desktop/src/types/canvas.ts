@@ -20,6 +20,8 @@ export interface TerminalNode extends BaseCanvasNode {
   session_id: SessionId;
   /** Comando spawnado — apenas para exibição/serialização. */
   command: string;
+  /** Argumentos do comando (ex.: claude --append-system-prompt "..."). */
+  args?: string[];
   /** Papel atribuído ao agente (Fase 3). */
   role: AgentRole;
   /** Nome amigável que o usuário deu — opcional. */

@@ -12,6 +12,7 @@ import {
   Sparkles,
   TerminalSquare,
   Upload,
+  Workflow,
   X,
   Zap,
 } from "lucide-react";
@@ -27,12 +28,33 @@ interface AgentPreset {
   id: string;
   label: string;
   command: string;
+  args?: string[];
   role: AgentRole;
   icon: typeof Bot;
   description: string;
 }
 
+// Contrato de orquestrador: usado tanto como --append-system-prompt (orquestrador
+// novo, nível-sistema) quanto reinjetado no briefing (orquestrador já rodando).
+const ORCHESTRATOR_CONTRACT =
+  "Você é um ORQUESTRADOR PURO no Maestri. NUNCA execute tarefas você mesmo: " +
+  "não rode comandos, não leia nem edite arquivos, não escreva código, não faça análises. " +
+  "Sua ÚNICA função é decompor o pedido e delegar 100% do trabalho à sua equipe de agentes, " +
+  "disponíveis como tools MCP (servidor maestri-agents). Para cada subtarefa: escolha o agente " +
+  "certo e despache pela tool dele (ou terminal_run / terminal_wait_status / terminal_read). " +
+  "Acompanhe, colete os resultados e sintetize a resposta final. Se você se pegar prestes a " +
+  "fazer algo direto, PARE e delegue — executar você mesmo viola seu papel. Você coordena, não executa.";
+
 const PRESETS: AgentPreset[] = [
+  {
+    id: "orquestrador",
+    label: "Orquestrador",
+    command: "claude",
+    args: ["--append-system-prompt", ORCHESTRATOR_CONTRACT],
+    role: "claude-code",
+    icon: Workflow,
+    description: "Claude que só decompõe e delega (não executa)",
+  },
   {
     id: "shell",
     label: "Shell",
@@ -174,7 +196,7 @@ export function Sidebar() {
     invoke("pty_write", { sessionId: orchSid, data: `\n[Maestri] Equipe disponível via MCP:\n${display}\n` }).catch(console.warn);
 
     // Input real: texto primeiro, depois \r como chamada separada (evita chunk único ignorar Enter)
-    const inputText = `Sua equipe Maestri está pronta. Agentes disponíveis como tools MCP: ${summary}. Ao receber tarefas, decomponha e delegue para os agentes especializados usando cada tool pelo nome.`;
+    const inputText = `${ORCHESTRATOR_CONTRACT}\n\nSua equipe atual (tools maestri-agents): ${summary}. Delegue TODAS as próximas tarefas a esses agentes — não execute nada você mesmo.`;
     setTimeout(() => {
       invoke("pty_write", { sessionId: orchSid, data: inputText }).catch(console.warn);
       setTimeout(() => {
@@ -389,6 +411,7 @@ export function Sidebar() {
               onClick={() =>
                 addTerminal({
                   command: preset.command,
+                  args: preset.args,
                   role: preset.role,
                   label: preset.label,
                 })
