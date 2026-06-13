@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { WorkspaceFile } from "@/types/workspace";
+import type { AnyWorkspaceFile, WorkspaceFileV2 } from "@/types/workspace";
 
-export async function saveWorkspace(ws: WorkspaceFile): Promise<string | null> {
+export async function saveWorkspace(ws: WorkspaceFileV2): Promise<string | null> {
   const path = await save({
     title: "Salvar workspace",
     defaultPath: `${ws.name || "workspace"}.maestri.json`,
@@ -13,7 +13,7 @@ export async function saveWorkspace(ws: WorkspaceFile): Promise<string | null> {
   return path;
 }
 
-export async function loadWorkspaceFromDisk(): Promise<WorkspaceFile | null> {
+export async function loadWorkspaceFromDisk(): Promise<AnyWorkspaceFile | null> {
   const path = await open({
     title: "Abrir workspace",
     multiple: false,
@@ -21,5 +21,5 @@ export async function loadWorkspaceFromDisk(): Promise<WorkspaceFile | null> {
   });
   if (!path || typeof path !== "string") return null;
   const content = await invoke<string>("workspace_load", { path });
-  return JSON.parse(content) as WorkspaceFile;
+  return JSON.parse(content) as AnyWorkspaceFile;
 }

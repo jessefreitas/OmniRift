@@ -1,19 +1,26 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
-import type {
-  CanvasEdge,
-  CanvasNode,
-  TerminalNode,
-} from "@/types/canvas";
-import type { WorkspaceFile } from "@/types/workspace";
+import type { CanvasEdge, CanvasNode, TerminalNode } from "@/types/canvas";
+import type { AnyWorkspaceFile, Floor, WorkspaceFileV2 } from "@/types/workspace";
+import { migrateWorkspace } from "@/types/workspace";
 import type { AgentRole, AgentState } from "@/types/pty";
 
 interface CanvasState {
-  nodes: CanvasNode[];
-  edges: CanvasEdge[];
-  currentCwd: string | null;
+  floors: Floor[];
+  activeFloorId: string;
   workspaceName: string;
+  currentCwd: string | null; // espelho do cwd do floor ativo
 
+  // floor management
+  createFloor: (name?: string, opts?: { focus?: boolean }) => Floor;
+  switchFloor: (id: string) => void;
+  renameFloor: (id: string, name: string) => void;
+  deleteFloor: (id: string) => void;
+  getFloor: (id: string) => Floor | undefined;
+  allTerminalNodes: () => TerminalNode[];
+
+  // node/edge ops (agem no floor ativo)
+  setCurrentCwd: (cwd: string | null) => void;
   addTerminal: (params: {
     command: string;
     role?: AgentRole;
@@ -21,57 +28,87 @@ interface CanvasState {
     label?: string;
     id?: string;
   }) => TerminalNode;
-  setCurrentCwd: (cwd: string | null) => void;
   removeNode: (id: string) => void;
   renameNode: (id: string, label: string) => void;
   updateNodePosition: (id: string, position: { x: number; y: number }) => void;
   updateNodeSize: (id: string, size: { width: number; height: number }) => void;
   patchNode: (id: string, patch: Partial<CanvasNode>) => void;
-
   addEdge: (source: string, target: string, kind?: CanvasEdge["kind"]) => void;
   removeEdge: (id: string) => void;
 
-  // Clipboard history
+  // clipboard (global)
   clipboardHistory: string[];
   addToClipboard: (text: string) => void;
   clearClipboardHistory: () => void;
 
-  // Status por sessão PTY
+  // status por sessão (global)
   terminalStatuses: Record<string, AgentState>;
   setTerminalStatus: (sessionId: string, status: AgentState) => void;
 
-  // Workspace
-  getWorkspaceSnapshot: () => WorkspaceFile;
-  restoreWorkspace: (ws: WorkspaceFile) => void;
+  // persistência
+  getWorkspaceSnapshot: () => WorkspaceFileV2;
+  restoreWorkspace: (ws: AnyWorkspaceFile) => void;
 }
 
 function defaultPosition(): { x: number; y: number } {
-  return {
-    x: 200 + Math.random() * 400,
-    y: 150 + Math.random() * 300,
-  };
+  return { x: 200 + Math.random() * 400, y: 150 + Math.random() * 300 };
+}
+
+const FIRST_FLOOR: Floor = { id: "floor-main", name: "Principal", cwd: null, nodes: [], edges: [] };
+
+/** Map sobre os nós do floor ativo. */
+function mapActiveNodes(s: CanvasState, fn: (nodes: CanvasNode[]) => CanvasNode[]): Floor[] {
+  return s.floors.map((f) => (f.id === s.activeFloorId ? { ...f, nodes: fn(f.nodes) } : f));
 }
 
 export const useCanvasStore = create<CanvasState>()((set, get) => ({
-  nodes: [],
-  edges: [],
-  currentCwd: null,
+  floors: [FIRST_FLOOR],
+  activeFloorId: FIRST_FLOOR.id,
   workspaceName: "workspace",
+  currentCwd: null,
   clipboardHistory: [],
   terminalStatuses: {},
 
-  setCurrentCwd: (cwd) => set({ currentCwd: cwd }),
+  // ---- floor management ----
+  createFloor: (name, opts) => {
+    const floor: Floor = {
+      id: nanoid(),
+      name: name?.trim() || `Floor ${get().floors.length + 1}`,
+      cwd: null,
+      nodes: [],
+      edges: [],
+    };
+    set((s) => ({ floors: [...s.floors, floor] }));
+    if (opts?.focus) get().switchFloor(floor.id);
+    return floor;
+  },
+  switchFloor: (id) =>
+    set((s) => {
+      const f = s.floors.find((x) => x.id === id);
+      if (!f) return s;
+      return { activeFloorId: id, currentCwd: f.cwd };
+    }),
+  renameFloor: (id, name) =>
+    set((s) => ({ floors: s.floors.map((f) => (f.id === id ? { ...f, name } : f)) })),
+  deleteFloor: (id) =>
+    set((s) => {
+      if (s.floors.length <= 1) return s; // nunca remove o último
+      const floors = s.floors.filter((f) => f.id !== id);
+      if (s.activeFloorId === id) {
+        const next = floors[0];
+        return { floors, activeFloorId: next.id, currentCwd: next.cwd };
+      }
+      return { floors };
+    }),
+  getFloor: (id) => get().floors.find((f) => f.id === id),
+  allTerminalNodes: () =>
+    get().floors.flatMap((f) => f.nodes.filter((n): n is TerminalNode => n.kind === "terminal")),
 
-  addToClipboard: (text) =>
+  // ---- node/edge ops (floor ativo) ----
+  setCurrentCwd: (cwd) =>
     set((s) => ({
-      clipboardHistory: [text, ...s.clipboardHistory].slice(0, 50),
-    })),
-
-  clearClipboardHistory: () => set({ clipboardHistory: [] }),
-
-  setTerminalStatus: (sessionId, status) =>
-    set((s) => ({
-      terminalStatuses: { ...s.terminalStatuses, [sessionId]: status },
+      currentCwd: cwd,
+      floors: s.floors.map((f) => (f.id === s.activeFloorId ? { ...f, cwd } : f)),
     })),
 
   addTerminal: ({ command, role = "shell", position, label, id }) => {
@@ -88,92 +125,106 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 520, height: 320 },
     };
-    set((state) => ({ nodes: [...state.nodes, node] }));
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
   removeNode: (id) =>
-    set((state) => ({
-      nodes: state.nodes.filter((n) => n.id !== id),
-      edges: state.edges.filter((e) => e.source !== id && e.target !== id),
+    set((s) => ({
+      floors: s.floors.map((f) =>
+        f.id === s.activeFloorId
+          ? {
+              ...f,
+              nodes: f.nodes.filter((n) => n.id !== id),
+              edges: f.edges.filter((e) => e.source !== id && e.target !== id),
+            }
+          : f,
+      ),
     })),
 
   renameNode: (id, label) =>
-    set((state) => ({
-      nodes: state.nodes.map((n) =>
-        n.id === id ? ({ ...n, label } as CanvasNode) : n
+    set((s) => ({
+      floors: mapActiveNodes(s, (ns) =>
+        ns.map((n) => (n.id === id ? ({ ...n, label } as CanvasNode) : n)),
       ),
     })),
 
   updateNodePosition: (id, position) =>
-    set((state) => {
-      const node = state.nodes.find((n) => n.id === id);
-      if (!node || (node.position.x === position.x && node.position.y === position.y)) return state;
-      return { nodes: state.nodes.map((n) => (n.id === id ? { ...n, position } : n)) };
+    set((s) => {
+      const active = s.floors.find((f) => f.id === s.activeFloorId);
+      const node = active?.nodes.find((n) => n.id === id);
+      if (!node || (node.position.x === position.x && node.position.y === position.y)) return s;
+      return { floors: mapActiveNodes(s, (ns) => ns.map((n) => (n.id === id ? { ...n, position } : n))) };
     }),
 
   updateNodeSize: (id, size) =>
-    set((state) => {
-      const node = state.nodes.find((n) => n.id === id);
-      if (!node || (node.size.width === size.width && node.size.height === size.height)) return state;
-      return { nodes: state.nodes.map((n) => (n.id === id ? { ...n, size } : n)) };
+    set((s) => {
+      const active = s.floors.find((f) => f.id === s.activeFloorId);
+      const node = active?.nodes.find((n) => n.id === id);
+      if (!node || (node.size.width === size.width && node.size.height === size.height)) return s;
+      return { floors: mapActiveNodes(s, (ns) => ns.map((n) => (n.id === id ? { ...n, size } : n))) };
     }),
 
   patchNode: (id, patch) =>
-    set((state) => ({
-      nodes: state.nodes.map((n) =>
-        n.id === id ? ({ ...n, ...patch } as CanvasNode) : n,
+    set((s) => ({
+      floors: mapActiveNodes(s, (ns) =>
+        ns.map((n) => (n.id === id ? ({ ...n, ...patch } as CanvasNode) : n)),
       ),
     })),
 
   addEdge: (source, target, kind = "generic") => {
     if (source === target) return;
-    set((state) => {
-      const exists = state.edges.some(
-        (e) => e.source === source && e.target === target,
-      );
-      if (exists) return state;
-      return {
-        edges: [...state.edges, { id: nanoid(), source, target, kind }],
-      };
-    });
+    set((s) => ({
+      floors: s.floors.map((f) => {
+        if (f.id !== s.activeFloorId) return f;
+        if (f.edges.some((e) => e.source === source && e.target === target)) return f;
+        return { ...f, edges: [...f.edges, { id: nanoid(), source, target, kind }] };
+      }),
+    }));
   },
 
   removeEdge: (id) =>
-    set((state) => ({
-      edges: state.edges.filter((e) => e.id !== id),
+    set((s) => ({
+      floors: s.floors.map((f) =>
+        f.id === s.activeFloorId ? { ...f, edges: f.edges.filter((e) => e.id !== id) } : f,
+      ),
     })),
 
+  // ---- clipboard ----
+  addToClipboard: (text) =>
+    set((s) => ({ clipboardHistory: [text, ...s.clipboardHistory].slice(0, 50) })),
+  clearClipboardHistory: () => set({ clipboardHistory: [] }),
+
+  // ---- status ----
+  setTerminalStatus: (sessionId, status) =>
+    set((s) => ({ terminalStatuses: { ...s.terminalStatuses, [sessionId]: status } })),
+
+  // ---- persistência ----
   getWorkspaceSnapshot: () => {
-    const { nodes, edges, currentCwd, workspaceName } = get();
-    return { version: 1, name: workspaceName, cwd: currentCwd, nodes, edges };
+    const { workspaceName, floors, activeFloorId } = get();
+    return { version: 2, name: workspaceName, floors, activeFloorId };
   },
 
-  // Carrega workspace: gera novos IDs para evitar colisão com sessões ativas.
   restoreWorkspace: (ws) => {
-    const idMap = new Map<string, string>();
-
-    const nodes: CanvasNode[] = ws.nodes.map((n) => {
-      const newId = nanoid();
-      idMap.set(n.id, newId);
-      if (n.kind === "terminal") {
-        return { ...n, id: newId, session_id: newId } as CanvasNode;
-      }
-      return { ...n, id: newId } as CanvasNode;
+    const v2 = migrateWorkspace(ws);
+    const floors: Floor[] = v2.floors.map((f) => {
+      const idMap = new Map<string, string>();
+      const nodes: CanvasNode[] = f.nodes.map((n) => {
+        const newId = nanoid();
+        idMap.set(n.id, newId);
+        return n.kind === "terminal"
+          ? ({ ...n, id: newId, session_id: newId } as CanvasNode)
+          : ({ ...n, id: newId } as CanvasNode);
+      });
+      const edges: CanvasEdge[] = f.edges.map((e) => ({
+        ...e,
+        id: nanoid(),
+        source: idMap.get(e.source) ?? e.source,
+        target: idMap.get(e.target) ?? e.target,
+      }));
+      return { ...f, id: nanoid(), nodes, edges };
     });
-
-    const edges: CanvasEdge[] = ws.edges.map((e) => ({
-      ...e,
-      id: nanoid(),
-      source: idMap.get(e.source) ?? e.source,
-      target: idMap.get(e.target) ?? e.target,
-    }));
-
-    set({
-      nodes,
-      edges,
-      currentCwd: ws.cwd,
-      workspaceName: ws.name,
-    });
+    const active = floors[0];
+    set({ floors, activeFloorId: active.id, currentCwd: active.cwd, workspaceName: v2.name });
   },
 }));

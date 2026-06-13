@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -84,7 +84,16 @@ export function Sidebar() {
   const workspaceName = useCanvasStore((s) => s.workspaceName);
   const getWorkspaceSnapshot = useCanvasStore((s) => s.getWorkspaceSnapshot);
   const restoreWorkspace = useCanvasStore((s) => s.restoreWorkspace);
-  const nodes = useCanvasStore((s) => s.nodes);
+  const floors = useCanvasStore((s) => s.floors);
+  const activeFloorId = useCanvasStore((s) => s.activeFloorId);
+  const createFloor = useCanvasStore((s) => s.createFloor);
+  const switchFloor = useCanvasStore((s) => s.switchFloor);
+  const renameFloor = useCanvasStore((s) => s.renameFloor);
+  const deleteFloor = useCanvasStore((s) => s.deleteFloor);
+  const terminals = useMemo(
+    () => floors.flatMap((f) => f.nodes.filter((n) => n.kind === "terminal")),
+    [floors],
+  );
   const terminalStatuses = useCanvasStore((s) => s.terminalStatuses);
 
   const nameRef = useRef<HTMLInputElement>(null);
@@ -122,10 +131,10 @@ export function Sidebar() {
     const savedDescs = { ...agentDescriptions };
     const timer = setTimeout(() => {
       // getState() garante nodes atuais, não a snapshot do mount
-      const currentNodes = useCanvasStore.getState().nodes;
+      const currentNodes = useCanvasStore.getState().allTerminalNodes();
       for (const sid of savedAgents) {
-        const node = currentNodes.find((n) => n.kind === "terminal" && n.session_id === sid);
-        if (!node || node.kind !== "terminal") continue;
+        const node = currentNodes.find((n) => n.session_id === sid);
+        if (!node) continue;
         const label = node.label ?? node.command;
         const desc = savedDescs[sid] ?? `Agente ${label}`;
         mcpRegisterAgent(label, sid, desc).catch(console.warn);
@@ -141,7 +150,7 @@ export function Sidebar() {
     newAgents: Set<string>,
     newDescs: Record<string, string>,
     orchSid: string | null,
-    allNodes: typeof nodes,
+    allNodes: typeof terminals,
   ) => {
     if (!orchSid) return;
     const agentNodes = allNodes.filter((n) => n.kind === "terminal" && newAgents.has(n.session_id));
@@ -193,9 +202,9 @@ export function Sidebar() {
         invoke("pty_write", { sessionId, data: "\r" }).catch(console.warn);
       }, 150);
       // Briefing no Orquestrador
-      sendTeamBriefing(next, agentDescriptions, orchestratorSid, nodes);
+      sendTeamBriefing(next, agentDescriptions, orchestratorSid, terminals);
     }
-  }, [mcpAgents, agentDescriptions, orchestratorSid, nodes, sendTeamBriefing]);
+  }, [mcpAgents, agentDescriptions, orchestratorSid, terminals, sendTeamBriefing]);
 
   const copyMcpCmd = useCallback(async () => {
     await navigator.clipboard.writeText(MCP_ADD_CMD);
@@ -244,6 +253,51 @@ export function Sidebar() {
           Canvas infinito · OmniForge
         </p>
       </header>
+
+      {/* Floors */}
+      <div className="px-2 py-2 border-b border-border">
+        <div className="flex items-center justify-between px-2 mb-1">
+          <p className="text-[11px] uppercase tracking-wider text-textMuted">Floors</p>
+          <button
+            onClick={() => createFloor(undefined, { focus: true })}
+            title="Novo floor"
+            className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
+          >
+            <Plus size={12} />
+          </button>
+        </div>
+        <div className="space-y-0.5">
+          {floors.map((f) => (
+            <div
+              key={f.id}
+              className={cn(
+                "group flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors",
+                f.id === activeFloorId ? "bg-surface2 text-text" : "text-textMuted hover:bg-surface2",
+              )}
+              onClick={() => switchFloor(f.id)}
+              onDoubleClick={() => {
+                const name = prompt("Renomear floor", f.name);
+                if (name) renameFloor(f.id, name.trim());
+              }}
+            >
+              <span className="text-xs flex-1 truncate">{f.name}</span>
+              <span className="text-[9px] text-textMuted opacity-60">{f.nodes.length}</span>
+              {floors.length > 1 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteFloor(f.id);
+                  }}
+                  title="Excluir floor"
+                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
+                >
+                  <X size={10} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Workspace */}
       <div className="px-2 py-2 border-b border-border space-y-1">
@@ -383,7 +437,7 @@ export function Sidebar() {
 
         {/* Lista de terminais que podem ser agentes */}
         <div className="space-y-1">
-          {nodes.filter((n) => n.kind === "terminal").map((n) => {
+          {terminals.map((n) => {
             const label = n.kind === "terminal" ? (n.label ?? n.command) : n.id;
             const sid = n.kind === "terminal" ? n.session_id : n.id;
             const isRegistered = mcpAgents.has(sid);
@@ -398,7 +452,7 @@ export function Sidebar() {
                     onClick={() => {
                       const next = isOrch ? null : sid;
                       setOrchestratorSid(next);
-                      if (next) sendTeamBriefing(mcpAgents, agentDescriptions, next, nodes);
+                      if (next) sendTeamBriefing(mcpAgents, agentDescriptions, next, terminals);
                     }}
                     title={isOrch ? "Remover como Orquestrador" : "Definir como Orquestrador"}
                     className={cn(
@@ -458,7 +512,7 @@ export function Sidebar() {
               </div>
             );
           })}
-          {nodes.filter((n) => n.kind === "terminal").length === 0 && (
+          {terminals.length === 0 && (
             <p className="px-2 text-[10px] text-textMuted opacity-60">
               Adicione terminais para registrar agentes
             </p>
