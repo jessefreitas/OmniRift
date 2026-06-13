@@ -20,3 +20,6 @@ apps/desktop/src-tauri/WixTools/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code (logs de runtime de hooks)
+.claude/*.log

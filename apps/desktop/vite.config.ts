@@ -20,7 +20,9 @@ export default defineConfig({
     watch: { ignored: ["**/src-tauri/**"] },
   },
   build: {
-    target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",
+    // es2022 (não safari13): WebKitGTK/WebView2 modernos suportam tudo nativamente;
+    // safari13 forçava o esbuild a downlevelar destructuring (transform não suportado).
+    target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "es2022",
     minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
   },

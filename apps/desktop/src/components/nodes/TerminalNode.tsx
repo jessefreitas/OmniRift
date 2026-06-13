@@ -4,6 +4,7 @@ import {
   Handle,
   NodeResizer,
   Position,
+  type Node,
   type NodeProps,
 } from "@xyflow/react";
 import { Terminal as TerminalIcon, X, Maximize2, Minimize2, RefreshCw } from "lucide-react";
@@ -18,12 +19,10 @@ import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
 
 import "@xterm/xterm/css/xterm.css";
 
-type TerminalRfNode = {
-  id: string;
-  type: "terminal";
-  position: { x: number; y: number };
-  data: TerminalNodeData;
-};
+// Nó React Flow tipado para terminal. A interseção com Record<string, unknown>
+// satisfaz a constraint do React Flow v12 (Node<data extends Record<...>>) sem
+// perder os campos tipados de TerminalNodeData.
+type TerminalRfNode = Node<TerminalNodeData & Record<string, unknown>, "terminal">;
 
 type TerminalNodeProps = NodeProps<TerminalRfNode>;
 

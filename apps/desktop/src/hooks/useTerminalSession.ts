@@ -126,7 +126,7 @@ export function useTerminalSession({
     // xterm (cell.width > 0) antes de medirmos cols/rows.
     (async () => {
       try {
-        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
         if (disposed) return;
         try { fitAddon.fit(); } catch { /* container ainda sem dimensões */ }
 
