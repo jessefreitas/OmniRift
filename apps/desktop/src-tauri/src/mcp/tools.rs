@@ -35,7 +35,6 @@ pub fn output_matches(buf: &str, pattern: &str, use_regex: bool) -> Option<Strin
 }
 
 use crate::mcp::server::McpState;
-use crate::pty::text::{bottom_lines, clean_terminal_output};
 use serde_json::{json, Value};
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
@@ -52,6 +51,14 @@ fn resolve(state: &McpState, terminal: &str) -> Result<String, String> {
 
 fn arg_str(args: &Value, key: &str) -> String {
     args.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
+}
+
+/// Últimas `n` linhas da tela renderizada (sem as linhas em branco do rodapé).
+fn last_lines(screen: &str, n: usize) -> String {
+    let trimmed = screen.trim_end();
+    let lines: Vec<&str> = trimmed.lines().collect();
+    let start = lines.len().saturating_sub(n);
+    lines[start..].join("\n")
 }
 
 /// Schemas das tools de orquestração (concatenados no tools/list do server).
@@ -153,9 +160,9 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             let terminal = arg_str(&args, "terminal");
             let lines = args.get("lines").and_then(|v| v.as_u64()).unwrap_or(40) as usize;
             match resolve(state, &terminal) {
-                Ok(id) => match state.pty_manager.read_scrollback(&id) {
-                    Ok(buf) => {
-                        let text = bottom_lines(&buf, lines);
+                Ok(id) => match state.pty_manager.read_screen(&id) {
+                    Ok(screen) => {
+                        let text = last_lines(&screen, lines);
                         if text.is_empty() { "(tela vazia)".into() } else { text }
                     }
                     Err(e) => format!("❌ {e}"),
@@ -234,23 +241,19 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             let mut rx = match state.pty_manager.subscribe_by_id(&id) {
                 Ok(r) => r, Err(e) => return format!("❌ {e}"),
             };
-            // Já tem o padrão na tela atual?
-            if let Ok(buf) = state.pty_manager.read_scrollback(&id) {
-                let clean = clean_terminal_output(&buf);
-                if let Some(line) = output_matches(&clean, &pattern, use_regex) {
-                    return format!("matched: {line}");
-                }
+            // Casa contra a tela renderizada (não o stream cru — TUIs redesenham).
+            let check = || {
+                state.pty_manager.read_screen(&id).ok()
+                    .and_then(|s| output_matches(&s, &pattern, use_regex))
+            };
+            if let Some(line) = check() {
+                return format!("matched: {line}");
             }
             let wait = async {
-                let mut acc: Vec<u8> = Vec::new();
                 loop {
                     match rx.recv().await {
-                        Ok(bytes) => {
-                            acc.extend_from_slice(&bytes);
-                            let clean = clean_terminal_output(&acc);
-                            if let Some(line) = output_matches(&clean, &pattern, use_regex) {
-                                return Some(line);
-                            }
+                        Ok(_) => {
+                            if let Some(line) = check() { return Some(line); }
                         }
                         Err(_) => return None,
                     }

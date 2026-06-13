@@ -84,7 +84,6 @@ pub fn classify(
     }
 }
 
-use crate::pty::text::bottom_lines;
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use portable_pty::MasterPty;
@@ -96,7 +95,6 @@ use tokio::sync::broadcast;
 const POLL: Duration = Duration::from_millis(300);
 const QUIET: Duration = Duration::from_millis(400);
 const STARTUP_GRACE: Duration = Duration::from_millis(1500);
-const BUF_CAP: usize = 8192;
 
 /// Mapa central de estado por sessão (contrato consumido pelo Sub-projeto B).
 pub type AgentStateMap = Arc<DashMap<SessionId, AgentState>>;
@@ -110,6 +108,7 @@ impl StateDetector {
         session_id: SessionId,
         mut rx: broadcast::Receiver<Vec<u8>>,
         master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
+        screen: Arc<Mutex<vt100::Parser>>,
         root_pid: Option<u32>,
         profile: &'static AgentProfile,
         app: AppHandle,
@@ -120,7 +119,6 @@ impl StateDetector {
         // Tauri SÍNCRONO, roda fora do runtime tokio — tokio::spawn panica com
         // "no reactor running". O runtime do Tauri tem handle acessível de qualquer thread.
         tauri::async_runtime::spawn(async move {
-            let mut raw: Vec<u8> = Vec::new();
             let mut last_activity = Instant::now();
             let spawned_at = Instant::now();
             let mut prev = AgentState::Idle;
@@ -143,12 +141,7 @@ impl StateDetector {
             loop {
                 tokio::select! {
                     recv = rx.recv() => match recv {
-                        Ok(bytes) => {
-                            raw.extend_from_slice(&bytes);
-                            if raw.len() > BUF_CAP {
-                                let cut = raw.len() - BUF_CAP;
-                                raw.drain(0..cut);
-                            }
+                        Ok(_) => {
                             last_activity = Instant::now();
                             if spawned_at.elapsed() > STARTUP_GRACE
                                 && prev != AgentState::Working
@@ -173,7 +166,7 @@ impl StateDetector {
                         let quiescent = last_activity.elapsed() > QUIET;
                         let fg_pid = master.lock().process_group_leader();
                         let fg = classify_fg(root_pid, fg_pid);
-                        let bottom = bottom_lines(&raw, 24);
+                        let bottom = screen.lock().screen().contents();
                         let next = classify(prev, quiescent, fg, &bottom, profile);
                         if next != prev {
                             let msg = if next == AgentState::Blocked {

@@ -2,7 +2,6 @@ use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
-use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
@@ -29,16 +28,6 @@ pub struct PtySpawnConfig {
 fn default_cols() -> u16 { 80 }
 fn default_rows() -> u16 { 24 }
 
-const SCROLLBACK_CAP: usize = 32768;
-
-/// Empurra `chunk` no buffer e descarta do início até caber em `cap`.
-fn push_capped(buf: &mut VecDeque<u8>, chunk: &[u8], cap: usize) {
-    buf.extend(chunk.iter().copied());
-    while buf.len() > cap {
-        buf.pop_front();
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct PtyOutputEvent {
     pub session_id: SessionId,
@@ -57,7 +46,9 @@ pub struct PtySession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     output_tx: broadcast::Sender<Vec<u8>>,
     root_pid: Option<u32>,
-    scrollback: Arc<Mutex<VecDeque<u8>>>,
+    /// Emulador de tela: reconstrói a tela visível processando cursor/clears/etc.
+    /// (line-mode não funciona para TUIs full-screen como Claude Code).
+    parser: Arc<Mutex<vt100::Parser>>,
 }
 
 impl PtySession {
@@ -136,11 +127,11 @@ impl PtySession {
             }
         });
 
-        let scrollback = Arc::new(Mutex::new(VecDeque::<u8>::new()));
-        let scrollback_for_reader = Arc::clone(&scrollback);
+        let parser = Arc::new(Mutex::new(vt100::Parser::new(cfg.rows, cfg.cols, 0)));
+        let parser_for_reader = Arc::clone(&parser);
         let id_for_reader = id.clone();
         std::thread::spawn(move || {
-            read_loop(id_for_reader, reader, tx_for_reader, emit_tx, scrollback_for_reader);
+            read_loop(id_for_reader, reader, tx_for_reader, emit_tx, parser_for_reader);
         });
 
         let id_for_waiter = id.clone();
@@ -158,7 +149,7 @@ impl PtySession {
             }
         });
 
-        Ok(Self { id, master, writer, output_tx, root_pid, scrollback })
+        Ok(Self { id, master, writer, output_tx, root_pid, parser })
     }
 
     pub fn write(&self, data: &[u8]) -> Result<()> {
@@ -169,6 +160,7 @@ impl PtySession {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
+        self.parser.lock().set_size(rows, cols);
         self.master
             .lock()
             .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
@@ -191,8 +183,13 @@ impl PtySession {
         self.root_pid
     }
 
-    pub(crate) fn read_scrollback(&self) -> Vec<u8> {
-        self.scrollback.lock().iter().copied().collect()
+    /// Tela visível renderizada (linhas com cursor/clears já aplicados).
+    pub(crate) fn read_screen(&self) -> String {
+        self.parser.lock().screen().contents()
+    }
+
+    pub(crate) fn screen_arc(&self) -> Arc<Mutex<vt100::Parser>> {
+        Arc::clone(&self.parser)
     }
 }
 
@@ -201,7 +198,7 @@ fn read_loop(
     mut reader: Box<dyn Read + Send>,
     tx: broadcast::Sender<Vec<u8>>,
     emit_tx: mpsc::Sender<Vec<u8>>,
-    scrollback: Arc<Mutex<VecDeque<u8>>>,
+    parser: Arc<Mutex<vt100::Parser>>,
 ) {
     let mut buf = [0u8; 4096];
     loop {
@@ -209,7 +206,7 @@ fn read_loop(
             Ok(0) => { log::info!("PTY {id} EOF"); break; }
             Ok(n) => {
                 let chunk = buf[..n].to_vec();
-                push_capped(&mut scrollback.lock(), &chunk, SCROLLBACK_CAP);
+                parser.lock().process(&chunk); // alimenta o emulador de tela
                 let _ = tx.send(chunk.clone()); // broadcast imediato (MCP/pipes)
                 let _ = emit_tx.send(chunk);    // debounced → Tauri event
             }
@@ -220,20 +217,21 @@ fn read_loop(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::collections::VecDeque;
-
     #[test]
-    fn push_capped_trims_from_front() {
-        let mut b: VecDeque<u8> = VecDeque::new();
-        push_capped(&mut b, b"abcdef", 4);
-        assert_eq!(b.iter().copied().collect::<Vec<u8>>(), b"cdef");
+    fn vt100_basic_text() {
+        let mut p = vt100::Parser::new(24, 80, 0);
+        p.process(b"hello world");
+        assert!(p.screen().contents().contains("hello world"));
     }
 
     #[test]
-    fn push_capped_under_cap_keeps_all() {
-        let mut b: VecDeque<u8> = VecDeque::new();
-        push_capped(&mut b, b"hi", 8);
-        assert_eq!(b.iter().copied().collect::<Vec<u8>>(), b"hi");
+    fn vt100_renders_visible_screen_after_clear() {
+        // Exatamente o caso que quebrava no line-mode: clear screen (ESC[2J) +
+        // home (ESC[H) → só "BBB" fica visível, "AAA" foi limpo.
+        let mut p = vt100::Parser::new(24, 80, 0);
+        p.process(b"AAA\x1b[2J\x1b[HBBB");
+        let screen = p.screen().contents();
+        assert!(screen.contains("BBB"));
+        assert!(!screen.contains("AAA"));
     }
 }
