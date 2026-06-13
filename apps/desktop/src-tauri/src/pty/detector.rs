@@ -116,7 +116,10 @@ impl StateDetector {
         state_map: AgentStateMap,
         state_tx: broadcast::Sender<(SessionId, AgentState)>,
     ) {
-        tokio::spawn(async move {
+        // tauri::async_runtime::spawn (não tokio::spawn): pty_spawn é um comando
+        // Tauri SÍNCRONO, roda fora do runtime tokio — tokio::spawn panica com
+        // "no reactor running". O runtime do Tauri tem handle acessível de qualquer thread.
+        tauri::async_runtime::spawn(async move {
             let mut raw: Vec<u8> = Vec::new();
             let mut last_activity = Instant::now();
             let spawned_at = Instant::now();

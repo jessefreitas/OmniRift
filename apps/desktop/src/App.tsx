@@ -6,8 +6,17 @@ import { initOrchestrationBridge } from "@/lib/orchestration-client";
 export default function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    initOrchestrationBridge().then((u) => (unlisten = u));
-    return () => unlisten?.();
+    let disposed = false;
+    initOrchestrationBridge().then((u) => {
+      // StrictMode (dev) monta 2×: se já desmontou antes da promise resolver,
+      // desliga o listener na hora pra não registrar em duplicidade.
+      if (disposed) u();
+      else unlisten = u;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   return (
