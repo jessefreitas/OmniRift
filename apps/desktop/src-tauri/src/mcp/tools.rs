@@ -105,6 +105,26 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "position": { "type": "object", "properties": {
                     "x": { "type": "number" }, "y": { "type": "number" } } } },
                 "required": ["command", "label"] } }),
+        json!({ "name": "workspace_list",
+            "description": "Lista os floors (workspaces) do canvas e qual está ativo.",
+            "inputSchema": { "type": "object", "properties": {} } }),
+        json!({ "name": "workspace_create",
+            "description": "Cria um novo floor (workspace) no canvas.",
+            "inputSchema": { "type": "object", "properties": {
+                "name": { "type": "string" } }, "required": ["name"] } }),
+        json!({ "name": "workspace_focus",
+            "description": "Troca o floor ativo (por id ou nome).",
+            "inputSchema": { "type": "object", "properties": {
+                "target": { "type": "string" } }, "required": ["target"] } }),
+        json!({ "name": "workspace_rename",
+            "description": "Renomeia um floor.",
+            "inputSchema": { "type": "object", "properties": {
+                "id": { "type": "string" }, "name": { "type": "string" } },
+                "required": ["id", "name"] } }),
+        json!({ "name": "workspace_close",
+            "description": "Fecha (exclui) um floor.",
+            "inputSchema": { "type": "object", "properties": {
+                "id": { "type": "string" } }, "required": ["id"] } }),
     ]
 }
 
@@ -284,6 +304,53 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             }
         }
         other => format!("❌ tool de terminal desconhecida: {other}"),
+    }
+}
+
+/// Despacha as tools `workspace_*` (floors). `list` lê o espelho; o resto emite eventos.
+pub async fn workspace_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    match tool {
+        "workspace_list" => {
+            let mirror = state.floor_mirror.lock().clone();
+            let floors = mirror.get("floors").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            if floors.is_empty() {
+                return "Nenhum floor no espelho ainda.".into();
+            }
+            let active = mirror.get("activeFloorId").and_then(|v| v.as_str()).unwrap_or("");
+            floors
+                .iter()
+                .map(|f| {
+                    let id = f.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                    let name = f.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                    let n = f.get("nodes").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let mark = if id == active { " (ativo)" } else { "" };
+                    format!("• {name} [{id}]{mark} — {n} nós")
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        "workspace_create" => {
+            let name = arg_str(&args, "name");
+            let _ = state.app.emit("canvas://floor-create", json!({ "name": name }));
+            format!("solicitado: criar floor '{name}'")
+        }
+        "workspace_focus" => {
+            let target = arg_str(&args, "target");
+            let _ = state.app.emit("canvas://floor-focus", json!({ "target": target }));
+            format!("solicitado: focar floor '{target}'")
+        }
+        "workspace_rename" => {
+            let id = arg_str(&args, "id");
+            let name = arg_str(&args, "name");
+            let _ = state.app.emit("canvas://floor-rename", json!({ "id": id, "name": name }));
+            format!("solicitado: renomear floor '{id}' → '{name}'")
+        }
+        "workspace_close" => {
+            let id = arg_str(&args, "id");
+            let _ = state.app.emit("canvas://floor-close", json!({ "id": id }));
+            format!("solicitado: fechar floor '{id}'")
+        }
+        other => format!("❌ tool de workspace desconhecida: {other}"),
     }
 }
 

@@ -34,3 +34,11 @@ pub fn mcp_list_agents(
 pub fn mcp_server_url() -> String {
     "http://127.0.0.1:7844/sse".to_string()
 }
+
+#[tauri::command]
+pub fn floor_mirror_set(
+    floors: serde_json::Value,
+    mirror: State<'_, std::sync::Arc<parking_lot::Mutex<serde_json::Value>>>,
+) {
+    *mirror.lock() = floors;
+}

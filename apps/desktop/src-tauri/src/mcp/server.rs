@@ -34,18 +34,21 @@ pub struct McpState {
     /// session_id (UUID gerado pelo SSE) → sender para o stream SSE daquela sessão
     pub(crate) sessions: Arc<DashMap<String, broadcast::Sender<String>>>,
     pub(crate) app: tauri::AppHandle,
+    pub(crate) floor_mirror: Arc<parking_lot::Mutex<Value>>,
 }
 
 pub fn mcp_router(
     pty_manager: Arc<PtyManager>,
     agent_registry: Arc<AgentRegistry>,
     app: tauri::AppHandle,
+    floor_mirror: Arc<parking_lot::Mutex<Value>>,
 ) -> Router {
     let state = Arc::new(McpState {
         pty_manager,
         agent_registry,
         sessions: Arc::new(DashMap::new()),
         app,
+        floor_mirror,
     });
     Router::new()
         .route("/sse", get(sse_handler))
@@ -193,6 +196,11 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
 
         t if t.starts_with("terminal_") => {
             let text = crate::mcp::tools::terminal_dispatch(&state, t, args).await;
+            json!({ "content": [{ "type": "text", "text": text }] })
+        }
+
+        t if t.starts_with("workspace_") => {
+            let text = crate::mcp::tools::workspace_dispatch(&state, t, args).await;
             json!({ "content": [{ "type": "text", "text": text }] })
         }
 
