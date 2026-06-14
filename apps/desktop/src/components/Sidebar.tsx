@@ -56,12 +56,32 @@ const ORCHESTRATOR_CONTRACT =
   "Acompanhe, colete os resultados e sintetize a resposta final. Se você se pegar prestes a " +
   "fazer algo direto, PARE e delegue — executar você mesmo viola seu papel. Você coordena, não executa.";
 
+// Deny-list de comandos destrutivos (deletar/remover/destruir) nos agentes claude.
+// É deny "duro" do --disallowed-tools: roda mesmo com auto-aprovação ligada.
+const DENY_DESTRUCTIVE = [
+  "Bash(rm:*)",
+  "Bash(rmdir:*)",
+  "Bash(dd:*)",
+  "Bash(mkfs:*)",
+  "Bash(shred:*)",
+  "Bash(truncate:*)",
+  "Bash(git clean:*)",
+  "Bash(git reset --hard:*)",
+  "Bash(git push --force:*)",
+];
+
 const PRESETS: AgentPreset[] = [
   {
     id: "orquestrador",
     label: "Orquestrador",
     command: "claude",
-    args: ["--append-system-prompt", ORCHESTRATOR_CONTRACT],
+    args: [
+      "--append-system-prompt",
+      ORCHESTRATOR_CONTRACT,
+      "--dangerously-skip-permissions",
+      "--disallowed-tools",
+      ...DENY_DESTRUCTIVE,
+    ],
     role: "claude-code",
     icon: Workflow,
     description: "Claude que só decompõe e delega (não executa)",
@@ -79,9 +99,11 @@ const PRESETS: AgentPreset[] = [
     id: "claude",
     label: "Claude Code",
     command: "claude",
+    // Auto-aprova comandos seguros, mas BLOQUEIA destrutivos (deny-list).
+    args: ["--dangerously-skip-permissions", "--disallowed-tools", ...DENY_DESTRUCTIVE],
     role: "claude-code",
     icon: Sparkles,
-    description: "Anthropic Claude Code CLI",
+    description: "Anthropic Claude Code CLI · auto-aprovação (destrutivo bloqueado)",
     installCmd: INSTALL.claude,
   },
   {
@@ -106,11 +128,11 @@ const PRESETS: AgentPreset[] = [
     id: "antigravity",
     label: "Antigravity",
     command: "agy",
-    // Auto-aprova tudo (sem prompt de permissão a cada comando) — agente autônomo no canvas.
-    args: ["--dangerously-skip-permissions"],
+    // Sem skip: o agy usa o sistema de permissão dele (auto-roda o allow,
+    // pergunta o resto, você nega destrutivo). Deny duro fica no settings.json dele.
     role: "antigravity",
     icon: Orbit,
-    description: "Google Antigravity (Gemini) CLI · auto-aprovação",
+    description: "Google Antigravity (Gemini) CLI · comando: agy",
     installCmd: INSTALL.antigravity,
   },
 ];
