@@ -106,9 +106,11 @@ const PRESETS: AgentPreset[] = [
     id: "antigravity",
     label: "Antigravity",
     command: "agy",
+    // Auto-aprova tudo (sem prompt de permissão a cada comando) — agente autônomo no canvas.
+    args: ["--dangerously-skip-permissions"],
     role: "antigravity",
     icon: Orbit,
-    description: "Google Antigravity (Gemini) CLI · comando: agy",
+    description: "Google Antigravity (Gemini) CLI · auto-aprovação",
     installCmd: INSTALL.antigravity,
   },
 ];
