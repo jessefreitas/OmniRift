@@ -84,7 +84,7 @@ pub fn profile_for(command: &str) -> &'static AgentProfile {
         "claude"
     } else if base.contains("codex") {
         "codex"
-    } else if base.contains("antigravity") {
+    } else if base.contains("antigravity") || base == "agy" {
         "antigravity"
     } else {
         "shell"

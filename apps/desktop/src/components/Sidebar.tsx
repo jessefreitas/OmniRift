@@ -33,7 +33,17 @@ interface AgentPreset {
   role: AgentRole;
   icon: typeof Bot;
   description: string;
+  /** Comando para instalar o CLI (botão de instalação no preset). */
+  installCmd?: string;
 }
+
+// Instaladores oficiais dos CLIs (rodados num terminal ao clicar "instalar").
+const INSTALL = {
+  claude: "npm install -g @anthropic-ai/claude-code",
+  codex: "npm install -g @openai/codex",
+  opencode: "curl -fsSL https://opencode.ai/install | bash",
+  antigravity: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+};
 
 // Contrato de orquestrador: usado tanto como --append-system-prompt (orquestrador
 // novo, nível-sistema) quanto reinjetado no briefing (orquestrador já rodando).
@@ -55,6 +65,7 @@ const PRESETS: AgentPreset[] = [
     role: "claude-code",
     icon: Workflow,
     description: "Claude que só decompõe e delega (não executa)",
+    installCmd: INSTALL.claude,
   },
   {
     id: "shell",
@@ -71,6 +82,7 @@ const PRESETS: AgentPreset[] = [
     role: "claude-code",
     icon: Sparkles,
     description: "Anthropic Claude Code CLI",
+    installCmd: INSTALL.claude,
   },
   {
     id: "codex",
@@ -79,6 +91,7 @@ const PRESETS: AgentPreset[] = [
     role: "codex",
     icon: Code2,
     description: "OpenAI Codex CLI",
+    installCmd: INSTALL.codex,
   },
   {
     id: "opencode",
@@ -87,14 +100,16 @@ const PRESETS: AgentPreset[] = [
     role: "opencode",
     icon: Bot,
     description: "OpenCode (sst.dev)",
+    installCmd: INSTALL.opencode,
   },
   {
     id: "antigravity",
     label: "Antigravity",
-    command: "antigravity",
+    command: "agy",
     role: "antigravity",
     icon: Orbit,
-    description: "Google Antigravity (Gemini) CLI",
+    description: "Google Antigravity (Gemini) CLI · comando: agy",
+    installCmd: INSTALL.antigravity,
   },
 ];
 
@@ -247,6 +262,19 @@ export function Sidebar() {
   const injectMcpToTerminal = useCallback(async (sessionId: string) => {
     await invoke("pty_write", { sessionId, data: `${MCP_ADD_CMD}\n` });
   }, []);
+
+  function installPreset(preset: AgentPreset) {
+    if (!preset.installCmd) return;
+    addTerminal({
+      command: "bash",
+      args: [
+        "-lc",
+        `${preset.installCmd}; rc=$?; echo; echo "--- instalação concluída (código $rc) — feche este terminal ---"`,
+      ],
+      role: "shell",
+      label: `instalar ${preset.label}`,
+    });
+  }
 
   async function pickFolder() {
     const selected = await open({ directory: true, multiple: false, title: "Selecionar pasta do projeto" });
@@ -415,38 +443,46 @@ export function Sidebar() {
         {PRESETS.map((preset) => {
           const Icon = preset.icon;
           return (
-            <button
+            <div
               key={preset.id}
-              onClick={() =>
-                addTerminal({
-                  command: preset.command,
-                  args: preset.args,
-                  role: preset.role,
-                  label: preset.label,
-                })
-              }
-              className={cn(
-                "w-full text-left flex items-start gap-3 px-2 py-2 rounded-md",
-                "hover:bg-surface2 transition-colors group",
-              )}
+              className="group flex items-center rounded-md hover:bg-surface2 transition-colors"
             >
-              <Icon
-                size={16}
-                className="mt-0.5 text-textMuted group-hover:text-brand transition-colors"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium truncate">
-                  {preset.label}
+              <button
+                onClick={() =>
+                  addTerminal({
+                    command: preset.command,
+                    args: preset.args,
+                    role: preset.role,
+                    label: preset.label,
+                  })
+                }
+                className="flex-1 min-w-0 text-left flex items-start gap-3 px-2 py-2"
+              >
+                <Icon
+                  size={16}
+                  className="mt-0.5 text-textMuted group-hover:text-brand transition-colors"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium truncate">{preset.label}</div>
+                  <div className="text-[10px] text-textMuted truncate">
+                    {preset.description}
+                  </div>
                 </div>
-                <div className="text-[10px] text-textMuted truncate">
-                  {preset.description}
-                </div>
-              </div>
-              <Plus
-                size={12}
-                className="mt-1 text-textMuted opacity-0 group-hover:opacity-100 transition-opacity"
-              />
-            </button>
+                <Plus
+                  size={12}
+                  className="mt-1 text-textMuted opacity-0 group-hover:opacity-100 transition-opacity"
+                />
+              </button>
+              {preset.installCmd && (
+                <button
+                  onClick={() => installPreset(preset)}
+                  title={`Instalar ${preset.label}`}
+                  className="shrink-0 px-2 py-2 text-textMuted hover:text-brand opacity-0 group-hover:opacity-100 transition-all"
+                >
+                  <Download size={13} />
+                </button>
+              )}
+            </div>
           );
         })}
       </section>
