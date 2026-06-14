@@ -531,12 +531,14 @@ export function Sidebar() {
             {cwdLabel ?? "Selecionar pasta…"}
           </span>
           {currentCwd && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setCurrentCwd(null); }}
-              className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
-            >
-              <X size={10} />
-            </button>
+            <Tooltip label="Limpar a pasta do projeto" side="top" className="shrink-0">
+              <button
+                onClick={(e) => { e.stopPropagation(); setCurrentCwd(null); }}
+                className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
+              >
+                <X size={10} />
+              </button>
+            </Tooltip>
           )}
         </button>
         {currentCwd && (
@@ -585,13 +587,14 @@ export function Sidebar() {
                 />
               </button>
               {preset.installCmd && (
-                <button
-                  onClick={() => installPreset(preset)}
-                  title={`Instalar ${preset.label}`}
-                  className="shrink-0 px-2 py-2 text-textMuted hover:text-brand opacity-0 group-hover:opacity-100 transition-all"
-                >
-                  <Download size={13} />
-                </button>
+                <Tooltip label={`Instalar a CLI do ${preset.label}`} side="top" className="shrink-0">
+                  <button
+                    onClick={() => installPreset(preset)}
+                    className="px-2 py-2 text-textMuted hover:text-brand opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    <Download size={13} />
+                  </button>
+                </Tooltip>
               )}
             </div>
           );
@@ -605,13 +608,14 @@ export function Sidebar() {
             <Zap size={10} />
             MCP Agents
           </p>
-          <button
-            onClick={copyMcpCmd}
-            title="Copiar comando para conectar Orquestrador ao MCP"
-            className="text-[10px] text-textMuted hover:text-brand transition-colors px-1.5 py-0.5 rounded hover:bg-surface2"
-          >
-            {copiedCmd ? "✓ copiado" : "copiar cmd"}
-          </button>
+          <Tooltip label="Copia o comando /mcp add pra conectar o Orquestrador ao MCP do maestri" side="bottom">
+            <button
+              onClick={copyMcpCmd}
+              className="text-[10px] text-textMuted hover:text-brand transition-colors px-1.5 py-0.5 rounded hover:bg-surface2"
+            >
+              {copiedCmd ? "✓ copiado" : "copiar cmd"}
+            </button>
+          </Tooltip>
         </div>
 
         {/* Lista de terminais que podem ser agentes */}
@@ -627,47 +631,60 @@ export function Sidebar() {
               <div key={n.id} className="rounded hover:bg-surface2 group">
                 <div className="flex items-center gap-1.5 px-2 py-1">
                   {/* Botão Orquestrador */}
-                  <button
-                    onClick={() => {
-                      const next = isOrch ? null : sid;
-                      setOrchestratorSid(next);
-                      if (next) sendTeamBriefing(mcpAgents, agentDescriptions, next, terminals);
-                    }}
-                    title={isOrch ? "Remover como Orquestrador" : "Definir como Orquestrador"}
-                    className={cn(
-                      "w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 transition-colors text-[7px] font-bold",
-                      isOrch
-                        ? "bg-yellow-500 border-yellow-500 text-black"
-                        : "border-border bg-transparent text-textMuted opacity-0 group-hover:opacity-100",
-                    )}
+                  <Tooltip
+                    label={isOrch ? "É o Orquestrador — clique pra remover" : "Definir como Orquestrador (coordena os outros agentes)"}
+                    side="top"
+                    className="shrink-0"
                   >
-                    O
-                  </button>
+                    <button
+                      onClick={() => {
+                        const next = isOrch ? null : sid;
+                        setOrchestratorSid(next);
+                        if (next) sendTeamBriefing(mcpAgents, agentDescriptions, next, terminals);
+                      }}
+                      className={cn(
+                        "w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-colors text-[7px] font-bold",
+                        isOrch
+                          ? "bg-yellow-500 border-yellow-500 text-black"
+                          : "border-border bg-transparent text-textMuted opacity-0 group-hover:opacity-100",
+                      )}
+                    >
+                      O
+                    </button>
+                  </Tooltip>
                   {/* Checkbox agente MCP */}
-                  <button
-                    onClick={() => toggleMcpAgent(sid, label)}
-                    title={isRegistered ? "Remover do MCP" : "Registrar como tool MCP"}
-                    className={cn(
-                      "w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors",
-                      isRegistered
-                        ? "bg-brand border-brand text-bg"
-                        : "border-border bg-transparent",
-                    )}
+                  <Tooltip
+                    label={isRegistered ? "Registrado no MCP — clique pra remover" : "Registrar como tool MCP (o Orquestrador passa a poder chamá-lo)"}
+                    side="top"
+                    className="shrink-0"
                   >
-                    {isRegistered && <span className="text-[8px] leading-none">✓</span>}
-                  </button>
-                  <StatusDot status={agentStatus} size={5} />
+                    <button
+                      onClick={() => toggleMcpAgent(sid, label)}
+                      className={cn(
+                        "w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors",
+                        isRegistered
+                          ? "bg-brand border-brand text-bg"
+                          : "border-border bg-transparent",
+                      )}
+                    >
+                      {isRegistered && <span className="text-[8px] leading-none">✓</span>}
+                    </button>
+                  </Tooltip>
+                  <Tooltip label={`Estado: ${agentStatus}`} side="top" className="shrink-0">
+                    <StatusDot status={agentStatus} size={5} />
+                  </Tooltip>
                   <span className={cn(
                     "text-[11px] flex-1 truncate font-medium",
                     isOrch && "text-yellow-400",
                   )}>{label}{isOrch && <span className="ml-1 text-[9px] text-yellow-500 font-normal">orq</span>}</span>
-                  <button
-                    onClick={() => injectMcpToTerminal(sid)}
-                    title="Injetar /mcp add neste terminal"
-                    className="opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <Link2 size={10} className="text-textMuted hover:text-brand" />
-                  </button>
+                  <Tooltip label="Injeta /mcp add neste terminal (conecta-o ao MCP do maestri)" side="top" className="shrink-0">
+                    <button
+                      onClick={() => injectMcpToTerminal(sid)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Link2 size={10} className="text-textMuted hover:text-brand" />
+                    </button>
+                  </Tooltip>
                 </div>
                 {/* Campo de papel/descrição — aparece ao hover ou quando preenchido */}
                 <div className={cn(
