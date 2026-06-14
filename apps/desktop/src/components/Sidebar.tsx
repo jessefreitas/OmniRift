@@ -20,7 +20,7 @@ import {
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
-import { mcpRegisterAgent, mcpUnregisterAgent } from "@/lib/mcp-client";
+import { mcpRegisterAgent, mcpUnregisterAgent, serenaMcpConfig } from "@/lib/mcp-client";
 import { StatusDot } from "@/components/StatusDot";
 import { cn } from "@/lib/cn";
 import type { AgentRole } from "@/types/pty";
@@ -181,6 +181,7 @@ export function Sidebar() {
     localStorage.getItem("maestri-mcp-orch") ?? null
   );
   const [copiedCmd, setCopiedCmd] = useState(false);
+  const [serenaPath, setSerenaPath] = useState<string | null>(null);
 
   // Salva estado no localStorage sempre que muda
   useEffect(() => {
@@ -193,6 +194,12 @@ export function Sidebar() {
     if (orchestratorSid) localStorage.setItem("maestri-mcp-orch", orchestratorSid);
     else localStorage.removeItem("maestri-mcp-orch");
   }, [orchestratorSid]);
+
+  // Resolve o Serena (estrutura de código por linguagem) uma vez — injetado
+  // via --mcp-config nos agentes claude. Null se não instalado.
+  useEffect(() => {
+    serenaMcpConfig().then(setSerenaPath).catch(() => {});
+  }, []);
 
   // Re-registra agentes automaticamente após restart (aguarda PTYs spawnarem)
   useEffect(() => {
@@ -286,6 +293,15 @@ export function Sidebar() {
   const injectMcpToTerminal = useCallback(async (sessionId: string) => {
     await invoke("pty_write", { sessionId, data: `${MCP_ADD_CMD}\n` });
   }, []);
+
+  // Injeta o Serena (--mcp-config) nos agentes claude, se instalado — assim o
+  // agente nasce com find_symbol/find_references por linguagem na pasta do projeto.
+  function argsWithSerena(preset: AgentPreset): string[] | undefined {
+    if (serenaPath && preset.role === "claude-code") {
+      return [...(preset.args ?? []), "--mcp-config", serenaPath];
+    }
+    return preset.args;
+  }
 
   function installPreset(preset: AgentPreset) {
     if (!preset.installCmd) return;
@@ -475,7 +491,7 @@ export function Sidebar() {
                 onClick={() =>
                   addTerminal({
                     command: preset.command,
-                    args: preset.args,
+                    args: argsWithSerena(preset),
                     role: preset.role,
                     label: preset.label,
                   })

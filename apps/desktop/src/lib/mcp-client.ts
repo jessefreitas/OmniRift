@@ -25,6 +25,15 @@ export async function mcpServerUrl(): Promise<string> {
   return invoke<string>("mcp_server_url");
 }
 
+/**
+ * Caminho de um mcp-config apontando pro Serena (estrutura de código por
+ * linguagem) em modo stdio. Null se o Serena não estiver instalado.
+ * Injetado via --mcp-config nos agentes claude.
+ */
+export async function serenaMcpConfig(): Promise<string | null> {
+  return invoke<string | null>("serena_mcp_config");
+}
+
 /** Envia o estado dos floors ao espelho do backend (para workspace_list). */
 export async function floorMirrorSet(
   floors: { id: string; name: string; nodes: number }[],

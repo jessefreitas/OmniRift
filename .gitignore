@@ -23,3 +23,6 @@ Thumbs.db
 
 # Claude Code (logs de runtime de hooks)
 .claude/*.log
+
+# Serena (cache de estrutura de código por projeto — gerado pelos agentes)
+.serena/
