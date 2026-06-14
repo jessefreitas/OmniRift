@@ -26,6 +26,7 @@ import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig } from "@/lib/mcp-
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
+import { Tooltip } from "@/components/Tooltip";
 import { cn } from "@/lib/cn";
 import type { AgentRole } from "@/types/pty";
 
@@ -393,20 +394,22 @@ export function Sidebar() {
         <div className="flex items-center justify-between px-2 mb-1">
           <p className="text-[11px] uppercase tracking-wider text-textMuted">Floors</p>
           <div className="flex items-center gap-0.5">
-            <button
-              onClick={createGitFloor}
-              title="Novo floor como branch git (worktree isolado)"
-              className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-            >
-              <GitBranch size={12} />
-            </button>
-            <button
-              onClick={() => createFloor(undefined, { focus: true })}
-              title="Novo floor"
-              className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-            >
-              <Plus size={12} />
-            </button>
+            <Tooltip label="Novo floor como branch git (worktree isolado)" side="bottom">
+              <button
+                onClick={createGitFloor}
+                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
+              >
+                <GitBranch size={12} />
+              </button>
+            </Tooltip>
+            <Tooltip label="Novo floor vazio" side="bottom">
+              <button
+                onClick={() => createFloor(undefined, { focus: true })}
+                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
+              >
+                <Plus size={12} />
+              </button>
+            </Tooltip>
           </div>
         </div>
         <div className="space-y-0.5">
@@ -423,32 +426,43 @@ export function Sidebar() {
                 if (name) renameFloor(f.id, name.trim());
               }}
             >
-              {f.branch && <GitBranch size={9} className="text-brand opacity-70 shrink-0" />}
-              <span className="text-xs flex-1 truncate">{f.name}</span>
-              <span className="text-[9px] text-textMuted opacity-60">{f.nodes.length}</span>
               {f.branch && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void landFloor(f);
-                  }}
-                  title={`Land ${f.branch} → ${f.baseBranch}`}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all"
-                >
-                  <GitMerge size={10} />
-                </button>
+                <Tooltip label={`Floor é a branch git "${f.branch}"`} side="top">
+                  <GitBranch size={9} className="text-brand opacity-70 shrink-0" />
+                </Tooltip>
+              )}
+              <span className="text-xs flex-1 truncate">{f.name}</span>
+              <Tooltip label={`${f.nodes.length} nó(s) neste floor`} side="top">
+                <span className="text-[9px] text-textMuted opacity-60">{f.nodes.length}</span>
+              </Tooltip>
+              {f.branch && (
+                <Tooltip label={`Land: faz merge de "${f.branch}" em "${f.baseBranch}" e remove o worktree`} side="top">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void landFloor(f);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all"
+                  >
+                    <GitMerge size={10} />
+                  </button>
+                </Tooltip>
               )}
               {floors.length > 1 && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteFloor(f.id);
-                  }}
-                  title={f.branch ? "Tirar do canvas (worktree fica no disco)" : "Excluir floor"}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
+                <Tooltip
+                  label={f.branch ? "Tira do canvas (o worktree fica no disco)" : "Excluir floor"}
+                  side="top"
                 >
-                  <X size={10} />
-                </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteFloor(f.id);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
+                  >
+                    <X size={10} />
+                  </button>
+                </Tooltip>
               )}
             </div>
           ))}
