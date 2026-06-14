@@ -13,6 +13,7 @@ import {
   Link2,
   Orbit,
   Plus,
+  RefreshCw,
   Rocket,
   Sparkles,
   TerminalSquare,
@@ -27,6 +28,7 @@ import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig } from "@/lib/mcp-client";
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
 import { specListFiles, type SpecFile } from "@/lib/spec-client";
+import { agentDocsStatus, agentDocsSync, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
@@ -197,6 +199,7 @@ export function Sidebar() {
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
   const [specs, setSpecs] = useState<SpecFile[]>([]);
+  const [docsStatus, setDocsStatus] = useState<AgentDocsStatus | null>(null);
 
   // Salva estado no localStorage sempre que muda
   useEffect(() => {
@@ -216,6 +219,12 @@ export function Sidebar() {
   useEffect(() => {
     if (!currentCwd) { setSpecs([]); return; }
     specListFiles(currentCwd).then(setSpecs).catch(() => setSpecs([]));
+  }, [currentCwd]);
+
+  // Status de CLAUDE.md/AGENTS.md do projeto ativo (pro sync de roles).
+  useEffect(() => {
+    if (!currentCwd) { setDocsStatus(null); return; }
+    agentDocsStatus(currentCwd).then(setDocsStatus).catch(() => setDocsStatus(null));
   }, [currentCwd]);
 
   // Re-registra agentes automaticamente após restart (aguarda PTYs spawnarem)
@@ -381,6 +390,22 @@ export function Sidebar() {
     setTimeout(() => {
       invoke("pty_write", { sessionId: orchestratorSid, data: "\r" }).catch(console.warn);
     }, 150);
+  }
+
+  // Sincroniza CLAUDE.md ↔ AGENTS.md (copia o que existe pro outro). Sobrescreve
+  // o destino → confirma antes. Direção: o que existir vira a fonte (claude tem prioridade).
+  async function syncAgentDocs() {
+    if (!currentCwd || !docsStatus) return;
+    const from: "claude" | "agents" = docsStatus.claude ? "claude" : "agents";
+    const src = from === "claude" ? "CLAUDE.md" : "AGENTS.md";
+    const dst = from === "claude" ? "AGENTS.md" : "CLAUDE.md";
+    if (!confirm(`Sincronizar ${src} → ${dst}?\nSobrescreve o conteúdo do ${dst} (não apaga mais nada).`)) return;
+    try {
+      await agentDocsSync(currentCwd, from);
+      setDocsStatus(await agentDocsStatus(currentCwd));
+    } catch (e) {
+      alert("Sync falhou:\n" + String(e));
+    }
   }
 
   function installPreset(preset: AgentPreset) {
@@ -625,6 +650,34 @@ export function Sidebar() {
           <p className="px-2 mt-0.5 text-[9px] text-textMuted truncate opacity-60" title={currentCwd}>
             {currentCwd}
           </p>
+        )}
+        {/* Sync CLAUDE.md ↔ AGENTS.md (regras de projeto pros agentes) */}
+        {currentCwd && docsStatus && (docsStatus.claude || docsStatus.agents) && (
+          <div className="px-2 mt-1 flex items-center gap-1.5 text-[9px]">
+            <span className={cn(docsStatus.claude ? "text-textMuted" : "text-textMuted opacity-30 line-through")}>
+              CLAUDE.md
+            </span>
+            <span className="opacity-30">·</span>
+            <span className={cn(docsStatus.agents ? "text-textMuted" : "text-textMuted opacity-30 line-through")}>
+              AGENTS.md
+            </span>
+            {docsStatus.same ? (
+              <span className="text-green-500/70">✓ sync</span>
+            ) : (
+              <Tooltip
+                label={`Copia ${docsStatus.claude ? "CLAUDE.md → AGENTS.md" : "AGENTS.md → CLAUDE.md"} — mesmas regras pra claude e codex`}
+                side="top"
+                className="shrink-0"
+              >
+                <button
+                  onClick={syncAgentDocs}
+                  className="flex items-center gap-0.5 text-brand hover:text-brand-hover transition-colors"
+                >
+                  <RefreshCw size={8} /> sync
+                </button>
+              </Tooltip>
+            )}
+          </div>
         )}
       </div>
 

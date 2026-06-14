@@ -5,6 +5,7 @@ pub mod mcp;
 pub mod pty;
 pub mod spec;
 
+use commands::agent_docs::{agent_docs_status, agent_docs_sync};
 use commands::git::{
     floor_git_create, floor_git_land, floor_git_remove, floor_git_status, git_repo_info,
 };
@@ -102,6 +103,8 @@ pub fn run() {
             floor_git_land,
             floor_git_remove,
             spec_list_files,
+            agent_docs_status,
+            agent_docs_sync,
         ])
         .run(tauri::generate_context!())
         .expect("erro fatal rodando Maestri Linux");
