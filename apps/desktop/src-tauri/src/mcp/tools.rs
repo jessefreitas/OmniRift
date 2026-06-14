@@ -112,6 +112,16 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "position": { "type": "object", "properties": {
                     "x": { "type": "number" }, "y": { "type": "number" } } } },
                 "required": ["command", "label"] } }),
+        json!({ "name": "terminal_spawn_on_floor",
+            "description": "Cria um Floor novo (branch git + worktree isolado por padrão) e spawna um agente nele já com a tarefa. Use para paralelizar: cada agente trabalha na sua branch sem conflito. Depois faça 'Land' do floor quando a tarefa verificar.",
+            "inputSchema": { "type": "object", "properties": {
+                "branch": { "type": "string", "description": "Nome da branch/floor (ex: feature/auth)." },
+                "command": { "type": "string", "description": "CLI do agente (ex: claude)." },
+                "label": { "type": "string", "description": "Label do agente no registry." },
+                "role": { "type": "string" },
+                "task": { "type": "string", "description": "Tarefa enviada ao agente após subir." },
+                "git": { "type": "boolean", "description": "Floor como branch git (default true). false = floor comum." } },
+                "required": ["branch", "command", "label"] } }),
         json!({ "name": "workspace_list",
             "description": "Lista os floors (workspaces) do canvas e qual está ativo.",
             "inputSchema": { "type": "object", "properties": {} } }),
@@ -323,6 +333,57 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                 format!("criado: {label} (id {id})")
             } else {
                 format!("criado: {label} (id {id}) — aviso: terminal não confirmou prontidão em 8s")
+            }
+        }
+        "terminal_spawn_on_floor" => {
+            let branch = arg_str(&args, "branch");
+            let command = arg_str(&args, "command");
+            let label = arg_str(&args, "label");
+            if branch.is_empty() || command.is_empty() || label.is_empty() {
+                return "❌ 'branch', 'command' e 'label' são obrigatórios".into();
+            }
+            let role = arg_str(&args, "role");
+            let task = arg_str(&args, "task");
+            let git = args.get("git").and_then(|v| v.as_bool()).unwrap_or(true);
+            let id = uuid::Uuid::new_v4().to_string();
+
+            // Ack pty://ready filtrado por id (mesmo protocolo do terminal_spawn).
+            let (tx, rx) = oneshot::channel::<()>();
+            let tx = std::sync::Arc::new(StdMutex::new(Some(tx)));
+            let want = id.clone();
+            let listener_id = state.app.listen_any("pty://ready", move |event| {
+                if let Ok(v) = serde_json::from_str::<Value>(event.payload()) {
+                    if v.get("id").and_then(|x| x.as_str()) == Some(want.as_str()) {
+                        if let Some(s) = tx.lock().unwrap().take() {
+                            let _ = s.send(());
+                        }
+                    }
+                }
+            });
+
+            // Frontend: cria o floor (git worktree) + foca + spawna o terminal com este id.
+            let _ = state.app.emit("canvas://spawn-on-floor", json!({
+                "id": id, "branch": branch, "command": command,
+                "label": label, "role": role, "git": git
+            }));
+
+            // worktree add + spawn demora mais que um spawn simples → timeout maior.
+            let acked = tokio::time::timeout(Duration::from_secs(15), rx).await.is_ok();
+            state.app.unlisten(listener_id);
+
+            // Registra com floor = branch (topologia cross-floor pro Orquestrador).
+            state.agent_registry.register(label.clone(), id.clone(), command.clone(), Some(branch.clone()));
+
+            // Injeta a tarefa depois que o agente sobe (deixa a TUI assentar).
+            if acked && !task.is_empty() {
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                let _ = state.pty_manager.write(&id, format!("{task}\r").as_bytes());
+            }
+
+            if acked {
+                format!("criado: {label} no floor '{branch}' (id {id})")
+            } else {
+                format!("criado: {label} no floor '{branch}' (id {id}) — aviso: não confirmou prontidão em 15s")
             }
         }
         other => format!("❌ tool de terminal desconhecida: {other}"),
