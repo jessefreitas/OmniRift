@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Tldraw, getSnapshot, loadSnapshot, type Editor } from "tldraw";
+import { getAssetUrlsByImport } from "@tldraw/assets/imports.vite";
 import { Pencil, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
@@ -9,6 +10,10 @@ import type { SketchNode as SketchNodeData } from "@/types/canvas";
 import "tldraw/tldraw.css";
 
 type SketchRfNode = Node<SketchNodeData & Record<string, unknown>, "sketch">;
+
+// Assets (ícones/fontes da UI) bundlados LOCAL via Vite — sem isso o tldraw busca
+// na rede (cdn) e a toolbar fica sem ícones aqui (TLS do WebKitGTK quebrado).
+const ASSET_URLS = getAssetUrlsByImport();
 
 export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
   const patchNode = useCanvasStore((s) => s.patchNode);
@@ -52,7 +57,7 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
       </header>
       {/* nodrag/nopan/nowheel: o React Flow ignora os ponteiros aqui → tldraw os recebe. */}
       <div className="nodrag nopan nowheel flex-1 relative">
-        <Tldraw onMount={handleMount} />
+        <Tldraw assetUrls={ASSET_URLS} onMount={handleMount} />
       </div>
     </div>
   );
