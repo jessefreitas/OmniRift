@@ -355,6 +355,14 @@ export function Sidebar() {
     }
   }
 
+  // Land monitor: floor-git com algum agente em "done" → pronto pra Land.
+  function isReadyToLand(f: Floor): boolean {
+    return (
+      !!f.branch &&
+      f.nodes.some((n) => n.kind === "terminal" && terminalStatuses[n.session_id] === "done")
+    );
+  }
+
   // Dispatch paralelo: injeta no Orquestrador a ordem de ler a spec, agrupar as
   // Tasks independentes e spawnar 1 agente por branch (terminal_spawn_on_floor).
   function dispatchSpec(s: SpecFile) {
@@ -428,7 +436,19 @@ export function Sidebar() {
       {/* Floors */}
       <div className="px-2 py-2 border-b border-border">
         <div className="flex items-center justify-between px-2 mb-1">
-          <p className="text-[11px] uppercase tracking-wider text-textMuted">Floors</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-[11px] uppercase tracking-wider text-textMuted">Floors</p>
+            {floors.filter(isReadyToLand).length > 0 && (
+              <Tooltip
+                label={`${floors.filter(isReadyToLand).length} floor(s) com agente pronto pra Land`}
+                side="bottom"
+              >
+                <span className="flex items-center gap-0.5 text-[9px] text-green-400 bg-green-500/15 px-1 rounded">
+                  <GitMerge size={8} /> {floors.filter(isReadyToLand).length}
+                </span>
+              </Tooltip>
+            )}
+          </div>
           <div className="flex items-center gap-0.5">
             <Tooltip label="Novo floor como branch git (worktree isolado)" side="bottom">
               <button
@@ -449,12 +469,15 @@ export function Sidebar() {
           </div>
         </div>
         <div className="space-y-0.5">
-          {floors.map((f) => (
+          {floors.map((f, i) => {
+            const ready = isReadyToLand(f);
+            return (
             <div
               key={f.id}
               className={cn(
                 "group flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors",
                 f.id === activeFloorId ? "bg-surface2 text-text" : "text-textMuted hover:bg-surface2",
+                ready && "ring-1 ring-green-500/40",
               )}
               onClick={() => switchFloor(f.id)}
               onDoubleClick={() => {
@@ -462,6 +485,14 @@ export function Sidebar() {
                 if (name) renameFloor(f.id, name.trim());
               }}
             >
+              {i < 9 && (
+                <span
+                  className="text-[8px] text-textMuted opacity-40 font-mono shrink-0 w-3 text-center"
+                  title={`Quick Jump: Alt+${i + 1}`}
+                >
+                  {i + 1}
+                </span>
+              )}
               {f.branch && (
                 <Tooltip label={`Floor é a branch git "${f.branch}"`} side="top">
                   <GitBranch size={9} className="text-brand opacity-70 shrink-0" />
@@ -472,13 +503,25 @@ export function Sidebar() {
                 <span className="text-[9px] text-textMuted opacity-60">{f.nodes.length}</span>
               </Tooltip>
               {f.branch && (
-                <Tooltip label={`Land: faz merge de "${f.branch}" em "${f.baseBranch}" e remove o worktree`} side="top">
+                <Tooltip
+                  label={
+                    ready
+                      ? `Agente pronto! Land: merge de "${f.branch}" em "${f.baseBranch}"`
+                      : `Land: faz merge de "${f.branch}" em "${f.baseBranch}" e remove o worktree`
+                  }
+                  side="top"
+                >
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       void landFloor(f);
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all"
+                    className={cn(
+                      "p-0.5 rounded hover:text-brand transition-all",
+                      ready
+                        ? "opacity-100 text-green-400 animate-pulse"
+                        : "opacity-0 group-hover:opacity-100",
+                    )}
                   >
                     <GitMerge size={10} />
                   </button>
@@ -501,7 +544,8 @@ export function Sidebar() {
                 </Tooltip>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

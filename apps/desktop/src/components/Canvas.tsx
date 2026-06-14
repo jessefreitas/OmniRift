@@ -6,10 +6,12 @@
 import { useCanvasStore } from "@/store/canvas-store";
 import { FloorCanvas } from "@/components/FloorCanvas";
 import { OrchestratorDock } from "@/components/OrchestratorDock";
+import { useQuickJump } from "@/hooks/useQuickJump";
 
 export function Canvas() {
   const floors = useCanvasStore((s) => s.floors);
   const activeFloorId = useCanvasStore((s) => s.activeFloorId);
+  useQuickJump(); // Alt+1..9 → floor N
 
   return (
     <div className="absolute inset-0">
