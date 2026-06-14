@@ -24,7 +24,7 @@ import { TerminalNode } from "@/components/nodes/TerminalNode";
 import { NoteNode } from "@/components/nodes/NoteNode";
 import { GroupNode } from "@/components/nodes/GroupNode";
 import { FileTreeNode } from "@/components/nodes/FileTreeNode";
-import { SketchNode } from "@/components/nodes/SketchNode";
+import { SketchNodeLazy } from "@/components/nodes/SketchNodeLazy";
 import { useCanvasStore } from "@/store/canvas-store";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
 
@@ -33,7 +33,7 @@ const nodeTypes = {
   note: NoteNode,
   group: GroupNode,
   filetree: FileTreeNode,
-  sketch: SketchNode,
+  sketch: SketchNodeLazy, // tldraw carrega sob demanda (code-split)
 };
 
 export function FloorCanvas({ floorId }: { floorId: string }) {
