@@ -7,6 +7,11 @@ export interface Floor {
   cwd: string | null;
   nodes: CanvasNode[];
   edges: CanvasEdge[];
+  /** Backing git (Fase A) — presente só em floors criados como branch. */
+  branch?: string; // branch git do floor
+  worktreePath?: string; // caminho do worktree (= cwd quando git-backed)
+  baseBranch?: string; // branch de onde saiu (alvo do Land)
+  repoRoot?: string; // raiz do repo principal
 }
 
 /** v1 — canvas único (legado, mantido para migração). */

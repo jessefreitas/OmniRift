@@ -12,7 +12,13 @@ interface CanvasState {
   currentCwd: string | null; // espelho do cwd do floor ativo
 
   // floor management
-  createFloor: (name?: string, opts?: { focus?: boolean }) => Floor;
+  createFloor: (
+    name?: string,
+    opts?: {
+      focus?: boolean;
+      git?: { worktreePath: string; branch: string; baseBranch: string; repoRoot: string };
+    },
+  ) => Floor;
   switchFloor: (id: string) => void;
   renameFloor: (id: string, name: string) => void;
   deleteFloor: (id: string) => void;
@@ -72,12 +78,19 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
 
   // ---- floor management ----
   createFloor: (name, opts) => {
+    const g = opts?.git;
     const floor: Floor = {
       id: nanoid(),
       name: name?.trim() || `Floor ${get().floors.length + 1}`,
-      cwd: null,
+      cwd: g?.worktreePath ?? null, // git-backed → terminais nascem no worktree
       nodes: [],
       edges: [],
+      ...(g && {
+        branch: g.branch,
+        worktreePath: g.worktreePath,
+        baseBranch: g.baseBranch,
+        repoRoot: g.repoRoot,
+      }),
     };
     set((s) => ({ floors: [...s.floors, floor] }));
     if (opts?.focus) get().switchFloor(floor.id);

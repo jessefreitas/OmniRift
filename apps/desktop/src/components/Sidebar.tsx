@@ -7,6 +7,8 @@ import {
   Download,
   Folder,
   FolderOpen,
+  GitBranch,
+  GitMerge,
   Link2,
   Orbit,
   Plus,
@@ -21,6 +23,8 @@ import {
 import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig } from "@/lib/mcp-client";
+import { floorGitCreate, floorGitLand } from "@/lib/git-client";
+import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { cn } from "@/lib/cn";
 import type { AgentRole } from "@/types/pty";
@@ -304,6 +308,36 @@ export function Sidebar() {
     return preset.args;
   }
 
+  // Cria um floor git-backed: nova branch num worktree isolado (agentes paralelos
+  // editam sem conflito). Parte da branch atual do repo do floor ativo.
+  async function createGitFloor() {
+    if (!currentCwd) {
+      alert("Abra um projeto (pasta) primeiro — um floor-branch precisa de um repo git.");
+      return;
+    }
+    const branch = prompt("Branch do novo floor (ex: feature/auth):");
+    if (!branch?.trim()) return;
+    try {
+      const g = await floorGitCreate(currentCwd, branch.trim());
+      createFloor(branch.trim(), { focus: true, git: g });
+    } catch (e) {
+      alert("Falha ao criar floor git:\n" + String(e));
+    }
+  }
+
+  // Land: merge da branch do floor na base + remove worktree + apaga branch.
+  // Destrutivo → confirma explicitamente. Em conflito, o merge falha e o floor fica.
+  async function landFloor(f: Floor) {
+    if (!f.repoRoot || !f.branch || !f.worktreePath || !f.baseBranch) return;
+    if (!confirm(`Land "${f.branch}" → "${f.baseBranch}"?\nFaz merge e remove o worktree.`)) return;
+    try {
+      await floorGitLand(f.repoRoot, f.branch, f.baseBranch, f.worktreePath);
+      deleteFloor(f.id);
+    } catch (e) {
+      alert("Land falhou (resolva conflitos no floor e tente de novo):\n" + String(e));
+    }
+  }
+
   function installPreset(preset: AgentPreset) {
     if (!preset.installCmd) return;
     addTerminal({
@@ -358,13 +392,22 @@ export function Sidebar() {
       <div className="px-2 py-2 border-b border-border">
         <div className="flex items-center justify-between px-2 mb-1">
           <p className="text-[11px] uppercase tracking-wider text-textMuted">Floors</p>
-          <button
-            onClick={() => createFloor(undefined, { focus: true })}
-            title="Novo floor"
-            className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-          >
-            <Plus size={12} />
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={createGitFloor}
+              title="Novo floor como branch git (worktree isolado)"
+              className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
+            >
+              <GitBranch size={12} />
+            </button>
+            <button
+              onClick={() => createFloor(undefined, { focus: true })}
+              title="Novo floor"
+              className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
+            >
+              <Plus size={12} />
+            </button>
+          </div>
         </div>
         <div className="space-y-0.5">
           {floors.map((f) => (
@@ -380,15 +423,28 @@ export function Sidebar() {
                 if (name) renameFloor(f.id, name.trim());
               }}
             >
+              {f.branch && <GitBranch size={9} className="text-brand opacity-70 shrink-0" />}
               <span className="text-xs flex-1 truncate">{f.name}</span>
               <span className="text-[9px] text-textMuted opacity-60">{f.nodes.length}</span>
+              {f.branch && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void landFloor(f);
+                  }}
+                  title={`Land ${f.branch} → ${f.baseBranch}`}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all"
+                >
+                  <GitMerge size={10} />
+                </button>
+              )}
               {floors.length > 1 && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     deleteFloor(f.id);
                   }}
-                  title="Excluir floor"
+                  title={f.branch ? "Tirar do canvas (worktree fica no disco)" : "Excluir floor"}
                   className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
                 >
                   <X size={10} />

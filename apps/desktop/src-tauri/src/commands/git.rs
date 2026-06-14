@@ -1,0 +1,96 @@
+//! Comandos Tauri pro git backing dos Floors (Fase A).
+//! Finos: delegam pro módulo `crate::git` e serializam o resultado pro frontend.
+
+use crate::git;
+use serde::Serialize;
+use std::path::Path;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRepoInfo {
+    pub root: String,
+    pub branch: String,
+}
+
+/// Raiz + branch atual do repo que contém `cwd` (erro se não for repo).
+#[tauri::command]
+pub fn git_repo_info(cwd: String) -> Result<GitRepoInfo, String> {
+    let root = git::repo_root(Path::new(&cwd)).map_err(|e| e.to_string())?;
+    let branch = git::current_branch(&root).map_err(|e| e.to_string())?;
+    Ok(GitRepoInfo {
+        root: root.to_string_lossy().to_string(),
+        branch,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FloorGit {
+    pub worktree_path: String,
+    pub branch: String,
+    pub base_branch: String,
+    pub repo_root: String,
+}
+
+/// Cria um floor git-backed: worktree numa branch nova (ou reusa existente).
+/// `cwd` é qualquer caminho dentro do repo; resolve a raiz a partir dele.
+#[tauri::command]
+pub fn floor_git_create(cwd: String, branch: String, base: Option<String>) -> Result<FloorGit, String> {
+    let root = git::repo_root(Path::new(&cwd)).map_err(|e| e.to_string())?;
+    let info = git::worktree_add(&root, &branch, base.as_deref()).map_err(|e| e.to_string())?;
+    Ok(FloorGit {
+        worktree_path: info.path.to_string_lossy().to_string(),
+        branch: info.branch,
+        base_branch: info.base,
+        repo_root: root.to_string_lossy().to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct GitStatusDto {
+    pub branch: String,
+    pub ahead: i32,
+    pub behind: i32,
+    pub dirty: i32,
+}
+
+/// Status resumido (branch/ahead/behind/dirty) do worktree em `path`.
+#[tauri::command]
+pub fn floor_git_status(path: String) -> Result<GitStatusDto, String> {
+    let st = git::status(Path::new(&path)).map_err(|e| e.to_string())?;
+    Ok(GitStatusDto {
+        branch: st.branch,
+        ahead: st.ahead,
+        behind: st.behind,
+        dirty: st.dirty,
+    })
+}
+
+/// Land: merge da branch do floor em `into` + remove worktree + apaga branch.
+#[tauri::command]
+pub fn floor_git_land(
+    repo_root: String,
+    branch: String,
+    into: String,
+    worktree_path: String,
+) -> Result<String, String> {
+    git::land(
+        Path::new(&repo_root),
+        &branch,
+        &into,
+        Path::new(&worktree_path),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Remove o worktree de um floor (descartar sem merge). `delete_branch` apaga a branch.
+#[tauri::command]
+pub fn floor_git_remove(
+    repo_root: String,
+    worktree_path: String,
+    branch: String,
+    delete_branch: bool,
+) -> Result<(), String> {
+    let b = if delete_branch { Some(branch.as_str()) } else { None };
+    git::worktree_remove(Path::new(&repo_root), Path::new(&worktree_path), b).map_err(|e| e.to_string())
+}

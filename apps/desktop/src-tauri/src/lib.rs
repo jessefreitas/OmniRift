@@ -1,8 +1,12 @@
 pub mod commands;
 pub mod db;
+pub mod git;
 pub mod mcp;
 pub mod pty;
 
+use commands::git::{
+    floor_git_create, floor_git_land, floor_git_remove, floor_git_status, git_repo_info,
+};
 use commands::mcp::{
     agent_mcp_config, floor_mirror_set, mcp_list_agents, mcp_register_agent, mcp_server_url,
     mcp_unregister_agent,
@@ -89,6 +93,11 @@ pub fn run() {
             db_save_workspace,
             db_load_workspace,
             agent_mcp_config,
+            git_repo_info,
+            floor_git_create,
+            floor_git_status,
+            floor_git_land,
+            floor_git_remove,
         ])
         .run(tauri::generate_context!())
         .expect("erro fatal rodando Maestri Linux");
