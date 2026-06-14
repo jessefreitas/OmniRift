@@ -205,6 +205,11 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
             json!({ "content": [{ "type": "text", "text": text }] })
         }
 
+        t if t.starts_with("spec_") => {
+            let text = crate::mcp::tools::spec_dispatch(t, args);
+            json!({ "content": [{ "type": "text", "text": text }] })
+        }
+
         // Qualquer outro nome de tool: verifica se é um agente registrado
         tool_name => {
             let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("");

@@ -142,7 +142,47 @@ pub fn terminal_tool_defs() -> Vec<Value> {
             "description": "Fecha (exclui) um floor.",
             "inputSchema": { "type": "object", "properties": {
                 "id": { "type": "string" } }, "required": ["id"] } }),
+        json!({ "name": "spec_read",
+            "description": "Lê uma spec/plan e devolve as Tasks já cortadas (### Task N). Use no dispatch paralelo: agrupe as Tasks INDEPENDENTES e dispare uma por terminal_spawn_on_floor (1 branch por grupo).",
+            "inputSchema": { "type": "object", "properties": {
+                "path": { "type": "string", "description": "Caminho absoluto do .md da spec/plan." } },
+                "required": ["path"] } }),
     ]
+}
+
+/// Despacha as tools `spec_*` (Fase C — dispatch dirigido por spec). Não precisa
+/// de estado: lê o arquivo e devolve as Tasks cortadas pro Orquestrador agrupar.
+pub fn spec_dispatch(tool: &str, args: Value) -> String {
+    match tool {
+        "spec_read" => {
+            let path = arg_str(&args, "path");
+            if path.is_empty() {
+                return "❌ 'path' é obrigatório".into();
+            }
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(e) => return format!("❌ não consegui ler '{path}': {e}"),
+            };
+            let title = crate::spec::spec_title(&content);
+            let tasks = crate::spec::parse_tasks(&content);
+            if tasks.is_empty() {
+                return format!(
+                    "Spec '{title}' ({path}) não tem Tasks no formato '### Task N'. Conteúdo bruto:\n\n{content}"
+                );
+            }
+            let mut s = format!("Spec: {title} ({path})\n{} tasks:\n", tasks.len());
+            for t in &tasks {
+                s.push_str(&format!("\n--- Task {} : {} ---\n{}\n", t.n, t.title, t.body));
+            }
+            s.push_str(
+                "\nAgora agrupe as Tasks INDEPENDENTES e, pra cada grupo, chame \
+                 terminal_spawn_on_floor (branch única, command=\"claude\", role=\"claude-code\", \
+                 task=os passos do grupo). Depois acompanhe com terminal_list.",
+            );
+            s
+        }
+        other => format!("❌ tool de spec desconhecida: {other}"),
+    }
 }
 
 /// Nome do floor ativo, lido do espelho (floor_mirror) que o frontend mantém.

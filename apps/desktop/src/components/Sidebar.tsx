@@ -5,6 +5,7 @@ import {
   Bot,
   Code2,
   Download,
+  FileText,
   Folder,
   FolderOpen,
   GitBranch,
@@ -12,6 +13,7 @@ import {
   Link2,
   Orbit,
   Plus,
+  Rocket,
   Sparkles,
   TerminalSquare,
   Upload,
@@ -24,6 +26,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig } from "@/lib/mcp-client";
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
+import { specListFiles, type SpecFile } from "@/lib/spec-client";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
@@ -193,6 +196,7 @@ export function Sidebar() {
   const setOrchestratorSid = useCanvasStore((s) => s.setOrchestratorSid);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
+  const [specs, setSpecs] = useState<SpecFile[]>([]);
 
   // Salva estado no localStorage sempre que muda
   useEffect(() => {
@@ -207,6 +211,12 @@ export function Sidebar() {
   useEffect(() => {
     agentMcpConfig().then(setMcpConfigPath).catch(() => {});
   }, []);
+
+  // Lista specs/plans do projeto ativo (pro dispatch paralelo).
+  useEffect(() => {
+    if (!currentCwd) { setSpecs([]); return; }
+    specListFiles(currentCwd).then(setSpecs).catch(() => setSpecs([]));
+  }, [currentCwd]);
 
   // Re-registra agentes automaticamente após restart (aguarda PTYs spawnarem)
   useEffect(() => {
@@ -343,6 +353,26 @@ export function Sidebar() {
     } catch (e) {
       alert("Land falhou (resolva conflitos no floor e tente de novo):\n" + String(e));
     }
+  }
+
+  // Dispatch paralelo: injeta no Orquestrador a ordem de ler a spec, agrupar as
+  // Tasks independentes e spawnar 1 agente por branch (terminal_spawn_on_floor).
+  function dispatchSpec(s: SpecFile) {
+    if (!orchestratorSid) {
+      alert("Defina um Orquestrador (botão 'O') e conecte-o ao MCP antes do dispatch.");
+      return;
+    }
+    const prompt =
+      `Dispatch paralelo da spec "${s.path}": ` +
+      `1) chame a tool spec_read com path="${s.path}". ` +
+      `2) Agrupe as Tasks INDEPENDENTES (que rodam sem conflito de arquivo). ` +
+      `3) Pra cada grupo, chame terminal_spawn_on_floor com branch única (ex task/<slug>), ` +
+      `command="claude", role="claude-code", task=os passos do grupo. ` +
+      `4) Acompanhe com terminal_list e me avise quando cada agente terminar pra eu dar Land.`;
+    invoke("pty_write", { sessionId: orchestratorSid, data: prompt }).catch(console.warn);
+    setTimeout(() => {
+      invoke("pty_write", { sessionId: orchestratorSid, data: "\r" }).catch(console.warn);
+    }, 150);
   }
 
   function installPreset(preset: AgentPreset) {
@@ -729,6 +759,57 @@ export function Sidebar() {
             </p>
           )}
         </div>
+      </div>
+
+      {/* Specs — dispatch paralelo (Fase C) */}
+      <div className="px-2 py-2 border-t border-border">
+        <p className="text-[11px] uppercase tracking-wider text-textMuted px-2 mb-1.5 flex items-center gap-1">
+          <FileText size={10} /> Specs
+        </p>
+        {!currentCwd ? (
+          <p className="px-2 text-[10px] text-textMuted opacity-60">Abra um projeto pra listar specs.</p>
+        ) : specs.length === 0 ? (
+          <p className="px-2 text-[10px] text-textMuted opacity-60">Nenhuma spec em docs/superpowers/.</p>
+        ) : (
+          <div className="space-y-0.5">
+            {specs.map((s) => (
+              <div
+                key={s.path}
+                className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2"
+              >
+                <span
+                  className={cn(
+                    "text-[8px] px-1 rounded shrink-0 uppercase",
+                    s.kind === "plan" ? "bg-brand/20 text-brand" : "bg-surface2 text-textMuted",
+                  )}
+                >
+                  {s.kind}
+                </span>
+                <span className="text-[11px] flex-1 truncate" title={s.path}>
+                  {s.title}
+                </span>
+                <span className="text-[9px] text-textMuted opacity-60 shrink-0">{s.tasks}t</span>
+                <Tooltip
+                  label={
+                    orchestratorSid
+                      ? "Dispatch paralelo: o Orquestrador agrupa as Tasks e spawna 1 agente por branch"
+                      : "Defina um Orquestrador (botão 'O') primeiro"
+                  }
+                  side="top"
+                  className="shrink-0"
+                >
+                  <button
+                    onClick={() => dispatchSpec(s)}
+                    disabled={!orchestratorSid}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <Rocket size={11} />
+                  </button>
+                </Tooltip>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <footer className="px-4 py-3 border-t border-border text-[10px] text-textMuted">

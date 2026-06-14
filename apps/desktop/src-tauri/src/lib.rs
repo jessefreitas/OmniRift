@@ -3,6 +3,7 @@ pub mod db;
 pub mod git;
 pub mod mcp;
 pub mod pty;
+pub mod spec;
 
 use commands::git::{
     floor_git_create, floor_git_land, floor_git_remove, floor_git_status, git_repo_info,
@@ -15,6 +16,7 @@ use commands::pty::{
     pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_read_screen,
     pty_resize, pty_spawn, pty_write,
 };
+use commands::spec::spec_list_files;
 use commands::workspace::{workspace_load, workspace_save};
 use db::{db_load_workspace, db_save_workspace};
 use mcp::{mcp_router, AgentRegistry};
@@ -99,6 +101,7 @@ pub fn run() {
             floor_git_status,
             floor_git_land,
             floor_git_remove,
+            spec_list_files,
         ])
         .run(tauri::generate_context!())
         .expect("erro fatal rodando Maestri Linux");
