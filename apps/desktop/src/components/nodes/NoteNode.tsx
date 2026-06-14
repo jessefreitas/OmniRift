@@ -7,7 +7,7 @@ import type { NoteNode as NoteNodeData } from "@/types/canvas";
 
 type NoteRfNode = Node<NoteNodeData & Record<string, unknown>, "note">;
 
-export const NOTE_COLORS = ["#f5d98a", "#a8d8b9", "#a3c4f3", "#f3a3a3", "#d9c2f0", "#f0e6c2"];
+const NOTE_COLORS = ["#f5d98a", "#a8d8b9", "#a3c4f3", "#f3a3a3", "#d9c2f0", "#f0e6c2"];
 
 export function NoteNode({ id, data, selected }: NodeProps<NoteRfNode>) {
   const patchNode = useCanvasStore((s) => s.patchNode);

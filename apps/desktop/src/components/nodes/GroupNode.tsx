@@ -7,7 +7,7 @@ import type { GroupNode as GroupNodeData } from "@/types/canvas";
 
 type GroupRfNode = Node<GroupNodeData & Record<string, unknown>, "group">;
 
-export const GROUP_COLORS = ["#29a2a7", "#9a6dd7", "#46a758", "#f5a623", "#e5484d", "#3b8bd4"];
+const GROUP_COLORS = ["#29a2a7", "#9a6dd7", "#46a758", "#f5a623", "#e5484d", "#3b8bd4"];
 
 export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
   const patchNode = useCanvasStore((s) => s.patchNode);

@@ -8,20 +8,25 @@ import { lazy, Suspense } from "react";
 import type { ComponentType } from "react";
 import type { NodeProps } from "@xyflow/react";
 
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+
 const Sketch = lazy(() =>
   import("./SketchNode").then((m) => ({ default: m.SketchNode })),
 ) as unknown as ComponentType<NodeProps>;
 
+const FALLBACK_BOX =
+  "flex items-center justify-center rounded-lg border border-border bg-surface1 text-textMuted text-xs h-full w-full px-3 text-center";
+
 export function SketchNodeLazy(props: NodeProps) {
   return (
-    <Suspense
-      fallback={
-        <div className="flex items-center justify-center rounded-lg border border-border bg-surface1 text-textMuted text-xs">
-          carregando sketch…
-        </div>
-      }
+    // ErrorBoundary primeiro: se o tldraw falhar (load ou runtime), só ESTE node
+    // mostra o aviso — o canvas inteiro continua de pé.
+    <ErrorBoundary
+      fallback={<div className={FALLBACK_BOX}>sketch indisponível (recrie o node)</div>}
     >
-      <Sketch {...props} />
-    </Suspense>
+      <Suspense fallback={<div className={FALLBACK_BOX}>carregando sketch…</div>}>
+        <Sketch {...props} />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
