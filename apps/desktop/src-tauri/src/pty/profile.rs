@@ -63,6 +63,9 @@ fn profiles() -> &'static Vec<AgentProfile> {
                     re(r"\(y/n\)"),
                     re(r"[Aa]llow"),
                     re(r"Press [Ee]nter"),
+                    re(r"not signed in"),
+                    re(r"Select login"),
+                    re(r"arrow keys"),
                 ],
                 ready: vec![re(r"(?m)^\s*[❯>›]\s*$")],
             },
@@ -123,6 +126,14 @@ mod tests {
         let p = profile_for("antigravity");
         assert_eq!(p.name, "antigravity");
         assert!(p.is_agent);
+        assert_eq!(profile_for("agy").name, "antigravity");
+    }
+
+    #[test]
+    fn antigravity_login_is_blocked() {
+        let p = profile_for("agy");
+        assert!(p.matches_blocked("You are currently not signed in"));
+        assert!(p.matches_blocked("Select login method:"));
     }
 
     #[test]

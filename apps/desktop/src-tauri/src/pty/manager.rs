@@ -42,6 +42,8 @@ impl PtyManager {
         let profile = profile_for(&cfg.command);
         let session = Arc::new(PtySession::spawn(id.clone(), cfg, app.clone())?);
         self.sessions.insert(id.clone(), session.clone());
+        // Estado inicial explícito: agent_state nunca devolve None (sem "unknown").
+        self.state_map.insert(id.clone(), AgentState::Idle);
 
         StateDetector::spawn(
             id.clone(),
