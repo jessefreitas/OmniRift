@@ -45,12 +45,12 @@ npm run dev
 | Fase | Escopo | Status |
 |------|--------|--------|
 | 0 | Setup monorepo + Tauri scaffold | ✅ |
-| 1 | Canvas infinito + N terminais PTY | ⏳ |
-| 2 | Conexões PTY (agente A → agente B) | ⏳ |
-| 3 | Roles + persistência SQLite | ⏳ |
-| 4 | Sketches + Notas (tldraw) | ⏳ |
+| 1 | Canvas infinito + N terminais PTY | ✅ |
+| 2 | Conexões PTY (agente A → agente B) | ✅ |
+| 3 | Roles + persistência SQLite | ✅ |
+| 4 | Sketches + Notas (tldraw) + FileTree + Group | ✅ |
 | 5 | Portais browser (chromiumoxide) | ⏳ |
-| 6 | Floors + Routines | ⏳ |
+| 6 | Floors (= worktrees git) ✅ + Routines ⏳ | 🔶 |
 | 7 | Ombro (LLM local) + OmniForge bridges | ⏳ |
 
 ## Repositório Forgejo
