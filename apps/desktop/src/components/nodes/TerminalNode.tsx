@@ -7,10 +7,11 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Terminal as TerminalIcon, X, Maximize2, Minimize2, RefreshCw } from "lucide-react";
+import { Terminal as TerminalIcon, X, Maximize2, Minimize2, RefreshCw, Crown } from "lucide-react";
 
 import { useTerminalSession } from "@/hooks/useTerminalSession";
 import { useCanvasStore } from "@/store/canvas-store";
+import { getOrchestratorMount, subscribeOrchestratorMount } from "@/lib/orchestrator-dock-mount";
 import { TerminalContextMenu } from "@/components/TerminalContextMenu";
 import { StatusDot } from "@/components/StatusDot";
 import { ptyWrite } from "@/lib/pty-client";
@@ -31,6 +32,8 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
   const renameNode = useCanvasStore((s) => s.renameNode);
   const addToClipboard = useCanvasStore((s) => s.addToClipboard);
   const termStatus = useCanvasStore((s) => s.terminalStatuses[data.session_id] ?? "idle");
+  const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
+  const isOrch = orchestratorSid === data.session_id;
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data.label ?? data.command);
@@ -39,7 +42,8 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
   const [inViewport, setInViewport] = useState(true);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const originalParentRef = useRef<HTMLElement | null>(null);
+  const homeSlotRef = useRef<HTMLDivElement | null>(null);
+  const fullscreenSlotRef = useRef<HTMLDivElement | null>(null);
   const nodeWrapRef = useRef<HTMLDivElement>(null);
 
   const { containerRef, ready, error, fit, getSelection, reconnect } =
@@ -107,22 +111,35 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
     setEditing(false);
   }
 
-  // Move o elemento DOM do xterm para o container fullscreen (appendChild).
-  // Não chama term.open() de novo — apenas muda o pai no DOM.
-  const handleFullscreenContainer = useCallback(
-    (el: HTMLDivElement | null) => {
-      if (el && containerRef.current) {
-        originalParentRef.current = containerRef.current.parentElement as HTMLElement;
-        el.appendChild(containerRef.current);
-        setTimeout(fit, 50);
-      } else if (!el && containerRef.current && originalParentRef.current) {
-        originalParentRef.current.appendChild(containerRef.current);
-        originalParentRef.current = null;
-        setTimeout(fit, 50);
+  // Coloca o xterm no destino certo, por prioridade: fullscreen > dock (se for o
+  // Orquestrador) > slot do próprio nó. Move o ELEMENTO (appendChild) — nunca
+  // re-cria nem re-spawna: mesmo xterm, mesma sessão, pixel-perfect.
+  const place = useCallback(() => {
+    const host = containerRef.current;
+    if (!host) return;
+    let target: HTMLElement | null = null;
+    if (isFullscreen) target = fullscreenSlotRef.current;
+    else if (isOrch) target = getOrchestratorMount();
+    if (!target) target = homeSlotRef.current;
+    if (target && host.parentElement !== target) {
+      target.appendChild(host);
+      setTimeout(fit, 50);
+    }
+  }, [isFullscreen, isOrch, fit, containerRef]);
+
+  useEffect(() => { place(); }, [place]);
+  useEffect(() => subscribeOrchestratorMount(place), [place]);
+
+  // Antes do unmount, devolve o xterm pro slot do nó — senão o React tenta
+  // remover uma subtree cujo elemento está relocado (dock/fullscreen) e quebra.
+  useEffect(() => {
+    return () => {
+      const host = containerRef.current;
+      if (host && homeSlotRef.current && host.parentElement !== homeSlotRef.current) {
+        homeSlotRef.current.appendChild(host);
       }
-    },
-    [containerRef, fit],
-  );
+    };
+  }, [containerRef]);
 
   // --- Context menu handlers -------------------------------------------
 
@@ -183,7 +200,7 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
           {/* Container do xterm em fullscreen */}
           <div className="relative flex-1 bg-bg">
             <div
-              ref={handleFullscreenContainer}
+              ref={fullscreenSlotRef}
               className="terminal absolute inset-0"
               onPointerDown={(e) => e.stopPropagation()}
             />
@@ -313,13 +330,14 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
         </header>
 
         <div
+          ref={homeSlotRef}
           className="relative flex-1 bg-bg"
           onContextMenu={handleContextMenu}
         >
           <div
             ref={containerRef}
             className="terminal absolute inset-0"
-            style={{ visibility: inViewport ? "visible" : "hidden" }}
+            style={{ visibility: isOrch || inViewport ? "visible" : "hidden" }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={fit}
           />
@@ -332,6 +350,12 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
           {error && (
             <div className="absolute inset-0 flex items-center justify-center text-danger text-xs px-4 text-center pointer-events-none">
               falha ao iniciar: {error}
+            </div>
+          )}
+          {/* Quando é o Orquestrador, o xterm vive no dock — aqui mostra um aviso. */}
+          {isOrch && !isFullscreen && (
+            <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-bg text-textMuted text-xs pointer-events-none">
+              <Crown size={13} className="text-yellow-500" /> rodando no dock do Orquestrador ↗
             </div>
           )}
         </div>
