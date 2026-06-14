@@ -169,6 +169,12 @@ export function Sidebar() {
     () => floors.flatMap((f) => f.nodes.filter((n) => n.kind === "terminal")),
     [floors],
   );
+  // Floor (nome) onde cada sessão vive — topologia cross-floor pro registry/UI.
+  const floorNameOf = useCallback(
+    (sid: string) =>
+      floors.find((f) => f.nodes.some((n) => n.kind === "terminal" && n.session_id === sid))?.name,
+    [floors],
+  );
   const terminalStatuses = useCanvasStore((s) => s.terminalStatuses);
 
   const nameRef = useRef<HTMLInputElement>(null);
@@ -213,13 +219,17 @@ export function Sidebar() {
     const savedDescs = { ...agentDescriptions };
     const timer = setTimeout(() => {
       // getState() garante nodes atuais, não a snapshot do mount
-      const currentNodes = useCanvasStore.getState().allTerminalNodes();
+      const st = useCanvasStore.getState();
+      const currentNodes = st.allTerminalNodes();
       for (const sid of savedAgents) {
         const node = currentNodes.find((n) => n.session_id === sid);
         if (!node) continue;
         const label = node.label ?? node.command;
         const desc = savedDescs[sid] ?? `Agente ${label}`;
-        mcpRegisterAgent(label, sid, desc).catch(console.warn);
+        const floor = st.floors.find(
+          (f) => f.nodes.some((n) => n.kind === "terminal" && n.session_id === sid),
+        )?.name;
+        mcpRegisterAgent(label, sid, desc, floor).catch(console.warn);
         console.debug(`[MCP] re-registrado: ${label}`);
       }
     }, 2500);
@@ -276,7 +286,7 @@ export function Sidebar() {
       const description = agentDescriptions[sessionId] ?? `Agente ${label} disponível para tarefas.`;
       const next = new Set([...mcpAgents, sessionId]);
       setMcpAgents(next);
-      mcpRegisterAgent(label, sessionId, description).catch(console.warn);
+      mcpRegisterAgent(label, sessionId, description, floorNameOf(sessionId)).catch(console.warn);
       // Papel no terminal do agente: texto + \r separado
       const roleText = `Você está agindo como ${label} no canvas Maestri. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.`;
       invoke("pty_write", { sessionId, data: roleText }).catch(console.warn);
@@ -286,7 +296,7 @@ export function Sidebar() {
       // Briefing no Orquestrador
       sendTeamBriefing(next, agentDescriptions, orchestratorSid, terminals);
     }
-  }, [mcpAgents, agentDescriptions, orchestratorSid, terminals, sendTeamBriefing]);
+  }, [mcpAgents, agentDescriptions, orchestratorSid, terminals, sendTeamBriefing, floorNameOf]);
 
   const copyMcpCmd = useCallback(async () => {
     await navigator.clipboard.writeText(MCP_ADD_CMD);
@@ -627,6 +637,7 @@ export function Sidebar() {
             const isOrch = orchestratorSid === sid;
             const desc = agentDescriptions[sid] ?? "";
             const agentStatus = terminalStatuses[sid] ?? "idle";
+            const floorName = floorNameOf(sid);
             return (
               <div key={n.id} className="rounded hover:bg-surface2 group">
                 <div className="flex items-center gap-1.5 px-2 py-1">
@@ -677,6 +688,14 @@ export function Sidebar() {
                     "text-[11px] flex-1 truncate font-medium",
                     isOrch && "text-yellow-400",
                   )}>{label}{isOrch && <span className="ml-1 text-[9px] text-yellow-500 font-normal">orq</span>}</span>
+                  {floorName && (
+                    <Tooltip label={`Vive no floor "${floorName}"`} side="top" className="shrink-0">
+                      <span className="flex items-center gap-0.5 text-[8px] text-textMuted opacity-70 px-1 py-0.5 rounded bg-surface2 max-w-[64px]">
+                        <GitBranch size={7} className="shrink-0" />
+                        <span className="truncate">{floorName}</span>
+                      </span>
+                    </Tooltip>
+                  )}
                   <Tooltip label="Injeta /mcp add neste terminal (conecta-o ao MCP do maestri)" side="top" className="shrink-0">
                     <button
                       onClick={() => injectMcpToTerminal(sid)}

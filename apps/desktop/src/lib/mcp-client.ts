@@ -5,9 +5,15 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-/** Registra um terminal como agente disponível para o Orquestrador. */
-export async function mcpRegisterAgent(label: string, sessionId: string, description: string): Promise<void> {
-  await invoke("mcp_register_agent", { label, sessionId, description });
+/** Registra um terminal como agente disponível para o Orquestrador.
+ *  `floor` = nome do floor onde o agente vive (topologia cross-floor). */
+export async function mcpRegisterAgent(
+  label: string,
+  sessionId: string,
+  description: string,
+  floor?: string,
+): Promise<void> {
+  await invoke("mcp_register_agent", { label, sessionId, description, floor: floor ?? null });
 }
 
 /** Remove um agente do registry (terminal fechado/renomeado). */

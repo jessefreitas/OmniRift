@@ -6,9 +6,10 @@ pub fn mcp_register_agent(
     label: String,
     session_id: String,
     description: String,
+    floor: Option<String>,
     registry: State<'_, std::sync::Arc<AgentRegistry>>,
 ) {
-    registry.register(label, session_id, description);
+    registry.register(label, session_id, description, floor);
 }
 
 #[tauri::command]

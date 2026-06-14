@@ -186,7 +186,8 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
                 agents
                     .iter()
                     .map(|(label, entry)| {
-                        format!("• {} (tool: `{}`) — {}", label, to_tool_name(label), entry.description)
+                        let floor = entry.floor.as_deref().map(|f| format!(" @{f}")).unwrap_or_default();
+                        format!("• {} (tool: `{}`){floor} — {}", label, to_tool_name(label), entry.description)
                     })
                     .collect::<Vec<_>>()
                     .join("\n")

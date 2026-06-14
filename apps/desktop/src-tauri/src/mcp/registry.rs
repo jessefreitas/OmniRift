@@ -6,9 +6,12 @@ use std::sync::Arc;
 pub struct AgentEntry {
     pub session_id: SessionId,
     pub description: String,
+    /// Nome do floor onde o agente vive — dá ao Orquestrador a topologia
+    /// cross-floor (quem está em qual branch). `None` = floor desconhecido.
+    pub floor: Option<String>,
 }
 
-/// Mapeia label de agente → (session_id PTY, description).
+/// Mapeia label de agente → (session_id PTY, description, floor).
 /// Cada agente registrado vira uma tool dinâmica no MCP.
 #[derive(Default, Clone)]
 pub struct AgentRegistry(Arc<DashMap<String, AgentEntry>>);
@@ -18,9 +21,15 @@ impl AgentRegistry {
         Self::default()
     }
 
-    pub fn register(&self, label: String, session_id: SessionId, description: String) {
+    pub fn register(
+        &self,
+        label: String,
+        session_id: SessionId,
+        description: String,
+        floor: Option<String>,
+    ) {
         log::info!("MCP: agente '{}' registrado ({})", label, &session_id[..8.min(session_id.len())]);
-        self.0.insert(label, AgentEntry { session_id, description });
+        self.0.insert(label, AgentEntry { session_id, description, floor });
     }
 
     pub fn unregister(&self, label: &str) -> Option<SessionId> {

@@ -135,6 +135,24 @@ pub fn terminal_tool_defs() -> Vec<Value> {
     ]
 }
 
+/// Nome do floor ativo, lido do espelho (floor_mirror) que o frontend mantém.
+/// Usado pra anotar a topologia cross-floor dos agentes (em qual branch cada um vive).
+pub(crate) fn active_floor_name(state: &McpState) -> Option<String> {
+    let m = state.floor_mirror.lock();
+    let active_id = m.get("activeFloorId")?.as_str()?;
+    let floors = m.get("floors")?.as_array()?;
+    floors
+        .iter()
+        .find(|f| f.get("id").and_then(|v| v.as_str()) == Some(active_id))
+        .and_then(|f| f.get("name").and_then(|v| v.as_str()))
+        .map(|s| s.to_string())
+}
+
+/// Sufixo de floor pra exibição: ` @<floor>` ou vazio.
+fn floor_suffix(floor: &Option<String>) -> String {
+    floor.as_deref().map(|f| format!(" @{f}")).unwrap_or_default()
+}
+
 /// Despacha as tools `terminal_*`. Devolve o texto do envelope MCP.
 pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> String {
     match tool {
@@ -151,7 +169,7 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                         .agent_state(&entry.session_id)
                         .map(|s| format!("{s:?}").to_lowercase())
                         .unwrap_or_else(|| "unknown".into());
-                    format!("• {label} [{st}] — {}", entry.description)
+                    format!("• {label} [{st}]{} — {}", floor_suffix(&entry.floor), entry.description)
                 })
                 .collect::<Vec<_>>()
                 .join("\n")
@@ -298,7 +316,8 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             let acked = tokio::time::timeout(Duration::from_secs(8), rx).await.is_ok();
             state.app.unlisten(listener_id);
 
-            state.agent_registry.register(label.clone(), id.clone(), command.clone());
+            let floor = active_floor_name(state);
+            state.agent_registry.register(label.clone(), id.clone(), command.clone(), floor);
 
             if acked {
                 format!("criado: {label} (id {id})")
