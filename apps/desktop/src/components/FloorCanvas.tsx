@@ -21,11 +21,13 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { TerminalNode } from "@/components/nodes/TerminalNode";
+import { NoteNode } from "@/components/nodes/NoteNode";
 import { useCanvasStore } from "@/store/canvas-store";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
 
 const nodeTypes = {
   terminal: TerminalNode,
+  note: NoteNode,
 };
 
 export function FloorCanvas({ floorId }: { floorId: string }) {

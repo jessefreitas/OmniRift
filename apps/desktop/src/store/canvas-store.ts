@@ -1,6 +1,15 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
-import type { CanvasEdge, CanvasNode, TerminalNode } from "@/types/canvas";
+import type {
+  CanvasEdge,
+  CanvasNode,
+  CanvasNodePatch,
+  FileTreeNode,
+  GroupNode,
+  NoteNode,
+  SketchNode,
+  TerminalNode,
+} from "@/types/canvas";
 import type { AnyWorkspaceFile, Floor, WorkspaceFileV2 } from "@/types/workspace";
 import { migrateWorkspace } from "@/types/workspace";
 import type { AgentRole, AgentState } from "@/types/pty";
@@ -35,11 +44,15 @@ interface CanvasState {
     label?: string;
     id?: string;
   }) => TerminalNode;
+  addNote: (params?: { position?: { x: number; y: number }; content?: string; color?: string }) => NoteNode;
+  addGroup: (params?: { position?: { x: number; y: number }; label?: string }) => GroupNode;
+  addFileTree: (params: { rootPath: string; position?: { x: number; y: number } }) => FileTreeNode;
+  addSketch: (params?: { position?: { x: number; y: number } }) => SketchNode;
   removeNode: (id: string) => void;
   renameNode: (id: string, label: string) => void;
   updateNodePosition: (id: string, position: { x: number; y: number }) => void;
   updateNodeSize: (id: string, size: { width: number; height: number }) => void;
-  patchNode: (id: string, patch: Partial<CanvasNode>) => void;
+  patchNode: (id: string, patch: CanvasNodePatch) => void;
   addEdge: (source: string, target: string, kind?: CanvasEdge["kind"]) => void;
   removeEdge: (id: string) => void;
 
@@ -145,6 +158,55 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       cwd,
       position: position ?? defaultPosition(),
       size: { width: 520, height: 320 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addNote: ({ position, content, color } = {}) => {
+    const node: NoteNode = {
+      id: nanoid(),
+      kind: "note",
+      content: content ?? "",
+      color: color ?? "#f5d98a",
+      position: position ?? defaultPosition(),
+      size: { width: 240, height: 200 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addGroup: ({ position, label } = {}) => {
+    const node: GroupNode = {
+      id: nanoid(),
+      kind: "group",
+      label: label ?? "Grupo",
+      position: position ?? defaultPosition(),
+      size: { width: 420, height: 320 },
+    };
+    // No início do array → renderiza atrás dos outros nós (frame de fundo).
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [node, ...ns]) }));
+    return node;
+  },
+
+  addFileTree: ({ rootPath, position }) => {
+    const node: FileTreeNode = {
+      id: nanoid(),
+      kind: "filetree",
+      rootPath,
+      position: position ?? defaultPosition(),
+      size: { width: 280, height: 360 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addSketch: ({ position } = {}) => {
+    const node: SketchNode = {
+      id: nanoid(),
+      kind: "sketch",
+      position: position ?? defaultPosition(),
+      size: { width: 480, height: 360 },
     };
     set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;

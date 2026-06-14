@@ -6,6 +6,7 @@
 import { useCanvasStore } from "@/store/canvas-store";
 import { FloorCanvas } from "@/components/FloorCanvas";
 import { OrchestratorDock } from "@/components/OrchestratorDock";
+import { CanvasToolbar } from "@/components/CanvasToolbar";
 import { useQuickJump } from "@/hooks/useQuickJump";
 
 export function Canvas() {
@@ -27,6 +28,8 @@ export function Canvas() {
           <FloorCanvas floorId={f.id} />
         </div>
       ))}
+      {/* Toolbar flutuante de criação de nodes. */}
+      <CanvasToolbar />
       {/* Dock onipresente do Orquestrador — visível em qualquer floor. */}
       <OrchestratorDock />
     </div>
