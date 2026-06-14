@@ -8,6 +8,7 @@ import {
   Folder,
   FolderOpen,
   Link2,
+  Orbit,
   Plus,
   Sparkles,
   TerminalSquare,
@@ -86,6 +87,14 @@ const PRESETS: AgentPreset[] = [
     role: "opencode",
     icon: Bot,
     description: "OpenCode (sst.dev)",
+  },
+  {
+    id: "antigravity",
+    label: "Antigravity",
+    command: "antigravity",
+    role: "antigravity",
+    icon: Orbit,
+    description: "Google Antigravity (Gemini) CLI",
   },
 ];
 

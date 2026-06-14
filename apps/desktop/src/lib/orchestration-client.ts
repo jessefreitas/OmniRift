@@ -18,7 +18,7 @@ interface SpawnRequest {
   position?: { x: number; y: number } | null;
 }
 
-const VALID_ROLES: AgentRole[] = ["shell", "claude-code", "codex", "opencode", "custom"];
+const VALID_ROLES: AgentRole[] = ["shell", "claude-code", "codex", "opencode", "antigravity", "custom"];
 
 function asRole(role?: string): AgentRole {
   return (VALID_ROLES as string[]).includes(role ?? "") ? (role as AgentRole) : "shell";

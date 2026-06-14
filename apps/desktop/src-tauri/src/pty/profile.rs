@@ -56,6 +56,17 @@ fn profiles() -> &'static Vec<AgentProfile> {
                 ready: vec![re(r"(?m)^\s*[❯>›]\s*$")],
             },
             AgentProfile {
+                name: "antigravity",
+                is_agent: true,
+                blocked: vec![
+                    re(r"Do you want"),
+                    re(r"\(y/n\)"),
+                    re(r"[Aa]llow"),
+                    re(r"Press [Ee]nter"),
+                ],
+                ready: vec![re(r"(?m)^\s*[❯>›]\s*$")],
+            },
+            AgentProfile {
                 name: "shell",
                 is_agent: false,
                 blocked: vec![],
@@ -73,6 +84,8 @@ pub fn profile_for(command: &str) -> &'static AgentProfile {
         "claude"
     } else if base.contains("codex") {
         "codex"
+    } else if base.contains("antigravity") {
+        "antigravity"
     } else {
         "shell"
     };
@@ -103,6 +116,13 @@ mod tests {
         let p = profile_for("/bin/bash");
         assert_eq!(p.name, "shell");
         assert!(!p.is_agent);
+    }
+
+    #[test]
+    fn selects_antigravity() {
+        let p = profile_for("antigravity");
+        assert_eq!(p.name, "antigravity");
+        assert!(p.is_agent);
     }
 
     #[test]

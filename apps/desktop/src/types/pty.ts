@@ -34,6 +34,7 @@ export type AgentRole =
   | "claude-code"
   | "codex"
   | "opencode"
+  | "antigravity"
   | "custom";
 
 /** Estado de um agente num terminal — espelha o enum Rust `AgentState`. */
