@@ -49,7 +49,7 @@ npm run dev
 | 2 | Conexões PTY (agente A → agente B) | ✅ |
 | 3 | Roles + persistência SQLite | ✅ |
 | 4 | Sketches + Notas (tldraw) + FileTree + Group | ✅ |
-| 5 | Portais browser (chromiumoxide) | ⏳ |
+| 5 | Portais browser (Tauri child webview, não chromiumoxide) | 🔶 build ok, pendente smoke GUI |
 | 6 | Floors (= worktrees git) ✅ + Routines ⏳ | 🔶 |
 | 7 | Ombro (LLM local) + OmniForge bridges | ⏳ |
 
