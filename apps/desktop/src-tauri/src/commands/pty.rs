@@ -44,6 +44,16 @@ pub fn pty_list(manager: State<'_, std::sync::Arc<PtyManager>>) -> Vec<SessionId
     manager.list()
 }
 
+/// Tela renderizada (VT100) de uma sessão — usada pra semear o espelho do
+/// Orquestrador no dock sem re-spawnar a sessão.
+#[tauri::command]
+pub fn pty_read_screen(
+    session_id: SessionId,
+    manager: State<'_, std::sync::Arc<PtyManager>>,
+) -> Result<String, String> {
+    manager.read_screen(&session_id).map_err(|e| format!("{e:#}"))
+}
+
 #[tauri::command]
 pub async fn pty_pipe_create(
     source_id: SessionId,

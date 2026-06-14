@@ -52,6 +52,10 @@ interface CanvasState {
   terminalStatuses: Record<string, AgentState>;
   setTerminalStatus: (sessionId: string, status: AgentState) => void;
 
+  // orquestrador designado (global) — dock onipresente + sidebar
+  orchestratorSid: string | null;
+  setOrchestratorSid: (sid: string | null) => void;
+
   // persistência
   getWorkspaceSnapshot: () => WorkspaceFileV2;
   restoreWorkspace: (ws: AnyWorkspaceFile) => void;
@@ -75,6 +79,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   currentCwd: null,
   clipboardHistory: [],
   terminalStatuses: {},
+  orchestratorSid:
+    (typeof localStorage !== "undefined" && localStorage.getItem("maestri-mcp-orch")) || null,
 
   // ---- floor management ----
   createFloor: (name, opts) => {
@@ -213,6 +219,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   // ---- status ----
   setTerminalStatus: (sessionId, status) =>
     set((s) => ({ terminalStatuses: { ...s.terminalStatuses, [sessionId]: status } })),
+
+  setOrchestratorSid: (sid) => {
+    try {
+      if (sid) localStorage.setItem("maestri-mcp-orch", sid);
+      else localStorage.removeItem("maestri-mcp-orch");
+    } catch { /* localStorage indisponível */ }
+    set({ orchestratorSid: sid });
+  },
 
   // ---- persistência ----
   getWorkspaceSnapshot: () => {

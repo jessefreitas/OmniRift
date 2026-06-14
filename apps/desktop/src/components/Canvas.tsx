@@ -5,6 +5,7 @@
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { FloorCanvas } from "@/components/FloorCanvas";
+import { OrchestratorDock } from "@/components/OrchestratorDock";
 
 export function Canvas() {
   const floors = useCanvasStore((s) => s.floors);
@@ -24,6 +25,8 @@ export function Canvas() {
           <FloorCanvas floorId={f.id} />
         </div>
       ))}
+      {/* Dock onipresente do Orquestrador — visível em qualquer floor. */}
+      <OrchestratorDock />
     </div>
   );
 }

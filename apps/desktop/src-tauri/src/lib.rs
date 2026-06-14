@@ -12,8 +12,8 @@ use commands::mcp::{
     mcp_unregister_agent,
 };
 use commands::pty::{
-    pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_resize, pty_spawn,
-    pty_write,
+    pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_read_screen,
+    pty_resize, pty_spawn, pty_write,
 };
 use commands::workspace::{workspace_load, workspace_save};
 use db::{db_load_workspace, db_save_workspace};
@@ -83,6 +83,7 @@ pub fn run() {
             pty_pipe_create,
             pty_pipe_remove,
             pty_pipe_list,
+            pty_read_screen,
             workspace_save,
             workspace_load,
             mcp_register_agent,

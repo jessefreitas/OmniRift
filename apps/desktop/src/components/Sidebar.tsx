@@ -188,9 +188,9 @@ export function Sidebar() {
     try { return JSON.parse(localStorage.getItem("maestri-mcp-descs") ?? "{}"); }
     catch { return {}; }
   });
-  const [orchestratorSid, setOrchestratorSid] = useState<string | null>(() =>
-    localStorage.getItem("maestri-mcp-orch") ?? null
-  );
+  // Orquestrador agora vive no store (compartilhado com o dock onipresente).
+  const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
+  const setOrchestratorSid = useCanvasStore((s) => s.setOrchestratorSid);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
 
@@ -201,10 +201,6 @@ export function Sidebar() {
   useEffect(() => {
     localStorage.setItem("maestri-mcp-descs", JSON.stringify(agentDescriptions));
   }, [agentDescriptions]);
-  useEffect(() => {
-    if (orchestratorSid) localStorage.setItem("maestri-mcp-orch", orchestratorSid);
-    else localStorage.removeItem("maestri-mcp-orch");
-  }, [orchestratorSid]);
 
   // Resolve o perfil universal de MCP (Serena = estrutura de código + Context7 =
   // docs ao vivo) uma vez — injetado via --mcp-config nos agentes claude.
