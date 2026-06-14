@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Canvas } from "@/components/Canvas";
 import { Sidebar } from "@/components/Sidebar";
 import { initOrchestrationBridge } from "@/lib/orchestration-client";
+import { initPersistence } from "@/lib/persistence-client";
 
 export default function App() {
   useEffect(() => {
@@ -16,6 +17,19 @@ export default function App() {
     return () => {
       disposed = true;
       unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    let disposed = false;
+    initPersistence().then((c) => {
+      if (disposed) c();
+      else cleanup = c;
+    });
+    return () => {
+      disposed = true;
+      cleanup?.();
     };
   }, []);
 
