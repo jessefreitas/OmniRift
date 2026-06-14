@@ -51,6 +51,8 @@ interface CanvasState {
   addSketch: (params?: { position?: { x: number; y: number } }) => SketchNode;
   addPortal: (params?: { url?: string; position?: { x: number; y: number } }) => PortalNode;
   removeNode: (id: string) => void;
+  /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
+  reparentNode: (nodeId: string, parentId: string | null) => void;
   renameNode: (id: string, label: string) => void;
   updateNodePosition: (id: string, position: { x: number; y: number }) => void;
   updateNodeSize: (id: string, size: { width: number; height: number }) => void;
@@ -228,15 +230,48 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
 
   removeNode: (id) =>
     set((s) => ({
-      floors: s.floors.map((f) =>
-        f.id === s.activeFloorId
-          ? {
-              ...f,
-              nodes: f.nodes.filter((n) => n.id !== id),
-              edges: f.edges.filter((e) => e.source !== id && e.target !== id),
-            }
-          : f,
-      ),
+      floors: s.floors.map((f) => {
+        if (f.id !== s.activeFloorId) return f;
+        const removed = f.nodes.find((n) => n.id === id);
+        const nodes = f.nodes
+          .filter((n) => n.id !== id)
+          .map((n) =>
+            // Filho de um grupo removido → vira solto, reposicionado em absoluto.
+            n.parentId === id && removed
+              ? {
+                  ...n,
+                  parentId: undefined,
+                  position: { x: removed.position.x + n.position.x, y: removed.position.y + n.position.y },
+                }
+              : n,
+          );
+        return { ...f, nodes, edges: f.edges.filter((e) => e.source !== id && e.target !== id) };
+      }),
+    })),
+
+  reparentNode: (nodeId, parentId) =>
+    set((s) => ({
+      floors: s.floors.map((f) => {
+        if (f.id !== s.activeFloorId) return f;
+        const node = f.nodes.find((n) => n.id === nodeId);
+        if (!node) return f;
+        // Posição absoluta atual (soma a do pai antigo, se houver).
+        const oldParent = node.parentId ? f.nodes.find((n) => n.id === node.parentId) : undefined;
+        const abs = oldParent
+          ? { x: oldParent.position.x + node.position.x, y: oldParent.position.y + node.position.y }
+          : node.position;
+        // Nova posição: relativa ao novo pai, ou absoluta se soltando.
+        const newParent = parentId ? f.nodes.find((n) => n.id === parentId) : undefined;
+        const pos = newParent
+          ? { x: abs.x - newParent.position.x, y: abs.y - newParent.position.y }
+          : abs;
+        return {
+          ...f,
+          nodes: f.nodes.map((n) =>
+            n.id === nodeId ? { ...n, parentId: parentId ?? undefined, position: pos } : n,
+          ),
+        };
+      }),
     })),
 
   renameNode: (id, label) =>
@@ -314,13 +349,17 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     const v2 = migrateWorkspace(ws);
     const floors: Floor[] = v2.floors.map((f) => {
       const idMap = new Map<string, string>();
-      const nodes: CanvasNode[] = f.nodes.map((n) => {
+      const remapped: CanvasNode[] = f.nodes.map((n) => {
         const newId = nanoid();
         idMap.set(n.id, newId);
         return n.kind === "terminal"
           ? ({ ...n, id: newId, session_id: newId } as CanvasNode)
           : ({ ...n, id: newId } as CanvasNode);
       });
+      // 2ª passada: remapeia parentId (o pai pode ter sido processado depois).
+      const nodes: CanvasNode[] = remapped.map((n) =>
+        n.parentId ? ({ ...n, parentId: idMap.get(n.parentId) } as CanvasNode) : n,
+      );
       const edges: CanvasEdge[] = f.edges.map((e) => ({
         ...e,
         id: nanoid(),

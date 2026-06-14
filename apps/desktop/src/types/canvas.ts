@@ -12,6 +12,8 @@ export interface BaseCanvasNode {
   kind: NodeKind;
   position: { x: number; y: number };
   size: { width: number; height: number };
+  /** Id do GroupNode pai — quando setado, `position` é relativa ao pai (move junto). */
+  parentId?: string;
 }
 
 export interface TerminalNode extends BaseCanvasNode {

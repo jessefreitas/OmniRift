@@ -28,6 +28,16 @@ import { SketchNodeLazy } from "@/components/nodes/SketchNodeLazy";
 import { PortalNode } from "@/components/nodes/PortalNode";
 import { useCanvasStore } from "@/store/canvas-store";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
+import type { CanvasNode } from "@/types/canvas";
+
+/** Posição absoluta de um node (soma a do pai, se for filho de um grupo). */
+function absolutePos(n: CanvasNode, all: CanvasNode[]): { x: number; y: number } {
+  if (n.parentId) {
+    const p = all.find((x) => x.id === n.parentId);
+    if (p) return { x: p.position.x + n.position.x, y: p.position.y + n.position.y };
+  }
+  return n.position;
+}
 
 const nodeTypes = {
   terminal: TerminalNode,
@@ -45,21 +55,26 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
   const addEdge = useCanvasStore((s) => s.addEdge);
   const removeEdge = useCanvasStore((s) => s.removeEdge);
   const removeNode = useCanvasStore((s) => s.removeNode);
+  const reparentNode = useCanvasStore((s) => s.reparentNode);
 
   const nodes = useMemo(() => floor?.nodes ?? [], [floor]);
   const edges = useMemo(() => floor?.edges ?? [], [floor]);
 
   const rfNodes: Node[] = useMemo(
     () =>
-      nodes.map((n) => ({
-        id: n.id,
-        type: n.kind,
-        position: n.position,
-        data: n as unknown as Record<string, unknown>,
-        dragHandle: ".node-drag-handle",
-        width: n.size.width,
-        height: n.size.height,
-      })),
+      // Grupos primeiro: o React Flow exige o pai antes dos filhos (e fica atrás).
+      [...nodes]
+        .sort((a, b) => Number(b.kind === "group") - Number(a.kind === "group"))
+        .map((n) => ({
+          id: n.id,
+          type: n.kind,
+          position: n.position,
+          data: n as unknown as Record<string, unknown>,
+          dragHandle: ".node-drag-handle",
+          width: n.size.width,
+          height: n.size.height,
+          ...(n.parentId ? { parentId: n.parentId } : {}),
+        })),
     [nodes],
   );
 
@@ -136,6 +151,27 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
     [nodes, addEdge],
   );
 
+  // Ao soltar um node: se o centro dele caiu dentro de um GroupNode, vira filho do
+  // grupo (move junto); se saiu de um grupo, solta. Grupos não viram filhos.
+  const onNodeDragStop = useCallback(
+    (_e: React.MouseEvent, dragged: Node) => {
+      const list = useCanvasStore.getState().floors.find((f) => f.id === floorId)?.nodes ?? [];
+      const node = list.find((n) => n.id === dragged.id);
+      if (!node || node.kind === "group") return;
+      const a = absolutePos(node, list);
+      const cx = a.x + node.size.width / 2;
+      const cy = a.y + node.size.height / 2;
+      const group = list.find((g) => {
+        if (g.kind !== "group") return false;
+        const ga = absolutePos(g, list);
+        return cx >= ga.x && cx <= ga.x + g.size.width && cy >= ga.y && cy <= ga.y + g.size.height;
+      });
+      const next = group?.id ?? null;
+      if (next !== (node.parentId ?? null)) reparentNode(node.id, next);
+    },
+    [floorId, reparentNode],
+  );
+
   return (
     <ReactFlow
       nodes={rfNodes}
@@ -144,6 +180,7 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
+      onNodeDragStop={onNodeDragStop}
       proOptions={{ hideAttribution: true }}
       minZoom={0.2}
       maxZoom={2.5}
