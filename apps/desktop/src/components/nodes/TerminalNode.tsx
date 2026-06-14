@@ -40,6 +40,7 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [inViewport, setInViewport] = useState(true);
+  const [dragOver, setDragOver] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const homeSlotRef = useRef<HTMLDivElement | null>(null);
@@ -171,6 +172,20 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
       try { await navigator.clipboard.writeText(sel); } catch { /* ignorar */ }
       addToClipboard(sel);
     }
+  }
+
+  // Solta um arquivo da árvore (ou do SO) → insere o caminho no stdin do agente.
+  // claude-code recebe como referência `@caminho`; os demais, o caminho cru.
+  function handleFileDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const path =
+      e.dataTransfer.getData("application/x-maestri-path") || e.dataTransfer.getData("text/plain");
+    if (!path) return;
+    let rel = path;
+    if (data.cwd && path.startsWith(data.cwd + "/")) rel = path.slice(data.cwd.length + 1);
+    const insert = data.role === "claude-code" ? `@${rel}` : /\s/.test(rel) ? `"${rel}"` : rel;
+    ptyWrite(data.session_id, insert + " ").catch(() => {});
   }
 
   // --- Fullscreen portal -----------------------------------------------
@@ -331,8 +346,11 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
 
         <div
           ref={homeSlotRef}
-          className="relative flex-1 bg-bg"
+          className={cn("relative flex-1 bg-bg", dragOver && "ring-2 ring-brand ring-inset")}
           onContextMenu={handleContextMenu}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; if (!dragOver) setDragOver(true); }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node | null)) setDragOver(false); }}
+          onDrop={handleFileDrop}
         >
           <div
             ref={containerRef}
@@ -356,6 +374,12 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
           {isOrch && !isFullscreen && (
             <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-bg text-textMuted text-xs pointer-events-none">
               <Crown size={13} className="text-yellow-500" /> rodando no dock do Orquestrador ↗
+            </div>
+          )}
+          {/* Feedback ao arrastar um arquivo da árvore por cima. */}
+          {dragOver && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-brand/10 text-brand text-xs font-medium pointer-events-none">
+              soltar para inserir o caminho
             </div>
           )}
         </div>

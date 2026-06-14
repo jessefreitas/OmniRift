@@ -37,8 +37,16 @@ function TreeItem({ entry, depth, showHidden }: { entry: DirEntry; depth: number
     <div>
       <div
         onClick={toggle}
+        draggable
+        onDragStart={(e) => {
+          // Arrasta o caminho do arquivo/pasta — solta num terminal pra inserir.
+          e.dataTransfer.setData("application/x-maestri-path", entry.path);
+          e.dataTransfer.setData("text/plain", entry.path);
+          e.dataTransfer.effectAllowed = "copy";
+          e.stopPropagation();
+        }}
         style={{ paddingLeft: 4 + depth * 12 }}
-        className="flex items-center gap-1 py-0.5 pr-2 text-[11px] text-textMuted hover:bg-surface2 hover:text-text cursor-pointer rounded select-none"
+        className="flex items-center gap-1 py-0.5 pr-2 text-[11px] text-textMuted hover:bg-surface2 hover:text-text cursor-grab active:cursor-grabbing rounded select-none"
       >
         {entry.isDir ? (
           open ? <ChevronDown size={10} className="shrink-0" /> : <ChevronRight size={10} className="shrink-0" />
