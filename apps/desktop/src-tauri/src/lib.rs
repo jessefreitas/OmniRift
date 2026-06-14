@@ -4,8 +4,8 @@ pub mod mcp;
 pub mod pty;
 
 use commands::mcp::{
-    floor_mirror_set, mcp_list_agents, mcp_register_agent, mcp_server_url, mcp_unregister_agent,
-    serena_mcp_config,
+    agent_mcp_config, floor_mirror_set, mcp_list_agents, mcp_register_agent, mcp_server_url,
+    mcp_unregister_agent,
 };
 use commands::pty::{
     pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_resize, pty_spawn,
@@ -88,7 +88,7 @@ pub fn run() {
             floor_mirror_set,
             db_save_workspace,
             db_load_workspace,
-            serena_mcp_config,
+            agent_mcp_config,
         ])
         .run(tauri::generate_context!())
         .expect("erro fatal rodando Maestri Linux");

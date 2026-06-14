@@ -20,7 +20,7 @@ import {
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
-import { mcpRegisterAgent, mcpUnregisterAgent, serenaMcpConfig } from "@/lib/mcp-client";
+import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig } from "@/lib/mcp-client";
 import { StatusDot } from "@/components/StatusDot";
 import { cn } from "@/lib/cn";
 import type { AgentRole } from "@/types/pty";
@@ -181,7 +181,7 @@ export function Sidebar() {
     localStorage.getItem("maestri-mcp-orch") ?? null
   );
   const [copiedCmd, setCopiedCmd] = useState(false);
-  const [serenaPath, setSerenaPath] = useState<string | null>(null);
+  const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
 
   // Salva estado no localStorage sempre que muda
   useEffect(() => {
@@ -195,10 +195,10 @@ export function Sidebar() {
     else localStorage.removeItem("maestri-mcp-orch");
   }, [orchestratorSid]);
 
-  // Resolve o Serena (estrutura de código por linguagem) uma vez — injetado
-  // via --mcp-config nos agentes claude. Null se não instalado.
+  // Resolve o perfil universal de MCP (Serena = estrutura de código + Context7 =
+  // docs ao vivo) uma vez — injetado via --mcp-config nos agentes claude.
   useEffect(() => {
-    serenaMcpConfig().then(setSerenaPath).catch(() => {});
+    agentMcpConfig().then(setMcpConfigPath).catch(() => {});
   }, []);
 
   // Re-registra agentes automaticamente após restart (aguarda PTYs spawnarem)
@@ -294,11 +294,12 @@ export function Sidebar() {
     await invoke("pty_write", { sessionId, data: `${MCP_ADD_CMD}\n` });
   }, []);
 
-  // Injeta o Serena (--mcp-config) nos agentes claude, se instalado — assim o
-  // agente nasce com find_symbol/find_references por linguagem na pasta do projeto.
-  function argsWithSerena(preset: AgentPreset): string[] | undefined {
-    if (serenaPath && preset.role === "claude-code") {
-      return [...(preset.args ?? []), "--mcp-config", serenaPath];
+  // Injeta o perfil universal de MCP (--mcp-config) nos agentes claude — o
+  // agente nasce com estrutura de código por linguagem (Serena) + docs ao vivo
+  // (Context7) apontados pra pasta do projeto.
+  function argsWithMcp(preset: AgentPreset): string[] | undefined {
+    if (mcpConfigPath && preset.role === "claude-code") {
+      return [...(preset.args ?? []), "--mcp-config", mcpConfigPath];
     }
     return preset.args;
   }
@@ -491,7 +492,7 @@ export function Sidebar() {
                 onClick={() =>
                   addTerminal({
                     command: preset.command,
-                    args: argsWithSerena(preset),
+                    args: argsWithMcp(preset),
                     role: preset.role,
                     label: preset.label,
                   })

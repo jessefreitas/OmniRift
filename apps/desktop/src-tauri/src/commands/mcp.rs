@@ -74,25 +74,38 @@ fn find_serena() -> Option<String> {
     None
 }
 
-/// Gera (e devolve o caminho de) um mcp-config apontando pro Serena em modo
-/// stdio com --project-from-cwd (detecta a linguagem/projeto da pasta do agente).
-/// Devolve None se o Serena não estiver instalado.
+/// Monta (e devolve o caminho de) o mcp-config dos agentes claude com o perfil
+/// universal de desenvolvimento — independe da linguagem do projeto:
+///   - serena   → estrutura de código por linguagem (LSP, 50+ langs), se instalado;
+///                --project-from-cwd detecta a linguagem/projeto da pasta do agente.
+///   - context7 → documentação ao vivo de libs/frameworks (HTTP remoto, sem creds).
+/// Sempre devolve Some: o Context7 não exige instalação local. Os MCPs de banco
+/// (Postgres/MS SQL/Firebase/SQLite) entram como add-on configurável à parte.
 #[tauri::command]
-pub fn serena_mcp_config(app: tauri::AppHandle) -> Option<String> {
+pub fn agent_mcp_config(app: tauri::AppHandle) -> Option<String> {
     use tauri::Manager;
-    let serena = find_serena()?;
-    let dir = app.path().app_data_dir().ok()?;
-    std::fs::create_dir_all(&dir).ok()?;
-    let cfg = serde_json::json!({
-        "mcpServers": {
-            "serena": {
+    let mut servers = serde_json::Map::new();
+
+    if let Some(serena) = find_serena() {
+        servers.insert(
+            "serena".into(),
+            serde_json::json!({
                 "command": serena,
                 "args": ["start-mcp-server", "--transport", "stdio",
                          "--project-from-cwd", "--context", "ide-assistant"]
-            }
-        }
-    });
-    let path = dir.join("serena-mcp.json");
+            }),
+        );
+    }
+    // Context7: docs ao vivo de qualquer lib via endpoint remoto — sem npx, sem credencial.
+    servers.insert(
+        "context7".into(),
+        serde_json::json!({ "type": "http", "url": "https://mcp.context7.com/mcp" }),
+    );
+
+    let dir = app.path().app_data_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    let cfg = serde_json::json!({ "mcpServers": serde_json::Value::Object(servers) });
+    let path = dir.join("agent-mcp.json");
     std::fs::write(&path, serde_json::to_string_pretty(&cfg).ok()?).ok()?;
     Some(path.to_string_lossy().to_string())
 }
