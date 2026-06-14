@@ -9,7 +9,7 @@
 ///   - send_task    → envia tarefa para um agente, captura e retorna resultado
 
 use crate::mcp::{registry::to_tool_name, AgentRegistry};
-use crate::pty::PtyManager;
+use crate::pty::{AgentState, PtyManager};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -236,149 +236,34 @@ async fn do_send_task(
             "Agente '{}' não encontrado. Use list_agents para ver disponíveis.", label
         ))?;
 
-    // Inscreve ANTES de escrever para não perder nenhum byte de resposta
-    let mut rx = state.pty_manager.subscribe_by_id(&session_id)?;
+    // Assina o stream de estado ANTES de enviar. Detecção VT100 (não line-mode):
+    // line-mode trava em TUI — Claude/agy redesenham a tela e nunca "ficam idle".
+    let mut rx = state.pty_manager.subscribe_state();
 
-    // Descarta output acumulado anterior (estado da sessão antes da tarefa)
-    while rx.try_recv().is_ok() {}
-
-    // Claude Code opera em raw mode: Enter é \r, não \n
+    // Claude/agy/codex operam em raw mode: Enter é \r.
     state.pty_manager.write(&session_id, format!("{task}\r").as_bytes())?;
 
-    // Acumula output até detectar prompt idle ("> ") ou timeout de inatividade
-    let mut buf: Vec<u8> = Vec::new();
-    // 30s sem novos bytes = agente concluiu ou travou
-    let idle_timeout = Duration::from_secs(30);
-    let max_wait = Duration::from_secs(600);
-    let start = std::time::Instant::now();
-
-    loop {
-        match tokio::time::timeout(idle_timeout, rx.recv()).await {
-            Ok(Ok(bytes)) => {
-                buf.extend_from_slice(&bytes);
-                if buf.len() > 100 && is_cc_idle(&buf) {
-                    break;
-                }
-            }
-            Ok(Err(_)) => break, // canal fechado
-            Err(_) => {
-                // 30s de silêncio — agente parou de enviar output
-                if start.elapsed() > max_wait {
-                    anyhow::bail!("Timeout: agente '{label}' não respondeu em {}s", max_wait.as_secs());
-                }
-                break;
+    // Espera o agente trabalhar e então assentar (done/idle/blocked). No estouro
+    // do timeout, devolve a tela atual mesmo assim (melhor que travar 10min).
+    let target = session_id.clone();
+    let settle = async {
+        let mut saw_working = false;
+        loop {
+            match rx.recv().await {
+                Ok((id, st)) if id == target => match st {
+                    AgentState::Working => saw_working = true,
+                    AgentState::Done | AgentState::Idle if saw_working => return,
+                    AgentState::Blocked if saw_working => return, // precisa de input
+                    AgentState::Dead => return,
+                    _ => {}
+                },
+                Ok(_) => continue,
+                Err(_) => return,
             }
         }
-        if start.elapsed() > max_wait {
-            break;
-        }
-    }
+    };
+    let _ = tokio::time::timeout(Duration::from_secs(180), settle).await;
 
-    Ok(clean_terminal_output(&buf))
-}
-
-/// Detecta se o Claude Code voltou ao prompt idle ("> " ou "❯ ").
-/// Opera em texto já limpo de ANSI; verifica só o tail do buffer para eficiência.
-fn is_cc_idle(output: &[u8]) -> bool {
-    let tail = if output.len() > 500 { &output[output.len() - 500..] } else { output };
-    let clean = clean_terminal_output(tail);
-    for line in clean.lines().rev().take(5) {
-        let t = line.trim();
-        if t == ">" || t == "❯" || t.starts_with("> ") || t.starts_with("❯ ") {
-            return true;
-        }
-    }
-    false
-}
-
-/// Remove sequências ANSI e limpa o output para leitura estruturada
-fn clean_terminal_output(bytes: &[u8]) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    let mut line_buf: Vec<u8> = Vec::new();
-    let mut i = 0;
-
-    while i < bytes.len() {
-        match bytes[i] {
-            0x1b => {
-                i += 1;
-                if i >= bytes.len() {
-                    break;
-                }
-                match bytes[i] {
-                    b'[' => {
-                        i += 1;
-                        while i < bytes.len() && !(0x40..=0x7e).contains(&bytes[i]) {
-                            i += 1;
-                        }
-                        i += 1;
-                    }
-                    b']' => {
-                        i += 1;
-                        while i < bytes.len() {
-                            if bytes[i] == 0x07 {
-                                i += 1;
-                                break;
-                            }
-                            if bytes[i] == 0x1b
-                                && i + 1 < bytes.len()
-                                && bytes[i + 1] == b'\\'
-                            {
-                                i += 2;
-                                break;
-                            }
-                            i += 1;
-                        }
-                    }
-                    _ => {
-                        i += 1;
-                    }
-                }
-            }
-            b'\r' => {
-                i += 1;
-                if i < bytes.len() && bytes[i] == b'\n' {
-                    flush_line(&mut lines, &mut line_buf);
-                    i += 1;
-                } else {
-                    line_buf.clear(); // cursor rewind = descarta linha atual
-                }
-            }
-            b'\n' => {
-                flush_line(&mut lines, &mut line_buf);
-                i += 1;
-            }
-            0x08 => {
-                line_buf.pop();
-                i += 1;
-            }
-            b => {
-                line_buf.push(b);
-                i += 1;
-            }
-        }
-    }
-    flush_line(&mut lines, &mut line_buf);
-
-    // Remove linhas de UI do Claude Code (prompt, barra de status, etc.)
-    lines.retain(|l| {
-        let t = l.trim();
-        !t.is_empty()
-            && t != ">"
-            && t != "❯"
-            && !t.starts_with("> ")
-            && !t.starts_with("❯ ")
-            && !t.contains("$0.00/")
-            && !t.contains("bypass permissions")
-            && !t.contains("Model Context Protocol")
-    });
-
-    lines.join("\n")
-}
-
-fn flush_line(lines: &mut Vec<String>, buf: &mut Vec<u8>) {
-    let text = String::from_utf8_lossy(buf).trim().to_string();
-    if !text.is_empty() {
-        lines.push(text);
-    }
-    buf.clear();
+    // Resultado = tela renderizada (VT100) do agente, não o stream cru.
+    Ok(state.pty_manager.read_screen(&session_id).unwrap_or_default())
 }
