@@ -7,6 +7,7 @@ import type {
   FileTreeNode,
   GroupNode,
   NoteNode,
+  PortalNode,
   SketchNode,
   TerminalNode,
 } from "@/types/canvas";
@@ -48,6 +49,7 @@ interface CanvasState {
   addGroup: (params?: { position?: { x: number; y: number }; label?: string }) => GroupNode;
   addFileTree: (params: { rootPath: string; position?: { x: number; y: number } }) => FileTreeNode;
   addSketch: (params?: { position?: { x: number; y: number } }) => SketchNode;
+  addPortal: (params?: { url?: string; position?: { x: number; y: number } }) => PortalNode;
   removeNode: (id: string) => void;
   renameNode: (id: string, label: string) => void;
   updateNodePosition: (id: string, position: { x: number; y: number }) => void;
@@ -207,6 +209,18 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       kind: "sketch",
       position: position ?? defaultPosition(),
       size: { width: 480, height: 360 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addPortal: ({ url, position } = {}) => {
+    const node: PortalNode = {
+      id: nanoid(),
+      kind: "portal",
+      url: url ?? "",
+      position: position ?? defaultPosition(),
+      size: { width: 420, height: 320 },
     };
     set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;

@@ -7,6 +7,9 @@ pub mod spec;
 
 use commands::agent_docs::{agent_docs_status, agent_docs_sync};
 use commands::fs::list_dir;
+use commands::portal::{
+    portal_close, portal_create, portal_navigate, portal_set_bounds, portal_set_visible, PortalMap,
+};
 use commands::git::{
     floor_git_create, floor_git_land, floor_git_remove, floor_git_status, git_repo_info,
 };
@@ -76,6 +79,7 @@ pub fn run() {
         .manage(pty_manager)
         .manage(agent_registry)
         .manage(floor_mirror)
+        .manage::<PortalMap>(Arc::new(dashmap::DashMap::new()))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -107,6 +111,11 @@ pub fn run() {
             agent_docs_status,
             agent_docs_sync,
             list_dir,
+            portal_create,
+            portal_set_bounds,
+            portal_navigate,
+            portal_set_visible,
+            portal_close,
         ])
         .run(tauri::generate_context!())
         .expect("erro fatal rodando Maestri Linux");
