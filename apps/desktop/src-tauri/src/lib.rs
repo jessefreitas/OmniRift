@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod db;
 pub mod mcp;
 pub mod pty;
 
@@ -10,9 +11,11 @@ use commands::pty::{
     pty_write,
 };
 use commands::workspace::{workspace_load, workspace_save};
+use db::{db_load_workspace, db_save_workspace};
 use mcp::{mcp_router, AgentRegistry};
 use pty::PtyManager;
 use std::sync::Arc;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -48,6 +51,17 @@ pub fn run() {
                     }
                 }
             });
+
+            // Persistência do canvas (Fase 3) — SQLite no app data dir
+            match app.path().app_data_dir() {
+                Ok(dir) => match crate::db::Db::open(&dir) {
+                    Ok(db) => {
+                        app.manage(db);
+                    }
+                    Err(e) => log::error!("falha ao abrir DB de persistência: {e:#}"),
+                },
+                Err(e) => log::error!("app_data_dir indisponível: {e}"),
+            }
             Ok(())
         })
         .manage(pty_manager)
@@ -71,6 +85,8 @@ pub fn run() {
             mcp_list_agents,
             mcp_server_url,
             floor_mirror_set,
+            db_save_workspace,
+            db_load_workspace,
         ])
         .run(tauri::generate_context!())
         .expect("erro fatal rodando Maestri Linux");

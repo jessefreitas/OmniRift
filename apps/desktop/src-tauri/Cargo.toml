@@ -26,6 +26,8 @@ tauri-plugin-dialog = "2"
 portable-pty = "0.9"
 # Emulador de tela VT100 — renderiza a tela visível de TUIs (Claude Code/Codex)
 vt100 = "0.15"
+# Persistência do canvas (Fase 3) — SQLite embutido (sem dep de sistema)
+rusqlite = { version = "0.32", features = ["bundled"] }
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 # Concurrency — DashMap + parking_lot Mutex (faster than std)
