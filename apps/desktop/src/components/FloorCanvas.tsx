@@ -23,6 +23,7 @@ import "@xyflow/react/dist/style.css";
 import { TerminalNode } from "@/components/nodes/TerminalNode";
 import { NoteNode } from "@/components/nodes/NoteNode";
 import { GroupNode } from "@/components/nodes/GroupNode";
+import { FileTreeNode } from "@/components/nodes/FileTreeNode";
 import { useCanvasStore } from "@/store/canvas-store";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
 
@@ -30,6 +31,7 @@ const nodeTypes = {
   terminal: TerminalNode,
   note: NoteNode,
   group: GroupNode,
+  filetree: FileTreeNode,
 };
 
 export function FloorCanvas({ floorId }: { floorId: string }) {
