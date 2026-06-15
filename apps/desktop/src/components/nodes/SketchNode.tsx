@@ -16,25 +16,22 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const saveTimer = useRef<number>(0);
+  // Snapshot mais recente (atualizado a CADA edição). É daqui que o tldraw carrega
+  // ao montar — assim alternar node↔fullscreen (que remonta o tldraw) não perde nada.
+  const latestRef = useRef<string | undefined>(data.snapshot);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null); // wrapper do tldraw
-  const homeRef = useRef<HTMLDivElement | null>(null); // slot no node
-  const fsRef = useRef<HTMLDivElement | null>(null); // slot no overlay fullscreen
 
-  // onMount: carrega o snapshot persistido e passa a salvar (debounced) no node.
-  // Persistimos no node (não persistenceKey/IndexedDB) porque os ids mudam no
-  // restore do workspace — o snapshot precisa viajar junto no WorkspaceFile.
   const handleMount = (editor: Editor) => {
-    if (data.snapshot) {
-      try { loadSnapshot(editor.store, JSON.parse(data.snapshot)); } catch { /* snapshot inválido */ }
+    if (latestRef.current) {
+      try { loadSnapshot(editor.store, JSON.parse(latestRef.current)); } catch { /* snapshot inválido */ }
     }
     const unlisten = editor.store.listen(
       () => {
+        const snap = JSON.stringify(getSnapshot(editor.store));
+        latestRef.current = snap; // imediato (pra sobreviver à troca de fullscreen)
         window.clearTimeout(saveTimer.current);
-        saveTimer.current = window.setTimeout(() => {
-          patchNode(id, { snapshot: JSON.stringify(getSnapshot(editor.store)) });
-        }, 600);
+        saveTimer.current = window.setTimeout(() => patchNode(id, { snapshot: snap }), 600); // persiste debounced
       },
       { source: "user", scope: "document" },
     );
@@ -43,28 +40,6 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
       unlisten();
     };
   };
-
-  // Reloca o tldraw entre o slot do node e o overlay fullscreen (move o DOM, NÃO
-  // remonta → mantém o desenho). Em fullscreen ele sai do transform do React Flow,
-  // então o ponteiro fica preciso (no node escalado pelo zoom ele desloca).
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const target = isFullscreen ? fsRef.current : homeRef.current;
-    if (target && el.parentElement !== target) target.appendChild(el);
-  }, [isFullscreen]);
-
-  // Antes do unmount, devolve o tldraw pro slot do node (senão o React quebra ao
-  // remover uma subtree cujo elemento está relocado no overlay).
-  useEffect(
-    () => () => {
-      const el = containerRef.current;
-      if (el && homeRef.current && el.parentElement !== homeRef.current) {
-        homeRef.current.appendChild(el);
-      }
-    },
-    [],
-  );
 
   // ESC sai da tela cheia.
   useEffect(() => {
@@ -75,6 +50,14 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [isFullscreen]);
+
+  // nodrag/nopan/nowheel: o React Flow ignora os ponteiros aqui → tldraw os recebe.
+  // Renderizado no node OU no overlay (nunca movido) — o latestRef preserva o desenho.
+  const tldraw = (
+    <div className="nodrag nopan nowheel absolute inset-0">
+      <Tldraw assetUrls={TLDRAW_ASSET_URLS} onMount={handleMount} />
+    </div>
+  );
 
   return (
     <>
@@ -87,22 +70,30 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
           <Pencil size={12} className="text-brand shrink-0" />
           <span className="text-xs font-medium truncate flex-1">Sketch</span>
           <button
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); setIsFullscreen(true); }}
             title="Tela cheia (desenhar grande, ponteiro preciso)"
             className="hover:text-text shrink-0"
           >
             <Maximize2 size={12} />
           </button>
-          <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); removeNode(id); }}
+            title="Fechar"
+            className="hover:text-danger shrink-0"
+          >
             <X size={12} />
           </button>
         </header>
-        <div ref={homeRef} className="flex-1 relative">
-          {/* Wrapper relocável do tldraw. nodrag/nopan/nowheel: o React Flow ignora
-              os ponteiros aqui → o tldraw os recebe. */}
-          <div ref={containerRef} className="nodrag nopan nowheel absolute inset-0">
-            <Tldraw assetUrls={TLDRAW_ASSET_URLS} onMount={handleMount} />
-          </div>
+        <div className="flex-1 relative bg-bg">
+          {isFullscreen ? (
+            <div className="absolute inset-0 flex items-center justify-center gap-1.5 text-textMuted text-xs">
+              <Maximize2 size={13} /> desenhando em tela cheia…
+            </div>
+          ) : (
+            tldraw
+          )}
         </div>
       </div>
 
@@ -121,7 +112,7 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
                 <Minimize2 size={14} />
               </button>
             </header>
-            <div ref={fsRef} className="flex-1 relative" />
+            <div className="flex-1 relative bg-bg">{tldraw}</div>
           </div>,
           document.body,
         )}
