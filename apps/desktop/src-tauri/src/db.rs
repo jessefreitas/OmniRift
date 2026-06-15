@@ -361,6 +361,43 @@ pub fn session_events_list(
     db.session_events(&session_id).map_err(|e| format!("{e:#}"))
 }
 
+#[tauri::command]
+pub fn memory_query(
+    kind: Option<String>,
+    scope: Option<String>,
+    query: Option<String>,
+    limit: Option<i64>,
+    db: tauri::State<'_, Db>,
+) -> Result<Vec<MemoryRow>, String> {
+    let lim = limit.unwrap_or(200);
+    let q = query.unwrap_or_default();
+    let res = if q.trim().is_empty() {
+        db.memory_list(kind.as_deref(), scope.as_deref(), lim)
+    } else {
+        db.memory_recall(q.trim(), kind.as_deref(), scope.as_deref(), lim)
+    };
+    res.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn memory_delete(id: i64, db: tauri::State<'_, Db>) -> Result<(), String> {
+    db.memory_forget(id).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn memory_add(
+    kind: Option<String>,
+    key: Option<String>,
+    value: String,
+    tags: Option<String>,
+    scope: Option<String>,
+    db: tauri::State<'_, Db>,
+) -> Result<i64, String> {
+    let kind = kind.unwrap_or_else(|| "fact".into());
+    db.memory_remember(scope.as_deref(), None, &kind, key.as_deref(), &value, tags.as_deref())
+        .map_err(|e| format!("{e:#}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

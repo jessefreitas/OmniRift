@@ -10,6 +10,7 @@ import {
   Folder,
   FolderOpen,
   GitBranch,
+  Brain,
   GitCompare,
   GitMerge,
   History,
@@ -41,6 +42,7 @@ import { DEV_CONTRACT, ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs
 import { RoleEditModal } from "@/components/RoleEditModal";
 import { DiffViewerModal } from "@/components/DiffViewerModal";
 import { SessionHistoryModal } from "@/components/SessionHistoryModal";
+import { MemoryModal } from "@/components/MemoryModal";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
@@ -196,6 +198,7 @@ export function Sidebar() {
   const [editingRole, setEditingRole] = useState<AgentRoleDef | null>(null);
   const [diffFloor, setDiffFloor] = useState<Floor | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showMemory, setShowMemory] = useState(false);
 
   // Esconde/mostra a barra inteira (persiste).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -577,6 +580,14 @@ export function Sidebar() {
             )}
           </div>
           <div className="flex items-center gap-0.5">
+            <Tooltip label="Memória dos agentes (blackboard + erros)" side="bottom">
+              <button
+                onClick={() => setShowMemory(true)}
+                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
+              >
+                <Brain size={12} />
+              </button>
+            </Tooltip>
             <Tooltip label="Histórico de sessões dos agentes" side="bottom">
               <button
                 onClick={() => setShowHistory(true)}
@@ -1108,6 +1119,7 @@ export function Sidebar() {
         <DiffViewerModal floor={diffFloor} onClose={() => setDiffFloor(null)} />
       )}
       {showHistory && <SessionHistoryModal onClose={() => setShowHistory(false)} />}
+      {showMemory && <MemoryModal onClose={() => setShowMemory(false)} />}
     </aside>
   );
 }

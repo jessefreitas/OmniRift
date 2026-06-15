@@ -25,8 +25,8 @@ use commands::pty::{
 use commands::spec::spec_list_files;
 use commands::workspace::{workspace_load, workspace_save};
 use db::{
-    db_load_workspace, db_save_workspace, session_end, session_event, session_events_list,
-    session_start, sessions_list,
+    db_load_workspace, db_save_workspace, memory_add, memory_delete, memory_query, session_end,
+    session_event, session_events_list, session_start, sessions_list,
 };
 use mcp::{mcp_router, AgentRegistry};
 use pty::PtyManager;
@@ -109,6 +109,9 @@ pub fn run() {
             session_end,
             sessions_list,
             session_events_list,
+            memory_query,
+            memory_delete,
+            memory_add,
             agent_mcp_config,
             git_repo_info,
             floor_git_create,
