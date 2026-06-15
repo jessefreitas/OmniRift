@@ -19,6 +19,9 @@ use commands::mcp::{
     agent_mcp_config, floor_mirror_set, mcp_list_agents, mcp_register_agent, mcp_server_url,
     mcp_unregister_agent,
 };
+use commands::memory::{
+    memory_active, memory_connect, memory_providers_list, memory_set_active, memory_test,
+};
 use commands::pty::{
     pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_read_screen,
     pty_resize, pty_spawn, pty_write,
@@ -147,6 +150,11 @@ pub fn run() {
             http_request,
             db_query,
             whatis_lookup,
+            memory_providers_list,
+            memory_connect,
+            memory_test,
+            memory_set_active,
+            memory_active,
         ])
         .run(tauri::generate_context!())
         .expect("erro fatal rodando Maestri Linux");
