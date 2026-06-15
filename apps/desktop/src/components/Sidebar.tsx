@@ -26,6 +26,7 @@ import {
   TerminalSquare,
   Upload,
   UserCog,
+  Webhook,
   Workflow,
   X,
 } from "lucide-react";
@@ -43,6 +44,8 @@ import { RoleEditModal } from "@/components/RoleEditModal";
 import { DiffViewerModal } from "@/components/DiffViewerModal";
 import { SessionHistoryModal } from "@/components/SessionHistoryModal";
 import { MemoryModal } from "@/components/MemoryModal";
+import { HooksModal } from "@/components/HooksModal";
+import { loadHooks, runFloorHook } from "@/lib/hooks-client";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
@@ -199,6 +202,7 @@ export function Sidebar() {
   const [diffFloor, setDiffFloor] = useState<Floor | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
+  const [showHooks, setShowHooks] = useState(false);
 
   // Esconde/mostra a barra inteira (persiste).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -383,6 +387,16 @@ export function Sidebar() {
     try {
       const g = await floorGitCreate(currentCwd, branch.trim());
       createFloor(branch.trim(), { focus: true, git: g });
+      // Hook onCreate: roda num terminal no floor novo (worktree limpo).
+      const hooks = loadHooks();
+      if (hooks.onCreate) {
+        addTerminal({
+          command: detectShell(),
+          args: ["-lc", `${hooks.onCreate}; exec ${detectShell()}`],
+          role: "shell",
+          label: "hook: create",
+        });
+      }
     } catch (e) {
       alert("Falha ao criar floor git:\n" + String(e));
     }
@@ -393,6 +407,16 @@ export function Sidebar() {
   async function landFloor(f: Floor) {
     if (!f.repoRoot || !f.branch || !f.worktreePath || !f.baseBranch) return;
     if (!confirm(`Land "${f.branch}" → "${f.baseBranch}"?\nFaz merge e remove o worktree.`)) return;
+    // Hook onLand: roda (bloqueante) no worktree antes do merge; falha aborta o Land.
+    const hooks = loadHooks();
+    if (hooks.onLand) {
+      try {
+        await runFloorHook(f.worktreePath, hooks.onLand);
+      } catch (e) {
+        alert("Hook onLand falhou — Land abortado:\n" + String(e));
+        return;
+      }
+    }
     try {
       await floorGitLand(f.repoRoot, f.branch, f.baseBranch, f.worktreePath);
       deleteFloor(f.id);
@@ -580,6 +604,14 @@ export function Sidebar() {
             )}
           </div>
           <div className="flex items-center gap-0.5">
+            <Tooltip label="Hooks do floor (onCreate / onLand)" side="bottom">
+              <button
+                onClick={() => setShowHooks(true)}
+                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
+              >
+                <Webhook size={12} />
+              </button>
+            </Tooltip>
             <Tooltip label="Memória dos agentes (blackboard + erros)" side="bottom">
               <button
                 onClick={() => setShowMemory(true)}
@@ -1120,6 +1152,7 @@ export function Sidebar() {
       )}
       {showHistory && <SessionHistoryModal onClose={() => setShowHistory(false)} />}
       {showMemory && <MemoryModal onClose={() => setShowMemory(false)} />}
+      {showHooks && <HooksModal onClose={() => setShowHooks(false)} />}
     </aside>
   );
 }

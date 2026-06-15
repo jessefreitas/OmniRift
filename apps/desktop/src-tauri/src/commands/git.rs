@@ -100,6 +100,28 @@ pub struct FloorDiffDto {
     pub untracked: Vec<String>,
 }
 
+/// Roda um hook de ciclo de vida do floor: `sh -lc <command>` no diretório `cwd`
+/// (worktree). Strip de LD_PRELOAD/GTK_MODULES (mesmo motivo dos PTYs). Devolve
+/// stdout+stderr; Err se o comando sair com código ≠ 0. Bloqueante (use p/ onLand).
+#[tauri::command]
+pub fn floor_run_hook(cwd: String, command: String) -> Result<String, String> {
+    let out = std::process::Command::new("sh")
+        .arg("-lc")
+        .arg(&command)
+        .current_dir(&cwd)
+        .env("LD_PRELOAD", "")
+        .env("GTK_MODULES", "")
+        .output()
+        .map_err(|e| format!("falha ao rodar hook: {e}"))?;
+    let mut s = String::from_utf8_lossy(&out.stdout).to_string();
+    s.push_str(&String::from_utf8_lossy(&out.stderr));
+    if out.status.success() {
+        Ok(s)
+    } else {
+        Err(format!("hook falhou (exit {:?}):\n{s}", out.status.code()))
+    }
+}
+
 /// Diff do worktree em `path` vs `base` (commitado + working tree) + untracked.
 #[tauri::command]
 pub fn floor_git_diff(path: String, base: String) -> Result<FloorDiffDto, String> {

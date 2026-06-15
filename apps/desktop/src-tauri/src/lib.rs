@@ -12,7 +12,7 @@ use commands::fs::list_dir;
 use commands::http::http_request;
 use commands::git::{
     floor_git_create, floor_git_diff, floor_git_land, floor_git_remove, floor_git_status,
-    git_repo_info,
+    floor_run_hook, git_repo_info,
 };
 use commands::mcp::{
     agent_mcp_config, floor_mirror_set, mcp_list_agents, mcp_register_agent, mcp_server_url,
@@ -118,6 +118,7 @@ pub fn run() {
             floor_git_status,
             floor_git_land,
             floor_git_diff,
+            floor_run_hook,
             floor_git_remove,
             spec_list_files,
             agent_docs_status,
