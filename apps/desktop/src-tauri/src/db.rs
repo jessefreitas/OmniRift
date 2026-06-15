@@ -39,7 +39,34 @@ CREATE TABLE IF NOT EXISTS session_events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON session_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_started ON agent_sessions(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_memory (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope       TEXT,
+    agent_id    TEXT,
+    kind        TEXT NOT NULL,
+    mem_key     TEXT,
+    value       TEXT NOT NULL,
+    tags        TEXT,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_kind ON agent_memory(kind);
+CREATE INDEX IF NOT EXISTS idx_memory_scope ON agent_memory(scope);
 ";
+
+/// Uma memória de agente (blackboard/erro/nota).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryRow {
+    pub id: i64,
+    pub scope: Option<String>,
+    pub agent_id: Option<String>,
+    pub kind: String,
+    pub mem_key: Option<String>,
+    pub value: String,
+    pub tags: Option<String>,
+    pub created_at: String,
+}
 
 /// Metadados de início de uma sessão de agente (PTY).
 #[derive(serde::Deserialize)]
@@ -199,12 +226,89 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    // ── Agent memory (blackboard / erros / notas) ──────────────────────────
+
+    /// Grava uma memória; devolve o id. `kind` ∈ fact|error|note|session.
+    pub fn memory_remember(
+        &self,
+        scope: Option<&str>,
+        agent_id: Option<&str>,
+        kind: &str,
+        key: Option<&str>,
+        value: &str,
+        tags: Option<&str>,
+    ) -> Result<i64> {
+        let conn = self.0.lock();
+        conn.execute(
+            "INSERT INTO agent_memory (scope, agent_id, kind, mem_key, value, tags, created_at)
+             VALUES (?1,?2,?3,?4,?5,?6, datetime('now'))",
+            rusqlite::params![scope, agent_id, kind, key, value, tags],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Busca memórias por substring em key/value/tags (LIKE). v1 sem vetor.
+    pub fn memory_recall(
+        &self,
+        query: &str,
+        kind: Option<&str>,
+        scope: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<MemoryRow>> {
+        let like = format!("%{query}%");
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, scope, agent_id, kind, mem_key, value, tags, created_at
+               FROM agent_memory
+              WHERE (value LIKE ?1 OR IFNULL(mem_key,'') LIKE ?1 OR IFNULL(tags,'') LIKE ?1)
+                AND (?2 IS NULL OR kind = ?2)
+                AND (?3 IS NULL OR scope = ?3)
+              ORDER BY created_at DESC
+              LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![like, kind, scope, limit], map_memory)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Lista memórias (filtro opcional por kind/scope).
+    pub fn memory_list(&self, kind: Option<&str>, scope: Option<&str>, limit: i64) -> Result<Vec<MemoryRow>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, scope, agent_id, kind, mem_key, value, tags, created_at
+               FROM agent_memory
+              WHERE (?1 IS NULL OR kind = ?1) AND (?2 IS NULL OR scope = ?2)
+              ORDER BY created_at DESC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![kind, scope, limit], map_memory)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Apaga uma memória por id.
+    pub fn memory_forget(&self, id: i64) -> Result<()> {
+        self.0.lock().execute("DELETE FROM agent_memory WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
     #[cfg(test)]
     fn in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(SCHEMA)?;
         Ok(Self(Mutex::new(conn)))
     }
+}
+
+/// Mapeia uma row de `agent_memory` pro MemoryRow.
+fn map_memory(r: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryRow> {
+    Ok(MemoryRow {
+        id: r.get(0)?,
+        scope: r.get(1)?,
+        agent_id: r.get(2)?,
+        kind: r.get(3)?,
+        mem_key: r.get(4)?,
+        value: r.get(5)?,
+        tags: r.get(6)?,
+        created_at: r.get(7)?,
+    })
 }
 
 #[tauri::command]

@@ -37,6 +37,7 @@ import { floorGitCreate, floorGitLand } from "@/lib/git-client";
 import { specListFiles, type SpecFile } from "@/lib/spec-client";
 import { agentDocsStatus, agentDocsSync, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
+import { DEV_CONTRACT, ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
 import { RoleEditModal } from "@/components/RoleEditModal";
 import { DiffViewerModal } from "@/components/DiffViewerModal";
 import { SessionHistoryModal } from "@/components/SessionHistoryModal";
@@ -66,30 +67,9 @@ const INSTALL = {
   antigravity: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
 };
 
-// Contrato de orquestrador: usado tanto como --append-system-prompt (orquestrador
-// novo, nível-sistema) quanto reinjetado no briefing (orquestrador já rodando).
-const ORCHESTRATOR_CONTRACT =
-  "Você é um ORQUESTRADOR PURO no Maestri. NUNCA execute tarefas você mesmo: " +
-  "não rode comandos, não leia nem edite arquivos, não escreva código, não faça análises. " +
-  "Sua ÚNICA função é decompor o pedido e delegar 100% do trabalho à sua equipe de agentes, " +
-  "disponíveis como tools MCP (servidor maestri-agents). Para cada subtarefa: escolha o agente " +
-  "certo e despache pela tool dele (ou terminal_run / terminal_wait_status / terminal_read). " +
-  "Acompanhe, colete os resultados e sintetize a resposta final. Se você se pegar prestes a " +
-  "fazer algo direto, PARE e delegue — executar você mesmo viola seu papel. Você coordena, não executa.";
-
-// Deny-list de comandos destrutivos (deletar/remover/destruir) nos agentes claude.
-// É deny "duro" do --disallowed-tools: roda mesmo com auto-aprovação ligada.
-const DENY_DESTRUCTIVE = [
-  "Bash(rm:*)",
-  "Bash(rmdir:*)",
-  "Bash(dd:*)",
-  "Bash(mkfs:*)",
-  "Bash(shred:*)",
-  "Bash(truncate:*)",
-  "Bash(git clean:*)",
-  "Bash(git reset --hard:*)",
-  "Bash(git push --force:*)",
-];
+// ORCHESTRATOR_CONTRACT, DEV_CONTRACT, DENY_DESTRUCTIVE e workerClaudeArgs vivem em
+// @/lib/agent-contract (fonte única, compartilhada com o orchestration-client pra
+// que TODO agente dispatched também receba o contrato).
 
 const PRESETS: AgentPreset[] = [
   {
@@ -120,11 +100,12 @@ const PRESETS: AgentPreset[] = [
     id: "claude",
     label: "Claude Code",
     command: "claude",
-    // Auto-aprova comandos seguros, mas BLOQUEIA destrutivos (deny-list).
-    args: ["--dangerously-skip-permissions", "--disallowed-tools", ...DENY_DESTRUCTIVE],
+    // Contrato de DEV (Serena+Context7+memória) + auto-aprovação com destrutivo
+    // bloqueado. O --mcp-config é anexado por argsWithMcp no spawn.
+    args: workerClaudeArgs(),
     role: "claude-code",
     icon: Sparkles,
-    description: "Anthropic Claude Code CLI · auto-aprovação (destrutivo bloqueado)",
+    description: "Anthropic Claude Code CLI · contrato de dev + auto-aprovação (destrutivo bloqueado)",
     installCmd: INSTALL.claude,
   },
   {
@@ -467,14 +448,12 @@ export function Sidebar() {
   function spawnRole(r: AgentRoleDef) {
     const cli = ROLE_CLIS.find((c) => c.id === (r.cli ?? "claude")) ?? ROLE_CLIS[0];
     if (cli.systemPromptFlag) {
-      const base = [
-        cli.systemPromptFlag,
-        r.prompt,
-        "--dangerously-skip-permissions",
-        "--disallowed-tools",
-        ...DENY_DESTRUCTIVE,
-      ];
-      const args = mcpConfigPath ? [...base, "--mcp-config", mcpConfigPath] : base;
+      // claude-code: contrato DEV + persona do role (concatenados) + deny + MCP.
+      // Outros CLIs com flag de system-prompt: só a persona (não têm o perfil MCP).
+      const args =
+        cli.role === "claude-code"
+          ? workerClaudeArgs(mcpConfigPath, r.prompt)
+          : [cli.systemPromptFlag, r.prompt];
       addTerminal({ command: cli.command, args, role: cli.role, label: r.name });
       return;
     }

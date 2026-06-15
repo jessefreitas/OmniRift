@@ -210,6 +210,11 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
             json!({ "content": [{ "type": "text", "text": text }] })
         }
 
+        t if t.starts_with("memory_") => {
+            let text = crate::mcp::tools::memory_dispatch(&state, t, args);
+            json!({ "content": [{ "type": "text", "text": text }] })
+        }
+
         // Qualquer outro nome de tool: verifica se é um agente registrado
         tool_name => {
             let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("");

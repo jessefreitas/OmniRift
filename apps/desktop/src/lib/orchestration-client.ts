@@ -6,8 +6,9 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCanvasStore } from "@/store/canvas-store";
-import { floorMirrorSet } from "@/lib/mcp-client";
+import { floorMirrorSet, agentMcpConfig } from "@/lib/mcp-client";
 import { floorGitCreate } from "@/lib/git-client";
+import { workerClaudeArgs } from "@/lib/agent-contract";
 import type { AgentRole } from "@/types/pty";
 
 interface SpawnRequest {
@@ -29,13 +30,22 @@ function asRole(role?: string): AgentRole {
 export async function initOrchestrationBridge(): Promise<UnlistenFn> {
   const store = useCanvasStore.getState;
 
+  // Perfil MCP resolvido uma vez — todo agente claude-code DISPATCHED (pelo
+  // orquestrador) nasce com o mesmo contrato de dev (Serena + Context7 + memória)
+  // e deny-list, igual aos presets manuais. É o "forçar via dispatch".
+  const mcpConfigPath = await agentMcpConfig().catch(() => null);
+  const devArgs = (role: AgentRole) =>
+    role === "claude-code" ? workerClaudeArgs(mcpConfigPath) : undefined;
+
   const unSpawn = await listen<SpawnRequest>("canvas://spawn-request", (event) => {
     const p = event.payload;
+    const role = asRole(p.role);
     store().addTerminal({
       id: p.id,
       command: p.command,
+      args: devArgs(role),
       label: p.label,
-      role: asRole(p.role),
+      role,
       position: p.position ?? undefined,
     });
   });
@@ -66,7 +76,8 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
       }
     }
     store().createFloor(p.branch, gitOpts);
-    store().addTerminal({ id: p.id, command: p.command, label: p.label, role: asRole(p.role) });
+    const role = asRole(p.role);
+    store().addTerminal({ id: p.id, command: p.command, args: devArgs(role), label: p.label, role });
   });
 
   const unCreate = await listen<{ name?: string }>("canvas://floor-create", (e) => {

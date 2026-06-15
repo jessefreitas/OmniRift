@@ -38,7 +38,7 @@ use crate::mcp::server::McpState;
 use serde_json::{json, Value};
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
-use tauri::{Emitter, Listener};
+use tauri::{Emitter, Listener, Manager};
 use tokio::sync::oneshot;
 
 /// Resolve o handle (label do registry) → session_id.
@@ -51,6 +51,14 @@ fn resolve(state: &McpState, terminal: &str) -> Result<String, String> {
 
 fn arg_str(args: &Value, key: &str) -> String {
     args.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
+}
+
+/// Como `arg_str`, mas None quando ausente/vazio (pra colunas opcionais).
+fn arg_opt(args: &Value, key: &str) -> Option<String> {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// Últimas `n` linhas da tela renderizada (sem as linhas em branco do rodapé).
@@ -147,6 +155,42 @@ pub fn terminal_tool_defs() -> Vec<Value> {
             "inputSchema": { "type": "object", "properties": {
                 "path": { "type": "string", "description": "Caminho absoluto do .md da spec/plan." } },
                 "required": ["path"] } }),
+        json!({ "name": "memory_recall",
+            "description": "ANTES de codar/decidir: busca memórias relevantes (fatos do blackboard + erros já cometidos) pra não repetir engano. Faça isso no começo de cada tarefa.",
+            "inputSchema": { "type": "object", "properties": {
+                "query": { "type": "string", "description": "Termos do que você vai fazer (ex: 'auth jwt refresh')." },
+                "kind": { "type": "string", "description": "Filtra: fact | error | note (opcional)." },
+                "scope": { "type": "string", "description": "Filtra por floor/projeto (opcional)." },
+                "limit": { "type": "number" } },
+                "required": ["query"] } }),
+        json!({ "name": "memory_remember",
+            "description": "Grava um fato durável no blackboard compartilhado entre agentes (ex: decisão de arquitetura, convenção, endpoint). Outro agente recupera com memory_recall.",
+            "inputSchema": { "type": "object", "properties": {
+                "value": { "type": "string", "description": "O fato a lembrar." },
+                "key": { "type": "string", "description": "Chave curta (opcional)." },
+                "kind": { "type": "string", "description": "fact (default) | note." },
+                "tags": { "type": "string" },
+                "scope": { "type": "string" },
+                "agent": { "type": "string" } },
+                "required": ["value"] } }),
+        json!({ "name": "memory_remember_error",
+            "description": "Registra um ERRO cometido + causa + correção, pra que nenhum agente repita. Chame sempre que descobrir que algo deu errado e como consertou.",
+            "inputSchema": { "type": "object", "properties": {
+                "what": { "type": "string", "description": "O que deu errado." },
+                "why": { "type": "string", "description": "Causa raiz." },
+                "fix": { "type": "string", "description": "Como corrigir / o jeito certo." },
+                "tags": { "type": "string" },
+                "scope": { "type": "string" },
+                "agent": { "type": "string" } },
+                "required": ["what", "fix"] } }),
+        json!({ "name": "memory_list",
+            "description": "Lista as memórias gravadas (filtro opcional por kind/scope).",
+            "inputSchema": { "type": "object", "properties": {
+                "kind": { "type": "string" }, "scope": { "type": "string" }, "limit": { "type": "number" } } } }),
+        json!({ "name": "memory_forget",
+            "description": "Apaga uma memória por id (ex: fato obsoleto).",
+            "inputSchema": { "type": "object", "properties": {
+                "id": { "type": "number" } }, "required": ["id"] } }),
     ]
 }
 
@@ -182,6 +226,102 @@ pub fn spec_dispatch(tool: &str, args: Value) -> String {
             s
         }
         other => format!("❌ tool de spec desconhecida: {other}"),
+    }
+}
+
+/// Formata uma lista de memórias pro agente ler.
+fn fmt_memories(rows: &[crate::db::MemoryRow], title: &str) -> String {
+    if rows.is_empty() {
+        return format!("Nada na memória pra '{title}'.");
+    }
+    let mut s = format!("{} resultado(s) — {title}:\n", rows.len());
+    for m in rows {
+        let key = m.mem_key.as_deref().map(|k| format!(" [{k}]")).unwrap_or_default();
+        s.push_str(&format!("\n#{} ({}){key}\n{}\n", m.id, m.kind, m.value));
+    }
+    s
+}
+
+/// Despacha as tools `memory_*` (blackboard + erros) — persistem no SQLite (durável).
+pub fn memory_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    let db = state.app.state::<crate::db::Db>();
+    match tool {
+        "memory_remember" => {
+            let value = arg_str(&args, "value");
+            if value.is_empty() {
+                return "❌ 'value' é obrigatório".into();
+            }
+            let kind = arg_opt(&args, "kind").unwrap_or_else(|| "fact".into());
+            match db.memory_remember(
+                arg_opt(&args, "scope").as_deref(),
+                arg_opt(&args, "agent").as_deref(),
+                &kind,
+                arg_opt(&args, "key").as_deref(),
+                &value,
+                arg_opt(&args, "tags").as_deref(),
+            ) {
+                Ok(id) => format!("✅ memória #{id} gravada ({kind})"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_remember_error" => {
+            let what = arg_str(&args, "what");
+            let fix = arg_str(&args, "fix");
+            if what.is_empty() || fix.is_empty() {
+                return "❌ 'what' e 'fix' são obrigatórios".into();
+            }
+            let why = arg_str(&args, "why");
+            let value = format!("ERRO: {what}\nCAUSA: {why}\nFIX: {fix}");
+            match db.memory_remember(
+                arg_opt(&args, "scope").as_deref(),
+                arg_opt(&args, "agent").as_deref(),
+                "error",
+                Some(&what),
+                &value,
+                arg_opt(&args, "tags").as_deref(),
+            ) {
+                Ok(id) => format!("✅ erro #{id} registrado — outros agentes não vão repetir"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_recall" => {
+            let query = arg_str(&args, "query");
+            if query.is_empty() {
+                return "❌ 'query' é obrigatório".into();
+            }
+            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
+            match db.memory_recall(
+                &query,
+                arg_opt(&args, "kind").as_deref(),
+                arg_opt(&args, "scope").as_deref(),
+                limit,
+            ) {
+                Ok(rows) => fmt_memories(&rows, &format!("recall '{query}'")),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_list" => {
+            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(50);
+            match db.memory_list(
+                arg_opt(&args, "kind").as_deref(),
+                arg_opt(&args, "scope").as_deref(),
+                limit,
+            ) {
+                Ok(rows) => fmt_memories(&rows, "memórias"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_forget" => {
+            let id = args.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
+            if id <= 0 {
+                return "❌ 'id' inválido".into();
+            }
+            match db.memory_forget(id) {
+                Ok(_) => format!("🗑 memória #{id} apagada"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        other => format!("❌ tool de memória desconhecida: {other}"),
     }
 }
 
