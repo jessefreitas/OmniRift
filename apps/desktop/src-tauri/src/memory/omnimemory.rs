@@ -69,8 +69,20 @@ impl MemoryProvider for OmniMemoryProvider {
         let Some(base) = self.base() else {
             return ProviderHealth::fail("sem endpoint".into());
         };
-        match self.http.get(format!("{base}/health")).send().await {
+        // Health real = um search mínimo no path /v1 já verificado — testa rota +
+        // auth + conectividade de uma vez (sem depender de um /health que pode não
+        // existir no gateway, o que dava falso-negativo).
+        let body = serde_json::json!({ "query": "ping", "limit": 1 });
+        match self
+            .post(format!("{base}/actions/omnimemory/v1/search_memories"))
+            .json(&body)
+            .send()
+            .await
+        {
             Ok(r) if r.status().is_success() => ProviderHealth::ok("omnimemory"),
+            Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED => {
+                ProviderHealth::fail("token inválido (401)".into())
+            }
             Ok(r) => ProviderHealth::fail(format!("status {}", r.status())),
             Err(e) => ProviderHealth::fail(format!("erro de rede: {e}")),
         }
@@ -200,8 +212,10 @@ mod tests {
 
     #[tokio::test]
     async fn health_ok_against_stub() {
-        let app = axum::Router::new()
-            .route("/health", axum::routing::get(|| async { "{\"status\":\"healthy\"}" }));
+        let app = axum::Router::new().route(
+            "/actions/omnimemory/v1/search_memories",
+            axum::routing::post(|| async { "[]" }),
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
