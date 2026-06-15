@@ -9,6 +9,7 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  MiniMap,
   applyEdgeChanges,
   MarkerType,
   type Connection,
@@ -57,6 +58,24 @@ const nodeTypes = {
   json: JsonNode,
   explain: ExplainShellNode,
 };
+
+/** Cor de cada node no minimap, por tipo — pra dar pra "ler" o canvas de longe. */
+const MINIMAP_COLORS: Record<string, string> = {
+  terminal: "rgb(41, 162, 167)", // brand
+  group: "rgb(90, 90, 100)",
+  note: "rgb(234, 179, 8)",
+  filetree: "rgb(96, 165, 250)",
+  sketch: "rgb(168, 85, 247)",
+  portal: "rgb(52, 211, 153)",
+  api: "rgb(244, 114, 182)",
+  db: "rgb(41, 162, 167)",
+  devtools: "rgb(250, 204, 21)",
+  json: "rgb(96, 165, 250)",
+  explain: "rgb(148, 163, 184)",
+};
+function miniMapNodeColor(n: Node): string {
+  return MINIMAP_COLORS[n.type ?? ""] ?? "rgb(120, 120, 130)";
+}
 
 export function FloorCanvas({ floorId }: { floorId: string }) {
   const floor = useCanvasStore((s) => s.floors.find((f) => f.id === floorId));
@@ -205,6 +224,15 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
     >
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="rgb(46, 45, 50)" />
       <Controls position="bottom-left" showInteractive={false} />
+      <MiniMap
+        position="bottom-right"
+        pannable
+        zoomable
+        nodeColor={miniMapNodeColor}
+        nodeStrokeWidth={2}
+        maskColor="rgba(0,0,0,0.55)"
+        style={{ backgroundColor: "rgb(26, 25, 30)", border: "1px solid rgb(46,45,50)", borderRadius: 8 }}
+      />
     </ReactFlow>
   );
 }
