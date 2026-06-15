@@ -5,6 +5,8 @@
 //! implementações iniciais. A `MemoryRegistry` mantém o provider ativo.
 pub mod types;
 pub mod provider;
+pub mod local;
 
+pub use local::LocalProvider;
 pub use provider::MemoryProvider;
 pub use types::*;
