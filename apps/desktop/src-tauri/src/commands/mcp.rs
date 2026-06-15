@@ -93,8 +93,11 @@ pub fn agent_mcp_config(app: tauri::AppHandle) -> Option<String> {
             "serena".into(),
             serde_json::json!({
                 "command": serena,
+                // --open-web-dashboard False: NÃO abre a dashboard do Serena no
+                // navegador a cada agente (senão reabre 127.0.0.1:<porta>/dashboard toda hora).
                 "args": ["start-mcp-server", "--transport", "stdio",
-                         "--project-from-cwd", "--context", "ide-assistant"]
+                         "--project-from-cwd", "--context", "ide-assistant",
+                         "--open-web-dashboard", "False"]
             }),
         );
     }
