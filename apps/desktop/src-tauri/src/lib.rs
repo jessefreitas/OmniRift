@@ -11,6 +11,7 @@ use commands::dbnode::db_query;
 use commands::explain::whatis_lookup;
 use commands::fs::list_dir;
 use commands::http::http_request;
+use commands::llm::llm_chat;
 use commands::git::{
     floor_git_create, floor_git_diff, floor_git_land, floor_git_remove, floor_git_status,
     floor_run_hook, git_repo_info,
@@ -152,6 +153,7 @@ pub fn run() {
             http_request,
             db_query,
             whatis_lookup,
+            llm_chat,
             memory_providers_list,
             memory_connect,
             memory_test,

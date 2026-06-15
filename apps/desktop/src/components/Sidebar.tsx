@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   Code2,
+  Cpu,
   Download,
   Folder,
   FolderOpen,
@@ -26,6 +27,7 @@ import {
   RefreshCw,
   Repeat,
   Rocket,
+  ScanLine,
   ScanSearch,
   Sparkles,
   TerminalSquare,
@@ -53,6 +55,8 @@ import { HooksModal } from "@/components/HooksModal";
 import { SnapshotsModal } from "@/components/SnapshotsModal";
 import { RoutinesModal } from "@/components/RoutinesModal";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
+import { ReviewModal } from "@/components/ReviewModal";
+import { LlmConfigModal } from "@/components/LlmConfigModal";
 import { loadHooks, runFloorHook } from "@/lib/hooks-client";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
@@ -215,6 +219,8 @@ export function Sidebar() {
   const [showRoutines, setShowRoutines] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [showConnections, setShowConnections] = useState(false);
+  const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
+  const [showLlmConfig, setShowLlmConfig] = useState(false);
 
   // Abre os modais de ferramenta via Command palette (CustomEvent "maestri:open-tool").
   useEffect(() => {
@@ -226,6 +232,7 @@ export function Sidebar() {
         case "memory": setShowMemory(true); break;
         case "history": setShowHistory(true); break;
         case "connections": setShowConnections(true); break;
+        case "llm": setShowLlmConfig(true); break;
       }
     };
     window.addEventListener("maestri:open-tool", h);
@@ -681,6 +688,7 @@ export function Sidebar() {
                       { icon: Archive, label: "Snapshots do canvas", run: () => setShowSnapshots(true) },
                       { icon: Webhook, label: "Hooks do floor", run: () => setShowHooks(true) },
                       { icon: Plug, label: "Conexões de memória", run: () => setShowConnections(true) },
+                      { icon: Cpu, label: "LLM do review (BYOK)", run: () => setShowLlmConfig(true) },
                       { icon: Brain, label: "Memória dos agentes", run: () => setShowMemory(true) },
                       { icon: History, label: "Histórico de sessões", run: () => setShowHistory(true) },
                     ].map(({ icon: Icon, label, run }) => (
@@ -758,6 +766,19 @@ export function Sidebar() {
                     className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all"
                   >
                     <GitCompare size={10} />
+                  </button>
+                </Tooltip>
+              )}
+              {f.branch && f.worktreePath && (
+                <Tooltip label={`Code review IA de "${f.branch}" vs "${f.baseBranch}"`} side="top">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setReviewFloor(f);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all"
+                  >
+                    <ScanLine size={10} />
                   </button>
                 </Tooltip>
               )}
@@ -1236,6 +1257,8 @@ export function Sidebar() {
       {showSnapshots && <SnapshotsModal onClose={() => setShowSnapshots(false)} />}
       {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
+      {reviewFloor && <ReviewModal floor={reviewFloor} onClose={() => setReviewFloor(null)} onConfigure={() => setShowLlmConfig(true)} />}
+      {showLlmConfig && <LlmConfigModal onClose={() => setShowLlmConfig(false)} />}
     </aside>
   );
 }

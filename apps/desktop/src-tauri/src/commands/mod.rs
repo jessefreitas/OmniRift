@@ -4,6 +4,7 @@ pub mod explain;
 pub mod fs;
 pub mod git;
 pub mod http;
+pub mod llm;
 pub mod mcp;
 pub mod memory;
 pub mod pty;
