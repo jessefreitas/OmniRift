@@ -79,6 +79,7 @@ export function CommandPalette() {
       { id: "open-hooks", label: "Abrir: Hooks do floor", category: "Abrir", run: openTool("hooks") },
       { id: "open-memory", label: "Abrir: Memória dos agentes", category: "Abrir", run: openTool("memory") },
       { id: "open-history", label: "Abrir: Histórico de sessões", category: "Abrir", run: openTool("history") },
+      { id: "open-connections", label: "Abrir: Conexões de memória", category: "Abrir", run: openTool("connections") },
     ];
     return [...create, ...floorCmds, ...openCmds];
   }, [open]);

@@ -21,6 +21,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
+  Plug,
   Plus,
   RefreshCw,
   Repeat,
@@ -51,6 +52,7 @@ import { MemoryModal } from "@/components/MemoryModal";
 import { HooksModal } from "@/components/HooksModal";
 import { SnapshotsModal } from "@/components/SnapshotsModal";
 import { RoutinesModal } from "@/components/RoutinesModal";
+import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { loadHooks, runFloorHook } from "@/lib/hooks-client";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
@@ -212,6 +214,7 @@ export function Sidebar() {
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showRoutines, setShowRoutines] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [showConnections, setShowConnections] = useState(false);
 
   // Abre os modais de ferramenta via Command palette (CustomEvent "maestri:open-tool").
   useEffect(() => {
@@ -222,6 +225,7 @@ export function Sidebar() {
         case "hooks": setShowHooks(true); break;
         case "memory": setShowMemory(true); break;
         case "history": setShowHistory(true); break;
+        case "connections": setShowConnections(true); break;
       }
     };
     window.addEventListener("maestri:open-tool", h);
@@ -676,6 +680,7 @@ export function Sidebar() {
                       { icon: Repeat, label: "Routines", run: () => setShowRoutines(true) },
                       { icon: Archive, label: "Snapshots do canvas", run: () => setShowSnapshots(true) },
                       { icon: Webhook, label: "Hooks do floor", run: () => setShowHooks(true) },
+                      { icon: Plug, label: "Conexões de memória", run: () => setShowConnections(true) },
                       { icon: Brain, label: "Memória dos agentes", run: () => setShowMemory(true) },
                       { icon: History, label: "Histórico de sessões", run: () => setShowHistory(true) },
                     ].map(({ icon: Icon, label, run }) => (
@@ -1230,6 +1235,7 @@ export function Sidebar() {
       {showHooks && <HooksModal onClose={() => setShowHooks(false)} />}
       {showSnapshots && <SnapshotsModal onClose={() => setShowSnapshots(false)} />}
       {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} />}
+      {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
     </aside>
   );
 }
