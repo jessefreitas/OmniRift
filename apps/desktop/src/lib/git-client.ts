@@ -44,6 +44,27 @@ export async function floorGitStatus(path: string): Promise<GitStatus> {
   return invoke<GitStatus>("floor_git_status", { path });
 }
 
+export interface FileDiff {
+  path: string;
+  /** M(odified) A(dded) D(eleted) R(enamed) C(opied). */
+  status: string;
+  additions: number;
+  deletions: number;
+  /** Patch unificado só desse arquivo. */
+  patch: string;
+}
+
+export interface FloorDiff {
+  files: FileDiff[];
+  /** Arquivos novos não-rastreados (sem patch). */
+  untracked: string[];
+}
+
+/** Diff do worktree vs sua base (commitado + working tree) + untracked. */
+export async function floorGitDiff(path: string, base: string): Promise<FloorDiff> {
+  return invoke<FloorDiff>("floor_git_diff", { path, base });
+}
+
 /** Land: merge da branch do floor em `into` + remove worktree + apaga branch. */
 export async function floorGitLand(
   repoRoot: string,

@@ -10,6 +10,7 @@ import {
   Folder,
   FolderOpen,
   GitBranch,
+  GitCompare,
   GitMerge,
   Link2,
   Orbit,
@@ -36,6 +37,7 @@ import { specListFiles, type SpecFile } from "@/lib/spec-client";
 import { agentDocsStatus, agentDocsSync, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 import { RoleEditModal } from "@/components/RoleEditModal";
+import { DiffViewerModal } from "@/components/DiffViewerModal";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
@@ -209,6 +211,7 @@ export function Sidebar() {
   const [docsStatus, setDocsStatus] = useState<AgentDocsStatus | null>(null);
   const [roles, setRoles] = useState<AgentRoleDef[]>(() => loadRoles());
   const [editingRole, setEditingRole] = useState<AgentRoleDef | null>(null);
+  const [diffFloor, setDiffFloor] = useState<Floor | null>(null);
 
   // Esconde/mostra a barra inteira (persiste).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -644,6 +647,19 @@ export function Sidebar() {
               <Tooltip label={`${f.nodes.length} nó(s) neste floor`} side="top">
                 <span className="text-[9px] text-textMuted opacity-60">{f.nodes.length}</span>
               </Tooltip>
+              {f.branch && f.worktreePath && (
+                <Tooltip label={`Ver o diff de "${f.branch}" vs "${f.baseBranch}"`} side="top">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDiffFloor(f);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all"
+                  >
+                    <GitCompare size={10} />
+                  </button>
+                </Tooltip>
+              )}
               {f.branch && (
                 <Tooltip
                   label={
@@ -1097,6 +1113,9 @@ export function Sidebar() {
           onClose={() => setEditingRole(null)}
           onSave={saveRole}
         />
+      )}
+      {diffFloor && (
+        <DiffViewerModal floor={diffFloor} onClose={() => setDiffFloor(null)} />
       )}
     </aside>
   );

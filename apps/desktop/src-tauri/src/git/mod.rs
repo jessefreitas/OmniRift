@@ -8,6 +8,7 @@
 //! `<repo_parent>/.maestri-worktrees/<repo_name>/<branch>/`.
 
 use anyhow::{anyhow, Result};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -151,6 +152,97 @@ pub fn parse_status(output: &str) -> GitStatus {
 pub fn status(cwd: &Path) -> Result<GitStatus> {
     let out = run_git(cwd, &["status", "--porcelain=v2", "--branch"])?;
     Ok(parse_status(&out))
+}
+
+/// Diff de um arquivo no resultado de `diff()`.
+pub struct FileDiff {
+    pub path: String,
+    /// Letra do `--name-status`: M(odified) A(dded) D(eleted) R(enamed) C(opied).
+    pub status: String,
+    pub additions: i64,
+    pub deletions: i64,
+    /// Patch unificado só desse arquivo.
+    pub patch: String,
+}
+
+/// Diff completo de um floor vs sua base.
+pub struct FloorDiff {
+    pub files: Vec<FileDiff>,
+    /// Arquivos novos ainda não rastreados (não aparecem no patch).
+    pub untracked: Vec<String>,
+}
+
+/// Quebra um diff unificado em `path → patch daquele arquivo`. (Puro — testável.)
+fn split_patch(full: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let mut cur: Option<String> = None;
+    let mut buf = String::new();
+    for line in full.lines() {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            if let Some(p) = cur.take() {
+                map.insert(p, std::mem::take(&mut buf));
+            }
+            // rest = "a/<path> b/<path>" → pega o caminho após " b/"
+            cur = rest.split(" b/").nth(1).map(|s| s.to_string());
+        }
+        buf.push_str(line);
+        buf.push('\n');
+    }
+    if let Some(p) = cur.take() {
+        map.insert(p, buf);
+    }
+    map
+}
+
+/// `path → letra de status` a partir de `git diff --name-status`. (Puro.)
+fn parse_name_status(s: &str) -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    for line in s.lines() {
+        let letter = line.chars().next().unwrap_or('M').to_string();
+        // último campo (tab-separado) = caminho atual (novo, em renames)
+        if let Some(path) = line.split('\t').last() {
+            if !path.is_empty() {
+                m.insert(path.to_string(), letter);
+            }
+        }
+    }
+    m
+}
+
+/// Diff de tudo que o worktree mudou vs `base` (commitado + working tree) +
+/// lista de untracked. `base` é a branch de onde o floor saiu.
+pub fn diff(cwd: &Path, base: &str) -> Result<FloorDiff> {
+    let numstat = run_git(cwd, &["diff", "--numstat", base])?;
+    let name_status = run_git(cwd, &["diff", "--name-status", base])?;
+    let full = run_git(cwd, &["diff", base])?;
+    let untracked_raw = run_git(cwd, &["ls-files", "--others", "--exclude-standard"])?;
+
+    let patches = split_patch(&full);
+    let status_map = parse_name_status(&name_status);
+
+    let mut files = Vec::new();
+    for line in numstat.lines() {
+        let mut it = line.splitn(3, '\t');
+        let add = it.next().unwrap_or("0");
+        let del = it.next().unwrap_or("0");
+        let path = match it.next() {
+            Some(p) => p.to_string(),
+            None => continue,
+        };
+        files.push(FileDiff {
+            status: status_map.get(&path).cloned().unwrap_or_else(|| "M".into()),
+            additions: add.parse().unwrap_or(0), // "-" (binário) → 0
+            deletions: del.parse().unwrap_or(0),
+            patch: patches.get(&path).cloned().unwrap_or_default(),
+            path,
+        });
+    }
+    let untracked = untracked_raw
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|s| s.to_string())
+        .collect();
+    Ok(FloorDiff { files, untracked })
 }
 
 #[cfg(test)]

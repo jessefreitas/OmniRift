@@ -83,6 +83,43 @@ pub fn floor_git_land(
     .map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDiffDto {
+    pub path: String,
+    pub status: String,
+    pub additions: i64,
+    pub deletions: i64,
+    pub patch: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FloorDiffDto {
+    pub files: Vec<FileDiffDto>,
+    pub untracked: Vec<String>,
+}
+
+/// Diff do worktree em `path` vs `base` (commitado + working tree) + untracked.
+#[tauri::command]
+pub fn floor_git_diff(path: String, base: String) -> Result<FloorDiffDto, String> {
+    let d = git::diff(Path::new(&path), &base).map_err(|e| e.to_string())?;
+    Ok(FloorDiffDto {
+        files: d
+            .files
+            .into_iter()
+            .map(|f| FileDiffDto {
+                path: f.path,
+                status: f.status,
+                additions: f.additions,
+                deletions: f.deletions,
+                patch: f.patch,
+            })
+            .collect(),
+        untracked: d.untracked,
+    })
+}
+
 /// Remove o worktree de um floor (descartar sem merge). `delete_branch` apaga a branch.
 #[tauri::command]
 pub fn floor_git_remove(
