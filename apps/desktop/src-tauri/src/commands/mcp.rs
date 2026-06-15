@@ -79,7 +79,8 @@ fn find_serena() -> Option<String> {
 /// universal de desenvolvimento — independe da linguagem do projeto:
 ///   - serena   → estrutura de código por linguagem (LSP, 50+ langs), se instalado;
 ///                --project-from-cwd detecta a linguagem/projeto da pasta do agente.
-///   - context7 → documentação ao vivo de libs/frameworks (HTTP remoto, sem creds).
+///   - context7   → documentação ao vivo de libs/frameworks (HTTP remoto, sem creds).
+///   - playwright → o agente dirige um browser real (navega/clica/screenshot), headed.
 /// Sempre devolve Some: o Context7 não exige instalação local. Os MCPs de banco
 /// (Postgres/MS SQL/Firebase/SQLite) entram como add-on configurável à parte.
 #[tauri::command]
@@ -101,6 +102,16 @@ pub fn agent_mcp_config(app: tauri::AppHandle) -> Option<String> {
     servers.insert(
         "context7".into(),
         serde_json::json!({ "type": "http", "url": "https://mcp.context7.com/mcp" }),
+    );
+    // Playwright: o agente DIRIGE um browser real (navega/clica/screenshot) em qualquer
+    // site, sem o limite de X-Frame do portal. --headed (janela visível) + viewport grande
+    // ("maior"). Roda no processo do claude (rede normal, não o WebKitGTK).
+    servers.insert(
+        "playwright".into(),
+        serde_json::json!({
+            "command": "npx",
+            "args": ["-y", "@playwright/mcp@latest", "--headed", "--viewport-size", "1440,900"]
+        }),
     );
 
     let dir = app.path().app_data_dir().ok()?;
