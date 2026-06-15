@@ -5,6 +5,8 @@ export interface Floor {
   id: string;
   name: string;
   cwd: string | null;
+  /** A qual projeto este floor pertence (runtime flat-floors). */
+  projectId?: string;
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   /** Backing git (Fase A) — presente só em floors criados como branch. */
@@ -31,12 +33,20 @@ export interface WorkspaceFileV2 {
   activeFloorId: string;
 }
 
-/** Um projeto = canvas isolado (seus próprios floors). Container dos floors. */
+/** Um projeto = canvas isolado (seus próprios floors). Container dos floors (persistência, aninhado). */
 export interface Project {
   id: string;
   name: string;
   cwd: string | null;
   floors: Floor[];
+  activeFloorId: string;
+}
+
+/** Metadados de projeto no runtime (flat-floors): os floors vivem flat em `floors`. */
+export interface ProjectMeta {
+  id: string;
+  name: string;
+  cwd: string | null;
   activeFloorId: string;
 }
 

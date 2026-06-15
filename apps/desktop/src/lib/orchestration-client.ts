@@ -101,12 +101,14 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
   let lastSig = "";
   const pushMirror = () => {
     const s = useCanvasStore.getState();
+    // Só os floors do projeto ATIVO — o orquestrador opera no projeto corrente.
+    const pf = s.floors.filter((f) => f.projectId === s.activeProjectId);
     const sig =
-      s.activeFloorId + "|" + s.floors.map((f) => `${f.id}:${f.name}:${f.nodes.length}`).join(",");
+      s.activeProjectId + "|" + s.activeFloorId + "|" + pf.map((f) => `${f.id}:${f.name}:${f.nodes.length}`).join(",");
     if (sig === lastSig) return;
     lastSig = sig;
     floorMirrorSet(
-      s.floors.map((f) => ({ id: f.id, name: f.name, nodes: f.nodes.length })),
+      pf.map((f) => ({ id: f.id, name: f.name, nodes: f.nodes.length })),
       s.activeFloorId,
     ).catch(() => {});
   };

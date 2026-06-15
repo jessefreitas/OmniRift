@@ -32,16 +32,26 @@ export async function initPersistence(): Promise<() => void> {
   let lastFloors = s0.floors;
   let lastActive = s0.activeFloorId;
   let lastName = s0.workspaceName;
+  let lastProjects = s0.projects;
+  let lastActiveProject = s0.activeProjectId;
   let timer: number | undefined;
 
   const unsub = useCanvasStore.subscribe(() => {
     const s = useCanvasStore.getState();
-    if (s.floors === lastFloors && s.activeFloorId === lastActive && s.workspaceName === lastName) {
+    if (
+      s.floors === lastFloors &&
+      s.activeFloorId === lastActive &&
+      s.workspaceName === lastName &&
+      s.projects === lastProjects &&
+      s.activeProjectId === lastActiveProject
+    ) {
       return;
     }
     lastFloors = s.floors;
     lastActive = s.activeFloorId;
     lastName = s.workspaceName;
+    lastProjects = s.projects;
+    lastActiveProject = s.activeProjectId;
     if (timer) window.clearTimeout(timer);
     timer = window.setTimeout(() => {
       dbSaveWorkspace(JSON.stringify(s.getWorkspaceSnapshot())).catch((e) =>

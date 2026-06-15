@@ -16,21 +16,23 @@ import type {
   SketchNode,
   TerminalNode,
 } from "@/types/canvas";
-import type { AnyWorkspaceFile, Floor, Project, WorkspaceFileV3 } from "@/types/workspace";
+import type { AnyWorkspaceFile, Floor, Project, ProjectMeta, WorkspaceFileV3 } from "@/types/workspace";
 import { migrateWorkspace } from "@/types/workspace";
 import type { AgentRole, AgentState } from "@/types/pty";
 
 interface CanvasState {
-  /** Projetos (canvas isolados). O ativo tem seus floors espelhados em `floors`. */
-  projects: Project[];
+  /** Projetos (canvas isolados, metadados). Os floors vivem FLAT em `floors` (todos
+   *  os projetos), cada um com `projectId` — assim trocar de projeto não desmonta nada. */
+  projects: ProjectMeta[];
   activeProjectId: string;
+  /** TODOS os floors de TODOS os projetos (flat). O Canvas mostra só os do ativo. */
   floors: Floor[];
   activeFloorId: string;
   workspaceName: string;
   currentCwd: string | null; // espelho do cwd do floor ativo
 
   // project management (canvas isolado por projeto)
-  addProject: (params?: { name?: string; cwd?: string | null }) => Project;
+  addProject: (params?: { name?: string; cwd?: string | null }) => ProjectMeta;
   closeProject: (id: string) => void;
   setActiveProject: (id: string) => void;
   renameProject: (id: string, name: string) => void;
@@ -101,21 +103,18 @@ function defaultPosition(): { x: number; y: number } {
   return { x: 200 + Math.random() * 400, y: 150 + Math.random() * 300 };
 }
 
-const FIRST_FLOOR: Floor = { id: "floor-main", name: "Principal", cwd: null, nodes: [], edges: [] };
-const FIRST_PROJECT: Project = { id: "proj-main", name: "Principal", cwd: null, floors: [FIRST_FLOOR], activeFloorId: FIRST_FLOOR.id };
+const FIRST_FLOOR: Floor = { id: "floor-main", name: "Principal", cwd: null, projectId: "proj-main", nodes: [], edges: [] };
+const FIRST_PROJECT: ProjectMeta = { id: "proj-main", name: "Principal", cwd: null, activeFloorId: FIRST_FLOOR.id };
 
-/** Map sobre os nós do floor ativo. */
+/** Map sobre os nós do floor ativo (busca por activeFloorId no array flat). */
 function mapActiveNodes(s: CanvasState, fn: (nodes: CanvasNode[]) => CanvasNode[]): Floor[] {
   return s.floors.map((f) => (f.id === s.activeFloorId ? { ...f, nodes: fn(f.nodes) } : f));
 }
 
-/** Escreve o working set ativo (floors/activeFloorId/cwd top-level) de volta no
- *  projeto ativo dentro de `projects` — fonte da verdade na troca/persistência. */
-function syncActive(s: CanvasState): Project[] {
+/** Salva o estado vivo do projeto ativo (activeFloorId/cwd) de volta no seu meta. */
+function syncActiveMeta(s: CanvasState): ProjectMeta[] {
   return s.projects.map((p) =>
-    p.id === s.activeProjectId
-      ? { ...p, floors: s.floors, activeFloorId: s.activeFloorId, cwd: s.currentCwd }
-      : p,
+    p.id === s.activeProjectId ? { ...p, activeFloorId: s.activeFloorId, cwd: s.currentCwd } : p,
   );
 }
 
@@ -131,48 +130,44 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   orchestratorSid:
     (typeof localStorage !== "undefined" && localStorage.getItem("maestri-mcp-orch")) || null,
 
-  // ---- project management (canvas isolado por projeto) ----
+  // ---- project management (canvas isolado por projeto; floors flat) ----
   addProject: ({ name, cwd = null } = {}) => {
-    const floor: Floor = { id: nanoid(), name: "Principal", cwd, nodes: [], edges: [] };
-    const proj: Project = {
-      id: nanoid(),
+    const projId = nanoid();
+    const floor: Floor = { id: nanoid(), name: "Principal", cwd, projectId: projId, nodes: [], edges: [] };
+    const proj: ProjectMeta = {
+      id: projId,
       name: name?.trim() || `Projeto ${get().projects.length + 1}`,
       cwd,
-      floors: [floor],
       activeFloorId: floor.id,
     };
     set((s) => ({
-      projects: [...syncActive(s), proj], // write-back do ativo + adiciona o novo
+      projects: [...syncActiveMeta(s), proj], // write-back do ativo + adiciona o novo
+      floors: [...s.floors, floor], // floor novo entra no array flat (não move os outros)
       activeProjectId: proj.id,
-      floors: proj.floors,
-      activeFloorId: proj.activeFloorId,
-      currentCwd: proj.cwd,
+      activeFloorId: floor.id,
+      currentCwd: cwd,
     }));
     return proj;
   },
   setActiveProject: (id) =>
     set((s) => {
       if (id === s.activeProjectId) return s;
-      const projects = syncActive(s);
+      const projects = syncActiveMeta(s);
       const target = projects.find((p) => p.id === id);
       if (!target) return s;
-      return {
-        projects,
-        activeProjectId: id,
-        floors: target.floors,
-        activeFloorId: target.activeFloorId,
-        currentCwd: target.cwd,
-      };
+      // Só troca o ponteiro ativo — os floors flat NÃO mudam → nada desmonta (PTYs vivos).
+      return { projects, activeProjectId: id, activeFloorId: target.activeFloorId, currentCwd: target.cwd };
     }),
   closeProject: (id) =>
     set((s) => {
       if (s.projects.length <= 1) return s; // nunca fecha o último
-      const projects = syncActive(s).filter((p) => p.id !== id);
+      const projects = syncActiveMeta(s).filter((p) => p.id !== id);
+      const floors = s.floors.filter((f) => f.projectId !== id); // floors do fechado saem (PTYs morrem — esperado ao fechar)
       if (id === s.activeProjectId) {
         const next = projects[0];
-        return { projects, activeProjectId: next.id, floors: next.floors, activeFloorId: next.activeFloorId, currentCwd: next.cwd };
+        return { projects, floors, activeProjectId: next.id, activeFloorId: next.activeFloorId, currentCwd: next.cwd };
       }
-      return { projects };
+      return { projects, floors };
     }),
   renameProject: (id, name) =>
     set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, name: name.trim() || p.name } : p)) })),
@@ -180,10 +175,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   // ---- floor management ----
   createFloor: (name, opts) => {
     const g = opts?.git;
+    const s0 = get();
     const floor: Floor = {
       id: nanoid(),
-      name: name?.trim() || `Floor ${get().floors.length + 1}`,
+      name: name?.trim() || `Floor ${s0.floors.filter((f) => f.projectId === s0.activeProjectId).length + 1}`,
       cwd: g?.worktreePath ?? null, // git-backed → terminais nascem no worktree
+      projectId: s0.activeProjectId, // floor nasce no projeto ativo
       nodes: [],
       edges: [],
       ...(g && {
@@ -207,10 +204,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     set((s) => ({ floors: s.floors.map((f) => (f.id === id ? { ...f, name } : f)) })),
   deleteFloor: (id) =>
     set((s) => {
-      if (s.floors.length <= 1) return s; // nunca remove o último
+      const target = s.floors.find((f) => f.id === id);
+      if (!target) return s;
+      const projId = target.projectId;
+      if (s.floors.filter((f) => f.projectId === projId).length <= 1) return s; // nunca o último do projeto
       const floors = s.floors.filter((f) => f.id !== id);
       if (s.activeFloorId === id) {
-        const next = floors[0];
+        const next = floors.find((f) => f.projectId === projId) ?? floors[0];
         return { floors, activeFloorId: next.id, currentCwd: next.cwd };
       }
       return { floors };
@@ -483,14 +483,23 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   // ---- persistência ----
   getWorkspaceSnapshot: () => {
     const s = get();
-    return { version: 3, name: s.workspaceName, projects: syncActive(s), activeProjectId: s.activeProjectId };
+    // Agrupa os floors flat por projeto pro formato V3 (aninhado). O ativo usa o
+    // estado vivo top-level (activeFloorId/cwd); os inativos, o meta.
+    const projects: Project[] = s.projects.map((pm) => ({
+      id: pm.id,
+      name: pm.name,
+      cwd: pm.id === s.activeProjectId ? s.currentCwd : pm.cwd,
+      activeFloorId: pm.id === s.activeProjectId ? s.activeFloorId : pm.activeFloorId,
+      floors: s.floors.filter((f) => f.projectId === pm.id),
+    }));
+    return { version: 3, name: s.workspaceName, projects, activeProjectId: s.activeProjectId };
   },
 
   restoreWorkspace: (ws) => {
     const v3 = migrateWorkspace(ws);
-    // Remapeia ids (floors/nodes/parentId/edges) de UM floor — restore não pode
-    // reusar ids (colidem com os já vivos). Mesma lógica de antes, por floor.
-    const remapFloor = (f: Floor): { floor: Floor; oldId: string } => {
+    // Remapeia ids (floors/nodes/parentId/edges) e taga o projectId. Restore não
+    // pode reusar ids (colidem com os já vivos).
+    const remapFloor = (f: Floor, projId: string): { floor: Floor; oldId: string } => {
       const idMap = new Map<string, string>();
       const remapped: CanvasNode[] = f.nodes.map((n) => {
         const newId = nanoid();
@@ -508,23 +517,26 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
         source: idMap.get(e.source) ?? e.source,
         target: idMap.get(e.target) ?? e.target,
       }));
-      return { floor: { ...f, id: nanoid(), nodes, edges }, oldId: f.id };
+      return { floor: { ...f, id: nanoid(), projectId: projId, nodes, edges }, oldId: f.id };
     };
-    const projects: Project[] = v3.projects.map((p) => {
+    const flatFloors: Floor[] = [];
+    const projects: ProjectMeta[] = v3.projects.map((p) => {
+      const newProjId = nanoid();
       const floorIdMap = new Map<string, string>();
-      const floors = p.floors.map((f) => {
-        const { floor, oldId } = remapFloor(f);
+      for (const f of p.floors) {
+        const { floor, oldId } = remapFloor(f, newProjId);
         floorIdMap.set(oldId, floor.id);
-        return floor;
-      });
-      return { ...p, id: nanoid(), floors, activeFloorId: floorIdMap.get(p.activeFloorId) ?? floors[0]?.id ?? "" };
+        flatFloors.push(floor);
+      }
+      const firstOfProj = flatFloors.find((ff) => ff.projectId === newProjId);
+      return { id: newProjId, name: p.name, cwd: p.cwd, activeFloorId: floorIdMap.get(p.activeFloorId) ?? firstOfProj?.id ?? "" };
     });
     const activeIdx = Math.max(0, v3.projects.findIndex((p) => p.id === v3.activeProjectId));
     const active = projects[activeIdx] ?? projects[0];
     set({
       projects,
+      floors: flatFloors,
       activeProjectId: active.id,
-      floors: active.floors,
       activeFloorId: active.activeFloorId,
       currentCwd: active.cwd,
       workspaceName: v3.name,

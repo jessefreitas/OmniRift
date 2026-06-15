@@ -8,7 +8,7 @@ import { Plus, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
-import type { Project } from "@/types/workspace";
+import type { ProjectMeta } from "@/types/workspace";
 
 export function ProjectTabs() {
   const projects = useCanvasStore((s) => s.projects);
@@ -19,8 +19,8 @@ export function ProjectTabs() {
   const closeProject = useCanvasStore((s) => s.closeProject);
   const renameProject = useCanvasStore((s) => s.renameProject);
 
-  // O projeto ativo tem os floors vivos em top-level; os outros, no próprio registro.
-  const floorCount = (p: Project) => (p.id === activeProjectId ? floors.length : p.floors.length);
+  // floors é flat (todos os projetos) — conta por projectId.
+  const floorCount = (p: ProjectMeta) => floors.filter((f) => f.projectId === p.id).length;
 
   async function newProject() {
     const sel = await open({ directory: true, multiple: false, title: "Abrir projeto (pasta)" });

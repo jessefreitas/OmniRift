@@ -15,10 +15,12 @@ export function useQuickJump(): void {
       if (!/^[1-9]$/.test(e.key)) return;
       const idx = Number(e.key) - 1;
       const st = useCanvasStore.getState();
-      if (idx >= st.floors.length) return;
+      // Floors do projeto ativo (floors é flat no store).
+      const pf = st.floors.filter((f) => f.projectId === st.activeProjectId);
+      if (idx >= pf.length) return;
       e.preventDefault();
       e.stopPropagation();
-      st.switchFloor(st.floors[idx].id);
+      st.switchFloor(pf[idx].id);
     };
     window.addEventListener("keydown", handler, true); // capture: antes do xterm
     return () => window.removeEventListener("keydown", handler, true);

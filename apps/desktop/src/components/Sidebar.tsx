@@ -178,7 +178,10 @@ export function Sidebar() {
   const workspaceName = useCanvasStore((s) => s.workspaceName);
   const getWorkspaceSnapshot = useCanvasStore((s) => s.getWorkspaceSnapshot);
   const restoreWorkspace = useCanvasStore((s) => s.restoreWorkspace);
-  const floors = useCanvasStore((s) => s.floors);
+  const allFloors = useCanvasStore((s) => s.floors);
+  const activeProjectId = useCanvasStore((s) => s.activeProjectId);
+  // A sidebar mostra/opera só os floors do projeto ATIVO (floors é flat no store).
+  const floors = useMemo(() => allFloors.filter((f) => f.projectId === activeProjectId), [allFloors, activeProjectId]);
   const activeFloorId = useCanvasStore((s) => s.activeFloorId);
   const createFloor = useCanvasStore((s) => s.createFloor);
   const switchFloor = useCanvasStore((s) => s.switchFloor);
