@@ -1,0 +1,34 @@
+name: code-review-ai
+
+# Review IA de cada PR (qwen3-coder via Ollama Cloud). 2 estágios: pre-flight
+# determinístico + review IA das 6 categorias. Posta comentário + seta o status
+# 'code-review/ai-review' (gate de merge se a branch exigir o status).
+#
+# Pré-requisitos no repo:
+#   - Actions habilitado + um runner registrado com o label 'ubuntu-latest'
+#   - Secrets: OLLAMA_API_KEY (Ollama Cloud) e FORGEJO_TOKEN (postar comentário/status)
+#   - (opcional) Branch protection na main exigindo o status 'code-review/ai-review'
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: AI code review
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+        run: python3 scripts/ci-code-review.py
