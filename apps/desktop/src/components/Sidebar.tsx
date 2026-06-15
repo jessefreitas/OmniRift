@@ -34,7 +34,7 @@ import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig } from "@/lib/mcp-
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
 import { specListFiles, type SpecFile } from "@/lib/spec-client";
 import { agentDocsStatus, agentDocsSync, type AgentDocsStatus } from "@/lib/agent-docs-client";
-import { loadRoles, saveRoles, type AgentRoleDef } from "@/lib/agent-roles";
+import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 import { RoleEditModal } from "@/components/RoleEditModal";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
@@ -455,27 +455,40 @@ export function Sidebar() {
     }
   }
 
-  // Cria um Claude Code com a persona do role (--append-system-prompt + deny-list + MCP).
+  // Cria um agente no CLI escolhido com a persona do role. claude usa
+  // --append-system-prompt (nível-sistema) + deny-list + MCP; os outros CLIs não
+  // têm flag de system-prompt → a persona vai como 1ª mensagem após o CLI subir.
   function spawnRole(r: AgentRoleDef) {
-    const base = [
-      "--append-system-prompt",
-      r.prompt,
-      "--dangerously-skip-permissions",
-      "--disallowed-tools",
-      ...DENY_DESTRUCTIVE,
-    ];
-    const args = mcpConfigPath ? [...base, "--mcp-config", mcpConfigPath] : base;
-    addTerminal({ command: "claude", args, role: "claude-code", label: r.name });
+    const cli = ROLE_CLIS.find((c) => c.id === (r.cli ?? "claude")) ?? ROLE_CLIS[0];
+    if (cli.systemPromptFlag) {
+      const base = [
+        cli.systemPromptFlag,
+        r.prompt,
+        "--dangerously-skip-permissions",
+        "--disallowed-tools",
+        ...DENY_DESTRUCTIVE,
+      ];
+      const args = mcpConfigPath ? [...base, "--mcp-config", mcpConfigPath] : base;
+      addTerminal({ command: cli.command, args, role: cli.role, label: r.name });
+      return;
+    }
+    const node = addTerminal({ command: cli.command, role: cli.role, label: r.name });
+    setTimeout(() => {
+      invoke("pty_write", { sessionId: node.session_id, data: r.prompt }).catch(console.warn);
+      setTimeout(() => {
+        invoke("pty_write", { sessionId: node.session_id, data: "\r" }).catch(console.warn);
+      }, 200);
+    }, 1800);
   }
 
   // Salva (upsert) um role editado/criado no modal.
-  function saveRole(name: string, prompt: string) {
+  function saveRole(name: string, prompt: string, cli: string) {
     if (!editingRole) return;
     setRoles((prev) => {
       const exists = prev.some((x) => x.id === editingRole.id);
       const next = exists
-        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt } : x))
-        : [...prev, { ...editingRole, name, prompt }];
+        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli } : x))
+        : [...prev, { ...editingRole, name, prompt, cli }];
       saveRoles(next);
       return next;
     });
@@ -870,6 +883,11 @@ export function Sidebar() {
                 >
                   {r.name}
                 </button>
+                {(r.cli ?? "claude") !== "claude" && (
+                  <span className="text-[8px] px-1 rounded shrink-0 bg-brand/15 text-brand uppercase">
+                    {r.cli}
+                  </span>
+                )}
                 <Tooltip label="Editar prompt" side="top" className="shrink-0">
                   <button
                     onClick={() => setEditingRole(r)}

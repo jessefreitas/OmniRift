@@ -7,17 +7,18 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
-import type { AgentRoleDef } from "@/lib/agent-roles";
+import { ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 
 interface Props {
   role: AgentRoleDef;
-  onSave: (name: string, prompt: string) => void;
+  onSave: (name: string, prompt: string, cli: string) => void;
   onClose: () => void;
 }
 
 export function RoleEditModal({ role, onSave, onClose }: Props) {
   const [name, setName] = useState(role.name);
   const [prompt, setPrompt] = useState(role.prompt);
+  const [cli, setCli] = useState(role.cli ?? "claude");
 
   return createPortal(
     <div
@@ -47,6 +48,20 @@ export function RoleEditModal({ role, onSave, onClose }: Props) {
             />
           </div>
           <div>
+            <label className="text-[11px] uppercase tracking-wider text-textMuted">CLI / LLM</label>
+            <select
+              value={cli}
+              onChange={(e) => setCli(e.target.value)}
+              className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text focus:outline-none focus:border-brand"
+            >
+              {ROLE_CLIS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">
               Prompt (persona / instruções)
             </label>
@@ -70,7 +85,7 @@ export function RoleEditModal({ role, onSave, onClose }: Props) {
             Cancelar
           </button>
           <button
-            onClick={() => onSave(name.trim() || "Role", prompt)}
+            onClick={() => onSave(name.trim() || "Role", prompt, cli)}
             disabled={!prompt.trim()}
             className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >

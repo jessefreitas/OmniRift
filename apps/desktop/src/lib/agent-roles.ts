@@ -4,13 +4,34 @@
 // como --append-system-prompt num Claude Code. O usuário seleciona, edita e cria
 // os seus. Persiste em localStorage (seed = BUILTIN_ROLES no primeiro uso).
 
+import type { AgentRole } from "@/types/pty";
+
 export interface AgentRoleDef {
   id: string;
   name: string;
   prompt: string;
+  /** Qual CLI/LLM roda essa persona (id de ROLE_CLIS). Default "claude". */
+  cli?: string;
   /** true = veio dos padrões (não deletável; pode editar/resetar). */
   builtin?: boolean;
 }
+
+/** CLIs/LLMs disponíveis pra rodar um role. claude injeta via --append-system-prompt;
+ *  os demais não têm flag de system-prompt → a persona vai como 1ª mensagem. */
+export interface RoleCli {
+  id: string;
+  label: string;
+  command: string;
+  role: AgentRole;
+  systemPromptFlag?: string;
+}
+
+export const ROLE_CLIS: RoleCli[] = [
+  { id: "claude", label: "Claude Code", command: "claude", role: "claude-code", systemPromptFlag: "--append-system-prompt" },
+  { id: "codex", label: "Codex", command: "codex", role: "codex" },
+  { id: "opencode", label: "OpenCode", command: "opencode", role: "opencode" },
+  { id: "antigravity", label: "Antigravity (agy)", command: "agy", role: "antigravity" },
+];
 
 export const BUILTIN_ROLES: AgentRoleDef[] = [
   {
