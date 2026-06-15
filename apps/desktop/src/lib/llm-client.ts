@@ -32,6 +32,7 @@ export const LLM_PRESETS: LlmPreset[] = [
   { id: "openai", label: "OpenAI", provider: "openai", baseUrl: "https://api.openai.com/v1", modelHint: "gpt-4o" },
   { id: "anthropic", label: "Anthropic", provider: "anthropic", baseUrl: "https://api.anthropic.com", modelHint: "claude-sonnet-4-6" },
   { id: "ollama", label: "Ollama (local)", provider: "ollama", baseUrl: "http://localhost:11434", modelHint: "qwen2.5-coder:7b" },
+  { id: "ollama-cloud", label: "Ollama Cloud", provider: "ollama", baseUrl: "https://ollama.com", modelHint: "qwen3-coder:480b-cloud" },
   { id: "groq", label: "Groq", provider: "openai", baseUrl: "https://api.groq.com/openai/v1", modelHint: "llama-3.3-70b-versatile" },
   { id: "openrouter", label: "OpenRouter", provider: "openai", baseUrl: "https://openrouter.ai/api/v1", modelHint: "qwen/qwen-2.5-coder-32b-instruct" },
 ];

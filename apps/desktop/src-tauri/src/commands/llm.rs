@@ -85,7 +85,12 @@ async fn ollama_chat(base: &str, cfg: &LlmConfig, sys: &str, prompt: &str) -> Re
     }
     messages.push(serde_json::json!({ "role": "user", "content": prompt }));
     let body = serde_json::json!({ "model": cfg.model, "messages": messages, "stream": false });
-    let req = client().post(format!("{base}/api/chat")).json(&body);
+    let mut req = client().post(format!("{base}/api/chat")).json(&body);
+    // Ollama Cloud (ollama.com) exige Bearer; Ollama local não usa (key vazia → sem header).
+    let k = key(cfg);
+    if !k.is_empty() {
+        req = req.bearer_auth(k);
+    }
     let v = send(req).await?;
     v.pointer("/message/content")
         .and_then(|x| x.as_str())
