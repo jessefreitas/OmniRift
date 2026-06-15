@@ -16,15 +16,24 @@ import type {
   SketchNode,
   TerminalNode,
 } from "@/types/canvas";
-import type { AnyWorkspaceFile, Floor, WorkspaceFileV2 } from "@/types/workspace";
+import type { AnyWorkspaceFile, Floor, Project, WorkspaceFileV3 } from "@/types/workspace";
 import { migrateWorkspace } from "@/types/workspace";
 import type { AgentRole, AgentState } from "@/types/pty";
 
 interface CanvasState {
+  /** Projetos (canvas isolados). O ativo tem seus floors espelhados em `floors`. */
+  projects: Project[];
+  activeProjectId: string;
   floors: Floor[];
   activeFloorId: string;
   workspaceName: string;
   currentCwd: string | null; // espelho do cwd do floor ativo
+
+  // project management (canvas isolado por projeto)
+  addProject: (params?: { name?: string; cwd?: string | null }) => Project;
+  closeProject: (id: string) => void;
+  setActiveProject: (id: string) => void;
+  renameProject: (id: string, name: string) => void;
 
   // floor management
   createFloor: (
@@ -84,7 +93,7 @@ interface CanvasState {
   setOrchestratorSid: (sid: string | null) => void;
 
   // persistência
-  getWorkspaceSnapshot: () => WorkspaceFileV2;
+  getWorkspaceSnapshot: () => WorkspaceFileV3;
   restoreWorkspace: (ws: AnyWorkspaceFile) => void;
 }
 
@@ -93,13 +102,26 @@ function defaultPosition(): { x: number; y: number } {
 }
 
 const FIRST_FLOOR: Floor = { id: "floor-main", name: "Principal", cwd: null, nodes: [], edges: [] };
+const FIRST_PROJECT: Project = { id: "proj-main", name: "Principal", cwd: null, floors: [FIRST_FLOOR], activeFloorId: FIRST_FLOOR.id };
 
 /** Map sobre os nós do floor ativo. */
 function mapActiveNodes(s: CanvasState, fn: (nodes: CanvasNode[]) => CanvasNode[]): Floor[] {
   return s.floors.map((f) => (f.id === s.activeFloorId ? { ...f, nodes: fn(f.nodes) } : f));
 }
 
+/** Escreve o working set ativo (floors/activeFloorId/cwd top-level) de volta no
+ *  projeto ativo dentro de `projects` — fonte da verdade na troca/persistência. */
+function syncActive(s: CanvasState): Project[] {
+  return s.projects.map((p) =>
+    p.id === s.activeProjectId
+      ? { ...p, floors: s.floors, activeFloorId: s.activeFloorId, cwd: s.currentCwd }
+      : p,
+  );
+}
+
 export const useCanvasStore = create<CanvasState>()((set, get) => ({
+  projects: [FIRST_PROJECT],
+  activeProjectId: FIRST_PROJECT.id,
   floors: [FIRST_FLOOR],
   activeFloorId: FIRST_FLOOR.id,
   workspaceName: "workspace",
@@ -108,6 +130,52 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   terminalStatuses: {},
   orchestratorSid:
     (typeof localStorage !== "undefined" && localStorage.getItem("maestri-mcp-orch")) || null,
+
+  // ---- project management (canvas isolado por projeto) ----
+  addProject: ({ name, cwd = null } = {}) => {
+    const floor: Floor = { id: nanoid(), name: "Principal", cwd, nodes: [], edges: [] };
+    const proj: Project = {
+      id: nanoid(),
+      name: name?.trim() || `Projeto ${get().projects.length + 1}`,
+      cwd,
+      floors: [floor],
+      activeFloorId: floor.id,
+    };
+    set((s) => ({
+      projects: [...syncActive(s), proj], // write-back do ativo + adiciona o novo
+      activeProjectId: proj.id,
+      floors: proj.floors,
+      activeFloorId: proj.activeFloorId,
+      currentCwd: proj.cwd,
+    }));
+    return proj;
+  },
+  setActiveProject: (id) =>
+    set((s) => {
+      if (id === s.activeProjectId) return s;
+      const projects = syncActive(s);
+      const target = projects.find((p) => p.id === id);
+      if (!target) return s;
+      return {
+        projects,
+        activeProjectId: id,
+        floors: target.floors,
+        activeFloorId: target.activeFloorId,
+        currentCwd: target.cwd,
+      };
+    }),
+  closeProject: (id) =>
+    set((s) => {
+      if (s.projects.length <= 1) return s; // nunca fecha o último
+      const projects = syncActive(s).filter((p) => p.id !== id);
+      if (id === s.activeProjectId) {
+        const next = projects[0];
+        return { projects, activeProjectId: next.id, floors: next.floors, activeFloorId: next.activeFloorId, currentCwd: next.cwd };
+      }
+      return { projects };
+    }),
+  renameProject: (id, name) =>
+    set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, name: name.trim() || p.name } : p)) })),
 
   // ---- floor management ----
   createFloor: (name, opts) => {
@@ -414,13 +482,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
 
   // ---- persistência ----
   getWorkspaceSnapshot: () => {
-    const { workspaceName, floors, activeFloorId } = get();
-    return { version: 2, name: workspaceName, floors, activeFloorId };
+    const s = get();
+    return { version: 3, name: s.workspaceName, projects: syncActive(s), activeProjectId: s.activeProjectId };
   },
 
   restoreWorkspace: (ws) => {
-    const v2 = migrateWorkspace(ws);
-    const floors: Floor[] = v2.floors.map((f) => {
+    const v3 = migrateWorkspace(ws);
+    // Remapeia ids (floors/nodes/parentId/edges) de UM floor — restore não pode
+    // reusar ids (colidem com os já vivos). Mesma lógica de antes, por floor.
+    const remapFloor = (f: Floor): { floor: Floor; oldId: string } => {
       const idMap = new Map<string, string>();
       const remapped: CanvasNode[] = f.nodes.map((n) => {
         const newId = nanoid();
@@ -429,7 +499,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
           ? ({ ...n, id: newId, session_id: newId } as CanvasNode)
           : ({ ...n, id: newId } as CanvasNode);
       });
-      // 2ª passada: remapeia parentId (o pai pode ter sido processado depois).
       const nodes: CanvasNode[] = remapped.map((n) =>
         n.parentId ? ({ ...n, parentId: idMap.get(n.parentId) } as CanvasNode) : n,
       );
@@ -439,9 +508,26 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
         source: idMap.get(e.source) ?? e.source,
         target: idMap.get(e.target) ?? e.target,
       }));
-      return { ...f, id: nanoid(), nodes, edges };
+      return { floor: { ...f, id: nanoid(), nodes, edges }, oldId: f.id };
+    };
+    const projects: Project[] = v3.projects.map((p) => {
+      const floorIdMap = new Map<string, string>();
+      const floors = p.floors.map((f) => {
+        const { floor, oldId } = remapFloor(f);
+        floorIdMap.set(oldId, floor.id);
+        return floor;
+      });
+      return { ...p, id: nanoid(), floors, activeFloorId: floorIdMap.get(p.activeFloorId) ?? floors[0]?.id ?? "" };
     });
-    const active = floors[0];
-    set({ floors, activeFloorId: active.id, currentCwd: active.cwd, workspaceName: v2.name });
+    const activeIdx = Math.max(0, v3.projects.findIndex((p) => p.id === v3.activeProjectId));
+    const active = projects[activeIdx] ?? projects[0];
+    set({
+      projects,
+      activeProjectId: active.id,
+      floors: active.floors,
+      activeFloorId: active.activeFloorId,
+      currentCwd: active.cwd,
+      workspaceName: v3.name,
+    });
   },
 }));
