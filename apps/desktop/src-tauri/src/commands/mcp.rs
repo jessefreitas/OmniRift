@@ -84,7 +84,10 @@ fn find_serena() -> Option<String> {
 /// Sempre devolve Some: o Context7 não exige instalação local. Os MCPs de banco
 /// (Postgres/MS SQL/Firebase/SQLite) entram como add-on configurável à parte.
 #[tauri::command]
-pub fn agent_mcp_config(app: tauri::AppHandle) -> Option<String> {
+pub fn agent_mcp_config(
+    app: tauri::AppHandle,
+    memory_registry: tauri::State<'_, std::sync::Arc<crate::memory::MemoryRegistry>>,
+) -> Option<String> {
     use tauri::Manager;
     let mut servers = serde_json::Map::new();
 
@@ -116,6 +119,12 @@ pub fn agent_mcp_config(app: tauri::AppHandle) -> Option<String> {
             "args": ["-y", "@playwright/mcp@latest", "--headed", "--viewport-size", "1440,900"]
         }),
     );
+
+    // Merge da wiring do provider de memória ativo (ex.: omnimemory). Local =
+    // wiring vazia → mapa inalterado (zero regressão pro default).
+    for (name, spec) in memory_registry.active_provider().agent_wiring().mcp_servers {
+        servers.insert(name, spec);
+    }
 
     let dir = app.path().app_data_dir().ok()?;
     std::fs::create_dir_all(&dir).ok()?;
