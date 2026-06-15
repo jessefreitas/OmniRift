@@ -72,12 +72,22 @@ pub fn run() {
 
             // Persistência do canvas (Fase 3) — SQLite no app data dir
             match app.path().app_data_dir() {
-                Ok(dir) => match crate::db::Db::open(&dir) {
-                    Ok(db) => {
-                        app.manage(db);
+                Ok(dir) => {
+                    match crate::db::Db::open(&dir) {
+                        Ok(db) => {
+                            app.manage(db);
+                        }
+                        Err(e) => log::error!("falha ao abrir DB de persistência: {e:#}"),
                     }
-                    Err(e) => log::error!("falha ao abrir DB de persistência: {e:#}"),
-                },
+                    // Registry de memória (provider plugável) — conexão própria
+                    // com o mesmo SQLite (compartilha o arquivo, não o Mutex).
+                    match crate::db::Db::open(&dir) {
+                        Ok(reg_db) => {
+                            app.manage(Arc::new(crate::memory::MemoryRegistry::new(Arc::new(reg_db))));
+                        }
+                        Err(e) => log::error!("falha ao abrir DB da registry de memória: {e:#}"),
+                    }
+                }
                 Err(e) => log::error!("app_data_dir indisponível: {e}"),
             }
             Ok(())

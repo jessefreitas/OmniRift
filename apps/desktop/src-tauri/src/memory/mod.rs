@@ -7,8 +7,10 @@ pub mod types;
 pub mod provider;
 pub mod local;
 pub mod omnimemory;
+pub mod registry;
 
 pub use local::LocalProvider;
 pub use omnimemory::OmniMemoryProvider;
 pub use provider::MemoryProvider;
+pub use registry::MemoryRegistry;
 pub use types::*;
