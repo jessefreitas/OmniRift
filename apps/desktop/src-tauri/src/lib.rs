@@ -10,6 +10,7 @@ use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles};
 use commands::dbnode::db_query;
 use commands::explain::whatis_lookup;
 use commands::fs::{list_dir, read_file};
+use commands::gitremote::{git_clone, git_list_repos};
 use commands::http::http_request;
 use commands::llm::llm_chat;
 use commands::git::{
@@ -151,6 +152,8 @@ pub fn run() {
             discover_roles,
             list_dir,
             read_file,
+            git_list_repos,
+            git_clone,
             http_request,
             db_query,
             whatis_lookup,

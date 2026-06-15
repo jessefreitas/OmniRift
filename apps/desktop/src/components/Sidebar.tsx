@@ -14,6 +14,7 @@ import {
   Archive,
   Brain,
   GitCompare,
+  GitFork,
   GitMerge,
   History,
   Link2,
@@ -58,6 +59,7 @@ import { RoutinesModal } from "@/components/RoutinesModal";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { ReviewModal } from "@/components/ReviewModal";
 import { LlmConfigModal } from "@/components/LlmConfigModal";
+import { GitReposModal } from "@/components/GitReposModal";
 import { ReviewPolicyModal } from "@/components/ReviewPolicyModal";
 import { loadPolicy } from "@/lib/review-policy";
 import { loadLlmConfig } from "@/lib/llm-client";
@@ -230,6 +232,7 @@ export function Sidebar() {
   const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
+  const [showGitRepos, setShowGitRepos] = useState(false);
 
   // Abre os modais de ferramenta via Command palette (CustomEvent "maestri:open-tool").
   useEffect(() => {
@@ -243,6 +246,7 @@ export function Sidebar() {
         case "connections": setShowConnections(true); break;
         case "llm": setShowLlmConfig(true); break;
         case "policy": setPolicyEditor({ label: "global" }); break;
+        case "git": setShowGitRepos(true); break;
       }
     };
     window.addEventListener("maestri:open-tool", h);
@@ -716,6 +720,7 @@ export function Sidebar() {
                       { icon: Repeat, label: "Routines", run: () => setShowRoutines(true) },
                       { icon: Archive, label: "Snapshots do canvas", run: () => setShowSnapshots(true) },
                       { icon: Webhook, label: "Hooks do floor", run: () => setShowHooks(true) },
+                      { icon: GitFork, label: "Repositórios Git", run: () => setShowGitRepos(true) },
                       { icon: Plug, label: "Conexões de memória", run: () => setShowConnections(true) },
                       { icon: Cpu, label: "LLM do review (BYOK)", run: () => setShowLlmConfig(true) },
                       { icon: SlidersHorizontal, label: "Política de review", run: () => setPolicyEditor({ label: "global" }) },
@@ -1296,6 +1301,7 @@ export function Sidebar() {
         />
       )}
       {showLlmConfig && <LlmConfigModal onClose={() => setShowLlmConfig(false)} />}
+      {showGitRepos && <GitReposModal onClose={() => setShowGitRepos(false)} />}
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} onClose={() => setPolicyEditor(null)} />}
     </aside>
   );

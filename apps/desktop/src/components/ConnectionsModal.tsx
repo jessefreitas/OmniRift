@@ -52,9 +52,10 @@ export function ConnectionsModal({ onClose }: Props) {
   async function test(kind: ProviderKind) {
     setBusy(`test:${kind}`);
     try {
-      setHealth((h) => ({ ...h, [kind]: await providerTest(kind) }));
+      const h = await providerTest(kind);
+      setHealth((prev) => ({ ...prev, [kind]: h }));
     } catch (e) {
-      setHealth((h) => ({ ...h, [kind]: { ok: false, detail: String(e) } }));
+      setHealth((prev) => ({ ...prev, [kind]: { ok: false, detail: String(e) } }));
     } finally {
       setBusy(null);
     }

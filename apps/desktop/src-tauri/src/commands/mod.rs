@@ -3,6 +3,7 @@ pub mod dbnode;
 pub mod explain;
 pub mod fs;
 pub mod git;
+pub mod gitremote;
 pub mod http;
 pub mod llm;
 pub mod mcp;

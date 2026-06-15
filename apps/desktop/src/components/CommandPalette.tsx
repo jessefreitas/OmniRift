@@ -89,6 +89,7 @@ export function CommandPalette() {
       { id: "open-connections", label: "Abrir: Conexões de memória", category: "Abrir", run: openTool("connections") },
       { id: "open-llm", label: "Abrir: Config do LLM (review)", category: "Abrir", run: openTool("llm") },
       { id: "open-policy", label: "Abrir: Política de review", category: "Abrir", run: openTool("policy") },
+      { id: "open-git", label: "Abrir: Repositórios Git", category: "Abrir", run: openTool("git") },
     ];
     return [...create, ...floorCmds, ...openCmds];
   }, [open]);
