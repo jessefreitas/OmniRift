@@ -21,3 +21,14 @@ export async function agentDocsStatus(dir: string): Promise<AgentDocsStatus> {
 export async function agentDocsSync(dir: string, from: "claude" | "agents"): Promise<string> {
   return invoke<string>("agent_docs_sync", { dir, from });
 }
+
+export interface DiscoveredRole {
+  name: string;
+  description: string;
+  prompt: string;
+}
+
+/** Descobre roles definidos no projeto (`.claude/agents/*.md`) pra importar. */
+export async function discoverRoles(dir: string): Promise<DiscoveredRole[]> {
+  return invoke<DiscoveredRole[]>("discover_roles", { dir });
+}

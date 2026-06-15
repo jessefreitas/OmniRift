@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Repeat,
   Rocket,
+  ScanSearch,
   Sparkles,
   TerminalSquare,
   Upload,
@@ -40,7 +41,7 @@ import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig } from "@/lib/mcp-client";
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
 import { specListFiles, type SpecFile } from "@/lib/spec-client";
-import { agentDocsStatus, agentDocsSync, type AgentDocsStatus } from "@/lib/agent-docs-client";
+import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 import { DEV_CONTRACT, ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
 import { RoleEditModal } from "@/components/RoleEditModal";
@@ -516,6 +517,36 @@ export function Sidebar() {
     }, 1800);
   }
 
+  // Descobre roles do projeto (.claude/agents/*.md) e importa os que ainda não existem.
+  async function discoverProjectRoles() {
+    if (!currentCwd) return;
+    let found;
+    try {
+      found = await discoverRoles(currentCwd);
+    } catch (e) {
+      alert("Falha ao descobrir roles:\n" + String(e));
+      return;
+    }
+    if (found.length === 0) {
+      alert("Nenhum role em .claude/agents/ deste projeto.");
+      return;
+    }
+    setRoles((prev) => {
+      const have = new Set(prev.map((r) => r.name.toLowerCase()));
+      const fresh = found
+        .filter((f) => !have.has(f.name.toLowerCase()))
+        .map((f) => ({ id: nanoid(), name: f.name, prompt: f.prompt || f.description, cli: "claude" }));
+      if (fresh.length === 0) {
+        alert("Todos os roles do projeto já estão na biblioteca.");
+        return prev;
+      }
+      const next = [...prev, ...fresh];
+      saveRoles(next);
+      alert(`${fresh.length} role(s) importado(s) de .claude/agents/.`);
+      return next;
+    });
+  }
+
   // Salva (upsert) um role editado/criado no modal.
   function saveRole(name: string, prompt: string, cli: string) {
     if (!editingRole) return;
@@ -940,14 +971,26 @@ export function Sidebar() {
       <div className="px-2 py-2 border-t border-border">
         <div className="flex items-center justify-between px-2 mb-1.5">
           {sectionTitle("roles", "Roles")}
-          <Tooltip label="Novo role custom" side="bottom">
-            <button
-              onClick={() => setEditingRole({ id: nanoid(), name: "", prompt: "" })}
-              className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
-            >
-              <Plus size={12} />
-            </button>
-          </Tooltip>
+          <div className="flex items-center gap-0.5">
+            {currentCwd && (
+              <Tooltip label="Descobrir roles do projeto (.claude/agents)" side="bottom">
+                <button
+                  onClick={() => void discoverProjectRoles()}
+                  className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
+                >
+                  <ScanSearch size={12} />
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip label="Novo role custom" side="bottom">
+              <button
+                onClick={() => setEditingRole({ id: nanoid(), name: "", prompt: "" })}
+                className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
+              >
+                <Plus size={12} />
+              </button>
+            </Tooltip>
+          </div>
         </div>
         {isOpen("roles") && (
           <div className="space-y-0.5">

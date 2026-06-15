@@ -6,7 +6,7 @@ pub mod memory;
 pub mod pty;
 pub mod spec;
 
-use commands::agent_docs::{agent_docs_status, agent_docs_sync};
+use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles};
 use commands::dbnode::db_query;
 use commands::explain::whatis_lookup;
 use commands::fs::list_dir;
@@ -146,6 +146,7 @@ pub fn run() {
             spec_list_files,
             agent_docs_status,
             agent_docs_sync,
+            discover_roles,
             list_dir,
             http_request,
             db_query,
