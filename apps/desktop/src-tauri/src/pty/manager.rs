@@ -4,12 +4,30 @@ use crate::pty::session::{PtySession, PtySpawnConfig, SessionId};
 use anyhow::{anyhow, Result};
 use dashmap::DashMap;
 use parking_lot::Mutex;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
 use tauri::AppHandle;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
+
+/// Info de processo de uma sessão PTY (process mgmt na UI).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcInfo {
+    pub pid: u32,
+    /// RSS em KB (Linux via /proc; 0 fora do Linux ou se indisponível).
+    pub rss_kb: u64,
+    pub alive: bool,
+}
+
+/// RSS do processo (Linux: /proc/<pid>/statm campo 2 = páginas residentes).
+fn read_rss_kb(pid: u32) -> u64 {
+    let statm = std::fs::read_to_string(format!("/proc/{pid}/statm")).unwrap_or_default();
+    let pages: u64 = statm.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    pages * 4 // página de 4096 B = 4 KB
+}
 
 pub struct PtyManager {
     sessions: Arc<DashMap<SessionId, Arc<PtySession>>>,
@@ -79,6 +97,16 @@ impl PtyManager {
             .ok_or_else(|| anyhow!("sessão {id} não encontrada"))?;
         self.state_map.remove(id);
         Ok(())
+    }
+
+    /// PID raiz + RSS de uma sessão (process mgmt na UI). None se a sessão sumiu.
+    pub fn proc_info(&self, id: &str) -> Option<ProcInfo> {
+        let pid = self.sessions.get(id)?.root_pid()?;
+        Some(ProcInfo {
+            pid,
+            rss_kb: read_rss_kb(pid),
+            alive: std::path::Path::new(&format!("/proc/{pid}")).exists(),
+        })
     }
 
     /// Estado atual de um agente (consumido pelo Sub-projeto B / UI de debug).

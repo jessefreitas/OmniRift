@@ -1,4 +1,4 @@
-use crate::pty::manager::relay_task;
+use crate::pty::manager::{relay_task, ProcInfo};
 use crate::pty::{PtyManager, PtySpawnConfig, SessionId};
 use tauri::{AppHandle, State};
 
@@ -42,6 +42,15 @@ pub fn pty_kill(
 #[tauri::command]
 pub fn pty_list(manager: State<'_, std::sync::Arc<PtyManager>>) -> Vec<SessionId> {
     manager.list()
+}
+
+/// PID + RSS do processo de uma sessão (process mgmt na UI). None se sumiu.
+#[tauri::command]
+pub fn pty_proc_info(
+    session_id: SessionId,
+    manager: State<'_, std::sync::Arc<PtyManager>>,
+) -> Option<ProcInfo> {
+    manager.proc_info(&session_id)
 }
 
 /// Tela renderizada (VT100) de uma sessão — usada pra semear o espelho do

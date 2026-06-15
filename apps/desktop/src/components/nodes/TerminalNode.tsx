@@ -14,6 +14,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { getOrchestratorMount, subscribeOrchestratorMount } from "@/lib/orchestrator-dock-mount";
 import { TerminalContextMenu } from "@/components/TerminalContextMenu";
 import { StatusDot } from "@/components/StatusDot";
+import { useProcInfo } from "@/hooks/useProcInfo";
 import { ptyWrite } from "@/lib/pty-client";
 import { cn } from "@/lib/cn";
 import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
@@ -32,6 +33,7 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
   const renameNode = useCanvasStore((s) => s.renameNode);
   const addToClipboard = useCanvasStore((s) => s.addToClipboard);
   const termStatus = useCanvasStore((s) => s.terminalStatuses[data.session_id] ?? "idle");
+  const proc = useProcInfo(data.session_id, termStatus !== "dead");
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
   const isOrch = orchestratorSid === data.session_id;
 
@@ -303,6 +305,16 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
           <span className="text-[10px] opacity-50 truncate shrink-0">
             {data.role}
           </span>
+
+          {/* Process mgmt: RSS do processo (PID no tooltip). */}
+          {proc?.alive && (
+            <span
+              className="text-[9px] font-mono text-textMuted opacity-50 shrink-0 tabular-nums"
+              title={`PID ${proc.pid} · ${(proc.rssKb / 1024).toFixed(1)} MB RSS`}
+            >
+              {(proc.rssKb / 1024).toFixed(0)}M
+            </span>
+          )}
 
           {/* Botão reconectar — só aparece quando o processo morreu */}
           {termStatus === "dead" && (

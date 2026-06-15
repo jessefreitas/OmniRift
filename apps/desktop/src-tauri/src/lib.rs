@@ -23,8 +23,8 @@ use commands::memory::{
     memory_active, memory_connect, memory_providers_list, memory_set_active, memory_test,
 };
 use commands::pty::{
-    pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_read_screen,
-    pty_resize, pty_spawn, pty_write,
+    pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
+    pty_read_screen, pty_resize, pty_spawn, pty_write,
 };
 use commands::spec::spec_list_files;
 use commands::workspace::{workspace_load, workspace_save};
@@ -114,6 +114,7 @@ pub fn run() {
             pty_pipe_remove,
             pty_pipe_list,
             pty_read_screen,
+            pty_proc_info,
             workspace_save,
             workspace_load,
             mcp_register_agent,
