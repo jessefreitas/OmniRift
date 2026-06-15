@@ -79,15 +79,17 @@ impl MemoryProvider for OmniMemoryProvider {
     async fn save(&self, m: NewMemory) -> anyhow::Result<String> {
         let base = self.base().ok_or_else(|| anyhow::anyhow!("sem endpoint"))?;
         let body = serde_json::json!({ "content": m.content, "category": m.category, "project": m.project });
+        // Gateway real: /actions/omnimemory/v1/save_project_memory (verificado
+        // contra http_gateway.py — NÃO existe "save_memory"; o /v1 é obrigatório).
         let resp = self
-            .post(format!("{base}/actions/omnimemory/save_memory"))
+            .post(format!("{base}/actions/omnimemory/v1/save_project_memory"))
             .json(&body)
             .send()
             .await?;
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("save_memory falhou: {status} — {text}");
+            anyhow::bail!("save_project_memory falhou: {status} — {text}");
         }
         let v: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
         extract_id(&v).ok_or_else(|| anyhow::anyhow!("save_memory sem id na resposta: {text}"))
@@ -96,8 +98,9 @@ impl MemoryProvider for OmniMemoryProvider {
     async fn search(&self, q: MemoryQuery) -> anyhow::Result<Vec<MemoryRecord>> {
         let base = self.base().ok_or_else(|| anyhow::anyhow!("sem endpoint"))?;
         let body = serde_json::json!({ "query": q.query, "limit": q.limit, "project": q.project });
+        // Gateway real: /actions/omnimemory/v1/search_memories (o /v1 é obrigatório).
         let resp = self
-            .post(format!("{base}/actions/omnimemory/search_memories"))
+            .post(format!("{base}/actions/omnimemory/v1/search_memories"))
             .json(&body)
             .send()
             .await?;
