@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Code2,
   Cpu,
+  Crown,
   Download,
   Folder,
   FolderOpen,
@@ -1058,19 +1059,29 @@ export function Sidebar() {
             {roles.map((r) => (
               <div
                 key={r.id}
-                className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2"
+                className={cn(
+                  "group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2",
+                  r.master && "bg-yellow-400/5 ring-1 ring-yellow-400/20",
+                )}
               >
-                <UserCog size={12} className="text-brand/70 shrink-0" />
+                {r.master ? (
+                  <Crown size={12} className="text-yellow-400 shrink-0" />
+                ) : (
+                  <UserCog size={12} className="text-brand/70 shrink-0" />
+                )}
                 <button
                   onClick={() => spawnRole(r)}
                   title={r.prompt}
-                  className="flex-1 min-w-0 text-left text-xs truncate hover:text-brand transition-colors"
+                  className={cn(
+                    "flex-1 min-w-0 text-left text-xs truncate hover:text-brand transition-colors",
+                    r.master && "font-medium",
+                  )}
                 >
                   {r.name}
                 </button>
-                {(r.cli ?? "claude") !== "claude" && (
+                {((r.cli ?? "claude") !== "claude" || r.master) && (
                   <span className="text-[8px] px-1 rounded shrink-0 bg-brand/15 text-brand uppercase">
-                    {r.cli}
+                    {r.cli ?? "claude"}
                   </span>
                 )}
                 <Tooltip label="Editar prompt" side="top" className="shrink-0">

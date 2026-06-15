@@ -5,6 +5,7 @@
 // os seus. Persiste em localStorage (seed = BUILTIN_ROLES no primeiro uso).
 
 import type { AgentRole } from "@/types/pty";
+import { ORCHESTRATOR_CONTRACT } from "@/lib/agent-contract";
 
 export interface AgentRoleDef {
   id: string;
@@ -14,6 +15,8 @@ export interface AgentRoleDef {
   cli?: string;
   /** true = veio dos padrões (não deletável; pode editar/resetar). */
   builtin?: boolean;
+  /** true = o Orquestrador master (coordena os outros; destaque na UI). */
+  master?: boolean;
 }
 
 /** CLIs/LLMs disponíveis pra rodar um role. claude injeta via --append-system-prompt;
@@ -34,6 +37,14 @@ export const ROLE_CLIS: RoleCli[] = [
 ];
 
 export const BUILTIN_ROLES: AgentRoleDef[] = [
+  {
+    id: "orquestrador",
+    name: "Orquestrador",
+    builtin: true,
+    master: true,
+    cli: "claude", // recomendado (MCP nativo p/ orquestrar); editável pra outro CLI/LLM
+    prompt: ORCHESTRATOR_CONTRACT,
+  },
   {
     id: "devops",
     name: "DevOps",
@@ -106,7 +117,13 @@ const KEY = "maestri-agent-roles-v1";
 export function loadRoles(): AgentRoleDef[] {
   try {
     const s = localStorage.getItem(KEY);
-    if (s) return JSON.parse(s) as AgentRoleDef[];
+    if (s) {
+      const saved = JSON.parse(s) as AgentRoleDef[];
+      // Mescla builtins novos (ex: Orquestrador) que ainda não estão salvos.
+      const ids = new Set(saved.map((r) => r.id));
+      const missing = BUILTIN_ROLES.filter((b) => !ids.has(b.id));
+      return [...missing, ...saved];
+    }
   } catch {
     /* ignore */
   }
