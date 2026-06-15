@@ -29,6 +29,7 @@ import {
   Rocket,
   ScanLine,
   ScanSearch,
+  SlidersHorizontal,
   Sparkles,
   TerminalSquare,
   Upload,
@@ -57,6 +58,10 @@ import { RoutinesModal } from "@/components/RoutinesModal";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { ReviewModal } from "@/components/ReviewModal";
 import { LlmConfigModal } from "@/components/LlmConfigModal";
+import { ReviewPolicyModal } from "@/components/ReviewPolicyModal";
+import { loadPolicy } from "@/lib/review-policy";
+import { loadLlmConfig } from "@/lib/llm-client";
+import { runReview } from "@/lib/review";
 import { loadHooks, runFloorHook } from "@/lib/hooks-client";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
@@ -221,6 +226,7 @@ export function Sidebar() {
   const [showConnections, setShowConnections] = useState(false);
   const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
+  const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
 
   // Abre os modais de ferramenta via Command palette (CustomEvent "maestri:open-tool").
   useEffect(() => {
@@ -233,6 +239,7 @@ export function Sidebar() {
         case "history": setShowHistory(true); break;
         case "connections": setShowConnections(true); break;
         case "llm": setShowLlmConfig(true); break;
+        case "policy": setPolicyEditor({ label: "global" }); break;
       }
     };
     window.addEventListener("maestri:open-tool", h);
@@ -442,6 +449,25 @@ export function Sidebar() {
   async function landFloor(f: Floor) {
     if (!f.repoRoot || !f.branch || !f.worktreePath || !f.baseBranch) return;
     if (!confirm(`Land "${f.branch}" → "${f.baseBranch}"?\nFaz merge e remove o worktree.`)) return;
+    // Review gate: se a política liga o gate, roda o code review antes do merge.
+    const policy = loadPolicy(f.repoRoot);
+    if (policy.enabled && policy.gate !== "off") {
+      const llm = loadLlmConfig();
+      if (llm) {
+        try {
+          const r = await runReview(f.worktreePath, f.baseBranch, llm, policy);
+          if (r.verdict === "NO-GO") {
+            if (policy.gate === "block") {
+              alert(`🚫 Review reprovou (NO-GO · score ${r.score}). Land bloqueado.\nAbra o Review (⊟ no floor) pra ver os findings e corrija.`);
+              return;
+            }
+            if (!confirm(`⚠️ Review reprovou (NO-GO · score ${r.score}).\n${r.summary}\nLand mesmo assim?`)) return;
+          }
+        } catch (e) {
+          console.warn("[review gate] falhou, não bloqueia o Land:", e);
+        }
+      }
+    }
     // Hook onLand: roda (bloqueante) no worktree antes do merge; falha aborta o Land.
     const hooks = loadHooks();
     if (hooks.onLand) {
@@ -689,6 +715,7 @@ export function Sidebar() {
                       { icon: Webhook, label: "Hooks do floor", run: () => setShowHooks(true) },
                       { icon: Plug, label: "Conexões de memória", run: () => setShowConnections(true) },
                       { icon: Cpu, label: "LLM do review (BYOK)", run: () => setShowLlmConfig(true) },
+                      { icon: SlidersHorizontal, label: "Política de review", run: () => setPolicyEditor({ label: "global" }) },
                       { icon: Brain, label: "Memória dos agentes", run: () => setShowMemory(true) },
                       { icon: History, label: "Histórico de sessões", run: () => setShowHistory(true) },
                     ].map(({ icon: Icon, label, run }) => (
@@ -1257,8 +1284,16 @@ export function Sidebar() {
       {showSnapshots && <SnapshotsModal onClose={() => setShowSnapshots(false)} />}
       {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
-      {reviewFloor && <ReviewModal floor={reviewFloor} onClose={() => setReviewFloor(null)} onConfigure={() => setShowLlmConfig(true)} />}
+      {reviewFloor && (
+        <ReviewModal
+          floor={reviewFloor}
+          onClose={() => setReviewFloor(null)}
+          onConfigure={() => setShowLlmConfig(true)}
+          onEditPolicy={() => setPolicyEditor({ scope: reviewFloor.repoRoot || reviewFloor.id, label: reviewFloor.name })}
+        />
+      )}
       {showLlmConfig && <LlmConfigModal onClose={() => setShowLlmConfig(false)} />}
+      {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} onClose={() => setPolicyEditor(null)} />}
     </aside>
   );
 }

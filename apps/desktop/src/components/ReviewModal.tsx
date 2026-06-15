@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { RefreshCw, ScanLine, Settings2, X } from "lucide-react";
+import { RefreshCw, ScanLine, Settings2, Sliders, X } from "lucide-react";
 
 import { runReview, type Finding, type ReviewResult, type Severity } from "@/lib/review";
 import { loadLlmConfig } from "@/lib/llm-client";
@@ -17,6 +17,7 @@ interface Props {
   floor: Floor;
   onClose: () => void;
   onConfigure: () => void;
+  onEditPolicy: () => void;
 }
 
 const SEV_ORDER: Severity[] = ["CRITICAL", "WARNING", "INFO"];
@@ -29,7 +30,7 @@ function sevStyle(s: Severity): string {
   }
 }
 
-export function ReviewModal({ floor, onClose, onConfigure }: Props) {
+export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props) {
   const [result, setResult] = useState<ReviewResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +73,8 @@ export function ReviewModal({ floor, onClose, onConfigure }: Props) {
             </span>
           )}
           <div className="flex-1" />
-          <button onClick={onConfigure} title="Configurar LLM / política" className="text-textMuted hover:text-brand p-1"><Settings2 size={14} /></button>
+          <button onClick={onEditPolicy} title="Editar política de review" className="text-textMuted hover:text-brand p-1"><Sliders size={14} /></button>
+          <button onClick={onConfigure} title="Configurar LLM (BYOK)" className="text-textMuted hover:text-brand p-1"><Settings2 size={14} /></button>
           <button onClick={() => void run()} disabled={!config} title="Rodar de novo" className="text-textMuted hover:text-brand p-1 disabled:opacity-40">
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>

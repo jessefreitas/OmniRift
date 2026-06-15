@@ -81,6 +81,7 @@ export function CommandPalette() {
       { id: "open-history", label: "Abrir: Histórico de sessões", category: "Abrir", run: openTool("history") },
       { id: "open-connections", label: "Abrir: Conexões de memória", category: "Abrir", run: openTool("connections") },
       { id: "open-llm", label: "Abrir: Config do LLM (review)", category: "Abrir", run: openTool("llm") },
+      { id: "open-policy", label: "Abrir: Política de review", category: "Abrir", run: openTool("policy") },
     ];
     return [...create, ...floorCmds, ...openCmds];
   }, [open]);
