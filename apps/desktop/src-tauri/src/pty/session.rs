@@ -73,6 +73,11 @@ impl PtySession {
         for (k, v) in &cfg.env {
             cmd.env(k, v);
         }
+        // Limpa o env de GUI do workaround do `tauri:dev` (snap/glibc) pros processos
+        // filhos — esses LD_PRELOAD/GTK_MODULES são só pra WebKitGTK do maestri; vazar
+        // pro claude e pro Chromium do Playwright (que o agente dirige) pode quebrá-los.
+        cmd.env("LD_PRELOAD", "");
+        cmd.env("GTK_MODULES", "");
 
         let mut child = pair.slave.spawn_command(cmd).context("falha ao spawnar processo no PTY")?;
         let root_pid = child.process_id();
