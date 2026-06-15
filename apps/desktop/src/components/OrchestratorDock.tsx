@@ -22,6 +22,41 @@ export function OrchestratorDock() {
   );
   const [collapsed, setCollapsed] = useState(false);
   const mountRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ ox: number; oy: number; sx: number; sy: number } | null>(null);
+
+  // Posição do dock (arrastável). null = canto inferior-direito padrão.
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const s = localStorage.getItem("maestri-dock-pos");
+      return s ? JSON.parse(s) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Arrasta o dock pelo header (ignora cliques nos botões).
+  const onDragStart = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    const r = panelRef.current?.getBoundingClientRect();
+    if (!r) return;
+    dragRef.current = { ox: r.left, oy: r.top, sx: e.clientX, sy: e.clientY };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onDragMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const x = Math.max(0, Math.min(window.innerWidth - 80, d.ox + (e.clientX - d.sx)));
+    const y = Math.max(0, Math.min(window.innerHeight - 32, d.oy + (e.clientY - d.sy)));
+    setPos({ x, y });
+  };
+  const onDragEnd = (e: React.PointerEvent) => {
+    if (dragRef.current && pos) {
+      try { localStorage.setItem("maestri-dock-pos", JSON.stringify(pos)); } catch { /* ignore */ }
+    }
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  };
 
   // Acha o nó do orquestrador (e seu floor) entre todos os floors.
   const orch = useMemo(() => {
@@ -45,8 +80,17 @@ export function OrchestratorDock() {
   const onOrchFloor = orch.floor.id === activeFloorId;
 
   return (
-    <div className="absolute bottom-3 right-3 z-40 w-[440px] flex flex-col rounded-lg border border-yellow-500/40 bg-surface1 shadow-2xl overflow-hidden">
-      <header className="flex items-center gap-2 px-3 py-1.5 bg-surface2 border-b border-border text-textMuted shrink-0">
+    <div
+      ref={panelRef}
+      className="absolute z-40 w-[440px] flex flex-col rounded-lg border border-yellow-500/40 bg-surface1 shadow-2xl overflow-hidden"
+      style={pos ? { left: pos.x, top: pos.y } : { bottom: 12, right: 12 }}
+    >
+      <header
+        onPointerDown={onDragStart}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragEnd}
+        className="flex items-center gap-2 px-3 py-1.5 bg-surface2 border-b border-border text-textMuted shrink-0 cursor-move select-none"
+      >
         <Crown size={13} className="text-yellow-500 shrink-0" />
         <span className="text-xs font-medium text-yellow-400 truncate">{orch.label}</span>
         <span className="text-[9px] text-yellow-500/80 font-normal shrink-0">orq</span>

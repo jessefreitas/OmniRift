@@ -194,7 +194,7 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       colorMode="dark"
     >
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="rgb(46, 45, 50)" />
-      <Controls position="bottom-right" showInteractive={false} />
+      <Controls position="bottom-left" showInteractive={false} />
     </ReactFlow>
   );
 }
