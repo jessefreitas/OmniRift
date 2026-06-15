@@ -26,6 +26,7 @@ import {
   ptyWrite,
 } from "@/lib/pty-client";
 import { useCanvasStore } from "@/store/canvas-store";
+import { sessionStart, sessionEvent, sessionEnd } from "@/lib/session-client";
 import type { PtySpawnConfig, SessionId } from "@/types/pty";
 
 interface UseTerminalSessionOptions {
@@ -53,6 +54,9 @@ export function useTerminalSession({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const spawnedRef = useRef(false);
+  // Session recorder: último estado logado + guarda pra encerrar só uma vez.
+  const lastStateRef = useRef<string | null>(null);
+  const sessionEndedRef = useRef(false);
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,12 +141,41 @@ export function useTerminalSession({
           rows: config.rows ?? rows,
         });
 
+        // Session recorder — registra a sessão no SQLite (durável). Pega o
+        // contexto de floor/role do store; fire-and-forget (nunca quebra o PTY).
+        {
+          const { floors } = useCanvasStore.getState();
+          const floor = floors.find((f) =>
+            f.nodes.some((n) => n.kind === "terminal" && n.session_id === sessionId),
+          );
+          const node = floor?.nodes.find(
+            (n) => n.kind === "terminal" && n.session_id === sessionId,
+          ) as { role?: string; label?: string } | undefined;
+          sessionEndedRef.current = false;
+          lastStateRef.current = null;
+          void sessionStart({
+            id: sessionId,
+            agentId: sessionId,
+            floorId: floor?.id,
+            floorName: floor?.name,
+            branch: floor?.branch,
+            role: node?.role,
+            label: node?.label,
+            command: [config.command, ...(config.args ?? [])].join(" "),
+            cwd: config.cwd,
+          }).catch(() => {});
+        }
+
         unlistenOutput = await listenPtyOutput(sessionId, (data) => {
           term.write(data);
         });
 
         unlistenStatus = await listenAgentStatus(sessionId, (state) => {
           setTerminalStatus(sessionId, state);
+          if (state !== lastStateRef.current) {
+            lastStateRef.current = state;
+            void sessionEvent(sessionId, `state:${state}`).catch(() => {});
+          }
         });
 
         unlistenExit = await listenPtyExit(sessionId, (code) => {
@@ -150,6 +183,11 @@ export function useTerminalSession({
             `\r\n\x1b[2;37m[processo encerrou — código ${code ?? "?"}]\x1b[0m\r\n`,
           );
           setTerminalStatus(sessionId, "dead");
+          if (!sessionEndedRef.current) {
+            sessionEndedRef.current = true;
+            const status = lastStateRef.current === "done" ? "done" : "exited";
+            void sessionEnd(sessionId, status, `exit code ${code ?? "?"}`).catch(() => {});
+          }
           onExit?.(code);
         });
 
@@ -188,6 +226,11 @@ export function useTerminalSession({
       unlistenOutput?.();
       unlistenStatus?.();
       unlistenExit?.();
+      // Encerra o registro da sessão se o exit não chegou a disparar (node removido).
+      if (!sessionEndedRef.current) {
+        sessionEndedRef.current = true;
+        void sessionEnd(sessionId, "closed").catch(() => {});
+      }
       // Mata o PTY no Rust — mas não bloqueia o cleanup
       ptyKill(sessionId).catch(() => {
         /* sessão pode já ter morrido */

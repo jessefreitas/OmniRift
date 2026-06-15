@@ -24,7 +24,10 @@ use commands::pty::{
 };
 use commands::spec::spec_list_files;
 use commands::workspace::{workspace_load, workspace_save};
-use db::{db_load_workspace, db_save_workspace};
+use db::{
+    db_load_workspace, db_save_workspace, session_end, session_event, session_events_list,
+    session_start, sessions_list,
+};
 use mcp::{mcp_router, AgentRegistry};
 use pty::PtyManager;
 use std::sync::Arc;
@@ -101,6 +104,11 @@ pub fn run() {
             floor_mirror_set,
             db_save_workspace,
             db_load_workspace,
+            session_start,
+            session_event,
+            session_end,
+            sessions_list,
+            session_events_list,
             agent_mcp_config,
             git_repo_info,
             floor_git_create,

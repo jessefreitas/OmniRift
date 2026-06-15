@@ -12,6 +12,7 @@ import {
   GitBranch,
   GitCompare,
   GitMerge,
+  History,
   Link2,
   Orbit,
   PanelLeftClose,
@@ -38,6 +39,7 @@ import { agentDocsStatus, agentDocsSync, type AgentDocsStatus } from "@/lib/agen
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 import { RoleEditModal } from "@/components/RoleEditModal";
 import { DiffViewerModal } from "@/components/DiffViewerModal";
+import { SessionHistoryModal } from "@/components/SessionHistoryModal";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
@@ -212,6 +214,7 @@ export function Sidebar() {
   const [roles, setRoles] = useState<AgentRoleDef[]>(() => loadRoles());
   const [editingRole, setEditingRole] = useState<AgentRoleDef | null>(null);
   const [diffFloor, setDiffFloor] = useState<Floor | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Esconde/mostra a barra inteira (persiste).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -595,6 +598,14 @@ export function Sidebar() {
             )}
           </div>
           <div className="flex items-center gap-0.5">
+            <Tooltip label="Histórico de sessões dos agentes" side="bottom">
+              <button
+                onClick={() => setShowHistory(true)}
+                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
+              >
+                <History size={12} />
+              </button>
+            </Tooltip>
             <Tooltip label="Novo floor como branch git (worktree isolado)" side="bottom">
               <button
                 onClick={createGitFloor}
@@ -1117,6 +1128,7 @@ export function Sidebar() {
       {diffFloor && (
         <DiffViewerModal floor={diffFloor} onClose={() => setDiffFloor(null)} />
       )}
+      {showHistory && <SessionHistoryModal onClose={() => setShowHistory(false)} />}
     </aside>
   );
 }

@@ -6,19 +6,88 @@
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
 use rusqlite::Connection;
+use serde::Serialize;
 use std::path::Path;
 
 pub struct Db(Mutex<Connection>);
 
-const SCHEMA: &str =
-    "CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY, doc TEXT NOT NULL, updated_at TEXT)";
+const SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY, doc TEXT NOT NULL, updated_at TEXT);
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id          TEXT PRIMARY KEY,
+    floor_id    TEXT,
+    floor_name  TEXT,
+    agent_id    TEXT,
+    role        TEXT,
+    label       TEXT,
+    command     TEXT,
+    branch      TEXT,
+    cwd         TEXT,
+    started_at  TEXT NOT NULL,
+    ended_at    TEXT,
+    status      TEXT NOT NULL DEFAULT 'running',
+    summary     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS session_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    at          TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    detail      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_events_session ON session_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_started ON agent_sessions(started_at DESC);
+";
+
+/// Metadados de início de uma sessão de agente (PTY).
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStart {
+    pub id: String,
+    pub floor_id: Option<String>,
+    pub floor_name: Option<String>,
+    pub agent_id: Option<String>,
+    pub role: Option<String>,
+    pub label: Option<String>,
+    pub command: Option<String>,
+    pub branch: Option<String>,
+    pub cwd: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRow {
+    pub id: String,
+    pub floor_id: Option<String>,
+    pub floor_name: Option<String>,
+    pub role: Option<String>,
+    pub label: Option<String>,
+    pub command: Option<String>,
+    pub branch: Option<String>,
+    pub cwd: Option<String>,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub status: String,
+    pub summary: Option<String>,
+    pub event_count: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventRow {
+    pub at: String,
+    pub kind: String,
+    pub detail: Option<String>,
+}
 
 impl Db {
     /// Abre (ou cria) `dir/maestri.db` e garante o schema.
     pub fn open(dir: &Path) -> Result<Self> {
         std::fs::create_dir_all(dir).context("criar app data dir")?;
         let conn = Connection::open(dir.join("maestri.db")).context("abrir maestri.db")?;
-        conn.execute(SCHEMA, [])?;
+        conn.execute_batch(SCHEMA)?;
         Ok(Self(Mutex::new(conn)))
     }
 
@@ -43,10 +112,97 @@ impl Db {
         }
     }
 
+    // ── Session recorder ───────────────────────────────────────────────────
+
+    /// Registra o início de uma sessão de agente (idempotente por id).
+    pub fn session_start(&self, s: &SessionStart) -> Result<()> {
+        self.0.lock().execute(
+            "INSERT INTO agent_sessions
+               (id, floor_id, floor_name, agent_id, role, label, command, branch, cwd, started_at, status)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9, datetime('now'), 'running')
+             ON CONFLICT(id) DO NOTHING",
+            rusqlite::params![
+                s.id, s.floor_id, s.floor_name, s.agent_id, s.role,
+                s.label, s.command, s.branch, s.cwd
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Anexa um evento de ciclo de vida (mudança de estado, nota, etc.).
+    pub fn session_event(&self, session_id: &str, kind: &str, detail: Option<&str>) -> Result<()> {
+        self.0.lock().execute(
+            "INSERT INTO session_events (session_id, at, kind, detail)
+             VALUES (?1, datetime('now'), ?2, ?3)",
+            rusqlite::params![session_id, kind, detail],
+        )?;
+        Ok(())
+    }
+
+    /// Encerra uma sessão (status final + resumo opcional).
+    pub fn session_end(&self, session_id: &str, status: &str, summary: Option<&str>) -> Result<()> {
+        self.0.lock().execute(
+            "UPDATE agent_sessions
+                SET ended_at = datetime('now'), status = ?2,
+                    summary = COALESCE(?3, summary)
+              WHERE id = ?1",
+            rusqlite::params![session_id, status, summary],
+        )?;
+        Ok(())
+    }
+
+    /// Lista as sessões mais recentes (com contagem de eventos).
+    pub fn sessions_list(&self, limit: i64) -> Result<Vec<SessionRow>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.floor_id, s.floor_name, s.role, s.label, s.command,
+                    s.branch, s.cwd, s.started_at, s.ended_at, s.status, s.summary,
+                    (SELECT COUNT(*) FROM session_events e WHERE e.session_id = s.id)
+             FROM agent_sessions s
+             ORDER BY s.started_at DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([limit], |r| {
+            Ok(SessionRow {
+                id: r.get(0)?,
+                floor_id: r.get(1)?,
+                floor_name: r.get(2)?,
+                role: r.get(3)?,
+                label: r.get(4)?,
+                command: r.get(5)?,
+                branch: r.get(6)?,
+                cwd: r.get(7)?,
+                started_at: r.get(8)?,
+                ended_at: r.get(9)?,
+                status: r.get(10)?,
+                summary: r.get(11)?,
+                event_count: r.get(12)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Eventos de uma sessão, em ordem cronológica.
+    pub fn session_events(&self, session_id: &str) -> Result<Vec<EventRow>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT at, kind, detail FROM session_events
+              WHERE session_id = ?1 ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map([session_id], |r| {
+            Ok(EventRow {
+                at: r.get(0)?,
+                kind: r.get(1)?,
+                detail: r.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     #[cfg(test)]
     fn in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
-        conn.execute(SCHEMA, [])?;
+        conn.execute_batch(SCHEMA)?;
         Ok(Self(Mutex::new(conn)))
     }
 }
@@ -59,6 +215,46 @@ pub fn db_save_workspace(doc: String, db: tauri::State<'_, Db>) -> Result<(), St
 #[tauri::command]
 pub fn db_load_workspace(db: tauri::State<'_, Db>) -> Result<Option<String>, String> {
     db.load().map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn session_start(meta: SessionStart, db: tauri::State<'_, Db>) -> Result<(), String> {
+    db.session_start(&meta).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn session_event(
+    session_id: String,
+    kind: String,
+    detail: Option<String>,
+    db: tauri::State<'_, Db>,
+) -> Result<(), String> {
+    db.session_event(&session_id, &kind, detail.as_deref())
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn session_end(
+    session_id: String,
+    status: String,
+    summary: Option<String>,
+    db: tauri::State<'_, Db>,
+) -> Result<(), String> {
+    db.session_end(&session_id, &status, summary.as_deref())
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn sessions_list(limit: Option<i64>, db: tauri::State<'_, Db>) -> Result<Vec<SessionRow>, String> {
+    db.sessions_list(limit.unwrap_or(200)).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn session_events_list(
+    session_id: String,
+    db: tauri::State<'_, Db>,
+) -> Result<Vec<EventRow>, String> {
+    db.session_events(&session_id).map_err(|e| format!("{e:#}"))
 }
 
 #[cfg(test)]
