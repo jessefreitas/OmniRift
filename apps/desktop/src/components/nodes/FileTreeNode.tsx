@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { isMarkdown, isHtml } from "@/lib/preview-client";
 import { listDir, type DirEntry } from "@/lib/fs-client";
 import type { FileTreeNode as FileTreeNodeData } from "@/types/canvas";
 
@@ -24,6 +25,8 @@ const isVisible = (showHidden: boolean) => (e: DirEntry) => showHidden || !e.nam
 function TreeItem({ entry, depth, showHidden }: { entry: DirEntry; depth: number; showHidden: boolean }) {
   const [open, setOpen] = useState(false);
   const [children, setChildren] = useState<DirEntry[] | null>(null);
+  const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
+  const previewable = !entry.isDir && (isMarkdown(entry.path) || isHtml(entry.path));
 
   const toggle = useCallback(async () => {
     if (!entry.isDir) return;
@@ -37,6 +40,13 @@ function TreeItem({ entry, depth, showHidden }: { entry: DirEntry; depth: number
     <div>
       <div
         onClick={toggle}
+        onDoubleClick={(e) => {
+          if (previewable) {
+            e.stopPropagation();
+            addPreviewNode({ path: entry.path });
+          }
+        }}
+        title={previewable ? "Duplo-clique pra pré-visualizar" : undefined}
         draggable
         onDragStart={(e) => {
           // Arrasta o caminho do arquivo/pasta — solta num terminal pra inserir.

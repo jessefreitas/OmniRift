@@ -33,3 +33,14 @@ pub fn list_dir(path: String) -> Result<Vec<DirEntryDto>, String> {
     });
     Ok(out)
 }
+
+/// Lê um arquivo texto (md/html/…) pro Preview node. Limite de 5 MB.
+#[tauri::command]
+pub fn read_file(path: String) -> Result<String, String> {
+    let meta = std::fs::metadata(&path).map_err(|e| format!("não consegui acessar '{path}': {e}"))?;
+    const MAX: u64 = 5 * 1024 * 1024;
+    if meta.len() > MAX {
+        return Err(format!("arquivo grande demais ({} KB; máx 5120 KB)", meta.len() / 1024));
+    }
+    std::fs::read_to_string(&path).map_err(|e| format!("não consegui ler '{path}': {e}"))
+}

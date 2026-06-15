@@ -9,6 +9,7 @@ import type {
   DevToolsNode,
   ExplainNode,
   FileTreeNode,
+  PreviewNode,
   JsonNode,
   GroupNode,
   NoteNode,
@@ -71,6 +72,7 @@ interface CanvasState {
   addDevToolsNode: (params?: { tool?: string; position?: { x: number; y: number } }) => DevToolsNode;
   addJsonNode: (params?: { text?: string; position?: { x: number; y: number } }) => JsonNode;
   addExplainNode: (params?: { command?: string; position?: { x: number; y: number } }) => ExplainNode;
+  addPreviewNode: (params?: { path?: string; position?: { x: number; y: number } }) => PreviewNode;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
   reparentNode: (nodeId: string, parentId: string | null) => void;
@@ -364,6 +366,18 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       command: command ?? "",
       position: position ?? defaultPosition(),
       size: { width: 460, height: 360 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addPreviewNode: ({ path, position } = {}) => {
+    const node: PreviewNode = {
+      id: nanoid(),
+      kind: "preview",
+      path: path ?? "",
+      position: position ?? defaultPosition(),
+      size: { width: 520, height: 460 },
     };
     set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
