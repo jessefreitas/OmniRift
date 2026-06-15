@@ -19,7 +19,6 @@ import {
   GitMerge,
   History,
   Link2,
-  MoreHorizontal,
   Orbit,
   PanelLeftClose,
   PanelLeftOpen,
@@ -228,7 +227,6 @@ export function Sidebar() {
   const [showHooks, setShowHooks] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showRoutines, setShowRoutines] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
   const [showConnections, setShowConnections] = useState(false);
   const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
@@ -703,43 +701,6 @@ export function Sidebar() {
             )}
           </div>
           <div className="flex items-center gap-0.5">
-            {/* Menu "Ferramentas" — consolida routines/snapshots/hooks/memória/histórico. */}
-            <div className="relative">
-              <Tooltip label="Ferramentas (routines, snapshots, hooks, memória, histórico)" side="bottom">
-                <button
-                  onClick={() => setToolsOpen((o) => !o)}
-                  className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-                >
-                  <MoreHorizontal size={12} />
-                </button>
-              </Tooltip>
-              {toolsOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setToolsOpen(false)} />
-                  <div className="absolute right-0 top-6 z-50 w-48 rounded-md border border-border bg-surface1 shadow-xl py-1">
-                    {[
-                      { icon: Repeat, label: "Routines", run: () => setShowRoutines(true) },
-                      { icon: Archive, label: "Snapshots do canvas", run: () => setShowSnapshots(true) },
-                      { icon: Webhook, label: "Hooks do floor", run: () => setShowHooks(true) },
-                      { icon: GitFork, label: "Repositórios Git", run: () => setShowGitRepos(true) },
-                      { icon: Plug, label: "Conexões de memória", run: () => setShowConnections(true) },
-                      { icon: Cpu, label: "LLM do review (BYOK)", run: () => setShowLlmConfig(true) },
-                      { icon: SlidersHorizontal, label: "Política de review", run: () => setPolicyEditor({ label: "global" }) },
-                      { icon: Brain, label: "Memória dos agentes", run: () => setShowMemory(true) },
-                      { icon: History, label: "Histórico de sessões", run: () => setShowHistory(true) },
-                    ].map(({ icon: Icon, label, run }) => (
-                      <button
-                        key={label}
-                        onClick={() => { run(); setToolsOpen(false); }}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-textMuted hover:text-text hover:bg-surface2 transition-colors"
-                      >
-                        <Icon size={13} className="shrink-0" /> {label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
             <Tooltip label="Novo floor como branch git (worktree isolado)" side="bottom">
               <button
                 onClick={createGitFloor}
@@ -863,6 +824,34 @@ export function Sidebar() {
             );
           })}
         </div>
+      </div>
+
+      {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
+      <div className="px-2 py-2 border-b border-border">
+        <div className="px-2 mb-1">{sectionTitle("tools", "Ferramentas")}</div>
+        {isOpen("tools") && (
+          <div className="space-y-0.5">
+            {[
+              { icon: GitFork, label: "Repositórios Git", run: () => setShowGitRepos(true) },
+              { icon: Plug, label: "Conexões de memória", run: () => setShowConnections(true) },
+              { icon: Cpu, label: "LLM do review (BYOK)", run: () => setShowLlmConfig(true) },
+              { icon: SlidersHorizontal, label: "Política de review", run: () => setPolicyEditor({ label: "global" }) },
+              { icon: Brain, label: "Memória dos agentes", run: () => setShowMemory(true) },
+              { icon: History, label: "Histórico de sessões", run: () => setShowHistory(true) },
+              { icon: Repeat, label: "Routines", run: () => setShowRoutines(true) },
+              { icon: Archive, label: "Snapshots do canvas", run: () => setShowSnapshots(true) },
+              { icon: Webhook, label: "Hooks do floor", run: () => setShowHooks(true) },
+            ].map(({ icon: Icon, label, run }) => (
+              <button
+                key={label}
+                onClick={run}
+                className="w-full flex items-center gap-2 px-2 py-1 rounded text-xs text-textMuted hover:text-brand hover:bg-surface2 transition-colors"
+              >
+                <Icon size={13} className="shrink-0 opacity-80" /> {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Workspace */}
