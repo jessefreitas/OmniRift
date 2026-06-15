@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
 import type {
+  ApiNode,
   CanvasEdge,
   CanvasNode,
   CanvasNodePatch,
@@ -50,6 +51,7 @@ interface CanvasState {
   addFileTree: (params: { rootPath: string; position?: { x: number; y: number } }) => FileTreeNode;
   addSketch: (params?: { position?: { x: number; y: number } }) => SketchNode;
   addPortal: (params?: { url?: string; position?: { x: number; y: number } }) => PortalNode;
+  addApiNode: (params?: { url?: string; method?: string; position?: { x: number; y: number } }) => ApiNode;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
   reparentNode: (nodeId: string, parentId: string | null) => void;
@@ -223,6 +225,19 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       url: url ?? "",
       position: position ?? defaultPosition(),
       size: { width: 420, height: 320 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addApiNode: ({ url, method, position } = {}) => {
+    const node: ApiNode = {
+      id: nanoid(),
+      kind: "api",
+      url: url ?? "",
+      method: method ?? "GET",
+      position: position ?? defaultPosition(),
+      size: { width: 440, height: 380 },
     };
     set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;

@@ -45,6 +45,9 @@ axum = { version = "0.7", features = ["json"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
+# Cliente HTTP pro API node (roda no Rust → não pega o TLS quebrado do WebKitGTK).
+# rustls em vez de native-tls pra não depender do OpenSSL do sistema.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip"] }
 
 [profile.release]
 panic = "abort"

@@ -4,7 +4,7 @@
 // um criador do store; o node nasce numa posição default e o usuário arrasta.
 
 import type { LucideIcon } from "lucide-react";
-import { FolderTree, Frame, Globe, Pencil, StickyNote, TerminalSquare } from "lucide-react";
+import { FolderTree, Frame, Globe, Pencil, StickyNote, TerminalSquare, Webhook } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { Tooltip } from "@/components/Tooltip";
@@ -40,6 +40,7 @@ export function CanvasToolbar() {
   const addFileTree = useCanvasStore((s) => s.addFileTree);
   const addSketch = useCanvasStore((s) => s.addSketch);
   const addPortal = useCanvasStore((s) => s.addPortal);
+  const addApiNode = useCanvasStore((s) => s.addApiNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
 
   return (
@@ -59,6 +60,7 @@ export function CanvasToolbar() {
       />
       <ToolBtn label="Sketch (tldraw)" icon={Pencil} onClick={() => addSketch()} />
       <ToolBtn label="Portal (browser)" icon={Globe} onClick={() => addPortal()} />
+      <ToolBtn label="API (cliente HTTP)" icon={Webhook} onClick={() => addApiNode()} />
     </div>
   );
 }

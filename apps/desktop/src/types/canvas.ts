@@ -5,7 +5,14 @@
 
 import type { AgentRole, SessionId } from "./pty";
 
-export type NodeKind = "terminal" | "note" | "sketch" | "portal" | "filetree" | "group";
+export type NodeKind =
+  | "terminal"
+  | "note"
+  | "sketch"
+  | "portal"
+  | "filetree"
+  | "group"
+  | "api";
 
 export interface BaseCanvasNode {
   id: string;
@@ -64,13 +71,21 @@ export interface GroupNode extends BaseCanvasNode {
   color?: string;
 }
 
+export interface ApiNode extends BaseCanvasNode {
+  kind: "api";
+  url: string;
+  method: string; // GET | POST | PUT | PATCH | DELETE | ...
+  body?: string;
+}
+
 export type CanvasNode =
   | TerminalNode
   | NoteNode
   | SketchNode
   | PortalNode
   | FileTreeNode
-  | GroupNode;
+  | GroupNode
+  | ApiNode;
 
 /**
  * Patch parcial pra `patchNode` — todos os campos editáveis de qualquer node,
@@ -90,6 +105,8 @@ export interface CanvasNodePatch {
   url?: string;
   snapshot?: string;
   rootPath?: string;
+  method?: string;
+  body?: string;
 }
 
 /** Conexão entre nós. */
