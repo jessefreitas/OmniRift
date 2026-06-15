@@ -3,15 +3,18 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Bot,
+  ChevronDown,
+  ChevronRight,
   Code2,
   Download,
-  FileText,
   Folder,
   FolderOpen,
   GitBranch,
   GitMerge,
   Link2,
   Orbit,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   RefreshCw,
   Rocket,
@@ -20,7 +23,6 @@ import {
   Upload,
   Workflow,
   X,
-  Zap,
 } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
@@ -200,6 +202,44 @@ export function Sidebar() {
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
   const [specs, setSpecs] = useState<SpecFile[]>([]);
   const [docsStatus, setDocsStatus] = useState<AgentDocsStatus | null>(null);
+
+  // Esconde/mostra a barra inteira (persiste).
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem("maestri-sidebar-collapsed") === "1"; } catch { return false; }
+  });
+  const toggleSidebar = () =>
+    setSidebarCollapsed((c) => {
+      const n = !c;
+      try { localStorage.setItem("maestri-sidebar-collapsed", n ? "1" : "0"); } catch { /* ignore */ }
+      return n;
+    });
+
+  // Seções recolhíveis (accordion) — guarda as FECHADAS (persiste).
+  const [closedSections, setClosedSections] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("maestri-sidebar-closed") ?? "[]")); } catch { return new Set(); }
+  });
+  const isOpen = (key: string) => !closedSections.has(key);
+  const toggleSection = (key: string) =>
+    setClosedSections((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      try { localStorage.setItem("maestri-sidebar-closed", JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  // Título de seção clicável (recolhe/expande).
+  const sectionTitle = (key: string, label: string) => (
+    <button
+      onClick={() => toggleSection(key)}
+      className="flex items-center gap-1 text-[11px] uppercase tracking-wider text-textMuted hover:text-text transition-colors"
+    >
+      {isOpen(key) ? (
+        <ChevronDown size={10} className="opacity-60" />
+      ) : (
+        <ChevronRight size={10} className="opacity-60" />
+      )}
+      {label}
+    </button>
+  );
 
   // Salva estado no localStorage sempre que muda
   useEffect(() => {
@@ -441,6 +481,19 @@ export function Sidebar() {
     ? currentCwd.split("/").filter(Boolean).pop() ?? currentCwd
     : null;
 
+  // Sidebar escondida → só um botão flutuante pra reabrir.
+  if (sidebarCollapsed) {
+    return (
+      <button
+        onClick={toggleSidebar}
+        title="Mostrar barra lateral"
+        className="fixed top-3 left-3 z-50 p-1.5 rounded-md bg-surface2/90 backdrop-blur border border-border text-textMuted hover:text-brand shadow-lg transition-colors"
+      >
+        <PanelLeftOpen size={16} />
+      </button>
+    );
+  }
+
   return (
     <aside
       className={cn(
@@ -449,13 +502,22 @@ export function Sidebar() {
       )}
     >
       <header className="px-4 py-3 border-b border-border">
-        <h1 className="text-sm font-medium flex items-center gap-2">
-          <span className="inline-block w-2 h-2 rounded-full bg-brand" />
-          Omni Canvas
-        </h1>
-        <p className="text-[11px] text-textMuted mt-0.5">
-          Canvas infinito · OmniForge
-        </p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-sm font-medium flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-brand" />
+              Omni Canvas
+            </h1>
+            <p className="text-[11px] text-textMuted mt-0.5">Canvas infinito · OmniForge</p>
+          </div>
+          <button
+            onClick={toggleSidebar}
+            title="Esconder barra lateral"
+            className="p-1 rounded text-textMuted hover:text-text hover:bg-surface2 transition-colors shrink-0"
+          >
+            <PanelLeftClose size={15} />
+          </button>
+        </div>
       </header>
 
       {/* Floors */}
@@ -619,10 +681,13 @@ export function Sidebar() {
         <p className="px-2 text-[11px] uppercase tracking-wider text-textMuted mb-1">
           Projeto
         </p>
-        <button
+        <div
+          role="button"
+          tabIndex={0}
           onClick={pickFolder}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") pickFolder(); }}
           className={cn(
-            "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left",
+            "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left cursor-pointer",
             "hover:bg-surface2 transition-colors group",
             currentCwd ? "text-text" : "text-textMuted",
           )}
@@ -645,7 +710,7 @@ export function Sidebar() {
               </button>
             </Tooltip>
           )}
-        </button>
+        </div>
         {currentCwd && (
           <p className="px-2 mt-0.5 text-[9px] text-textMuted truncate opacity-60" title={currentCwd}>
             {currentCwd}
@@ -681,12 +746,13 @@ export function Sidebar() {
         )}
       </div>
 
-      <section className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
-        <h2 className="px-2 text-[11px] uppercase tracking-wider text-textMuted mb-1">
-          Novo agente
-        </h2>
+      <section
+        className={cn("px-2 py-3 space-y-1", isOpen("agents") ? "flex-1 overflow-y-auto" : "shrink-0")}
+      >
+        <div className="px-2 mb-1">{sectionTitle("agents", "Novo agente")}</div>
 
-        {PRESETS.map((preset) => {
+        {isOpen("agents") &&
+          PRESETS.map((preset) => {
           const Icon = preset.icon;
           return (
             <div
@@ -737,10 +803,7 @@ export function Sidebar() {
       {/* MCP Agents */}
       <div className="px-2 py-2 border-t border-border">
         <div className="flex items-center justify-between px-2 mb-1.5">
-          <p className="text-[11px] uppercase tracking-wider text-textMuted flex items-center gap-1">
-            <Zap size={10} />
-            MCP Agents
-          </p>
+          {sectionTitle("mcp", "MCP Agents")}
           <Tooltip label="Copia o comando /mcp add pra conectar o Orquestrador ao MCP do maestri" side="bottom">
             <button
               onClick={copyMcpCmd}
@@ -752,6 +815,7 @@ export function Sidebar() {
         </div>
 
         {/* Lista de terminais que podem ser agentes */}
+        {isOpen("mcp") && (
         <div className="space-y-1">
           {terminals.map((n) => {
             const label = n.kind === "terminal" ? (n.label ?? n.command) : n.id;
@@ -856,14 +920,14 @@ export function Sidebar() {
             </p>
           )}
         </div>
+        )}
       </div>
 
       {/* Specs — dispatch paralelo (Fase C) */}
       <div className="px-2 py-2 border-t border-border">
-        <p className="text-[11px] uppercase tracking-wider text-textMuted px-2 mb-1.5 flex items-center gap-1">
-          <FileText size={10} /> Specs
-        </p>
-        {!currentCwd ? (
+        <div className="px-2 mb-1.5">{sectionTitle("specs", "Specs")}</div>
+        {isOpen("specs") && (
+          !currentCwd ? (
           <p className="px-2 text-[10px] text-textMuted opacity-60">Abra um projeto pra listar specs.</p>
         ) : specs.length === 0 ? (
           <p className="px-2 text-[10px] text-textMuted opacity-60">Nenhuma spec em docs/superpowers/.</p>
@@ -906,7 +970,7 @@ export function Sidebar() {
               </div>
             ))}
           </div>
-        )}
+        ))}
       </div>
 
       <footer className="px-4 py-3 border-t border-border text-[10px] text-textMuted">
