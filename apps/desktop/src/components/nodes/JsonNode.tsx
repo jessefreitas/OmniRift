@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
-import { Braces, ChevronRight, Code2, ListTree, X } from "lucide-react";
+import { Braces, ChevronRight, Code2, ListTree, Network, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
@@ -62,11 +62,65 @@ function TreeNode({ k, value, depth }: { k: string | null; value: unknown; depth
   );
 }
 
+function isPrimitive(v: unknown): boolean {
+  return v === null || typeof v !== "object";
+}
+
+/** Nó do grafo (JSON Crack-style): card à esquerda, filhos objeto/array ramificam à direita. */
+function GraphNode({ k, value }: { k: string | null; value: unknown }) {
+  if (isPrimitive(value)) {
+    return (
+      <div className="rounded border border-border bg-surface1 px-2 py-1 text-[11px] font-mono whitespace-nowrap shrink-0">
+        {k !== null && <span className="text-brand">{k}: </span>}
+        <span className={leafColor(value)}>{leafText(value)}</span>
+      </div>
+    );
+  }
+  const isArr = Array.isArray(value);
+  const entries: [string, unknown][] = isArr
+    ? (value as unknown[]).map((v, i) => [String(i), v])
+    : Object.entries(value as Record<string, unknown>);
+  const prims = entries.filter(([, v]) => isPrimitive(v));
+  const objs = entries.filter(([, v]) => !isPrimitive(v));
+  return (
+    <div className="flex items-center gap-0">
+      <div className="rounded-md border border-border bg-surface1 shadow-sm overflow-hidden shrink-0">
+        <div className="px-2 py-0.5 bg-surface2 text-[10px] text-textMuted border-b border-border font-mono">
+          {k ?? "root"} <span className="opacity-50">{isArr ? `[${entries.length}]` : `{${entries.length}}`}</span>
+        </div>
+        {prims.length > 0 && (
+          <div className="px-2 py-1 space-y-0.5">
+            {prims.map(([ck, cv], i) => (
+              <div key={i} className="text-[11px] font-mono whitespace-nowrap">
+                <span className="text-brand">{ck}: </span>
+                <span className={leafColor(cv)}>{leafText(cv)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {objs.length > 0 && (
+        <>
+          <div className="w-5 h-px bg-border shrink-0" />
+          <div className="flex flex-col gap-3 py-1">
+            {objs.map(([ck, cv], i) => (
+              <div key={i} className="flex items-center">
+                <div className="w-3 h-px bg-border shrink-0" />
+                <GraphNode k={isArr ? `[${ck}]` : ck} value={cv} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [text, setText] = useState(data.text || "");
-  const [view, setView] = useState<"text" | "tree">("text");
+  const [view, setView] = useState<"text" | "tree" | "graph">("text");
 
   const parsed = useMemo<{ ok: true; value: unknown } | { ok: false; error: string } | null>(() => {
     if (!text.trim()) return null;
@@ -129,6 +183,14 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
           >
             <ListTree size={11} /> Árvore
           </button>
+          <button
+            onClick={() => setView("graph")}
+            onPointerDown={(e) => e.stopPropagation()}
+            disabled={!parsed?.ok}
+            className={cn("flex items-center gap-1 px-2 py-1 text-[11px] disabled:opacity-40", view === "graph" ? "bg-brand text-bg" : "bg-bg text-textMuted hover:text-text")}
+          >
+            <Network size={11} /> Grafo
+          </button>
         </div>
         <div className="flex-1" />
         <button
@@ -160,10 +222,12 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
         />
       ) : (
         <div className="flex-1 overflow-auto bg-bg nodrag px-1.5 py-1.5 text-[11px] font-mono" onPointerDown={(e) => e.stopPropagation()}>
-          {parsed?.ok ? (
-            <TreeNode k={null} value={parsed.value} depth={0} />
-          ) : (
+          {!parsed?.ok ? (
             <p className="text-textMuted opacity-50">JSON inválido — corrija no modo Texto.</p>
+          ) : view === "graph" ? (
+            <div className="inline-block min-w-full py-2"><GraphNode k={null} value={parsed.value} /></div>
+          ) : (
+            <TreeNode k={null} value={parsed.value} depth={0} />
           )}
         </div>
       )}
