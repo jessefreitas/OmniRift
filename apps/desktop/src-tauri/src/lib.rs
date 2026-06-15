@@ -2,6 +2,7 @@ pub mod commands;
 pub mod db;
 pub mod git;
 pub mod mcp;
+pub mod memory;
 pub mod pty;
 pub mod spec;
 
@@ -26,7 +27,8 @@ use commands::spec::spec_list_files;
 use commands::workspace::{workspace_load, workspace_save};
 use db::{
     db_load_workspace, db_save_workspace, memory_add, memory_delete, memory_query, session_end,
-    session_event, session_events_list, session_start, sessions_list,
+    session_event, session_events_list, session_start, sessions_list, snapshot_create,
+    snapshot_delete, snapshot_get, snapshots_list,
 };
 use mcp::{mcp_router, AgentRegistry};
 use pty::PtyManager;
@@ -112,6 +114,10 @@ pub fn run() {
             memory_query,
             memory_delete,
             memory_add,
+            snapshot_create,
+            snapshots_list,
+            snapshot_get,
+            snapshot_delete,
             agent_mcp_config,
             git_repo_info,
             floor_git_create,

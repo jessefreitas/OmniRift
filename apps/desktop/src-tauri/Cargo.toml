@@ -47,7 +47,12 @@ futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
 # Cliente HTTP pro API node (roda no Rust → não pega o TLS quebrado do WebKitGTK).
 # rustls em vez de native-tls pra não depender do OpenSSL do sistema.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json"] }
+# async em trait objects (dyn MemoryProvider)
+async-trait = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 panic = "abort"
