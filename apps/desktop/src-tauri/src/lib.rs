@@ -6,6 +6,8 @@ pub mod pty;
 pub mod spec;
 
 use commands::agent_docs::{agent_docs_status, agent_docs_sync};
+use commands::dbnode::db_query;
+use commands::explain::whatis_lookup;
 use commands::fs::list_dir;
 use commands::http::http_request;
 use commands::git::{
@@ -109,6 +111,8 @@ pub fn run() {
             agent_docs_sync,
             list_dir,
             http_request,
+            db_query,
+            whatis_lookup,
         ])
         .run(tauri::generate_context!())
         .expect("erro fatal rodando Maestri Linux");

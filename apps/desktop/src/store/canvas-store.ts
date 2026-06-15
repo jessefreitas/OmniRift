@@ -5,7 +5,11 @@ import type {
   CanvasEdge,
   CanvasNode,
   CanvasNodePatch,
+  DbNode,
+  DevToolsNode,
+  ExplainNode,
   FileTreeNode,
+  JsonNode,
   GroupNode,
   NoteNode,
   PortalNode,
@@ -52,6 +56,10 @@ interface CanvasState {
   addSketch: (params?: { position?: { x: number; y: number } }) => SketchNode;
   addPortal: (params?: { url?: string; position?: { x: number; y: number } }) => PortalNode;
   addApiNode: (params?: { url?: string; method?: string; position?: { x: number; y: number } }) => ApiNode;
+  addDbNode: (params?: { dbPath?: string; position?: { x: number; y: number } }) => DbNode;
+  addDevToolsNode: (params?: { tool?: string; position?: { x: number; y: number } }) => DevToolsNode;
+  addJsonNode: (params?: { text?: string; position?: { x: number; y: number } }) => JsonNode;
+  addExplainNode: (params?: { command?: string; position?: { x: number; y: number } }) => ExplainNode;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
   reparentNode: (nodeId: string, parentId: string | null) => void;
@@ -238,6 +246,56 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       method: method ?? "GET",
       position: position ?? defaultPosition(),
       size: { width: 440, height: 380 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addDbNode: ({ dbPath, position } = {}) => {
+    const node: DbNode = {
+      id: nanoid(),
+      kind: "db",
+      dbPath: dbPath ?? "",
+      sql: "",
+      position: position ?? defaultPosition(),
+      size: { width: 480, height: 400 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addDevToolsNode: ({ tool, position } = {}) => {
+    const node: DevToolsNode = {
+      id: nanoid(),
+      kind: "devtools",
+      tool: tool ?? "b64enc",
+      input: "",
+      position: position ?? defaultPosition(),
+      size: { width: 420, height: 380 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addJsonNode: ({ text, position } = {}) => {
+    const node: JsonNode = {
+      id: nanoid(),
+      kind: "json",
+      text: text ?? "",
+      position: position ?? defaultPosition(),
+      size: { width: 460, height: 420 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addExplainNode: ({ command, position } = {}) => {
+    const node: ExplainNode = {
+      id: nanoid(),
+      kind: "explain",
+      command: command ?? "",
+      position: position ?? defaultPosition(),
+      size: { width: 460, height: 360 },
     };
     set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;

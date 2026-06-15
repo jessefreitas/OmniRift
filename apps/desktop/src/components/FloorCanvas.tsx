@@ -27,6 +27,10 @@ import { FileTreeNode } from "@/components/nodes/FileTreeNode";
 import { SketchNodeLazy } from "@/components/nodes/SketchNodeLazy";
 import { PortalNode } from "@/components/nodes/PortalNode";
 import { ApiNode } from "@/components/nodes/ApiNode";
+import { DbNode } from "@/components/nodes/DbNode";
+import { DevToolsNode } from "@/components/nodes/DevToolsNode";
+import { JsonNode } from "@/components/nodes/JsonNode";
+import { ExplainShellNode } from "@/components/nodes/ExplainShellNode";
 import { useCanvasStore } from "@/store/canvas-store";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
 import type { CanvasNode } from "@/types/canvas";
@@ -48,6 +52,10 @@ const nodeTypes = {
   sketch: SketchNodeLazy, // tldraw carrega sob demanda (code-split)
   portal: PortalNode,
   api: ApiNode,
+  db: DbNode,
+  devtools: DevToolsNode,
+  json: JsonNode,
+  explain: ExplainShellNode,
 };
 
 export function FloorCanvas({ floorId }: { floorId: string }) {

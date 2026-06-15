@@ -4,7 +4,7 @@
 // um criador do store; o node nasce numa posição default e o usuário arrasta.
 
 import type { LucideIcon } from "lucide-react";
-import { FolderTree, Frame, Globe, Pencil, StickyNote, TerminalSquare, Webhook } from "lucide-react";
+import { Braces, Database, FolderTree, Frame, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { Tooltip } from "@/components/Tooltip";
@@ -41,6 +41,10 @@ export function CanvasToolbar() {
   const addSketch = useCanvasStore((s) => s.addSketch);
   const addPortal = useCanvasStore((s) => s.addPortal);
   const addApiNode = useCanvasStore((s) => s.addApiNode);
+  const addDbNode = useCanvasStore((s) => s.addDbNode);
+  const addDevToolsNode = useCanvasStore((s) => s.addDevToolsNode);
+  const addJsonNode = useCanvasStore((s) => s.addJsonNode);
+  const addExplainNode = useCanvasStore((s) => s.addExplainNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
 
   return (
@@ -61,6 +65,10 @@ export function CanvasToolbar() {
       <ToolBtn label="Sketch (tldraw)" icon={Pencil} onClick={() => addSketch()} />
       <ToolBtn label="Portal (browser)" icon={Globe} onClick={() => addPortal()} />
       <ToolBtn label="API (cliente HTTP)" icon={Webhook} onClick={() => addApiNode()} />
+      <ToolBtn label="DB (SQLite)" icon={Database} onClick={() => addDbNode()} />
+      <ToolBtn label="DevTools (base64/JWT/hash/JSON⇄YAML…)" icon={Wrench} onClick={() => addDevToolsNode()} />
+      <ToolBtn label="JSON (formatar + árvore)" icon={Braces} onClick={() => addJsonNode()} />
+      <ToolBtn label="explainshell (explica comandos)" icon={ScrollText} onClick={() => addExplainNode()} />
     </div>
   );
 }

@@ -28,6 +28,7 @@
     "react-dom": "^19.2.6",
     "tailwind-merge": "^2.5.5",
     "tldraw": "^5.1.1",
+    "yaml": "^2.9.0",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

@@ -12,7 +12,11 @@ export type NodeKind =
   | "portal"
   | "filetree"
   | "group"
-  | "api";
+  | "api"
+  | "db"
+  | "devtools"
+  | "json"
+  | "explain";
 
 export interface BaseCanvasNode {
   id: string;
@@ -78,6 +82,34 @@ export interface ApiNode extends BaseCanvasNode {
   body?: string;
 }
 
+export interface DbNode extends BaseCanvasNode {
+  kind: "db";
+  /** Caminho do arquivo SQLite. */
+  dbPath: string;
+  /** Última query rodada — persistida no node. */
+  sql: string;
+}
+
+export interface DevToolsNode extends BaseCanvasNode {
+  kind: "devtools";
+  /** Id da ferramenta selecionada (ver DEV_TOOLS). */
+  tool: string;
+  /** Texto de entrada persistido. */
+  input: string;
+}
+
+export interface JsonNode extends BaseCanvasNode {
+  kind: "json";
+  /** Documento JSON cru (texto). */
+  text: string;
+}
+
+export interface ExplainNode extends BaseCanvasNode {
+  kind: "explain";
+  /** Linha de comando shell a explicar. */
+  command: string;
+}
+
 export type CanvasNode =
   | TerminalNode
   | NoteNode
@@ -85,7 +117,11 @@ export type CanvasNode =
   | PortalNode
   | FileTreeNode
   | GroupNode
-  | ApiNode;
+  | ApiNode
+  | DbNode
+  | DevToolsNode
+  | JsonNode
+  | ExplainNode;
 
 /**
  * Patch parcial pra `patchNode` — todos os campos editáveis de qualquer node,
@@ -107,6 +143,11 @@ export interface CanvasNodePatch {
   rootPath?: string;
   method?: string;
   body?: string;
+  dbPath?: string;
+  sql?: string;
+  tool?: string;
+  input?: string;
+  text?: string;
 }
 
 /** Conexão entre nós. */

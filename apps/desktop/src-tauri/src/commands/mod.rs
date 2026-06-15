@@ -1,4 +1,6 @@
 pub mod agent_docs;
+pub mod dbnode;
+pub mod explain;
 pub mod fs;
 pub mod git;
 pub mod http;
