@@ -155,6 +155,13 @@ impl Db {
         Ok(Self(Mutex::new(conn)))
     }
 
+    /// Abre um DB em memória — fallback quando o app data dir não está disponível.
+    pub fn open_in_memory() -> Result<Self> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(SCHEMA)?;
+        Ok(Self(Mutex::new(conn)))
+    }
+
     /// Grava o doc do canvas (UPSERT no row id=1).
     pub fn save(&self, doc: &str) -> Result<()> {
         self.0.lock().execute(

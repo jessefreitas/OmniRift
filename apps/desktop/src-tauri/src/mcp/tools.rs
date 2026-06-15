@@ -242,8 +242,19 @@ fn fmt_memories(rows: &[crate::db::MemoryRow], title: &str) -> String {
     s
 }
 
-/// Despacha as tools `memory_*` (blackboard + erros) — persistem no SQLite (durável).
-pub fn memory_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+/// Despacha as tools `memory_*`. Local (default) = blackboard rico INALTERADO;
+/// provider remoto ativo = roteia pelo MemoryProvider.
+pub async fn memory_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    if state.memory_registry.active_kind() == crate::memory::ProviderKind::Local {
+        memory_dispatch_local(state, tool, args)
+    } else {
+        memory_dispatch_provider(state, tool, args).await
+    }
+}
+
+/// Caminho Local — blackboard SQLite com semântica rica (fact/error/scope/tags).
+/// Corpo original, comportamento idêntico (zero regressão).
+fn memory_dispatch_local(state: &McpState, tool: &str, args: Value) -> String {
     let db = state.app.state::<crate::db::Db>();
     match tool {
         "memory_remember" => {
@@ -323,6 +334,98 @@ pub fn memory_dispatch(state: &McpState, tool: &str, args: Value) -> String {
         }
         other => format!("❌ tool de memória desconhecida: {other}"),
     }
+}
+
+/// Caminho provider remoto — mapeia o blackboard pra superfície MemoryProvider
+/// (value→content, kind→category, scope→project). Usado quando o provider ativo
+/// não é o Local (ex.: OmniMemory).
+async fn memory_dispatch_provider(state: &McpState, tool: &str, args: Value) -> String {
+    use crate::memory::{MemoryQuery, NewMemory};
+    let p = state.memory_registry.active_provider();
+    let kind = state.memory_registry.active_kind();
+    match tool {
+        "memory_remember" => {
+            let value = arg_str(&args, "value");
+            if value.is_empty() {
+                return "❌ 'value' é obrigatório".into();
+            }
+            let category = arg_opt(&args, "kind").unwrap_or_else(|| "fact".into());
+            match p
+                .save(NewMemory { content: value, category, project: arg_opt(&args, "scope") })
+                .await
+            {
+                Ok(id) => format!("✅ memória {id} gravada ({kind:?})"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_remember_error" => {
+            let what = arg_str(&args, "what");
+            let fix = arg_str(&args, "fix");
+            if what.is_empty() || fix.is_empty() {
+                return "❌ 'what' e 'fix' são obrigatórios".into();
+            }
+            let why = arg_str(&args, "why");
+            let value = format!("ERRO: {what}\nCAUSA: {why}\nFIX: {fix}");
+            match p
+                .save(NewMemory { content: value, category: "error".into(), project: arg_opt(&args, "scope") })
+                .await
+            {
+                Ok(id) => format!("✅ erro {id} registrado ({kind:?})"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_recall" => {
+            let query = arg_str(&args, "query");
+            if query.is_empty() {
+                return "❌ 'query' é obrigatório".into();
+            }
+            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10).max(1) as usize;
+            match p
+                .search(MemoryQuery { query: query.clone(), project: arg_opt(&args, "scope"), limit })
+                .await
+            {
+                Ok(recs) => fmt_records(&recs, &format!("recall '{query}'")),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_list" => {
+            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(50).max(1) as usize;
+            match p
+                .search(MemoryQuery { query: String::new(), project: arg_opt(&args, "scope"), limit })
+                .await
+            {
+                Ok(recs) => fmt_records(&recs, "memórias"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_forget" => {
+            // ids de provider remoto são string; aceita number também.
+            let id = arg_opt(&args, "id").unwrap_or_else(|| {
+                args.get("id").and_then(|v| v.as_i64()).map(|n| n.to_string()).unwrap_or_default()
+            });
+            if id.is_empty() {
+                return "❌ 'id' inválido".into();
+            }
+            match p.forget(&id).await {
+                Ok(true) => format!("🗑 memória {id} apagada"),
+                Ok(false) => format!("memória {id} não encontrada (ou forget não suportado por {kind:?})"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        other => format!("❌ tool de memória desconhecida: {other}"),
+    }
+}
+
+/// Formata MemoryRecords (provider remoto) pro agente ler.
+fn fmt_records(recs: &[crate::memory::MemoryRecord], title: &str) -> String {
+    if recs.is_empty() {
+        return format!("Nada na memória pra '{title}'.");
+    }
+    let mut s = format!("{} resultado(s) — {title}:\n", recs.len());
+    for m in recs {
+        s.push_str(&format!("\n#{} ({})\n{}\n", m.id, m.category, m.content));
+    }
+    s
 }
 
 /// Nome do floor ativo, lido do espelho (floor_mirror) que o frontend mantém.

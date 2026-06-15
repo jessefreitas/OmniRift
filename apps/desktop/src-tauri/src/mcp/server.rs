@@ -35,6 +35,8 @@ pub struct McpState {
     pub(crate) sessions: Arc<DashMap<String, broadcast::Sender<String>>>,
     pub(crate) app: tauri::AppHandle,
     pub(crate) floor_mirror: Arc<parking_lot::Mutex<Value>>,
+    /// Provider de memória ativo (roteia as tools memory_*).
+    pub(crate) memory_registry: Arc<crate::memory::MemoryRegistry>,
 }
 
 pub fn mcp_router(
@@ -42,6 +44,7 @@ pub fn mcp_router(
     agent_registry: Arc<AgentRegistry>,
     app: tauri::AppHandle,
     floor_mirror: Arc<parking_lot::Mutex<Value>>,
+    memory_registry: Arc<crate::memory::MemoryRegistry>,
 ) -> Router {
     let state = Arc::new(McpState {
         pty_manager,
@@ -49,6 +52,7 @@ pub fn mcp_router(
         sessions: Arc::new(DashMap::new()),
         app,
         floor_mirror,
+        memory_registry,
     });
     Router::new()
         .route("/sse", get(sse_handler))
@@ -211,7 +215,7 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
         }
 
         t if t.starts_with("memory_") => {
-            let text = crate::mcp::tools::memory_dispatch(&state, t, args);
+            let text = crate::mcp::tools::memory_dispatch(&state, t, args).await;
             json!({ "content": [{ "type": "text", "text": text }] })
         }
 

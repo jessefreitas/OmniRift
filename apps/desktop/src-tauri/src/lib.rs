@@ -55,10 +55,35 @@ pub fn run() {
 
     tauri::Builder::default()
         .setup(move |app| {
-            // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente
             let app_handle = app.handle().clone();
+            let data_dir = app.path().app_data_dir();
+
+            // Persistência do canvas (Fase 3) — SQLite no app data dir.
+            match &data_dir {
+                Ok(dir) => match crate::db::Db::open(dir) {
+                    Ok(db) => {
+                        app.manage(db);
+                    }
+                    Err(e) => log::error!("falha ao abrir DB de persistência: {e:#}"),
+                },
+                Err(e) => log::error!("app_data_dir indisponível: {e}"),
+            }
+
+            // Registry de memória (provider plugável) — criada UMA vez; usada
+            // pelo MCP server (roteamento das tools memory_*) e pelos comandos.
+            // Conexão própria com o mesmo SQLite; fallback in-memory se o disco
+            // falhar (in-memory nunca falha, então o expect é seguro).
+            let reg_db = match &data_dir {
+                Ok(dir) => crate::db::Db::open(dir).or_else(|_| crate::db::Db::open_in_memory()),
+                Err(_) => crate::db::Db::open_in_memory(),
+            }
+            .expect("abrir DB da registry de memória");
+            let memory_registry = Arc::new(crate::memory::MemoryRegistry::new(Arc::new(reg_db)));
+            app.manage(Arc::clone(&memory_registry));
+
+            // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente.
             tauri::async_runtime::spawn(async move {
-                let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm);
+                let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry);
                 match tokio::net::TcpListener::bind("127.0.0.1:7844").await {
                     Ok(listener) => {
                         log::info!("Maestri MCP server: http://127.0.0.1:7844");
@@ -69,27 +94,6 @@ pub fn run() {
                     }
                 }
             });
-
-            // Persistência do canvas (Fase 3) — SQLite no app data dir
-            match app.path().app_data_dir() {
-                Ok(dir) => {
-                    match crate::db::Db::open(&dir) {
-                        Ok(db) => {
-                            app.manage(db);
-                        }
-                        Err(e) => log::error!("falha ao abrir DB de persistência: {e:#}"),
-                    }
-                    // Registry de memória (provider plugável) — conexão própria
-                    // com o mesmo SQLite (compartilha o arquivo, não o Mutex).
-                    match crate::db::Db::open(&dir) {
-                        Ok(reg_db) => {
-                            app.manage(Arc::new(crate::memory::MemoryRegistry::new(Arc::new(reg_db))));
-                        }
-                        Err(e) => log::error!("falha ao abrir DB da registry de memória: {e:#}"),
-                    }
-                }
-                Err(e) => log::error!("app_data_dir indisponível: {e}"),
-            }
             Ok(())
         })
         .manage(pty_manager)
