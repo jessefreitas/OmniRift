@@ -15,15 +15,18 @@ import {
   Orbit,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Plus,
   RefreshCw,
   Rocket,
   Sparkles,
   TerminalSquare,
   Upload,
+  UserCog,
   Workflow,
   X,
 } from "lucide-react";
+import { nanoid } from "nanoid";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
@@ -31,6 +34,8 @@ import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig } from "@/lib/mcp-
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
 import { specListFiles, type SpecFile } from "@/lib/spec-client";
 import { agentDocsStatus, agentDocsSync, type AgentDocsStatus } from "@/lib/agent-docs-client";
+import { loadRoles, saveRoles, type AgentRoleDef } from "@/lib/agent-roles";
+import { RoleEditModal } from "@/components/RoleEditModal";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
@@ -202,6 +207,8 @@ export function Sidebar() {
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
   const [specs, setSpecs] = useState<SpecFile[]>([]);
   const [docsStatus, setDocsStatus] = useState<AgentDocsStatus | null>(null);
+  const [roles, setRoles] = useState<AgentRoleDef[]>(() => loadRoles());
+  const [editingRole, setEditingRole] = useState<AgentRoleDef | null>(null);
 
   // Esconde/mostra a barra inteira (persiste).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -446,6 +453,41 @@ export function Sidebar() {
     } catch (e) {
       alert("Sync falhou:\n" + String(e));
     }
+  }
+
+  // Cria um Claude Code com a persona do role (--append-system-prompt + deny-list + MCP).
+  function spawnRole(r: AgentRoleDef) {
+    const base = [
+      "--append-system-prompt",
+      r.prompt,
+      "--dangerously-skip-permissions",
+      "--disallowed-tools",
+      ...DENY_DESTRUCTIVE,
+    ];
+    const args = mcpConfigPath ? [...base, "--mcp-config", mcpConfigPath] : base;
+    addTerminal({ command: "claude", args, role: "claude-code", label: r.name });
+  }
+
+  // Salva (upsert) um role editado/criado no modal.
+  function saveRole(name: string, prompt: string) {
+    if (!editingRole) return;
+    setRoles((prev) => {
+      const exists = prev.some((x) => x.id === editingRole.id);
+      const next = exists
+        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt } : x))
+        : [...prev, { ...editingRole, name, prompt }];
+      saveRoles(next);
+      return next;
+    });
+    setEditingRole(null);
+  }
+
+  function deleteRole(id: string) {
+    setRoles((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      saveRoles(next);
+      return next;
+    });
   }
 
   function installPreset(preset: AgentPreset) {
@@ -800,6 +842,58 @@ export function Sidebar() {
         })}
       </section>
 
+      {/* Roles — personas de agente (--append-system-prompt) */}
+      <div className="px-2 py-2 border-t border-border">
+        <div className="flex items-center justify-between px-2 mb-1.5">
+          {sectionTitle("roles", "Roles")}
+          <Tooltip label="Novo role custom" side="bottom">
+            <button
+              onClick={() => setEditingRole({ id: nanoid(), name: "", prompt: "" })}
+              className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
+            >
+              <Plus size={12} />
+            </button>
+          </Tooltip>
+        </div>
+        {isOpen("roles") && (
+          <div className="space-y-0.5">
+            {roles.map((r) => (
+              <div
+                key={r.id}
+                className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2"
+              >
+                <UserCog size={12} className="text-brand/70 shrink-0" />
+                <button
+                  onClick={() => spawnRole(r)}
+                  title={r.prompt}
+                  className="flex-1 min-w-0 text-left text-xs truncate hover:text-brand transition-colors"
+                >
+                  {r.name}
+                </button>
+                <Tooltip label="Editar prompt" side="top" className="shrink-0">
+                  <button
+                    onClick={() => setEditingRole(r)}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-text transition-all"
+                  >
+                    <Pencil size={10} />
+                  </button>
+                </Tooltip>
+                {!r.builtin && (
+                  <Tooltip label="Excluir role" side="top" className="shrink-0">
+                    <button
+                      onClick={() => deleteRole(r.id)}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
+                    >
+                      <X size={10} />
+                    </button>
+                  </Tooltip>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* MCP Agents */}
       <div className="px-2 py-2 border-t border-border">
         <div className="flex items-center justify-between px-2 mb-1.5">
@@ -977,6 +1071,15 @@ export function Sidebar() {
         Fase 2 — PTY + canvas + workspaces + MCP
         <div className="opacity-70 mt-0.5">v0.1.0 · build local</div>
       </footer>
+
+      {editingRole && (
+        <RoleEditModal
+          key={editingRole.id}
+          role={editingRole}
+          onClose={() => setEditingRole(null)}
+          onSave={saveRole}
+        />
+      )}
     </aside>
   );
 }
