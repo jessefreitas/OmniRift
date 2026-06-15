@@ -7,6 +7,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { FloorCanvas } from "@/components/FloorCanvas";
 import { OrchestratorDock } from "@/components/OrchestratorDock";
 import { CanvasToolbar } from "@/components/CanvasToolbar";
+import { CommandPalette } from "@/components/CommandPalette";
 import { useQuickJump } from "@/hooks/useQuickJump";
 
 export function Canvas() {
@@ -32,6 +33,8 @@ export function Canvas() {
       <CanvasToolbar />
       {/* Dock onipresente do Orquestrador — visível em qualquer floor. */}
       <OrchestratorDock />
+      {/* Paleta de comandos (Ctrl/Cmd+K). */}
+      <CommandPalette />
     </div>
   );
 }
