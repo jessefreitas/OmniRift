@@ -10,17 +10,20 @@ import {
   Folder,
   FolderOpen,
   GitBranch,
+  Archive,
   Brain,
   GitCompare,
   GitMerge,
   History,
   Link2,
+  MoreHorizontal,
   Orbit,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
   Plus,
   RefreshCw,
+  Repeat,
   Rocket,
   Sparkles,
   TerminalSquare,
@@ -45,6 +48,8 @@ import { DiffViewerModal } from "@/components/DiffViewerModal";
 import { SessionHistoryModal } from "@/components/SessionHistoryModal";
 import { MemoryModal } from "@/components/MemoryModal";
 import { HooksModal } from "@/components/HooksModal";
+import { SnapshotsModal } from "@/components/SnapshotsModal";
+import { RoutinesModal } from "@/components/RoutinesModal";
 import { loadHooks, runFloorHook } from "@/lib/hooks-client";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
@@ -203,6 +208,24 @@ export function Sidebar() {
   const [showHistory, setShowHistory] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
   const [showHooks, setShowHooks] = useState(false);
+  const [showSnapshots, setShowSnapshots] = useState(false);
+  const [showRoutines, setShowRoutines] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+
+  // Abre os modais de ferramenta via Command palette (CustomEvent "maestri:open-tool").
+  useEffect(() => {
+    const h = (e: Event) => {
+      switch ((e as CustomEvent<string>).detail) {
+        case "routines": setShowRoutines(true); break;
+        case "snapshots": setShowSnapshots(true); break;
+        case "hooks": setShowHooks(true); break;
+        case "memory": setShowMemory(true); break;
+        case "history": setShowHistory(true); break;
+      }
+    };
+    window.addEventListener("maestri:open-tool", h);
+    return () => window.removeEventListener("maestri:open-tool", h);
+  }, []);
 
   // Esconde/mostra a barra inteira (persiste).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -604,30 +627,39 @@ export function Sidebar() {
             )}
           </div>
           <div className="flex items-center gap-0.5">
-            <Tooltip label="Hooks do floor (onCreate / onLand)" side="bottom">
-              <button
-                onClick={() => setShowHooks(true)}
-                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-              >
-                <Webhook size={12} />
-              </button>
-            </Tooltip>
-            <Tooltip label="Memória dos agentes (blackboard + erros)" side="bottom">
-              <button
-                onClick={() => setShowMemory(true)}
-                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-              >
-                <Brain size={12} />
-              </button>
-            </Tooltip>
-            <Tooltip label="Histórico de sessões dos agentes" side="bottom">
-              <button
-                onClick={() => setShowHistory(true)}
-                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-              >
-                <History size={12} />
-              </button>
-            </Tooltip>
+            {/* Menu "Ferramentas" — consolida routines/snapshots/hooks/memória/histórico. */}
+            <div className="relative">
+              <Tooltip label="Ferramentas (routines, snapshots, hooks, memória, histórico)" side="bottom">
+                <button
+                  onClick={() => setToolsOpen((o) => !o)}
+                  className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
+                >
+                  <MoreHorizontal size={12} />
+                </button>
+              </Tooltip>
+              {toolsOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setToolsOpen(false)} />
+                  <div className="absolute right-0 top-6 z-50 w-48 rounded-md border border-border bg-surface1 shadow-xl py-1">
+                    {[
+                      { icon: Repeat, label: "Routines", run: () => setShowRoutines(true) },
+                      { icon: Archive, label: "Snapshots do canvas", run: () => setShowSnapshots(true) },
+                      { icon: Webhook, label: "Hooks do floor", run: () => setShowHooks(true) },
+                      { icon: Brain, label: "Memória dos agentes", run: () => setShowMemory(true) },
+                      { icon: History, label: "Histórico de sessões", run: () => setShowHistory(true) },
+                    ].map(({ icon: Icon, label, run }) => (
+                      <button
+                        key={label}
+                        onClick={() => { run(); setToolsOpen(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-textMuted hover:text-text hover:bg-surface2 transition-colors"
+                      >
+                        <Icon size={13} className="shrink-0" /> {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
             <Tooltip label="Novo floor como branch git (worktree isolado)" side="bottom">
               <button
                 onClick={createGitFloor}
@@ -1153,6 +1185,8 @@ export function Sidebar() {
       {showHistory && <SessionHistoryModal onClose={() => setShowHistory(false)} />}
       {showMemory && <MemoryModal onClose={() => setShowMemory(false)} />}
       {showHooks && <HooksModal onClose={() => setShowHooks(false)} />}
+      {showSnapshots && <SnapshotsModal onClose={() => setShowSnapshots(false)} />}
+      {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} />}
     </aside>
   );
 }

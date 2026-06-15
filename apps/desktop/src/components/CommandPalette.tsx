@@ -71,7 +71,16 @@ export function CommandPalette() {
         run: act(() => s.switchFloor(f.id)),
       })),
     ];
-    return [...create, ...floorCmds];
+    const openTool = (tool: string) =>
+      act(() => window.dispatchEvent(new CustomEvent("maestri:open-tool", { detail: tool })));
+    const openCmds: Cmd[] = [
+      { id: "open-routines", label: "Abrir: Routines", category: "Abrir", run: openTool("routines") },
+      { id: "open-snapshots", label: "Abrir: Snapshots do canvas", category: "Abrir", run: openTool("snapshots") },
+      { id: "open-hooks", label: "Abrir: Hooks do floor", category: "Abrir", run: openTool("hooks") },
+      { id: "open-memory", label: "Abrir: Memória dos agentes", category: "Abrir", run: openTool("memory") },
+      { id: "open-history", label: "Abrir: Histórico de sessões", category: "Abrir", run: openTool("history") },
+    ];
+    return [...create, ...floorCmds, ...openCmds];
   }, [open]);
 
   const filtered = useMemo(() => {

@@ -9,11 +9,13 @@ import { OrchestratorDock } from "@/components/OrchestratorDock";
 import { CanvasToolbar } from "@/components/CanvasToolbar";
 import { CommandPalette } from "@/components/CommandPalette";
 import { useQuickJump } from "@/hooks/useQuickJump";
+import { useRoutines } from "@/hooks/useRoutines";
 
 export function Canvas() {
   const floors = useCanvasStore((s) => s.floors);
   const activeFloorId = useCanvasStore((s) => s.activeFloorId);
   useQuickJump(); // Alt+1..9 → floor N
+  useRoutines(); // scheduler das routines por intervalo
 
   return (
     <div className="absolute inset-0">
