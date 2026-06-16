@@ -7,6 +7,7 @@ pub mod pty;
 pub mod spec;
 
 use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles};
+use commands::browser::browser_shot;
 use commands::dbnode::db_query;
 use commands::editor::{detect_editors, open_in_editor};
 use commands::fsinfo::{fs_cow_info, reflink_clone};
@@ -169,6 +170,7 @@ pub fn run() {
             github_device_poll,
             http_request,
             db_query,
+            browser_shot,
             detect_editors,
             open_in_editor,
             fs_cow_info,

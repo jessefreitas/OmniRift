@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
-import { Copy, ExternalLink, Globe, RotateCw, X } from "lucide-react";
+import { Camera, Copy, ExternalLink, Globe, RotateCw, X } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { useCanvasStore } from "@/store/canvas-store";
-import { normalizeUrl } from "@/lib/portal-client";
+import { normalizeUrl, browserShot } from "@/lib/portal-client";
 import type { PortalNode as PortalNodeData } from "@/types/canvas";
 
 type PortalRfNode = Node<PortalNodeData & Record<string, unknown>, "portal">;
@@ -20,11 +20,27 @@ export function PortalNode({ id, data, selected }: NodeProps<PortalRfNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [urlInput, setUrlInput] = useState(data.url);
   const [reloadKey, setReloadKey] = useState(0);
+  const [shot, setShot] = useState<string | null>(null);
+  const [shooting, setShooting] = useState(false);
+  const [shotErr, setShotErr] = useState<string | null>(null);
   const url = normalizeUrl(data.url);
 
   function go() {
     const u = normalizeUrl(urlInput);
-    if (u) patchNode(id, { url: u });
+    if (u) { patchNode(id, { url: u }); setShot(null); setShotErr(null); }
+  }
+
+  async function snapshot() {
+    if (!url) return;
+    setShooting(true);
+    setShotErr(null);
+    try {
+      setShot(await browserShot(url));
+    } catch (e) {
+      setShotErr(String(e));
+    } finally {
+      setShooting(false);
+    }
   }
 
   return (
@@ -43,8 +59,11 @@ export function PortalNode({ id, data, selected }: NodeProps<PortalRfNode>) {
           placeholder="localhost:3000 ou uma URL…"
           className="flex-1 min-w-0 bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] text-text placeholder:text-textMuted focus:outline-none focus:border-brand cursor-text"
         />
-        <button onClick={(e) => { e.stopPropagation(); setReloadKey((k) => k + 1); }} title="Recarregar" className="hover:text-text shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); if (shot) { setShot(null); } else { setReloadKey((k) => k + 1); } }} title={shot ? "Voltar pro iframe" : "Recarregar"} className="hover:text-text shrink-0">
           <RotateCw size={11} />
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); void snapshot(); }} title="Snapshot (renderiza HTTPS externo via Playwright)" className={shooting ? "text-brand shrink-0" : "hover:text-text shrink-0"}>
+          <Camera size={11} className={shooting ? "animate-pulse" : ""} />
         </button>
         <button onClick={(e) => { e.stopPropagation(); if (url) openExternal(url).catch(() => {}); }} title="Abrir no navegador" className="hover:text-text shrink-0">
           <ExternalLink size={11} />
@@ -58,7 +77,14 @@ export function PortalNode({ id, data, selected }: NodeProps<PortalRfNode>) {
       </header>
       {/* nodrag/nopan/nowheel: o React Flow ignora os ponteiros/scroll → o iframe os recebe. */}
       <div className="nodrag nopan nowheel flex-1 relative bg-white">
-        {url ? (
+        {shot ? (
+          <img src={shot} alt="snapshot" className="absolute inset-0 h-full w-full object-contain object-top bg-white" />
+        ) : shotErr ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-bg text-danger text-[11px] p-3 text-center">
+            <Camera size={14} /> snapshot falhou
+            <span className="text-textMuted opacity-70 break-words">{shotErr}</span>
+          </div>
+        ) : url ? (
           <iframe
             key={reloadKey}
             src={url}
