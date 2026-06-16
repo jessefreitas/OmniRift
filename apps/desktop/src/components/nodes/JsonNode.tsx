@@ -103,17 +103,18 @@ function GraphNode({ k, value }: { k: string | null; value: unknown }) {
         )}
       </div>
       {objs.length > 0 && (
-        <>
-          <div className="w-5 h-px bg-border shrink-0" />
-          <div className="flex flex-col gap-3 py-1">
+        <div className="flex items-start">
+          {/* ligação: linha do pai → spine vertical → stub por filho (árvore/mapa mental) */}
+          <div className="w-5 h-px bg-brand/50 shrink-0 mt-[14px]" />
+          <div className="flex flex-col gap-3 py-1 border-l-2 border-brand/30">
             {objs.map(([ck, cv], i) => (
-              <div key={i} className="flex items-start">
-                <div className="w-3 h-px bg-border shrink-0 mt-3" />
+              <div key={i} className="flex items-center">
+                <div className="w-5 h-px bg-brand/40 shrink-0" />
                 <GraphNode k={isArr ? `[${ck}]` : ck} value={cv} />
               </div>
             ))}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -160,6 +161,24 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
     } catch (e) {
       console.warn("[json] upload falhou:", e);
     }
+  }
+  // Arrastar pra navegar o grafo (pan), além do scroll/wheel.
+  function startPan(e: React.MouseEvent<HTMLDivElement>) {
+    if (view !== "graph" || e.button !== 0) return;
+    const el = e.currentTarget;
+    const sx = e.clientX, sy = e.clientY, sl = el.scrollLeft, st = el.scrollTop;
+    el.style.cursor = "grabbing";
+    const move = (ev: MouseEvent) => {
+      el.scrollLeft = sl - (ev.clientX - sx);
+      el.scrollTop = st - (ev.clientY - sy);
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      el.style.cursor = "";
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
   }
 
   const card = (
@@ -244,7 +263,11 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
           className="nodrag flex-1 px-2 py-1.5 text-[11px] bg-bg text-text resize-none focus:outline-none font-mono placeholder:text-textMuted"
         />
       ) : (
-        <div className="flex-1 overflow-auto bg-bg nodrag px-1.5 py-1.5 text-[11px] font-mono" onPointerDown={(e) => e.stopPropagation()}>
+        <div
+          className={cn("flex-1 overflow-auto bg-bg nodrag nowheel px-1.5 py-1.5 text-[11px] font-mono", view === "graph" && "cursor-grab active:cursor-grabbing")}
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={startPan}
+        >
           {!parsed?.ok ? (
             <p className="text-textMuted opacity-50">JSON inválido — corrija no modo Texto.</p>
           ) : view === "graph" ? (
