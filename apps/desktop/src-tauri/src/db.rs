@@ -57,6 +57,18 @@ CREATE TABLE IF NOT EXISTS canvas_snapshots (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     label       TEXT,
     doc         TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    auto        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS reminders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    content     TEXT NOT NULL,
+    note_id     TEXT,
+    floor_id    TEXT,
+    project_id  TEXT,
+    remind_at   TEXT,
+    done        INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL
 );
 
@@ -77,6 +89,32 @@ pub struct SnapshotMeta {
     pub label: Option<String>,
     pub created_at: String,
     pub bytes: i64,
+    /// true = snapshot automático (rotaciona); false = manual (permanente).
+    pub auto: bool,
+}
+
+/// Lembrete salvo a partir de uma nota do canvas (persiste fora do canvas).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReminderRow {
+    pub id: i64,
+    pub content: String,
+    pub note_id: Option<String>,
+    pub floor_id: Option<String>,
+    pub project_id: Option<String>,
+    pub remind_at: Option<String>,
+    pub done: bool,
+    pub created_at: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReminderInput {
+    pub content: String,
+    pub note_id: Option<String>,
+    pub floor_id: Option<String>,
+    pub project_id: Option<String>,
+    pub remind_at: Option<String>,
 }
 
 /// Uma memória de agente (blackboard/erro/nota).
@@ -146,12 +184,22 @@ pub struct EventRow {
     pub detail: Option<String>,
 }
 
+/// Migrações idempotentes para DBs criados antes de uma coluna existir.
+/// `ALTER TABLE ADD COLUMN` falha se a coluna já existe — ignoramos o erro.
+fn migrate(conn: &Connection) {
+    let _ = conn.execute(
+        "ALTER TABLE canvas_snapshots ADD COLUMN auto INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
+}
+
 impl Db {
     /// Abre (ou cria) `dir/maestri.db` e garante o schema.
     pub fn open(dir: &Path) -> Result<Self> {
         std::fs::create_dir_all(dir).context("criar app data dir")?;
         let conn = Connection::open(dir.join("maestri.db")).context("abrir maestri.db")?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn);
         Ok(Self(Mutex::new(conn)))
     }
 
@@ -159,6 +207,7 @@ impl Db {
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn);
         Ok(Self(Mutex::new(conn)))
     }
 
@@ -335,12 +384,13 @@ impl Db {
 
     // ── Snapshots do canvas (backup/history) ───────────────────────────────
 
-    /// Grava um snapshot do doc do canvas; devolve o id.
-    pub fn snapshot_create(&self, label: Option<&str>, doc: &str) -> Result<i64> {
+    /// Grava um snapshot do doc do canvas; devolve o id. `auto` marca backups
+    /// automáticos (rotacionam via `snapshot_prune_auto`); manuais ficam.
+    pub fn snapshot_create(&self, label: Option<&str>, doc: &str, auto: bool) -> Result<i64> {
         let conn = self.0.lock();
         conn.execute(
-            "INSERT INTO canvas_snapshots (label, doc, created_at) VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![label, doc],
+            "INSERT INTO canvas_snapshots (label, doc, created_at, auto) VALUES (?1, ?2, datetime('now'), ?3)",
+            rusqlite::params![label, doc, auto as i64],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -348,7 +398,7 @@ impl Db {
     pub fn snapshots_list(&self) -> Result<Vec<SnapshotMeta>> {
         let conn = self.0.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, label, created_at, length(doc) FROM canvas_snapshots ORDER BY created_at DESC",
+            "SELECT id, label, created_at, length(doc), auto FROM canvas_snapshots ORDER BY id DESC",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(SnapshotMeta {
@@ -356,9 +406,25 @@ impl Db {
                 label: r.get(1)?,
                 created_at: r.get(2)?,
                 bytes: r.get(3)?,
+                auto: r.get::<_, i64>(4)? != 0,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Poda os snapshots automáticos além dos `keep` mais recentes (manuais nunca
+    /// são tocados). Devolve quantos foram removidos.
+    pub fn snapshot_prune_auto(&self, keep: i64) -> Result<usize> {
+        let keep = keep.max(0);
+        let n = self.0.lock().execute(
+            "DELETE FROM canvas_snapshots
+              WHERE auto = 1
+                AND id NOT IN (
+                    SELECT id FROM canvas_snapshots WHERE auto = 1 ORDER BY id DESC LIMIT ?1
+                )",
+            [keep],
+        )?;
+        Ok(n)
     }
 
     pub fn snapshot_doc(&self, id: i64) -> Result<Option<String>> {
@@ -373,6 +439,52 @@ impl Db {
 
     pub fn snapshot_delete(&self, id: i64) -> Result<()> {
         self.0.lock().execute("DELETE FROM canvas_snapshots WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    // ── Lembretes (notas salvas pra retomar depois) ────────────────────────
+
+    pub fn reminder_add(&self, r: &ReminderInput) -> Result<i64> {
+        let conn = self.0.lock();
+        conn.execute(
+            "INSERT INTO reminders (content, note_id, floor_id, project_id, remind_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))",
+            rusqlite::params![r.content, r.note_id, r.floor_id, r.project_id, r.remind_at],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn reminders_list(&self) -> Result<Vec<ReminderRow>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, content, note_id, floor_id, project_id, remind_at, done, created_at
+               FROM reminders ORDER BY done ASC, id DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(ReminderRow {
+                id: r.get(0)?,
+                content: r.get(1)?,
+                note_id: r.get(2)?,
+                floor_id: r.get(3)?,
+                project_id: r.get(4)?,
+                remind_at: r.get(5)?,
+                done: r.get::<_, i64>(6)? != 0,
+                created_at: r.get(7)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn reminder_set_done(&self, id: i64, done: bool) -> Result<()> {
+        self.0.lock().execute(
+            "UPDATE reminders SET done = ?2 WHERE id = ?1",
+            rusqlite::params![id, done as i64],
+        )?;
+        Ok(())
+    }
+
+    pub fn reminder_delete(&self, id: i64) -> Result<()> {
+        self.0.lock().execute("DELETE FROM reminders WHERE id = ?1", [id])?;
         Ok(())
     }
 
@@ -556,8 +668,19 @@ pub fn memory_add(
 }
 
 #[tauri::command]
-pub fn snapshot_create(label: Option<String>, doc: String, db: tauri::State<'_, Db>) -> Result<i64, String> {
-    db.snapshot_create(label.as_deref(), &doc).map_err(|e| format!("{e:#}"))
+pub fn snapshot_create(
+    label: Option<String>,
+    doc: String,
+    auto: Option<bool>,
+    db: tauri::State<'_, Db>,
+) -> Result<i64, String> {
+    db.snapshot_create(label.as_deref(), &doc, auto.unwrap_or(false))
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn snapshot_prune_auto(keep: i64, db: tauri::State<'_, Db>) -> Result<usize, String> {
+    db.snapshot_prune_auto(keep).map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -573,6 +696,26 @@ pub fn snapshot_get(id: i64, db: tauri::State<'_, Db>) -> Result<Option<String>,
 #[tauri::command]
 pub fn snapshot_delete(id: i64, db: tauri::State<'_, Db>) -> Result<(), String> {
     db.snapshot_delete(id).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn reminder_add(reminder: ReminderInput, db: tauri::State<'_, Db>) -> Result<i64, String> {
+    db.reminder_add(&reminder).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn reminders_list(db: tauri::State<'_, Db>) -> Result<Vec<ReminderRow>, String> {
+    db.reminders_list().map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn reminder_set_done(id: i64, done: bool, db: tauri::State<'_, Db>) -> Result<(), String> {
+    db.reminder_set_done(id, done).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn reminder_delete(id: i64, db: tauri::State<'_, Db>) -> Result<(), String> {
+    db.reminder_delete(id).map_err(|e| format!("{e:#}"))
 }
 
 #[cfg(test)]

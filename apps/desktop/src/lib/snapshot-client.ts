@@ -10,10 +10,17 @@ export interface SnapshotMeta {
   label?: string;
   createdAt: string;
   bytes: number;
+  /** true = backup automático (rotaciona); false = manual (permanente). */
+  auto: boolean;
 }
 
-export async function snapshotCreate(label: string | undefined, doc: string): Promise<number> {
-  return invoke<number>("snapshot_create", { label: label ?? null, doc });
+export async function snapshotCreate(label: string | undefined, doc: string, auto = false): Promise<number> {
+  return invoke<number>("snapshot_create", { label: label ?? null, doc, auto });
+}
+
+/** Poda os automáticos além dos `keep` mais recentes; devolve quantos removeu. */
+export async function snapshotPruneAuto(keep: number): Promise<number> {
+  return invoke<number>("snapshot_prune_auto", { keep });
 }
 
 export async function snapshotsList(): Promise<SnapshotMeta[]> {
