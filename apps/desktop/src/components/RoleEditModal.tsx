@@ -73,7 +73,7 @@ export function RoleEditModal({ role, onSave, onClose }: Props) {
                 className="mt-1 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono"
               />
               <p className="mt-1 text-[10px] text-textMuted opacity-60">
-                Roda ao abrir o terminal. Se abrir um CLI de IA (ex.: claude-ollama), a persona abaixo é injetada depois.
+                Roda ao abrir. Se for um CLI Claude (ex.: claude-ollama), a persona abaixo entra nativa via --append-system-prompt.
               </p>
             </div>
           )}
@@ -90,7 +90,7 @@ export function RoleEditModal({ role, onSave, onClose }: Props) {
             />
             <p className="mt-1 text-[10px] text-textMuted opacity-60">
               {isShell
-                ? "Injetada após o comando abrir (ex.: claude-ollama). Sem comando de início, é ignorada."
+                ? "CLI Claude (claude-ollama): vai nativa via --append-system-prompt. Sem comando de início, é ignorada."
                 : "Injetado como --append-system-prompt num Claude Code."}
             </p>
           </div>

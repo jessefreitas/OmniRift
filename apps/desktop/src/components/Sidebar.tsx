@@ -667,12 +667,20 @@ export function Sidebar() {
       }, 1500);
       const killT = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
     };
+    // Aspas simples seguras pro bash (escapa ' interno).
+    const shellQuote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
     if (cli.role === "shell") {
-      // Roda o comando de início; se ele abre um CLI de IA, injeta a persona QUANDO
-      // o CLI fica pronto (não em tempo fixo). Persona sem comando NÃO entra.
-      const startup = r.startupCmd ?? "";
-      sendLine(startup, 400);
-      if (startup.trim() && r.prompt.trim()) injectWhenReady(node.session_id, r.prompt);
+      const startup = (r.startupCmd ?? "").trim();
+      const persona = r.prompt.trim();
+      // CLI Claude Code (claude/claude-ollama/…): persona NATIVA via flag — carrega
+      // no startup, sem corrida de boot/seleção de modelo. Outros CLIs de IA sem
+      // flag: tenta injetar quando o terminal ficar pronto (best-effort).
+      if (persona && /\bclaude\b/i.test(startup)) {
+        sendLine(`${startup} --append-system-prompt ${shellQuote(persona)}`, 400);
+      } else {
+        sendLine(startup, 400);
+        if (startup && persona) injectWhenReady(node.session_id, persona);
+      }
     } else {
       // CLIs LLM sem flag (opencode/antigravity): persona como 1ª mensagem.
       sendLine(r.prompt, 1800);
