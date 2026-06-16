@@ -3,6 +3,7 @@
 //! instancia o provider certo sob demanda.
 use crate::db::Db;
 use crate::memory::local::LocalProvider;
+use crate::memory::obsidian::ObsidianProvider;
 use crate::memory::omnimemory::OmniMemoryProvider;
 use crate::memory::provider::MemoryProvider;
 use crate::memory::types::*;
@@ -134,8 +135,11 @@ impl MemoryRegistry {
                 Ok(cfg) if cfg.endpoint.is_some() => Arc::new(OmniMemoryProvider::new(cfg)),
                 _ => Arc::new(LocalProvider::new(self.db.clone())),
             },
-            // Obsidian ainda não implementado (Fase 1c) → cai no local.
-            _ => Arc::new(LocalProvider::new(self.db.clone())),
+            ProviderKind::Obsidian => match self.connection(ProviderKind::Obsidian) {
+                Ok(cfg) if cfg.endpoint.is_some() => Arc::new(ObsidianProvider::new(cfg)),
+                _ => Arc::new(LocalProvider::new(self.db.clone())),
+            },
+            ProviderKind::Local => Arc::new(LocalProvider::new(self.db.clone())),
         }
     }
 
