@@ -5,12 +5,22 @@
 //  - frame() → renderiza o node normal OU um overlay tela-cheia (portal, fora do
 //              transform do React Flow). Padrão pra TODO node de conteúdo.
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Maximize2, Minimize2 } from "lucide-react";
 
 export function useNodeMaximize(size?: { w?: string; h?: string }) {
   const [maximized, setMaximized] = useState(false);
+
+  // ESC restaura o overlay (listener só ativo enquanto maximizado).
+  useEffect(() => {
+    if (!maximized) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.stopPropagation(); setMaximized(false); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [maximized]);
 
   const maxBtn = (
     <button

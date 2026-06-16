@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { useNodeMaximize } from "@/hooks/useNodeMaximize";
 import { isMarkdown, isHtml } from "@/lib/preview-client";
 import { listDir, type DirEntry } from "@/lib/fs-client";
 import type { FileTreeNode as FileTreeNodeData } from "@/types/canvas";
@@ -83,6 +84,7 @@ export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) 
   const [roots, setRoots] = useState<DirEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
+  const { maxBtn, frame } = useNodeMaximize();
 
   const load = useCallback(() => {
     if (!data.rootPath) { setError("sem pasta — abra um projeto"); return; }
@@ -93,12 +95,8 @@ export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) 
 
   const rootName = data.rootPath ? (data.rootPath.split("/").filter(Boolean).pop() ?? data.rootPath) : "—";
 
-  return (
-    <div
-      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
-      style={{ width: data.size?.width ?? 280, height: data.size?.height ?? 360 }}
-    >
-      <NodeResizer isVisible={selected} minWidth={180} minHeight={160} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+  const card = (
+    <>
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <Folder size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1" title={data.rootPath}>{rootName}</span>
@@ -108,6 +106,7 @@ export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) 
         <button onClick={(e) => { e.stopPropagation(); load(); }} title="Recarregar" className="hover:text-text shrink-0">
           <RefreshCw size={11} />
         </button>
+        {maxBtn}
         <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
@@ -123,6 +122,17 @@ export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) 
           ))
         )}
       </div>
-    </div>
+    </>
+  );
+
+  return frame(
+    card,
+    <div
+      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
+      style={{ width: data.size?.width ?? 280, height: data.size?.height ?? 360 }}
+    >
+      <NodeResizer isVisible={selected} minWidth={180} minHeight={160} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      {card}
+    </div>,
   );
 }

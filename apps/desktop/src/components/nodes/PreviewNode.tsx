@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { FileText, FolderOpen, RefreshCw, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { useNodeMaximize } from "@/hooks/useNodeMaximize";
 import { NodeComment } from "@/components/NodeComment";
 import { readFile, renderMarkdown, isMarkdown, isHtml } from "@/lib/preview-client";
 import type { PreviewNode as PreviewNodeData } from "@/types/canvas";
@@ -22,6 +23,7 @@ export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
   const [content, setContent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { maxBtn, frame } = useNodeMaximize();
 
   async function load(p = path) {
     if (!p) return;
@@ -53,17 +55,14 @@ export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
     }
   }
 
-  return (
-    <div
-      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
-      style={{ width: data.size?.width ?? 520, height: data.size?.height ?? 460 }}
-    >
-      <NodeResizer isVisible={selected} minWidth={320} minHeight={280} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+  const card = (
+    <>
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <FileText size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1">{path ? baseName(path) : "Preview"}</span>
         <button onClick={(e) => { e.stopPropagation(); void pickFile(); }} title="Abrir arquivo" className="hover:text-brand shrink-0"><FolderOpen size={12} /></button>
         <button onClick={(e) => { e.stopPropagation(); void load(); }} title="Recarregar" className="hover:text-text shrink-0"><RefreshCw size={11} className={loading ? "animate-spin" : ""} /></button>
+        {maxBtn}
         <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0"><X size={12} /></button>
       </header>
 
@@ -87,6 +86,17 @@ export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
         )}
       </div>
       <NodeComment value={data.comment} onChange={(v) => patchNode(id, { comment: v })} />
-    </div>
+    </>
+  );
+
+  return frame(
+    card,
+    <div
+      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
+      style={{ width: data.size?.width ?? 520, height: data.size?.height ?? 460 }}
+    >
+      <NodeResizer isVisible={selected} minWidth={320} minHeight={280} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      {card}
+    </div>,
   );
 }
