@@ -638,16 +638,17 @@ export function Sidebar() {
       return;
     }
     const node = addTerminal({ command: cli.command, role: cli.role, label: r.name });
-    // Shell = terminal puro, SEM LLM → nunca injeta a persona (viraria comando e
-    // daria "comando não encontrado"). CLIs LLM sem flag (opencode/antigravity)
-    // recebem a persona como 1ª mensagem (Enter à parte).
-    if (cli.role !== "shell" && r.prompt.trim()) {
+    // Shell = terminal puro: roda o "comando de início" (se houver), NUNCA a persona
+    // (viraria comando → "comando não encontrado"). CLIs LLM sem flag
+    // (opencode/antigravity) recebem a persona como 1ª mensagem (Enter à parte).
+    const firstInput = cli.role === "shell" ? (r.startupCmd ?? "") : r.prompt;
+    if (firstInput.trim()) {
       setTimeout(() => {
-        invoke("pty_write", { sessionId: node.session_id, data: r.prompt }).catch(console.warn);
+        invoke("pty_write", { sessionId: node.session_id, data: firstInput }).catch(console.warn);
         setTimeout(() => {
           invoke("pty_write", { sessionId: node.session_id, data: "\r" }).catch(console.warn);
         }, 200);
-      }, 1800);
+      }, cli.role === "shell" ? 400 : 1800);
     }
   }
 
@@ -682,13 +683,13 @@ export function Sidebar() {
   }
 
   // Salva (upsert) um role editado/criado no modal.
-  function saveRole(name: string, prompt: string, cli: string) {
+  function saveRole(name: string, prompt: string, cli: string, startupCmd: string) {
     if (!editingRole) return;
     setRoles((prev) => {
       const exists = prev.some((x) => x.id === editingRole.id);
       const next = exists
-        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli } : x))
-        : [...prev, { ...editingRole, name, prompt, cli }];
+        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd } : x))
+        : [...prev, { ...editingRole, name, prompt, cli, startupCmd }];
       saveRoles(next);
       return next;
     });

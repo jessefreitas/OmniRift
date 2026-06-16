@@ -17,6 +17,8 @@ export interface AgentRoleDef {
   builtin?: boolean;
   /** true = o Orquestrador master (coordena os outros; destaque na UI). */
   master?: boolean;
+  /** Só pra cli "shell": comando rodado ao abrir o terminal (opcional). */
+  startupCmd?: string;
 }
 
 /** CLIs/LLMs disponíveis pra rodar um role. claude injeta via --append-system-prompt;
