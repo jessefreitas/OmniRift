@@ -80,18 +80,18 @@ import type { AgentRole } from "@/types/pty";
 
 // Ferramentas da sidebar (ids = os mesmos do handler "maestri:open-tool" + Command
 // palette). Ordem reordenável por drag-and-drop; ações no map runTool() abaixo.
-const TOOL_DEFS: { id: string; icon: typeof Bot; label: string }[] = [
-  { id: "companion", icon: Sparkles, label: "Companheiro (IA)" },
-  { id: "git", icon: GitFork, label: "Repositórios Git" },
-  { id: "connections", icon: Plug, label: "Conexões de memória" },
-  { id: "llm", icon: Cpu, label: "LLM do review (BYOK)" },
-  { id: "policy", icon: SlidersHorizontal, label: "Política de review" },
-  { id: "reminders", icon: Bookmark, label: "Lembretes" },
-  { id: "memory", icon: Brain, label: "Memória dos agentes" },
-  { id: "history", icon: History, label: "Histórico de sessões" },
-  { id: "routines", icon: Repeat, label: "Routines" },
-  { id: "snapshots", icon: Archive, label: "Snapshots do canvas" },
-  { id: "hooks", icon: Webhook, label: "Hooks do floor" },
+const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[] = [
+  { id: "companion", icon: Sparkles, label: "Companheiro (IA)", desc: "Chat IA lateral que enxerga o canvas e ajuda a operar" },
+  { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
+  { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
+  { id: "llm", icon: Cpu, label: "LLM do review (BYOK)", desc: "Escolher o modelo (sua chave/BYOK) que roda o code review" },
+  { id: "policy", icon: SlidersHorizontal, label: "Política de review", desc: "Regras de GO/NO-GO do review — o que bloqueia o merge" },
+  { id: "reminders", icon: Bookmark, label: "Lembretes", desc: "Notas do canvas viram lembretes com prazo" },
+  { id: "memory", icon: Brain, label: "Memória dos agentes", desc: "Ver e editar o que os agentes lembram (blackboard SQLite)" },
+  { id: "history", icon: History, label: "Histórico de sessões", desc: "Sessões anteriores gravadas dos agentes" },
+  { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos floors" },
+  { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
+  { id: "hooks", icon: Webhook, label: "Hooks do floor", desc: "Comandos disparados em eventos do floor (pre/post)" },
 ];
 const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
 
@@ -950,19 +950,20 @@ export function Sidebar() {
               if (!def) return null;
               const Icon = def.icon;
               return (
-                <button
-                  key={id}
-                  {...tools.dnd(id)}
-                  onClick={runTool[id]}
-                  className={cn(
-                    "group w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-textMuted",
-                    "hover:text-brand hover:bg-surface2 transition-colors cursor-grab active:cursor-grabbing",
-                    tools.overId === id && "border-t-2 border-brand",
-                  )}
-                >
-                  <GripVertical size={11} className="shrink-0 opacity-0 group-hover:opacity-40 -ml-1" />
-                  <Icon size={13} className="shrink-0 opacity-80" /> {def.label}
-                </button>
+                <Tooltip key={id} label={def.desc} side="right" className="w-full">
+                  <button
+                    {...tools.dnd(id)}
+                    onClick={runTool[id]}
+                    className={cn(
+                      "group w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-textMuted",
+                      "hover:text-brand hover:bg-surface2 transition-colors cursor-grab active:cursor-grabbing",
+                      tools.overId === id && "border-t-2 border-brand",
+                    )}
+                  >
+                    <GripVertical size={11} className="shrink-0 opacity-0 group-hover:opacity-40 -ml-1" />
+                    <Icon size={13} className="shrink-0 opacity-80" /> {def.label}
+                  </button>
+                </Tooltip>
               );
             })}
           </div>
@@ -1103,6 +1104,7 @@ export function Sidebar() {
                     label: preset.label,
                   })
                 }
+                title={preset.description}
                 className="flex-1 min-w-0 text-left flex items-start gap-3 px-2 py-2"
               >
                 <Icon
