@@ -17,6 +17,7 @@ import {
   Archive,
   ArchiveRestore,
   FilePlus,
+  FileText,
   FolderPlus,
   Brain,
   GitCompare,
@@ -422,13 +423,17 @@ export function Sidebar() {
     if (typeof sel === "string" && !specRoots.includes(sel)) setSpecRoots((r) => [...r, sel]);
   }
 
-  async function newSpec() {
+  async function newDoc(kind: "spec" | "plan") {
     if (!currentCwd) return;
-    const raw = window.prompt("Nome do plano:", "novo-plano");
+    const raw = window.prompt(`Nome ${kind === "plan" ? "do plano" : "da spec"}:`, kind === "plan" ? "novo-plano" : "nova-spec");
     if (!raw) return;
-    const slug = raw.trim().replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "") || "plano";
-    const path = `${currentCwd}/docs/superpowers/plans/${slug}.md`;
-    const tpl = `# ${raw.trim()}\n\n**Goal:** \n\n**Architecture:** \n\n## Task 1: \n- [ ] passo\n\n## Task 2: \n- [ ] passo\n`;
+    const slug = raw.trim().replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "") || kind;
+    const today = new Date().toISOString().slice(0, 10);
+    const sub = kind === "plan" ? "plans" : "specs";
+    const path = `${currentCwd}/docs/superpowers/${sub}/${today}-${slug}.md`;
+    const tpl = kind === "plan"
+      ? `# ${raw.trim()}\n\n**Goal:** \n\n**Architecture:** \n\n## Task 1: \n- [ ] passo\n\n## Task 2: \n- [ ] passo\n`
+      : `---\nstatus: active\n# paths: [src/...]  # descomente pra detectar sobreposição\n---\n\n# ${raw.trim()} — Design\n\n**Goal:** \n\n**Architecture:** \n\n**Data flow:** \n\n**Error handling:** \n\n**Testing:** \n`;
     try { await writeFile(path, tpl); loadSpecs(); addPreviewNode({ path }); }
     catch (e) { alert(String(e)); }
   }
@@ -1496,7 +1501,8 @@ export function Sidebar() {
       <div className="px-2 py-2 border-t border-border" style={secStyle("specs")}>
         <div className="px-2 mb-1.5 flex items-center gap-1">
           <div className="flex-1">{sectionTitle("specs", "Specs")}</div>
-          <button onClick={() => void newSpec()} disabled={!currentCwd} title="Novo plano" className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FilePlus size={12} /></button>
+          <button onClick={() => void newDoc("spec")} disabled={!currentCwd} title="Nova spec (design)" className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FileText size={12} /></button>
+          <button onClick={() => void newDoc("plan")} disabled={!currentCwd} title="Novo plano (tasks)" className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FilePlus size={12} /></button>
           <button onClick={() => void importSpecRoot()} title="Adicionar pasta de specs/planos" className="text-textMuted hover:text-brand p-0.5"><FolderPlus size={12} /></button>
         </div>
         {isOpen("specs") && (
