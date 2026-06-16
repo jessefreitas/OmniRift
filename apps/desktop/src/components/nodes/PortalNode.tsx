@@ -4,6 +4,7 @@ import { Camera, Copy, ExternalLink, Globe, RotateCw, X } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { useNodeMaximize } from "@/hooks/useNodeMaximize";
 import { NodeHelp } from "@/components/NodeHelp";
 import { normalizeUrl, browserShot } from "@/lib/portal-client";
 import type { PortalNode as PortalNodeData } from "@/types/canvas";
@@ -25,6 +26,8 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
   const [shooting, setShooting] = useState(false);
   const [shotErr, setShotErr] = useState<string | null>(null);
   const url = normalizeUrl(data.url);
+  const { maxBtn, frame } = useNodeMaximize();
+  const isExternal = !!url && !/localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]/.test(url);
 
   function go() {
     const u = normalizeUrl(urlInput);
@@ -44,12 +47,8 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
     }
   }
 
-  return (
-    <div
-      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
-      style={{ width: data.size?.width ?? 420, height: data.size?.height ?? 320 }}
-    >
-      <NodeResizer isVisible={selected} minWidth={260} minHeight={200} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+  const card = (
+    <>
       <header className="node-drag-handle flex items-center gap-1 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <Globe size={12} className="text-brand shrink-0" />
         <input
@@ -73,6 +72,7 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
         <button onClick={(e) => { e.stopPropagation(); if (url) navigator.clipboard.writeText(url).catch(() => {}); }} title="Copiar URL" className="hover:text-text shrink-0">
           <Copy size={11} />
         </button>
+        {maxBtn}
         <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar portal" className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
@@ -99,8 +99,24 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
             <Globe size={14} /> digite uma URL no topo
           </div>
         )}
+        {url && !shot && isExternal && (
+          <div className="absolute bottom-1.5 left-1.5 right-1.5 pointer-events-none text-center text-[10px] text-white bg-black/55 rounded px-2 py-1">
+            Em branco? Sites externos costumam bloquear embed (X-Frame). Use 📷 Snapshot ou ↗ abrir no navegador.
+          </div>
+        )}
       </div>
-    </div>
+    </>
+  );
+
+  return frame(
+    card,
+    <div
+      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
+      style={{ width: data.size?.width ?? 420, height: data.size?.height ?? 320 }}
+    >
+      <NodeResizer isVisible={selected} minWidth={260} minHeight={200} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      {card}
+    </div>,
   );
 }
 

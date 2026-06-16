@@ -11,6 +11,11 @@ export async function readFile(path: string): Promise<string> {
   return invoke<string>("read_file", { path });
 }
 
+/** Salva texto no arquivo (Preview editável). */
+export async function writeFile(path: string, content: string): Promise<void> {
+  return invoke("write_file", { path, content });
+}
+
 /** Markdown → HTML sanitizado (sem script). */
 export function renderMarkdown(md: string): string {
   const raw = marked.parse(md, { async: false }) as string;
