@@ -213,14 +213,17 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       onConnect={onConnect}
       onNodeDragStop={onNodeDragStop}
       proOptions={{ hideAttribution: true }}
-      minZoom={0.2}
+      minZoom={0.15}
       maxZoom={2.5}
       defaultViewport={{ x: 0, y: 0, zoom: 1 }}
       fitView={false}
-      panOnScroll
-      panOnDrag={[1, 2]}
-      selectionOnDrag
-      selectNodesOnDrag={false}
+      panOnDrag
+      panOnScroll={false}
+      zoomOnScroll
+      zoomOnDoubleClick={false}
+      selectionOnDrag={false}
+      selectionKeyCode="Shift"
+      nodeDragThreshold={4}
       deleteKeyCode={["Backspace", "Delete"]}
       colorMode="dark"
     >
