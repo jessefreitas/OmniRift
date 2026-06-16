@@ -59,6 +59,7 @@ import { HooksModal } from "@/components/HooksModal";
 import { SnapshotsModal } from "@/components/SnapshotsModal";
 import { RoutinesModal } from "@/components/RoutinesModal";
 import { RemindersModal } from "@/components/RemindersModal";
+import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { ReviewModal } from "@/components/ReviewModal";
 import { LlmConfigModal } from "@/components/LlmConfigModal";
@@ -978,6 +979,7 @@ export function Sidebar() {
             {currentCwd}
           </p>
         )}
+        {currentCwd && <EditorOpenButton path={currentCwd} />}
         {/* Sync CLAUDE.md ↔ AGENTS.md (regras de projeto pros agentes) */}
         {currentCwd && docsStatus && (docsStatus.claude || docsStatus.agents) && (
           <div className="px-2 mt-1 flex items-center gap-1.5 text-[9px]">
