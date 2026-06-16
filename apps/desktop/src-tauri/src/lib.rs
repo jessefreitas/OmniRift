@@ -39,7 +39,7 @@ use commands::pty::{
     pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
     pty_read_screen, pty_resize, pty_spawn, pty_write,
 };
-use commands::spec::spec_list_files;
+use commands::spec::{spec_archive, spec_list_files, spec_unarchive};
 use commands::workspace::{workspace_load, workspace_save};
 use db::{
     db_load_workspace, db_save_workspace, memory_add, memory_delete, memory_query, reminder_add,
@@ -164,6 +164,8 @@ pub fn run() {
             floor_run_hook,
             floor_git_remove,
             spec_list_files,
+            spec_archive,
+            spec_unarchive,
             agent_docs_status,
             agent_docs_sync,
             discover_roles,

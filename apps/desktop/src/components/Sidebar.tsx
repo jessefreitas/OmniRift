@@ -14,6 +14,9 @@ import {
   FolderOpen,
   GitBranch,
   Archive,
+  ArchiveRestore,
+  FilePlus,
+  FolderPlus,
   Brain,
   GitCompare,
   GitFork,
@@ -49,7 +52,8 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
-import { specListFiles, type SpecFile } from "@/lib/spec-client";
+import { specListFiles, specArchive, specUnarchive, isDeadSpec, type SpecFile } from "@/lib/spec-client";
+import { writeFile } from "@/lib/preview-client";
 import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
@@ -263,6 +267,10 @@ export function Sidebar() {
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
   const [settingsConfigPath, setSettingsConfigPath] = useState<string | null>(null);
   const [specs, setSpecs] = useState<SpecFile[]>([]);
+  const [specRoots, setSpecRoots] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("omnirift-spec-roots") ?? "[]"); } catch { return []; }
+  });
+  const [showDeadSpecs, setShowDeadSpecs] = useState(false);
   const [docsStatus, setDocsStatus] = useState<AgentDocsStatus | null>(null);
   const [roles, setRoles] = useState<AgentRoleDef[]>(() => loadRoles());
   const [editingRole, setEditingRole] = useState<AgentRoleDef | null>(null);
@@ -381,11 +389,65 @@ export function Sidebar() {
     agentSettingsConfig().then(setSettingsConfigPath).catch(() => {});
   }, []);
 
-  // Lista specs/plans do projeto ativo (pro dispatch paralelo).
-  useEffect(() => {
+  // Lista specs/plans do projeto (default + raízes extras do usuário).
+  const loadSpecs = useCallback(() => {
     if (!currentCwd) { setSpecs([]); return; }
-    specListFiles(currentCwd).then(setSpecs).catch(() => setSpecs([]));
-  }, [currentCwd]);
+    specListFiles(currentCwd, specRoots).then(setSpecs).catch(() => setSpecs([]));
+  }, [currentCwd, specRoots]);
+  useEffect(() => { loadSpecs(); }, [loadSpecs]);
+  useEffect(() => {
+    try { localStorage.setItem("omnirift-spec-roots", JSON.stringify(specRoots)); } catch { /* ignore */ }
+  }, [specRoots]);
+
+  async function toggleArchiveSpec(s: SpecFile) {
+    if (!currentCwd) return;
+    try {
+      if (s.status === "archived") await specUnarchive(currentCwd, s.path);
+      else await specArchive(currentCwd, s.path);
+      loadSpecs();
+    } catch (e) { alert(String(e)); }
+  }
+
+  async function importSpecRoot() {
+    const sel = await open({ directory: true, multiple: false, title: "Adicionar pasta de specs/planos" });
+    if (typeof sel === "string" && !specRoots.includes(sel)) setSpecRoots((r) => [...r, sel]);
+  }
+
+  async function newSpec() {
+    if (!currentCwd) return;
+    const raw = window.prompt("Nome do plano:", "novo-plano");
+    if (!raw) return;
+    const slug = raw.trim().replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "") || "plano";
+    const path = `${currentCwd}/docs/superpowers/plans/${slug}.md`;
+    const tpl = `# ${raw.trim()}\n\n**Goal:** \n\n**Architecture:** \n\n## Task 1: \n- [ ] passo\n\n## Task 2: \n- [ ] passo\n`;
+    try { await writeFile(path, tpl); loadSpecs(); addPreviewNode({ path }); }
+    catch (e) { alert(String(e)); }
+  }
+
+  const activeSpecs = useMemo(() => specs.filter((s) => !isDeadSpec(s)), [specs]);
+  const deadSpecs = useMemo(() => specs.filter(isDeadSpec), [specs]);
+  const renderSpecRow = (s: SpecFile) => {
+    const dead = isDeadSpec(s);
+    return (
+      <div key={s.path} className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2">
+        <span className={cn("text-[8px] px-1 rounded shrink-0 uppercase", s.kind === "plan" ? "bg-brand/20 text-brand" : "bg-surface2 text-textMuted")}>{s.kind}</span>
+        <button onClick={() => addPreviewNode({ path: s.path })} title={`Abrir ${s.path}`} className={cn("text-[11px] flex-1 truncate text-left hover:text-brand", dead && "line-through opacity-60")}>{s.title}</button>
+        {s.tasks > 0
+          ? <span className="text-[9px] text-textMuted opacity-60 shrink-0 tabular-nums" title={`${s.doneTasks} de ${s.tasks} tasks`}>{s.doneTasks}/{s.tasks}</span>
+          : <span className="text-[8px] uppercase px-1 rounded shrink-0 bg-surface2 text-textMuted">{s.status}</span>}
+        <Tooltip label={s.status === "archived" ? "Desarquivar" : "Arquivar (move pra archive/)"} side="top" className="shrink-0">
+          <button onClick={() => void toggleArchiveSpec(s)} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all">
+            {s.status === "archived" ? <ArchiveRestore size={11} /> : <Archive size={11} />}
+          </button>
+        </Tooltip>
+        <Tooltip label={dead ? "Spec concluída/arquivada — não despacha" : orchestratorSid ? "Enviar ao Orquestrador (dispatch paralelo)" : "Defina um Orquestrador primeiro"} side="top" className="shrink-0">
+          <button onClick={() => dispatchSpec(s)} disabled={!orchestratorSid || dead} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+            <Rocket size={11} />
+          </button>
+        </Tooltip>
+      </div>
+    );
+  };
 
   // Status de CLAUDE.md/AGENTS.md do projeto ativo (pro sync de roles).
   useEffect(() => {
@@ -1393,58 +1455,35 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Specs — dispatch paralelo (Fase C) */}
+      {/* Specs — ciclo de vida + dispatch (Fase C) */}
       <div className="px-2 py-2 border-t border-border" style={secStyle("specs")}>
-        <div className="px-2 mb-1.5">{sectionTitle("specs", "Specs")}</div>
+        <div className="px-2 mb-1.5 flex items-center gap-1">
+          <div className="flex-1">{sectionTitle("specs", "Specs")}</div>
+          <button onClick={() => void newSpec()} disabled={!currentCwd} title="Novo plano" className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FilePlus size={12} /></button>
+          <button onClick={() => void importSpecRoot()} title="Adicionar pasta de specs/planos" className="text-textMuted hover:text-brand p-0.5"><FolderPlus size={12} /></button>
+        </div>
         {isOpen("specs") && (
           !currentCwd ? (
-          <p className="px-2 text-[10px] text-textMuted opacity-60">Abra um projeto pra listar specs.</p>
-        ) : specs.length === 0 ? (
-          <p className="px-2 text-[10px] text-textMuted opacity-60">Nenhuma spec em docs/superpowers/.</p>
-        ) : (
-          <div className="space-y-0.5">
-            {specs.map((s) => (
-              <div
-                key={s.path}
-                className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2"
-              >
-                <span
-                  className={cn(
-                    "text-[8px] px-1 rounded shrink-0 uppercase",
-                    s.kind === "plan" ? "bg-brand/20 text-brand" : "bg-surface2 text-textMuted",
-                  )}
-                >
-                  {s.kind}
-                </span>
-                <button
-                  onClick={() => addPreviewNode({ path: s.path })}
-                  title={`Abrir ${s.path}`}
-                  className="text-[11px] flex-1 truncate text-left hover:text-brand"
-                >
-                  {s.title}
-                </button>
-                <span className="text-[9px] text-textMuted opacity-60 shrink-0">{s.tasks}t</span>
-                <Tooltip
-                  label={
-                    orchestratorSid
-                      ? "Dispatch paralelo: o Orquestrador agrupa as Tasks e spawna 1 agente por branch"
-                      : "Defina um Orquestrador (botão 'O') primeiro"
-                  }
-                  side="top"
-                  className="shrink-0"
-                >
+            <p className="px-2 text-[10px] text-textMuted opacity-60">Abra um projeto pra listar specs.</p>
+          ) : specs.length === 0 ? (
+            <p className="px-2 text-[10px] text-textMuted opacity-60">Nenhuma spec. Crie com + ou adicione uma pasta.</p>
+          ) : (
+            <div className="space-y-0.5">
+              {activeSpecs.map(renderSpecRow)}
+              {deadSpecs.length > 0 && (
+                <>
                   <button
-                    onClick={() => dispatchSpec(s)}
-                    disabled={!orchestratorSid}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    onClick={() => setShowDeadSpecs((v) => !v)}
+                    className="w-full text-left px-2 py-1 text-[9px] uppercase tracking-wider text-textMuted opacity-60 hover:opacity-100"
                   >
-                    <Rocket size={11} />
+                    {showDeadSpecs ? "▾" : "▸"} Concluídos / arquivados ({deadSpecs.length})
                   </button>
-                </Tooltip>
-              </div>
-            ))}
-          </div>
-        ))}
+                  {showDeadSpecs && deadSpecs.map(renderSpecRow)}
+                </>
+              )}
+            </div>
+          )
+        )}
       </div>
       </div>
 
