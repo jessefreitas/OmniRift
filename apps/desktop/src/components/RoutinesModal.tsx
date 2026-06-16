@@ -3,10 +3,10 @@
 // CRUD das Routines + rodar manualmente. Ações automatizadas (comando shell)
 // com trigger manual ou por intervalo. Persiste em localStorage.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { nanoid } from "nanoid";
-import { Clock, LayoutTemplate, Play, Plus, Repeat, Trash2, X } from "lucide-react";
+import { CalendarClock, Clock, LayoutTemplate, Play, Plus, Repeat, Trash2, X } from "lucide-react";
 
 import {
   loadRoutines,
@@ -18,14 +18,19 @@ import {
   type Routine,
   type RoutineTemplate,
 } from "@/lib/routines";
+import { osSlug, schedulerInstall, schedulerUninstall, schedulerList } from "@/lib/scheduler-client";
 
 interface Props {
   onClose: () => void;
+  /** cwd do projeto ativo — usado ao agendar a routine no SO. */
+  cwd?: string | null;
 }
 
-export function RoutinesModal({ onClose }: Props) {
+export function RoutinesModal({ onClose, cwd }: Props) {
   const [routines, setRoutines] = useState<Routine[]>(() => loadRoutines());
   const [showTemplates, setShowTemplates] = useState(false);
+  const [installed, setInstalled] = useState<Set<string>>(new Set());
+  const [schedErr, setSchedErr] = useState<string | null>(null);
 
   function persist(next: Routine[]) {
     setRoutines(next);
@@ -62,6 +67,29 @@ export function RoutinesModal({ onClose }: Props) {
     persist(routines.filter((r) => r.id !== id));
   }
 
+  async function reloadInstalled() {
+    try { setInstalled(new Set(await schedulerList())); } catch { /* ignore */ }
+  }
+  useEffect(() => { void reloadInstalled(); }, []);
+
+  async function toggleOsSchedule(r: Routine) {
+    setSchedErr(null);
+    const slug = osSlug(r.name);
+    try {
+      if (installed.has(slug)) {
+        await schedulerUninstall(r.name);
+      } else {
+        if (!cwd) { setSchedErr("Abra um projeto (pasta) antes de agendar no SO."); return; }
+        if (!r.atTime && !r.intervalMin) { setSchedErr("Defina horário (às HH:MM) ou intervalo antes de agendar no SO."); return; }
+        if (!r.command.trim()) { setSchedErr("A routine precisa de um comando."); return; }
+        await schedulerInstall(r.name, r.command, cwd, r.atTime, r.intervalMin);
+      }
+      await reloadInstalled();
+    } catch (e) {
+      setSchedErr(String(e));
+    }
+  }
+
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
@@ -87,6 +115,10 @@ export function RoutinesModal({ onClose }: Props) {
             <X size={16} />
           </button>
         </header>
+
+        {schedErr && (
+          <p className="px-4 py-1.5 text-[11px] text-danger border-b border-border break-words shrink-0">{schedErr}</p>
+        )}
 
         <div className="flex-1 overflow-auto p-3 space-y-2">
           {showTemplates && (
@@ -137,6 +169,13 @@ export function RoutinesModal({ onClose }: Props) {
                   >
                     <Play size={11} /> Rodar
                   </button>
+                  <button
+                    onClick={() => void toggleOsSchedule(r)}
+                    title={installed.has(osSlug(r.name)) ? "Agendado no SO (clique p/ remover)" : "Agendar no SO — roda com o app fechado"}
+                    className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${installed.has(osSlug(r.name)) ? "border-brand text-brand bg-brand/10" : "bg-surface2 text-text hover:text-brand border-border"}`}
+                  >
+                    <CalendarClock size={11} /> {installed.has(osSlug(r.name)) ? "no SO ✓" : "SO"}
+                  </button>
                   <button onClick={() => del(r.id)} title="Apagar" className="text-textMuted hover:text-danger p-1">
                     <Trash2 size={13} />
                   </button>
@@ -184,7 +223,7 @@ export function RoutinesModal({ onClose }: Props) {
           )}
         </div>
         <footer className="px-4 py-2 border-t border-border text-[10px] text-textMuted opacity-60 shrink-0">
-          Routines ativas rodam em background (por intervalo ou horário fixo) enquanto o app está aberto, no floor ativo. Modelos entram desativados — revise e marque “ativa”.
+          Routines ativas rodam em background enquanto o app está aberto. <b>Agendar no SO</b> (🗓) cria um timer do sistema (systemd/Task Scheduler) que roda o comando mesmo com o app fechado.
         </footer>
       </div>
     </div>,

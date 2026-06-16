@@ -1420,7 +1420,7 @@ export function Sidebar() {
       {showMemory && <MemoryModal onClose={() => setShowMemory(false)} />}
       {showHooks && <HooksModal onClose={() => setShowHooks(false)} />}
       {showSnapshots && <SnapshotsModal onClose={() => setShowSnapshots(false)} />}
-      {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} />}
+      {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} cwd={currentCwd} />}
       {showReminders && <RemindersModal onClose={() => setShowReminders(false)} />}
       {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}

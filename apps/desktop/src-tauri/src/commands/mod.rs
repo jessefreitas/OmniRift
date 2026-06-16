@@ -14,6 +14,7 @@ pub mod mcp;
 pub mod memory;
 pub mod pty;
 pub mod review_cfg;
+pub mod scheduler;
 pub mod serena;
 pub mod spec;
 pub mod workspace;

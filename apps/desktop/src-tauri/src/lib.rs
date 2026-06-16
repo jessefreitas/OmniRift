@@ -18,6 +18,7 @@ use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
 use commands::llm::{llm_chat, llm_list_models};
 use commands::review_cfg::{agent_settings_config, review_config_path, review_config_write};
+use commands::scheduler::{scheduler_install, scheduler_list, scheduler_uninstall};
 use commands::serena::serena_ensure_project;
 use commands::git::{
     floor_git_create, floor_git_diff, floor_git_land, floor_git_remove, floor_git_status,
@@ -182,6 +183,9 @@ pub fn run() {
             review_config_path,
             agent_settings_config,
             serena_ensure_project,
+            scheduler_install,
+            scheduler_uninstall,
+            scheduler_list,
             memory_providers_list,
             memory_connect,
             memory_test,
