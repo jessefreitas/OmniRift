@@ -7,6 +7,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { useNodeMaximize } from "@/hooks/useNodeMaximize";
 import { NodeHelp } from "@/components/NodeHelp";
 import { NodeComment } from "@/components/NodeComment";
+import { NodeResizeGrip } from "@/components/NodeResizeGrip";
 import { readFile, writeFile, renderMarkdown, isMarkdown, isHtml } from "@/lib/preview-client";
 import type { PreviewNode as PreviewNodeData } from "@/types/canvas";
 
@@ -133,6 +134,7 @@ export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
     >
       <NodeResizer isVisible={selected} minWidth={320} minHeight={280} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
       {card}
+      <NodeResizeGrip minWidth={320} minHeight={280} />
     </div>,
   );
 }
