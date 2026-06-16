@@ -4,7 +4,7 @@
 // canvas) → curvas bezier, pan/zoom e nós colapsáveis de graça. Layout em mindmap.ts.
 
 import { useCallback, useMemo, useState } from "react";
-import { ReactFlow, Background, Controls, Handle, Position, type Node, type Edge } from "@xyflow/react";
+import { ReactFlow, ReactFlowProvider, Background, Controls, Handle, Position, type Node, type Edge } from "@xyflow/react";
 
 import { buildTree, layoutTree, type MindKind } from "@/lib/mindmap";
 import { cn } from "@/lib/cn";
@@ -48,7 +48,18 @@ function PillNode({ data }: { data: PillData }) {
 
 const nodeTypes = { mind: PillNode };
 
-export function MindMap({ text }: { text: string }) {
+// Isola o React Flow num provider PRÓPRIO — senão o portal herda o contexto do
+// React Flow do canvas principal (portais preservam o contexto React) e atropela
+// os nodeTypes ("mind not found" → crash).
+export function MindMap(props: { text: string }) {
+  return (
+    <ReactFlowProvider>
+      <MindMapInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function MindMapInner({ text }: { text: string }) {
   const tree = useMemo(() => buildTree(text), [text]);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
 
