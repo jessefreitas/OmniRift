@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
-import { Braces, ChevronRight, Code2, ListTree, Network, X } from "lucide-react";
+import { Braces, ChevronRight, Code2, ListTree, Network, Upload, X } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
@@ -145,6 +147,18 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
       patchNode(id, { text: m });
     }
   }
+  async function uploadJson() {
+    try {
+      const sel = await open({ multiple: false, filters: [{ name: "JSON", extensions: ["json"] }] });
+      if (typeof sel !== "string") return;
+      const content = await invoke<string>("read_file", { path: sel });
+      setText(content);
+      patchNode(id, { text: content });
+      setView("graph"); // abre direto como mapa mental
+    } catch (e) {
+      console.warn("[json] upload falhou:", e);
+    }
+  }
 
   return (
     <div
@@ -193,6 +207,14 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
           </button>
         </div>
         <div className="flex-1" />
+        <button
+          onClick={uploadJson}
+          onPointerDown={(e) => e.stopPropagation()}
+          title="Subir um arquivo .json"
+          className="flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-surface2 text-text hover:bg-bg border border-border"
+        >
+          <Upload size={11} /> Subir
+        </button>
         <button
           onClick={format}
           onPointerDown={(e) => e.stopPropagation()}

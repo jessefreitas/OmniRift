@@ -1034,7 +1034,7 @@ export function Sidebar() {
       <section
         className={cn("px-2 py-3 space-y-1", isOpen("agents") ? "flex-1 overflow-y-auto" : "shrink-0")}
       >
-        <div className="px-2 mb-1">{sectionTitle("agents", "Novo agente")}</div>
+        <div className="px-2 mb-1 sticky -top-3 z-10 bg-surface1 pt-3 pb-1">{sectionTitle("agents", "Novo agente")}</div>
 
         {isOpen("agents") &&
           PRESETS.map((preset) => {
