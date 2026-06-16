@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Handle,
@@ -28,7 +28,7 @@ type TerminalRfNode = Node<TerminalNodeData & Record<string, unknown>, "terminal
 
 type TerminalNodeProps = NodeProps<TerminalRfNode>;
 
-export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
+function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const renameNode = useCanvasStore((s) => s.renameNode);
   const addToClipboard = useCanvasStore((s) => s.addToClipboard);
@@ -416,3 +416,6 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
     </>
   );
 }
+
+// memo: o terminal é o node mais pesado — evita re-render quando outro node muda.
+export const TerminalNode = memo(TerminalNodeBase);

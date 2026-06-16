@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Camera, Copy, ExternalLink, Globe, RotateCw, X } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -15,7 +15,7 @@ type PortalRfNode = Node<PortalNodeData & Record<string, unknown>, "portal">;
 // child-webview + TLS do NetworkProcess) — fica como upgrade se o multiwebview do
 // Tauri no Linux amadurecer. Limitação do iframe: sites com X-Frame-Options recusam
 // embed (use "abrir no navegador").
-export function PortalNode({ id, data, selected }: NodeProps<PortalRfNode>) {
+function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [urlInput, setUrlInput] = useState(data.url);
@@ -101,3 +101,6 @@ export function PortalNode({ id, data, selected }: NodeProps<PortalRfNode>) {
     </div>
   );
 }
+
+// memo: não re-renderiza quando OUTRO node muda (ganho com muitos nodes no canvas).
+export const PortalNode = memo(PortalNodeBase);
