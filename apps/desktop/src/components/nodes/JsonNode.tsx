@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
-import { Braces, ChevronRight, Code2, ListTree, Network, Upload, X } from "lucide-react";
+import { Braces, ChevronRight, Code2, ListTree, Maximize2, Minimize2, Network, Upload, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -85,7 +86,7 @@ function GraphNode({ k, value }: { k: string | null; value: unknown }) {
   const prims = entries.filter(([, v]) => isPrimitive(v));
   const objs = entries.filter(([, v]) => !isPrimitive(v));
   return (
-    <div className="flex items-center gap-0">
+    <div className="flex items-start gap-0">
       <div className="rounded-md border border-border bg-surface1 shadow-sm overflow-hidden shrink-0">
         <div className="px-2 py-0.5 bg-surface2 text-[10px] text-textMuted border-b border-border font-mono">
           {k ?? "root"} <span className="opacity-50">{isArr ? `[${entries.length}]` : `{${entries.length}}`}</span>
@@ -106,8 +107,8 @@ function GraphNode({ k, value }: { k: string | null; value: unknown }) {
           <div className="w-5 h-px bg-border shrink-0" />
           <div className="flex flex-col gap-3 py-1">
             {objs.map(([ck, cv], i) => (
-              <div key={i} className="flex items-center">
-                <div className="w-3 h-px bg-border shrink-0" />
+              <div key={i} className="flex items-start">
+                <div className="w-3 h-px bg-border shrink-0 mt-3" />
                 <GraphNode k={isArr ? `[${ck}]` : ck} value={cv} />
               </div>
             ))}
@@ -123,6 +124,7 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [text, setText] = useState(data.text || "");
   const [view, setView] = useState<"text" | "tree" | "graph">("text");
+  const [maximized, setMaximized] = useState(false);
 
   const parsed = useMemo<{ ok: true; value: unknown } | { ok: false; error: string } | null>(() => {
     if (!text.trim()) return null;
@@ -160,12 +162,8 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
     }
   }
 
-  return (
-    <div
-      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
-      style={{ width: data.size?.width ?? 460, height: data.size?.height ?? 420 }}
-    >
-      <NodeResizer isVisible={selected} minWidth={320} minHeight={280} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+  const card = (
+    <>
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <Braces size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1">JSON</span>
@@ -174,6 +172,9 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
             {parsed.ok ? "válido" : "inválido"}
           </span>
         )}
+        <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? "Restaurar" : "Maximizar"} className="hover:text-brand shrink-0">
+          {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+        </button>
         <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
@@ -258,6 +259,27 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
       {parsed && !parsed.ok && view === "text" && (
         <p className="shrink-0 px-2 py-1 text-[10px] text-danger border-t border-border bg-bg break-words">{parsed.error}</p>
       )}
+    </>
+  );
+
+  if (maximized) {
+    return createPortal(
+      <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4" onClick={() => setMaximized(false)}>
+        <div className="w-[92vw] h-[90vh] rounded-lg border border-border bg-surface1 shadow-2xl flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          {card}
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
+  return (
+    <div
+      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
+      style={{ width: data.size?.width ?? 460, height: data.size?.height ?? 420 }}
+    >
+      <NodeResizer isVisible={selected} minWidth={320} minHeight={280} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      {card}
     </div>
   );
 }
