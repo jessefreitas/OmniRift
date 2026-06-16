@@ -16,12 +16,18 @@ interface TooltipProps {
  * abre à direita (a sidebar tem o canvas à direita, então não corta).
  */
 export function Tooltip({ label, side = "right", children, className, wide }: TooltipProps) {
+  // Tooltips largos (instrução) ancoram pela DIREITA e crescem pra esquerda — o
+  // "?" fica no canto direito do node, então centralizar vazava a tela.
   const pos =
     side === "right"
       ? "left-full top-1/2 -translate-y-1/2 ml-2"
       : side === "top"
-        ? "bottom-full left-1/2 -translate-x-1/2 mb-1.5"
-        : "top-full left-1/2 -translate-x-1/2 mt-1.5";
+        ? wide
+          ? "bottom-full right-0 mb-1.5"
+          : "bottom-full left-1/2 -translate-x-1/2 mb-1.5"
+        : wide
+          ? "top-full right-0 mt-1.5"
+          : "top-full left-1/2 -translate-x-1/2 mt-1.5";
   return (
     <span className={cn("relative inline-flex group/tt", className)}>
       {children}
