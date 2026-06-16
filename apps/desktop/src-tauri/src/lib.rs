@@ -16,6 +16,7 @@ use commands::fs::{list_dir, read_file};
 use commands::gitremote::{git_clone, git_list_repos};
 use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
+use commands::license::{license_activate, license_status};
 use commands::llm::{llm_chat, llm_list_models};
 use commands::review_cfg::{agent_settings_config, review_config_path, review_config_write};
 use commands::scheduler::{scheduler_install, scheduler_list, scheduler_uninstall};
@@ -186,6 +187,8 @@ pub fn run() {
             scheduler_install,
             scheduler_uninstall,
             scheduler_list,
+            license_status,
+            license_activate,
             memory_providers_list,
             memory_connect,
             memory_test,

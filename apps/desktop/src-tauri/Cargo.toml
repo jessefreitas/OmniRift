@@ -50,6 +50,10 @@ uuid = { version = "1", features = ["v4"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json"] }
 # async em trait objects (dyn MemoryProvider)
 async-trait = "0.1"
+# Licença: chave assinada Ed25519 verificada offline (só a chave pública é embutida)
+ed25519-dalek = "2"
+sha2 = "0.10"
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"

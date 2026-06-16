@@ -30,3 +30,6 @@ Thumbs.db
 # Python (scripts/ — caches de bytecode)
 __pycache__/
 *.pyc
+
+# Licença OmniRift — chave PRIVADA do keygen (NUNCA comitar)
+tools/.omnirift-license.key

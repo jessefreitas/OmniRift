@@ -9,6 +9,7 @@ pub mod git;
 pub mod github_auth;
 pub mod gitremote;
 pub mod http;
+pub mod license;
 pub mod llm;
 pub mod mcp;
 pub mod memory;
