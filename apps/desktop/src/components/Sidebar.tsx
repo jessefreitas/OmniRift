@@ -218,6 +218,7 @@ const MCP_ADD_CMD = `/mcp add --transport sse omnirift-agents ${MCP_SSE_URL}`;
 
 export function Sidebar() {
   const addTerminal = useCanvasStore((s) => s.addTerminal);
+  const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
   const setCurrentCwd = useCanvasStore((s) => s.setCurrentCwd);
   const workspaceName = useCanvasStore((s) => s.workspaceName);
@@ -1415,9 +1416,13 @@ export function Sidebar() {
                 >
                   {s.kind}
                 </span>
-                <span className="text-[11px] flex-1 truncate" title={s.path}>
+                <button
+                  onClick={() => addPreviewNode({ path: s.path })}
+                  title={`Abrir ${s.path}`}
+                  className="text-[11px] flex-1 truncate text-left hover:text-brand"
+                >
                   {s.title}
-                </span>
+                </button>
                 <span className="text-[9px] text-textMuted opacity-60 shrink-0">{s.tasks}t</span>
                 <Tooltip
                   label={
