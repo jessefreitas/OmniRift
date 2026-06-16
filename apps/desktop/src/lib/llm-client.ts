@@ -19,6 +19,11 @@ export async function llmChat(config: LlmConfig, system: string, prompt: string)
   return invoke<string>("llm_chat", { config, system, prompt });
 }
 
+/** Lista os modelos do provider (pra escolher na UI em vez de digitar). */
+export async function llmListModels(config: LlmConfig): Promise<string[]> {
+  return invoke<string[]>("llm_list_models", { config });
+}
+
 export interface LlmPreset {
   id: string;
   label: string;

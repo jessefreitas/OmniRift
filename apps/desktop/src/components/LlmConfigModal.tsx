@@ -7,7 +7,8 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Cpu, X } from "lucide-react";
 
-import { LLM_PRESETS, llmChat, loadLlmConfig, saveLlmConfig, type LlmConfig, type LlmProvider } from "@/lib/llm-client";
+import { LLM_PRESETS, llmChat, llmListModels, loadLlmConfig, saveLlmConfig, type LlmConfig, type LlmProvider } from "@/lib/llm-client";
+import { persistReviewConfig } from "@/lib/review-config-sync";
 
 interface Props {
   onClose: () => void;
@@ -21,6 +22,22 @@ export function LlmConfigModal({ onClose }: Props) {
   const [model, setModel] = useState(init?.model ?? "");
   const [test, setTest] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+
+  async function listModels() {
+    setLoadingModels(true);
+    setTest(null);
+    try {
+      const ms = await llmListModels(current());
+      setModels(ms);
+      if (ms.length === 0) setTest("nenhum modelo retornado (digite manualmente)");
+    } catch (e) {
+      setTest(`✗ listar modelos: ${String(e)}`);
+    } finally {
+      setLoadingModels(false);
+    }
+  }
 
   function applyPreset(id: string) {
     const p = LLM_PRESETS.find((x) => x.id === id);
@@ -49,6 +66,7 @@ export function LlmConfigModal({ onClose }: Props) {
 
   function save() {
     saveLlmConfig(current());
+    void persistReviewConfig(); // espelha pro backend (Stop hook / MCP review)
     onClose();
   }
 
@@ -82,8 +100,30 @@ export function LlmConfigModal({ onClose }: Props) {
             <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} type="password" placeholder="sk-… / sua chave" className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono" />
           </div>
           <div>
-            <label className="text-[11px] uppercase tracking-wider text-textMuted">Modelo</label>
-            <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o / claude-sonnet-4-6 / qwen2.5-coder:7b" className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono" />
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] uppercase tracking-wider text-textMuted">Modelo</label>
+              <button
+                onClick={() => void listModels()}
+                disabled={loadingModels || !baseUrl.trim()}
+                className="text-[10px] text-textMuted hover:text-brand disabled:opacity-40"
+              >
+                {loadingModels ? "listando…" : "↻ listar modelos"}
+              </button>
+            </div>
+            <input value={model} onChange={(e) => setModel(e.target.value)} list="llm-models" placeholder="gpt-4o / claude-sonnet-4-6 / qwen2.5-coder:7b" className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono" />
+            <datalist id="llm-models">
+              {models.map((m) => (<option key={m} value={m} />))}
+            </datalist>
+            {models.length > 0 && (
+              <select
+                value=""
+                onChange={(e) => { if (e.target.value) setModel(e.target.value); }}
+                className="mt-1 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text focus:outline-none focus:border-brand"
+              >
+                <option value="">— escolher dos {models.length} modelos —</option>
+                {models.map((m) => (<option key={m} value={m}>{m}</option>))}
+              </select>
+            )}
           </div>
           {test && <p className={`text-[11px] font-mono ${test.startsWith("✓") ? "text-green-400" : "text-danger"} break-words`}>{test}</p>}
         </div>

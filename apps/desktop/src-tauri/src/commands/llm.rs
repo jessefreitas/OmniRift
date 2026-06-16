@@ -40,6 +40,40 @@ pub async fn llm_chat(config: LlmConfig, system: Option<String>, prompt: String)
     }
 }
 
+/// Lista os modelos disponíveis no provider configurado (pra escolher na UI).
+#[tauri::command]
+pub async fn llm_list_models(config: LlmConfig) -> Result<Vec<String>, String> {
+    let base = config.base_url.trim_end_matches('/');
+    let k = key(&config);
+    let req = match config.provider.as_str() {
+        "anthropic" => client()
+            .get(format!("{base}/v1/models"))
+            .header("x-api-key", k)
+            .header("anthropic-version", "2023-06-01"),
+        "ollama" => {
+            let r = client().get(format!("{base}/api/tags"));
+            if k.is_empty() { r } else { r.bearer_auth(k) }
+        }
+        // openai-compat (openai/gemini/groq/openrouter/…)
+        _ => {
+            let r = client().get(format!("{base}/models"));
+            if k.is_empty() { r } else { r.bearer_auth(k) }
+        }
+    };
+    let v = send(req).await?;
+    // openai/anthropic → data[].id ; ollama → models[].name
+    let mut out: Vec<String> = if let Some(data) = v.get("data").and_then(|x| x.as_array()) {
+        data.iter().filter_map(|m| m.get("id").and_then(|x| x.as_str()).map(String::from)).collect()
+    } else if let Some(models) = v.get("models").and_then(|x| x.as_array()) {
+        models.iter().filter_map(|m| m.get("name").and_then(|x| x.as_str()).map(String::from)).collect()
+    } else {
+        Vec::new()
+    };
+    out.sort();
+    out.dedup();
+    Ok(out)
+}
+
 async fn openai_chat(base: &str, cfg: &LlmConfig, sys: &str, prompt: &str) -> Result<String, String> {
     let mut messages = Vec::new();
     if !sys.is_empty() {
