@@ -73,14 +73,13 @@ export function RoleEditModal({ role, onSave, onClose }: Props) {
                 className="mt-1 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono"
               />
               <p className="mt-1 text-[10px] text-textMuted opacity-60">
-                Shell é terminal puro (sem LLM/persona). O comando roda ao abrir o terminal.
+                Roda ao abrir o terminal. Se abrir um CLI de IA (ex.: claude-ollama), a persona abaixo é injetada depois.
               </p>
             </div>
           )}
-          {!isShell && (
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">
-              Prompt (persona / instruções)
+              {isShell ? "Persona (injetada no CLI que o comando abrir)" : "Prompt (persona / instruções)"}
             </label>
             <textarea
               value={prompt}
@@ -90,10 +89,11 @@ export function RoleEditModal({ role, onSave, onClose }: Props) {
               className="mt-1 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono"
             />
             <p className="mt-1 text-[10px] text-textMuted opacity-60">
-              Injetado como <code>--append-system-prompt</code> num Claude Code.
+              {isShell
+                ? "Injetada após o comando abrir (ex.: claude-ollama). Sem comando de início, é ignorada."
+                : "Injetado como --append-system-prompt num Claude Code."}
             </p>
           </div>
-          )}
         </div>
         <footer className="flex justify-end gap-2 px-4 py-3 border-t border-border">
           <button

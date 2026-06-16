@@ -638,17 +638,23 @@ export function Sidebar() {
       return;
     }
     const node = addTerminal({ command: cli.command, role: cli.role, label: r.name });
-    // Shell = terminal puro: roda o "comando de início" (se houver), NUNCA a persona
-    // (viraria comando → "comando não encontrado"). CLIs LLM sem flag
-    // (opencode/antigravity) recebem a persona como 1ª mensagem (Enter à parte).
-    const firstInput = cli.role === "shell" ? (r.startupCmd ?? "") : r.prompt;
-    if (firstInput.trim()) {
+    // Envia uma linha (texto + Enter à parte) após `delay` ms.
+    const sendLine = (text: string, delay: number) => {
+      if (!text.trim()) return;
       setTimeout(() => {
-        invoke("pty_write", { sessionId: node.session_id, data: firstInput }).catch(console.warn);
-        setTimeout(() => {
-          invoke("pty_write", { sessionId: node.session_id, data: "\r" }).catch(console.warn);
-        }, 200);
-      }, cli.role === "shell" ? 400 : 1800);
+        invoke("pty_write", { sessionId: node.session_id, data: text }).catch(console.warn);
+        setTimeout(() => invoke("pty_write", { sessionId: node.session_id, data: "\r" }).catch(console.warn), 200);
+      }, delay);
+    };
+    if (cli.role === "shell") {
+      // Roda o comando de início; se ele abrir um CLI de IA, injeta a persona após o
+      // boot. Persona sozinha (sem comando) NÃO entra — viraria comando no shell.
+      const startup = r.startupCmd ?? "";
+      sendLine(startup, 400);
+      if (startup.trim()) sendLine(r.prompt, 3500);
+    } else {
+      // CLIs LLM sem flag (opencode/antigravity): persona como 1ª mensagem.
+      sendLine(r.prompt, 1800);
     }
   }
 
