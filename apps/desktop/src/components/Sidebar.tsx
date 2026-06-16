@@ -638,9 +638,10 @@ export function Sidebar() {
       return;
     }
     const node = addTerminal({ command: cli.command, role: cli.role, label: r.name });
-    // Shell ou CLIs sem flag de system-prompt: injeta a persona como 1ª mensagem
-    // (Enter à parte). Shell SEM prompt = terminal puro, não escreve nada.
-    if (r.prompt.trim()) {
+    // Shell = terminal puro, SEM LLM → nunca injeta a persona (viraria comando e
+    // daria "comando não encontrado"). CLIs LLM sem flag (opencode/antigravity)
+    // recebem a persona como 1ª mensagem (Enter à parte).
+    if (cli.role !== "shell" && r.prompt.trim()) {
       setTimeout(() => {
         invoke("pty_write", { sessionId: node.session_id, data: r.prompt }).catch(console.warn);
         setTimeout(() => {
