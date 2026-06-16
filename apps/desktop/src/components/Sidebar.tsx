@@ -626,12 +626,16 @@ export function Sidebar() {
       return;
     }
     const node = addTerminal({ command: cli.command, role: cli.role, label: r.name });
-    setTimeout(() => {
-      invoke("pty_write", { sessionId: node.session_id, data: r.prompt }).catch(console.warn);
+    // Shell ou CLIs sem flag de system-prompt: injeta a persona como 1ª mensagem
+    // (Enter à parte). Shell SEM prompt = terminal puro, não escreve nada.
+    if (r.prompt.trim()) {
       setTimeout(() => {
-        invoke("pty_write", { sessionId: node.session_id, data: "\r" }).catch(console.warn);
-      }, 200);
-    }, 1800);
+        invoke("pty_write", { sessionId: node.session_id, data: r.prompt }).catch(console.warn);
+        setTimeout(() => {
+          invoke("pty_write", { sessionId: node.session_id, data: "\r" }).catch(console.warn);
+        }, 200);
+      }, 1800);
+    }
   }
 
   // Descobre roles do projeto (.claude/agents/*.md) e importa os que ainda não existem.

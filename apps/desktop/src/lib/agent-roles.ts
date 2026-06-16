@@ -29,11 +29,18 @@ export interface RoleCli {
   systemPromptFlag?: string;
 }
 
+/** Shell do SO (terminal puro, sem LLM) — pra roles que são só um terminal. */
+function detectShell(): string {
+  if (typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)) return "powershell.exe";
+  return "bash";
+}
+
 export const ROLE_CLIS: RoleCli[] = [
   { id: "claude", label: "Claude Code", command: "claude", role: "claude-code", systemPromptFlag: "--append-system-prompt" },
   { id: "codex", label: "Codex", command: "codex", role: "codex" },
   { id: "opencode", label: "OpenCode", command: "opencode", role: "opencode" },
   { id: "antigravity", label: "Antigravity (agy)", command: "agy", role: "antigravity" },
+  { id: "shell", label: "Shell (terminal puro)", command: detectShell(), role: "shell" },
 ];
 
 export const BUILTIN_ROLES: AgentRoleDef[] = [

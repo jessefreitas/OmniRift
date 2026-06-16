@@ -261,8 +261,13 @@ async fn do_send_task(
     // line-mode trava em TUI — Claude/agy redesenham a tela e nunca "ficam idle".
     let mut rx = state.pty_manager.subscribe_state();
 
-    // Claude/agy/codex operam em raw mode: Enter é \r.
-    state.pty_manager.write(&session_id, format!("{task}\r").as_bytes())?;
+    // Claude/agy/codex operam em raw mode: Enter é \r. Mandar o \r JUNTO do texto
+    // faz o TUI tratar tudo como colagem e às vezes NÃO submeter — o texto fica no
+    // buffer do input e o agente nunca roda (0 tokens). Escreve o texto e, ~200ms
+    // depois, o Enter sozinho (mesmo padrão do spawnRole no front).
+    state.pty_manager.write(&session_id, task.as_bytes())?;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    state.pty_manager.write(&session_id, b"\r")?;
 
     // Espera o agente trabalhar e então assentar (done/idle/blocked). No estouro
     // do timeout, devolve a tela atual mesmo assim (melhor que travar 10min).
