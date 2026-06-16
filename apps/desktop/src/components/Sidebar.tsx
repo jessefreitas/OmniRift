@@ -95,6 +95,19 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string }[] = [
 ];
 const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
 
+// Seções da sidebar — reordenáveis por drag-and-drop (ordem persistida; CSS order).
+const SECTION_DEFS: { id: string; label: string }[] = [
+  { id: "floors", label: "Floors" },
+  { id: "tools", label: "Ferramentas" },
+  { id: "workspace", label: "Workspace" },
+  { id: "project", label: "Projeto" },
+  { id: "agents", label: "Novo agente" },
+  { id: "roles", label: "Roles" },
+  { id: "mcp", label: "MCP Agents" },
+  { id: "specs", label: "Specs" },
+];
+const SECTION_IDS = SECTION_DEFS.map((s) => s.id);
+
 interface AgentPreset {
   id: string;
   label: string;
@@ -259,10 +272,14 @@ export function Sidebar() {
   const [showGitRepos, setShowGitRepos] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
   const [showCompanion, setShowCompanion] = useState(false);
+  const [showSectionOrder, setShowSectionOrder] = useState(false);
   const [cow, setCow] = useState<CowInfo | null>(null);
 
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
   const tools = useReorderable("maestri-tools-order-v1", TOOL_IDS);
+  // Seções da sidebar reordenáveis (CSS order + popover de organização).
+  const secReorder = useReorderable("omnirift-sections-order-v1", SECTION_IDS);
+  const secStyle = (id: string) => ({ order: secReorder.order.indexOf(id) });
   const runTool: Record<string, () => void> = {
     companion: () => setShowCompanion(true),
     git: () => setShowGitRepos(true),
@@ -731,18 +748,50 @@ export function Sidebar() {
             </h1>
             <p className="text-[11px] text-textMuted mt-0.5">Canvas infinito · OmniForge</p>
           </div>
-          <button
-            onClick={toggleSidebar}
-            title="Esconder barra lateral"
-            className="p-1 rounded text-textMuted hover:text-text hover:bg-surface2 transition-colors shrink-0"
-          >
-            <PanelLeftClose size={15} />
-          </button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={() => setShowSectionOrder((v) => !v)}
+              title="Organizar as seções da barra (arraste)"
+              className={cn("p-1 rounded hover:bg-surface2 transition-colors", showSectionOrder ? "text-brand" : "text-textMuted hover:text-brand")}
+            >
+              <GripVertical size={15} />
+            </button>
+            <button
+              onClick={toggleSidebar}
+              title="Esconder barra lateral"
+              className="p-1 rounded text-textMuted hover:text-text hover:bg-surface2 transition-colors"
+            >
+              <PanelLeftClose size={15} />
+            </button>
+          </div>
         </div>
       </header>
 
+      {showSectionOrder && (
+        <div className="px-2 py-2 border-b border-border bg-surface2/40">
+          <p className="px-1 text-[10px] uppercase tracking-wider text-textMuted mb-1">Organizar seções · arraste</p>
+          {secReorder.order.map((sid) => {
+            const def = SECTION_DEFS.find((s) => s.id === sid);
+            if (!def) return null;
+            return (
+              <div
+                key={sid}
+                {...secReorder.dnd(sid)}
+                className={cn(
+                  "flex items-center gap-1.5 px-1.5 py-1 rounded text-xs text-textMuted hover:bg-surface1 cursor-grab active:cursor-grabbing",
+                  secReorder.overId === sid && "border-t-2 border-brand",
+                )}
+              >
+                <GripVertical size={11} className="opacity-50 shrink-0" /> {def.label}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
       {/* Floors */}
-      <div className="px-2 py-2 border-b border-border">
+      <div className="px-2 py-2 border-b border-border" style={secStyle("floors")}>
         <div className="flex items-center justify-between px-2 mb-1">
           <div className="flex items-center gap-1.5">
             <p className="text-[11px] uppercase tracking-wider text-textMuted">Floors</p>
@@ -892,7 +941,7 @@ export function Sidebar() {
       </div>
 
       {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
-      <div className="px-2 py-2 border-b border-border">
+      <div className="px-2 py-2 border-b border-border" style={secStyle("tools")}>
         <div className="px-2 mb-1">{sectionTitle("tools", "Ferramentas")}</div>
         {isOpen("tools") && (
           <div className="space-y-0.5">
@@ -921,7 +970,7 @@ export function Sidebar() {
       </div>
 
       {/* Workspace */}
-      <div className="px-2 py-2 border-b border-border space-y-1">
+      <div className="px-2 py-2 border-b border-border space-y-1" style={secStyle("workspace")}>
         <p className="px-2 text-[11px] uppercase tracking-wider text-textMuted mb-1">
           Workspace
         </p>
@@ -961,7 +1010,7 @@ export function Sidebar() {
       </div>
 
       {/* Seletor de pasta do projeto */}
-      <div className="px-2 py-2 border-b border-border">
+      <div className="px-2 py-2 border-b border-border" style={secStyle("project")}>
         <p className="px-2 text-[11px] uppercase tracking-wider text-textMuted mb-1">
           Projeto
         </p>
@@ -1032,7 +1081,8 @@ export function Sidebar() {
       </div>
 
       <section
-        className={cn("px-2 py-3 space-y-1", isOpen("agents") ? "flex-1 overflow-y-auto" : "shrink-0")}
+        style={secStyle("agents")}
+        className="px-2 py-3 space-y-1 shrink-0"
       >
         <div className="px-2 mb-1 sticky -top-3 z-10 bg-surface1 pt-3 pb-1">{sectionTitle("agents", "Novo agente")}</div>
 
@@ -1086,7 +1136,7 @@ export function Sidebar() {
       </section>
 
       {/* Roles — personas de agente (--append-system-prompt) */}
-      <div className="px-2 py-2 border-t border-border">
+      <div className="px-2 py-2 border-t border-border" style={secStyle("roles")}>
         <div className="flex items-center justify-between px-2 mb-1.5">
           {sectionTitle("roles", "Roles")}
           <div className="flex items-center gap-0.5">
@@ -1165,7 +1215,7 @@ export function Sidebar() {
       </div>
 
       {/* MCP Agents */}
-      <div className="px-2 py-2 border-t border-border">
+      <div className="px-2 py-2 border-t border-border" style={secStyle("mcp")}>
         <div className="flex items-center justify-between px-2 mb-1.5">
           {sectionTitle("mcp", "MCP Agents")}
           <Tooltip label="Copia o comando /mcp add pra conectar o Orquestrador ao MCP do maestri" side="bottom">
@@ -1288,7 +1338,7 @@ export function Sidebar() {
       </div>
 
       {/* Specs — dispatch paralelo (Fase C) */}
-      <div className="px-2 py-2 border-t border-border">
+      <div className="px-2 py-2 border-t border-border" style={secStyle("specs")}>
         <div className="px-2 mb-1.5">{sectionTitle("specs", "Specs")}</div>
         {isOpen("specs") && (
           !currentCwd ? (
@@ -1335,6 +1385,7 @@ export function Sidebar() {
             ))}
           </div>
         ))}
+      </div>
       </div>
 
       <footer className="px-4 py-3 border-t border-border text-[10px] text-textMuted">
