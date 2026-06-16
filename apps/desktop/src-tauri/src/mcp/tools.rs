@@ -447,6 +447,21 @@ fn floor_suffix(floor: &Option<String>) -> String {
 }
 
 /// Despacha as tools `terminal_*`. Devolve o texto do envelope MCP.
+/// Devolve Some(erro) se já bateu o teto de agentes simultâneos.
+fn over_agent_cap(state: &McpState) -> Option<String> {
+    let active = state.agent_registry.list().len();
+    let cap = state.max_agents.load(std::sync::atomic::Ordering::Relaxed);
+    if active >= cap {
+        Some(format!(
+            "❌ Teto de {cap} agentes simultâneos atingido ({active} ativos). Rode em ONDAS: \
+             aguarde um agente encerrar (terminal_wait_status) antes do próximo, ou peça ao \
+             usuário pra aumentar o teto."
+        ))
+    } else {
+        None
+    }
+}
+
 pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> String {
     match tool {
         "terminal_list" => {
@@ -582,6 +597,9 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             if command.is_empty() || label.is_empty() {
                 return "❌ 'command' e 'label' são obrigatórios".into();
             }
+            if let Some(msg) = over_agent_cap(state) {
+                return msg;
+            }
             let role = arg_str(&args, "role");
             let cwd = args.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string());
             let position = args.get("position").cloned();
@@ -624,6 +642,9 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             let label = arg_str(&args, "label");
             if branch.is_empty() || command.is_empty() || label.is_empty() {
                 return "❌ 'branch', 'command' e 'label' são obrigatórios".into();
+            }
+            if let Some(msg) = over_agent_cap(state) {
+                return msg;
             }
             let role = arg_str(&args, "role");
             let task = arg_str(&args, "task");

@@ -37,6 +37,8 @@ pub struct McpState {
     pub(crate) floor_mirror: Arc<parking_lot::Mutex<Value>>,
     /// Provider de memória ativo (roteia as tools memory_*).
     pub(crate) memory_registry: Arc<crate::memory::MemoryRegistry>,
+    /// Teto de agentes simultâneos que o Orquestrador pode ter (default 5).
+    pub(crate) max_agents: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 pub fn mcp_router(
@@ -45,6 +47,7 @@ pub fn mcp_router(
     app: tauri::AppHandle,
     floor_mirror: Arc<parking_lot::Mutex<Value>>,
     memory_registry: Arc<crate::memory::MemoryRegistry>,
+    max_agents: Arc<std::sync::atomic::AtomicUsize>,
 ) -> Router {
     let state = Arc::new(McpState {
         pty_manager,
@@ -53,6 +56,7 @@ pub fn mcp_router(
         app,
         floor_mirror,
         memory_registry,
+        max_agents,
     });
     Router::new()
         .route("/sse", get(sse_handler))

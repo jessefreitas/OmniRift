@@ -50,7 +50,7 @@ import { nanoid } from "nanoid";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
-import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
+import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig, setMaxAgents } from "@/lib/mcp-client";
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
 import { specListFiles, specArchive, specUnarchive, isDeadSpec, type SpecFile } from "@/lib/spec-client";
 import { writeFile } from "@/lib/preview-client";
@@ -271,6 +271,14 @@ export function Sidebar() {
     try { return JSON.parse(localStorage.getItem("omnirift-spec-roots") ?? "[]"); } catch { return []; }
   });
   const [showDeadSpecs, setShowDeadSpecs] = useState(false);
+  const [maxAgents, setMaxAgentsState] = useState<number>(() => {
+    const n = Number(localStorage.getItem("omnirift-max-agents"));
+    return n >= 1 && n <= 16 ? n : 5;
+  });
+  useEffect(() => {
+    try { localStorage.setItem("omnirift-max-agents", String(maxAgents)); } catch { /* ignore */ }
+    setMaxAgents(maxAgents).catch(() => {});
+  }, [maxAgents]);
   const [docsStatus, setDocsStatus] = useState<AgentDocsStatus | null>(null);
   const [roles, setRoles] = useState<AgentRoleDef[]>(() => loadRoles());
   const [editingRole, setEditingRole] = useState<AgentRoleDef | null>(null);
@@ -1334,16 +1342,31 @@ export function Sidebar() {
 
       {/* MCP Agents */}
       <div className="px-2 py-2 border-t border-border" style={secStyle("mcp")}>
-        <div className="flex items-center justify-between px-2 mb-1.5">
+        <div className="flex items-center justify-between px-2 mb-1.5 gap-2">
           {sectionTitle("mcp", "MCP Agents")}
-          <Tooltip label="Copia o comando /mcp add pra conectar o Orquestrador ao MCP do maestri" side="bottom">
-            <button
-              onClick={copyMcpCmd}
-              className="text-[10px] text-textMuted hover:text-brand transition-colors px-1.5 py-0.5 rounded hover:bg-surface2"
-            >
-              {copiedCmd ? "✓ copiado" : "copiar cmd"}
-            </button>
-          </Tooltip>
+          <div className="flex items-center gap-2 shrink-0">
+            <Tooltip label="Teto de agentes simultâneos do Orquestrador (ele pergunta antes de abrir; o resto roda em ondas)" side="bottom">
+              <label className="flex items-center gap-1 text-[10px] text-textMuted">
+                máx
+                <input
+                  type="number"
+                  min={1}
+                  max={16}
+                  value={maxAgents}
+                  onChange={(e) => setMaxAgentsState(Math.max(1, Math.min(16, Number(e.target.value) || 5)))}
+                  className="w-9 px-1 py-0.5 rounded text-[10px] bg-bg border border-border text-text text-center focus:outline-none focus:border-brand"
+                />
+              </label>
+            </Tooltip>
+            <Tooltip label="Copia o comando /mcp add pra conectar o Orquestrador ao MCP" side="bottom">
+              <button
+                onClick={copyMcpCmd}
+                className="text-[10px] text-textMuted hover:text-brand transition-colors px-1.5 py-0.5 rounded hover:bg-surface2"
+              >
+                {copiedCmd ? "✓ copiado" : "copiar cmd"}
+              </button>
+            </Tooltip>
+          </div>
         </div>
 
         {/* Lista de terminais que podem ser agentes */}

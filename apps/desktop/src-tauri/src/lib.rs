@@ -29,8 +29,8 @@ use commands::git::{
     floor_run_hook, git_repo_info,
 };
 use commands::mcp::{
-    agent_mcp_config, floor_mirror_set, mcp_list_agents, mcp_register_agent, mcp_server_url,
-    mcp_unregister_agent,
+    agent_mcp_config, floor_mirror_set, get_max_agents, mcp_list_agents, mcp_register_agent,
+    mcp_server_url, mcp_unregister_agent, set_max_agents,
 };
 use commands::memory::{
     memory_active, memory_connect, memory_providers_list, memory_set_active, memory_test,
@@ -98,9 +98,13 @@ pub fn run() {
             let memory_registry = Arc::new(crate::memory::MemoryRegistry::new(Arc::new(reg_db)));
             app.manage(Arc::clone(&memory_registry));
 
+            // Teto de agentes simultâneos do Orquestrador (default 5; ajustável).
+            let max_agents = Arc::new(std::sync::atomic::AtomicUsize::new(5));
+            app.manage(Arc::clone(&max_agents));
+
             // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente.
             tauri::async_runtime::spawn(async move {
-                let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry);
+                let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry, max_agents);
                 match tokio::net::TcpListener::bind("127.0.0.1:7844").await {
                     Ok(listener) => {
                         log::info!("OmniRift MCP server: http://127.0.0.1:7844");
@@ -135,6 +139,8 @@ pub fn run() {
             mcp_unregister_agent,
             mcp_list_agents,
             mcp_server_url,
+            set_max_agents,
+            get_max_agents,
             floor_mirror_set,
             db_save_workspace,
             db_load_workspace,

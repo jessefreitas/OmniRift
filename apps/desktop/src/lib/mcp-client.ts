@@ -31,6 +31,14 @@ export async function mcpServerUrl(): Promise<string> {
   return invoke<string>("mcp_server_url");
 }
 
+/** Teto de agentes simultâneos que o Orquestrador pode abrir (clamp 1–16 no backend). */
+export async function setMaxAgents(n: number): Promise<void> {
+  return invoke("set_max_agents", { n });
+}
+export async function getMaxAgents(): Promise<number> {
+  return invoke<number>("get_max_agents");
+}
+
 /**
  * Caminho do mcp-config dos agentes claude com o perfil universal de dev:
  * Serena (estrutura de código por linguagem) + Context7 (docs ao vivo).

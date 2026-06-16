@@ -174,3 +174,15 @@ pub fn agent_mcp_config(
     std::fs::write(&path, serde_json::to_string_pretty(&cfg).ok()?).ok()?;
     Some(path.to_string_lossy().to_string())
 }
+
+/// Define o teto de agentes simultâneos do Orquestrador (clamp 1–16).
+#[tauri::command]
+pub fn set_max_agents(n: usize, max_agents: State<'_, std::sync::Arc<std::sync::atomic::AtomicUsize>>) {
+    max_agents.store(n.clamp(1, 16), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Teto atual de agentes simultâneos.
+#[tauri::command]
+pub fn get_max_agents(max_agents: State<'_, std::sync::Arc<std::sync::atomic::AtomicUsize>>) -> usize {
+    max_agents.load(std::sync::atomic::Ordering::Relaxed)
+}

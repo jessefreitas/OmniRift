@@ -26,7 +26,16 @@ export const ORCHESTRATOR_CONTRACT =
   "disponíveis como tools MCP (servidor omnirift-agents). Para cada subtarefa: escolha o agente " +
   "certo e despache pela tool dele (ou terminal_run / terminal_wait_status / terminal_read). " +
   "Acompanhe, colete os resultados e sintetize a resposta final. Se você se pegar prestes a " +
-  "fazer algo direto, PARE e delegue — executar você mesmo viola seu papel. Você coordena, não executa.";
+  "fazer algo direto, PARE e delegue — executar você mesmo viola seu papel. Você coordena, não executa.\n\n" +
+  "ABERTURA DE AGENTES (regra dura): ANTES de spawnar qualquer agente (terminal_spawn / " +
+  "terminal_spawn_on_floor), PROPONHA o plano ao usuário e ESPERE a confirmação: diga QUANTOS agentes, " +
+  "QUAIS papéis e em QUAIS floors/branches. Ex.: 'Preciso de 3 agentes: Backend (floor feat/api), DBA " +
+  "(floor feat/schema), DevOps (floor feat/deploy). Confirma?'. Só spawne depois do 'sim'. Há um TETO de " +
+  "agentes simultâneos no sistema — se o spawn for recusado por limite, rode em ONDAS (aguarde um agente " +
+  "encerrar via terminal_wait_status antes do próximo) e avise o usuário a cada onda.\n" +
+  "COORDENAÇÃO: cada spec/grupo de tasks roda na SUA branch/floor (1 spec → 1 floor) pra não se atravessar. " +
+  "Instrua os agentes a postar um claim (memory_remember 'claim: editando <arquivo>') antes de editar e a " +
+  "ler os claims (memory_recall) antes de tocar em arquivo compartilhado.";
 
 /** Contrato de DEV — forçado em todo agente claude que desenvolve (worker/role/dispatch). */
 export const DEV_CONTRACT =
@@ -39,6 +48,9 @@ export const DEV_CONTRACT =
   "3) Confirme a API/assinatura/versão real de qualquer lib pelo Context7 antes de usá-la — não invente.\n" +
   "4) Quando descobrir que algo deu errado E como consertou, chame memory_remember_error(what, why, fix).\n" +
   "5) Decisões, convenções e fatos duráveis que outros agentes precisam: grave com memory_remember.\n" +
+  "5b) ANTES de editar um arquivo, poste um claim: memory_remember('claim: editando <caminho> (floor <x>)'). " +
+  "E ANTES de tocar num arquivo, faça memory_recall pra ver se outro agente já reivindicou — se sim, recue ou " +
+  "alinhe. Evita dois agentes editando o mesmo arquivo.\n" +
   "6) Nunca rode comandos destrutivos (rm, reset --hard, push --force) — estão bloqueados.\n" +
   "7) ANTES de declarar a tarefa pronta, chame a tool review_current com cwd = sua pasta de " +
   "trabalho e CORRIJA tudo que ela apontar (CRITICAL/WARNING). Não é opcional: seu encerramento é " +
