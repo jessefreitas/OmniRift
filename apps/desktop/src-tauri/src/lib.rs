@@ -11,8 +11,11 @@ use commands::dbnode::db_query;
 use commands::explain::whatis_lookup;
 use commands::fs::{list_dir, read_file};
 use commands::gitremote::{git_clone, git_list_repos};
+use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
-use commands::llm::llm_chat;
+use commands::llm::{llm_chat, llm_list_models};
+use commands::review_cfg::{agent_settings_config, review_config_path, review_config_write};
+use commands::serena::serena_ensure_project;
 use commands::git::{
     floor_git_create, floor_git_diff, floor_git_land, floor_git_remove, floor_git_status,
     floor_run_hook, git_repo_info,
@@ -31,9 +34,10 @@ use commands::pty::{
 use commands::spec::spec_list_files;
 use commands::workspace::{workspace_load, workspace_save};
 use db::{
-    db_load_workspace, db_save_workspace, memory_add, memory_delete, memory_query, session_end,
-    session_event, session_events_list, session_start, sessions_list, snapshot_create,
-    snapshot_delete, snapshot_get, snapshots_list,
+    db_load_workspace, db_save_workspace, memory_add, memory_delete, memory_query, reminder_add,
+    reminder_delete, reminder_set_done, reminders_list, session_end, session_event,
+    session_events_list, session_start, sessions_list, snapshot_create, snapshot_delete,
+    snapshot_get, snapshot_prune_auto, snapshots_list,
 };
 use mcp::{mcp_router, AgentRegistry};
 use pty::PtyManager;
@@ -135,9 +139,14 @@ pub fn run() {
             memory_delete,
             memory_add,
             snapshot_create,
+            snapshot_prune_auto,
             snapshots_list,
             snapshot_get,
             snapshot_delete,
+            reminder_add,
+            reminders_list,
+            reminder_set_done,
+            reminder_delete,
             agent_mcp_config,
             git_repo_info,
             floor_git_create,
@@ -154,10 +163,17 @@ pub fn run() {
             read_file,
             git_list_repos,
             git_clone,
+            github_device_start,
+            github_device_poll,
             http_request,
             db_query,
             whatis_lookup,
             llm_chat,
+            llm_list_models,
+            review_config_write,
+            review_config_path,
+            agent_settings_config,
+            serena_ensure_project,
             memory_providers_list,
             memory_connect,
             memory_test,
