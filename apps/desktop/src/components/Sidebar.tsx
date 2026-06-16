@@ -646,12 +646,33 @@ export function Sidebar() {
         setTimeout(() => invoke("pty_write", { sessionId: node.session_id, data: "\r" }).catch(console.warn), 200);
       }, delay);
     };
+    // Injeta `text` QUANDO o terminal fica pronto (idle, depois do boot/seleção de
+    // modelo) — robusto a tempo de boot variável; não injeta durante prompts.
+    const injectWhenReady = (sid: string, text: string) => {
+      if (!text.trim()) return;
+      let ready = false, done = false;
+      const finish = () => {
+        if (done) return;
+        done = true; unsub(); clearTimeout(graceT); clearTimeout(killT);
+        sendLine(text, 150);
+      };
+      const unsub = useCanvasStore.subscribe((s) => {
+        const st = s.terminalStatuses[sid];
+        if (ready && (st === "idle" || st === "done")) finish();
+      });
+      const graceT = setTimeout(() => {
+        ready = true;
+        const st = useCanvasStore.getState().terminalStatuses[sid];
+        if (st === "idle" || st === "done") finish();
+      }, 1500);
+      const killT = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
+    };
     if (cli.role === "shell") {
-      // Roda o comando de início; se ele abrir um CLI de IA, injeta a persona após o
-      // boot. Persona sozinha (sem comando) NÃO entra — viraria comando no shell.
+      // Roda o comando de início; se ele abre um CLI de IA, injeta a persona QUANDO
+      // o CLI fica pronto (não em tempo fixo). Persona sem comando NÃO entra.
       const startup = r.startupCmd ?? "";
       sendLine(startup, 400);
-      if (startup.trim()) sendLine(r.prompt, 3500);
+      if (startup.trim() && r.prompt.trim()) injectWhenReady(node.session_id, r.prompt);
     } else {
       // CLIs LLM sem flag (opencode/antigravity): persona como 1ª mensagem.
       sendLine(r.prompt, 1800);
