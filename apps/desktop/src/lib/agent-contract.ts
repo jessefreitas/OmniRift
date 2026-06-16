@@ -40,19 +40,29 @@ export const DEV_CONTRACT =
   "4) Quando descobrir que algo deu errado E como consertou, chame memory_remember_error(what, why, fix).\n" +
   "5) Decisões, convenções e fatos duráveis que outros agentes precisam: grave com memory_remember.\n" +
   "6) Nunca rode comandos destrutivos (rm, reset --hard, push --force) — estão bloqueados.\n" +
-  "As tools memory_*, do Serena e do Context7 estão disponíveis via MCP. Use-as ATIVAMENTE.";
+  "7) ANTES de declarar a tarefa pronta, chame a tool review_current com cwd = sua pasta de " +
+  "trabalho e CORRIJA tudo que ela apontar (CRITICAL/WARNING). Não é opcional: seu encerramento é " +
+  "GATEADO por um Stop hook que roda o MESMO review e te BLOQUEIA de finalizar enquanto reprovar " +
+  "(NO-GO). Logo, revise e conserte ANTES de tentar parar — senão você será forçado a continuar.\n" +
+  "As tools memory_*, review_current, do Serena e do Context7 estão disponíveis via MCP. Use-as ATIVAMENTE.";
 
 /**
  * Args de um agente claude WORKER (desenvolvimento): contrato DEV + auto-aprovação
- * com destrutivo bloqueado + perfil MCP. `extraSystemPrompt` (ex.: prompt de role)
- * é concatenado DEPOIS do contrato.
+ * com destrutivo bloqueado + perfil MCP + Stop hook de code review. `extraSystemPrompt`
+ * (ex.: prompt de role) é concatenado DEPOIS do contrato. `settingsPath` injeta o
+ * `--settings` com o Stop hook que FORÇA o review antes do agente encerrar.
  */
-export function workerClaudeArgs(mcpConfigPath?: string | null, extraSystemPrompt?: string): string[] {
+export function workerClaudeArgs(
+  mcpConfigPath?: string | null,
+  extraSystemPrompt?: string,
+  settingsPath?: string | null,
+): string[] {
   const system = extraSystemPrompt ? `${DEV_CONTRACT}\n\n${extraSystemPrompt}` : DEV_CONTRACT;
   return [
     "--append-system-prompt", system,
     "--dangerously-skip-permissions",
     "--disallowed-tools", ...DENY_DESTRUCTIVE,
     ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath] : []),
+    ...(settingsPath ? ["--settings", settingsPath] : []),
   ];
 }

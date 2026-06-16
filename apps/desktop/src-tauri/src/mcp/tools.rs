@@ -720,6 +720,74 @@ pub async fn workspace_dispatch(state: &McpState, tool: &str, args: Value) -> St
     }
 }
 
+// ── review_current ─────────────────────────────────────────────────────────────
+
+/// Tool MCP que deixa o agente se AUTO-REVISAR (mesmo motor do Stop hook / gate).
+pub fn review_tool_def() -> Value {
+    json!({
+        "name": "review_current",
+        "description": "Roda o code review (mesmo motor do gate/Stop hook) sobre o diff do SEU worktree. \
+            Chame ANTES de declarar a tarefa pronta — se reprovar (NO-GO), corrija e rode de novo. \
+            Passe `cwd` = a pasta absoluta onde você está trabalhando (o worktree do floor).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "cwd": { "type": "string", "description": "Caminho absoluto do seu worktree (a pasta do floor)." },
+                "base": { "type": "string", "description": "Branch base pra comparar (opcional; detecta sozinho se omitir)." }
+            },
+            "required": ["cwd"]
+        }
+    })
+}
+
+/// Roda o `local-review.py` headless sobre o worktree do agente e devolve o veredito.
+pub async fn review_dispatch(state: &McpState, args: Value) -> String {
+    let cwd = args.get("cwd").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    if cwd.is_empty() {
+        return "Erro: passe `cwd` (a pasta absoluta do seu worktree) para review_current.".into();
+    }
+    let base = args.get("base").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let app = state.app.clone();
+    let script = match crate::commands::review_cfg::ensure_review_script(&app) {
+        Ok(p) => p,
+        Err(e) => return format!("Erro ao preparar o review: {e}"),
+    };
+    let cfg = match app.path().app_data_dir() {
+        Ok(d) => d.join("review-config.json"),
+        Err(e) => return format!("Erro: app_data_dir indisponível: {e}"),
+    };
+
+    let result = tokio::task::spawn_blocking(move || {
+        let mut cmd = std::process::Command::new("python3");
+        cmd.arg(&script).arg("--cwd").arg(&cwd).arg("--config").arg(&cfg);
+        if !base.is_empty() {
+            cmd.arg("--base").arg(&base);
+        }
+        cmd.output()
+    })
+    .await;
+
+    match result {
+        Ok(Ok(o)) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<Value>(stdout.trim()) {
+                Ok(v) => {
+                    let verdict = v.get("verdict").and_then(|x| x.as_str()).unwrap_or("?");
+                    let summary = v.get("summary").and_then(|x| x.as_str()).unwrap_or("");
+                    let mut s = format!("Code review: {verdict}\n{summary}");
+                    if let Some(e) = v.get("llmError").and_then(|x| x.as_str()) {
+                        s.push_str(&format!("\n(LLM indisponível: {e} — só o pré-flight rodou)"));
+                    }
+                    s
+                }
+                Err(_) => format!("review (saída crua):\n{}", stdout.trim()),
+            }
+        }
+        Ok(Err(e)) => format!("Erro ao rodar python3 local-review.py: {e}"),
+        Err(e) => format!("Erro de execução do review: {e}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

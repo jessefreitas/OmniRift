@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import { Plus, Sliders, Trash2, X } from "lucide-react";
 
 import { loadPolicy, savePolicy, type ReviewPolicy, type ReviewCategory } from "@/lib/review-policy";
+import { persistReviewConfig } from "@/lib/review-config-sync";
 
 interface Props {
   scope?: string;
@@ -30,6 +31,7 @@ export function ReviewPolicyModal({ scope, scopeLabel, onClose }: Props) {
 
   function save() {
     savePolicy(p, scope);
+    void persistReviewConfig(); // espelha pro backend (Stop hook / MCP review)
     onClose();
   }
 
