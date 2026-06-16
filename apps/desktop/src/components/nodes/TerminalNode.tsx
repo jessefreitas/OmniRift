@@ -37,6 +37,13 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const proc = useProcInfo(data.session_id, termStatus !== "dead");
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
   const isOrch = orchestratorSid === data.session_id;
+  // Orquestrador no floor ATIVO → terminal vive no próprio node; noutro floor → dock.
+  // Selector devolve boolean → só re-renderiza quando o estado realmente vira.
+  const orchOnActiveFloor = useCanvasStore((s) => {
+    if (s.orchestratorSid !== data.session_id) return true;
+    const f = s.floors.find((fl) => fl.nodes.some((n) => n.kind === "terminal" && n.session_id === s.orchestratorSid));
+    return !f || f.id === s.activeFloorId;
+  });
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data.label ?? data.command);
@@ -123,13 +130,13 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
     if (!host) return;
     let target: HTMLElement | null = null;
     if (isFullscreen) target = fullscreenSlotRef.current;
-    else if (isOrch) target = getOrchestratorMount();
+    else if (isOrch && !orchOnActiveFloor) target = getOrchestratorMount();
     if (!target) target = homeSlotRef.current;
     if (target && host.parentElement !== target) {
       target.appendChild(host);
       setTimeout(fit, 50);
     }
-  }, [isFullscreen, isOrch, fit, containerRef]);
+  }, [isFullscreen, isOrch, orchOnActiveFloor, fit, containerRef]);
 
   useEffect(() => { place(); }, [place]);
   useEffect(() => subscribeOrchestratorMount(place), [place]);
@@ -384,10 +391,11 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
               falha ao iniciar: {error}
             </div>
           )}
-          {/* Quando é o Orquestrador, o xterm vive no dock — aqui mostra um aviso. */}
-          {isOrch && !isFullscreen && (
+          {/* Orquestrador num OUTRO floor: o xterm está no dock — aqui mostra o aviso.
+              No floor dele, o terminal vive aqui no node (sem dock). */}
+          {isOrch && !isFullscreen && !orchOnActiveFloor && (
             <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-bg text-textMuted text-xs pointer-events-none">
-              <Crown size={13} className="text-yellow-500" /> rodando no dock do Orquestrador ↗
+              <Crown size={13} className="text-yellow-500" /> rodando no dock (você está em outro floor) ↗
             </div>
           )}
           {/* Feedback ao arrastar um arquivo da árvore por cima. */}
