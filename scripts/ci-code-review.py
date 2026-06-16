@@ -49,8 +49,17 @@ DANGER_PATTERNS = [
 
 def preflight(diff_text):
     findings = []
-    added = [ln[1:] for ln in diff_text.splitlines() if ln.startswith("+") and not ln.startswith("+++")]
-    blob = "\n".join(added)
+    # blob de secret/danger ignora os PRÓPRIOS arquivos de review (eles DEFINEM os
+    # padrões — senão o checker se auto-flaga ao ver suas próprias regras no diff).
+    self_files = ("scripts/ci-code-review.py", "scripts/local-review.py", ".forgejo/workflows/code-review-ai.yml")
+    scan, cur, skip = [], None, False
+    for ln in diff_text.splitlines():
+        if ln.startswith("+++ b/"):
+            cur = ln[6:]
+            skip = any(cur.endswith(s) for s in self_files)
+        elif ln.startswith("+") and not ln.startswith("+++") and not skip:
+            scan.append(ln[1:])
+    blob = "\n".join(scan)
     for pat, desc in SECRET_PATTERNS:
         if re.search(pat, blob):
             findings.append({"severity": "CRITICAL", "category": "security", "file": "(diff)", "title": desc, "suggestion": "Remova o segredo; use variável de ambiente/cofre."})

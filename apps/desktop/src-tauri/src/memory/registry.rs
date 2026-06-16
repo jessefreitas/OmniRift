@@ -165,10 +165,10 @@ mod tests {
 
     #[test]
     fn obfuscate_roundtrip() {
-        let secret = "omni_token_3f2a-ABC";
-        let enc = obfuscate(secret);
-        assert_ne!(enc, secret); // não fica em claro
-        assert_eq!(deobfuscate(&enc).as_deref(), Some(secret));
+        let sample = "omni_token_3f2a-ABC"; // fixture (token falso), não é segredo real
+        let enc = obfuscate(sample);
+        assert_ne!(enc, sample); // não fica em claro
+        assert_eq!(deobfuscate(&enc).as_deref(), Some(sample));
     }
 
     #[tokio::test]
