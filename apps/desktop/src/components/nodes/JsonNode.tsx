@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { NodeComment } from "@/components/NodeComment";
+import { MindMap } from "@/components/MindMap";
 import { cn } from "@/lib/cn";
 import type { JsonNode as JsonNodeData } from "@/types/canvas";
 
@@ -221,7 +222,8 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
           <button
             onClick={() => setView("graph")}
             onPointerDown={(e) => e.stopPropagation()}
-            disabled={!parsed?.ok}
+            disabled={!text.trim()}
+            title="Mapa mental (JSON/XML/HTML) — maximize pra navegar"
             className={cn("flex items-center gap-1 px-2 py-1 text-[11px] disabled:opacity-40", view === "graph" ? "bg-brand text-bg" : "bg-bg text-textMuted hover:text-text")}
           >
             <Network size={11} /> Grafo
@@ -263,16 +265,26 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
           placeholder='{ "cole": "seu json aqui" }'
           className="nodrag flex-1 px-2 py-1.5 text-[11px] bg-bg text-text resize-none focus:outline-none font-mono placeholder:text-textMuted"
         />
+      ) : maximized && view === "graph" ? (
+        <div className="flex-1 min-h-0 relative bg-bg nodrag nowheel">
+          <MindMap text={text} />
+        </div>
       ) : (
         <div
           className={cn("flex-1 overflow-auto bg-bg nodrag nowheel px-1.5 py-1.5 text-[11px] font-mono", view === "graph" && "cursor-grab active:cursor-grabbing")}
           onPointerDown={(e) => e.stopPropagation()}
           onMouseDown={startPan}
         >
-          {!parsed?.ok ? (
+          {view === "graph" ? (
+            parsed?.ok ? (
+              <div className="inline-block min-w-full py-2"><GraphNode k={null} value={parsed.value} /></div>
+            ) : (
+              <div className="flex items-center justify-center h-full text-center text-textMuted opacity-60 text-[11px] px-6">
+                Maximize (⤡) pra ver o mapa mental — funciona com JSON, XML e HTML.
+              </div>
+            )
+          ) : !parsed?.ok ? (
             <p className="text-textMuted opacity-50">JSON inválido — corrija no modo Texto.</p>
-          ) : view === "graph" ? (
-            <div className="inline-block min-w-full py-2"><GraphNode k={null} value={parsed.value} /></div>
           ) : (
             <TreeNode k={null} value={parsed.value} depth={0} />
           )}
