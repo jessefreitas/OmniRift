@@ -9,6 +9,7 @@ pub mod spec;
 use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles};
 use commands::dbnode::db_query;
 use commands::editor::{detect_editors, open_in_editor};
+use commands::fsinfo::{fs_cow_info, reflink_clone};
 use commands::explain::whatis_lookup;
 use commands::fs::{list_dir, read_file};
 use commands::gitremote::{git_clone, git_list_repos};
@@ -170,6 +171,8 @@ pub fn run() {
             db_query,
             detect_editors,
             open_in_editor,
+            fs_cow_info,
+            reflink_clone,
             whatis_lookup,
             llm_chat,
             llm_list_models,

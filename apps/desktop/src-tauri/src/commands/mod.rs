@@ -2,6 +2,7 @@ pub mod agent_docs;
 pub mod dbnode;
 pub mod editor;
 pub mod explain;
+pub mod fsinfo;
 pub mod fs;
 pub mod git;
 pub mod github_auth;

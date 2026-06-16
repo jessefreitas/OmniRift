@@ -60,6 +60,7 @@ import { SnapshotsModal } from "@/components/SnapshotsModal";
 import { RoutinesModal } from "@/components/RoutinesModal";
 import { RemindersModal } from "@/components/RemindersModal";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
+import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { ReviewModal } from "@/components/ReviewModal";
 import { LlmConfigModal } from "@/components/LlmConfigModal";
@@ -255,6 +256,7 @@ export function Sidebar() {
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showGitRepos, setShowGitRepos] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
+  const [cow, setCow] = useState<CowInfo | null>(null);
 
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
   const tools = useReorderable("maestri-tools-order-v1", TOOL_IDS);
@@ -354,6 +356,12 @@ export function Sidebar() {
   useEffect(() => {
     if (!currentCwd) { setDocsStatus(null); return; }
     agentDocsStatus(currentCwd).then(setDocsStatus).catch(() => setDocsStatus(null));
+  }, [currentCwd]);
+
+  // CoW/git-native dos floors (badge informativo).
+  useEffect(() => {
+    if (!currentCwd) { setCow(null); return; }
+    fsCowInfo(currentCwd).then(setCow).catch(() => setCow(null));
   }, [currentCwd]);
 
   // Re-registra agentes automaticamente após restart (aguarda PTYs spawnarem)
@@ -733,6 +741,14 @@ export function Sidebar() {
         <div className="flex items-center justify-between px-2 mb-1">
           <div className="flex items-center gap-1.5">
             <p className="text-[11px] uppercase tracking-wider text-textMuted">Floors</p>
+            <Tooltip
+              label={`Floors = branches git (worktree): objetos compartilhados (~zero disco), git-native, cross-platform.${cow ? ` FS ${cow.fs}${cow.reflink ? " · CoW/instantâneo ⚡" : ""}` : ""}`}
+              side="bottom"
+            >
+              <span className="flex items-center gap-0.5 text-[9px] text-brand/70 bg-brand/10 px-1 rounded">
+                <GitBranch size={8} /> git-native{cow?.reflink ? " ⚡" : ""}
+              </span>
+            </Tooltip>
             {floors.filter(isReadyToLand).length > 0 && (
               <Tooltip
                 label={`${floors.filter(isReadyToLand).length} floor(s) com agente pronto pra Land`}
