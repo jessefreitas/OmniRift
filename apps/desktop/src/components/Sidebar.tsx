@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  Bookmark,
   Bot,
   ChevronDown,
   ChevronRight,
@@ -17,6 +18,7 @@ import {
   GitCompare,
   GitFork,
   GitMerge,
+  GripVertical,
   History,
   Link2,
   Orbit,
@@ -43,7 +45,7 @@ import { nanoid } from "nanoid";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
-import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig } from "@/lib/mcp-client";
+import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
 import { specListFiles, type SpecFile } from "@/lib/spec-client";
 import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } from "@/lib/agent-docs-client";
@@ -56,6 +58,7 @@ import { MemoryModal } from "@/components/MemoryModal";
 import { HooksModal } from "@/components/HooksModal";
 import { SnapshotsModal } from "@/components/SnapshotsModal";
 import { RoutinesModal } from "@/components/RoutinesModal";
+import { RemindersModal } from "@/components/RemindersModal";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { ReviewModal } from "@/components/ReviewModal";
 import { LlmConfigModal } from "@/components/LlmConfigModal";
@@ -69,7 +72,24 @@ import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
 import { cn } from "@/lib/cn";
+import { useReorderable } from "@/hooks/useReorderable";
 import type { AgentRole } from "@/types/pty";
+
+// Ferramentas da sidebar (ids = os mesmos do handler "maestri:open-tool" + Command
+// palette). Ordem reordenável por drag-and-drop; ações no map runTool() abaixo.
+const TOOL_DEFS: { id: string; icon: typeof Bot; label: string }[] = [
+  { id: "git", icon: GitFork, label: "Repositórios Git" },
+  { id: "connections", icon: Plug, label: "Conexões de memória" },
+  { id: "llm", icon: Cpu, label: "LLM do review (BYOK)" },
+  { id: "policy", icon: SlidersHorizontal, label: "Política de review" },
+  { id: "reminders", icon: Bookmark, label: "Lembretes" },
+  { id: "memory", icon: Brain, label: "Memória dos agentes" },
+  { id: "history", icon: History, label: "Histórico de sessões" },
+  { id: "routines", icon: Repeat, label: "Routines" },
+  { id: "snapshots", icon: Archive, label: "Snapshots do canvas" },
+  { id: "hooks", icon: Webhook, label: "Hooks do floor" },
+];
+const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
 
 interface AgentPreset {
   id: string;
@@ -217,6 +237,7 @@ export function Sidebar() {
   const setOrchestratorSid = useCanvasStore((s) => s.setOrchestratorSid);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
+  const [settingsConfigPath, setSettingsConfigPath] = useState<string | null>(null);
   const [specs, setSpecs] = useState<SpecFile[]>([]);
   const [docsStatus, setDocsStatus] = useState<AgentDocsStatus | null>(null);
   const [roles, setRoles] = useState<AgentRoleDef[]>(() => loadRoles());
@@ -232,6 +253,22 @@ export function Sidebar() {
   const [showLlmConfig, setShowLlmConfig] = useState(false);
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showGitRepos, setShowGitRepos] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
+
+  // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
+  const tools = useReorderable("maestri-tools-order-v1", TOOL_IDS);
+  const runTool: Record<string, () => void> = {
+    git: () => setShowGitRepos(true),
+    connections: () => setShowConnections(true),
+    llm: () => setShowLlmConfig(true),
+    policy: () => setPolicyEditor({ label: "global" }),
+    reminders: () => setShowReminders(true),
+    memory: () => setShowMemory(true),
+    history: () => setShowHistory(true),
+    routines: () => setShowRoutines(true),
+    snapshots: () => setShowSnapshots(true),
+    hooks: () => setShowHooks(true),
+  };
 
   // Abre os modais de ferramenta via Command palette (CustomEvent "maestri:open-tool").
   useEffect(() => {
@@ -246,6 +283,7 @@ export function Sidebar() {
         case "llm": setShowLlmConfig(true); break;
         case "policy": setPolicyEditor({ label: "global" }); break;
         case "git": setShowGitRepos(true); break;
+        case "reminders": setShowReminders(true); break;
       }
     };
     window.addEventListener("maestri:open-tool", h);
@@ -302,6 +340,7 @@ export function Sidebar() {
   // docs ao vivo) uma vez — injetado via --mcp-config nos agentes claude.
   useEffect(() => {
     agentMcpConfig().then(setMcpConfigPath).catch(() => {});
+    agentSettingsConfig().then(setSettingsConfigPath).catch(() => {});
   }, []);
 
   // Lista specs/plans do projeto ativo (pro dispatch paralelo).
@@ -417,8 +456,12 @@ export function Sidebar() {
   // agente nasce com estrutura de código por linguagem (Serena) + docs ao vivo
   // (Context7) apontados pra pasta do projeto.
   function argsWithMcp(preset: AgentPreset): string[] | undefined {
-    if (mcpConfigPath && preset.role === "claude-code") {
-      return [...(preset.args ?? []), "--mcp-config", mcpConfigPath];
+    if (preset.role === "claude-code") {
+      return [
+        ...(preset.args ?? []),
+        ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath] : []),
+        ...(settingsConfigPath ? ["--settings", settingsConfigPath] : []),
+      ];
     }
     return preset.args;
   }
@@ -546,7 +589,7 @@ export function Sidebar() {
       // Outros CLIs com flag de system-prompt: só a persona (não têm o perfil MCP).
       const args =
         cli.role === "claude-code"
-          ? workerClaudeArgs(mcpConfigPath, r.prompt)
+          ? workerClaudeArgs(mcpConfigPath, r.prompt, settingsConfigPath)
           : [cli.systemPromptFlag, r.prompt];
       addTerminal({ command: cli.command, args, role: cli.role, label: r.name });
       return;
@@ -831,25 +874,26 @@ export function Sidebar() {
         <div className="px-2 mb-1">{sectionTitle("tools", "Ferramentas")}</div>
         {isOpen("tools") && (
           <div className="space-y-0.5">
-            {[
-              { icon: GitFork, label: "Repositórios Git", run: () => setShowGitRepos(true) },
-              { icon: Plug, label: "Conexões de memória", run: () => setShowConnections(true) },
-              { icon: Cpu, label: "LLM do review (BYOK)", run: () => setShowLlmConfig(true) },
-              { icon: SlidersHorizontal, label: "Política de review", run: () => setPolicyEditor({ label: "global" }) },
-              { icon: Brain, label: "Memória dos agentes", run: () => setShowMemory(true) },
-              { icon: History, label: "Histórico de sessões", run: () => setShowHistory(true) },
-              { icon: Repeat, label: "Routines", run: () => setShowRoutines(true) },
-              { icon: Archive, label: "Snapshots do canvas", run: () => setShowSnapshots(true) },
-              { icon: Webhook, label: "Hooks do floor", run: () => setShowHooks(true) },
-            ].map(({ icon: Icon, label, run }) => (
-              <button
-                key={label}
-                onClick={run}
-                className="w-full flex items-center gap-2 px-2 py-1 rounded text-xs text-textMuted hover:text-brand hover:bg-surface2 transition-colors"
-              >
-                <Icon size={13} className="shrink-0 opacity-80" /> {label}
-              </button>
-            ))}
+            {tools.order.map((id) => {
+              const def = TOOL_DEFS.find((t) => t.id === id);
+              if (!def) return null;
+              const Icon = def.icon;
+              return (
+                <button
+                  key={id}
+                  {...tools.dnd(id)}
+                  onClick={runTool[id]}
+                  className={cn(
+                    "group w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-textMuted",
+                    "hover:text-brand hover:bg-surface2 transition-colors cursor-grab active:cursor-grabbing",
+                    tools.overId === id && "border-t-2 border-brand",
+                  )}
+                >
+                  <GripVertical size={11} className="shrink-0 opacity-0 group-hover:opacity-40 -ml-1" />
+                  <Icon size={13} className="shrink-0 opacity-80" /> {def.label}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -1291,6 +1335,7 @@ export function Sidebar() {
       {showHooks && <HooksModal onClose={() => setShowHooks(false)} />}
       {showSnapshots && <SnapshotsModal onClose={() => setShowSnapshots(false)} />}
       {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} />}
+      {showReminders && <RemindersModal onClose={() => setShowReminders(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
       {reviewFloor && (
         <ReviewModal
