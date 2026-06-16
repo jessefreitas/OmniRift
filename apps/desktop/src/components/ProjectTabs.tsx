@@ -7,6 +7,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Plus, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { serenaEnsureProject } from "@/lib/serena-client";
 import { cn } from "@/lib/cn";
 import type { ProjectMeta } from "@/types/workspace";
 
@@ -26,6 +27,7 @@ export function ProjectTabs() {
     const sel = await open({ directory: true, multiple: false, title: "Abrir projeto (pasta)" });
     if (typeof sel === "string") {
       addProject({ name: sel.split(/[/\\]/).pop() || "Projeto", cwd: sel });
+      void serenaEnsureProject(sel); // Serena poliglota automático
     } else {
       addProject({}); // projeto vazio (sem pasta) se cancelar
     }

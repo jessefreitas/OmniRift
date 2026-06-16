@@ -12,6 +12,7 @@ import {
   gitListRepos, gitClone, loadGitProviders, saveGitProvider, loadCloneDir, saveCloneDir,
   GIT_PRESETS, type GitProviderConfig, type GitProviderKind, type RemoteRepo,
 } from "@/lib/git-providers";
+import { serenaEnsureProject } from "@/lib/serena-client";
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
 
@@ -72,6 +73,7 @@ export function GitReposModal({ onClose }: Props) {
     try {
       const path = await gitClone(repo.cloneUrl, dest, token.trim() || undefined);
       addProject({ name: repo.name, cwd: path }); // abre como projeto (canvas isolado)
+      void serenaEnsureProject(path); // Serena poliglota automático
       onClose();
     } catch (e) {
       setError(String(e));
