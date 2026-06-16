@@ -33,6 +33,7 @@ import {
   ScanLine,
   ScanSearch,
   SlidersHorizontal,
+  BookOpen,
   Sparkles,
   TerminalSquare,
   Upload,
@@ -63,6 +64,7 @@ import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { CompanionModal } from "@/components/CompanionModal";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
+import { HelpModal } from "@/components/HelpModal";
 import { ReviewModal } from "@/components/ReviewModal";
 import { LlmConfigModal } from "@/components/LlmConfigModal";
 import { GitReposModal } from "@/components/GitReposModal";
@@ -92,6 +94,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos floors" },
   { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
   { id: "hooks", icon: Webhook, label: "Hooks do floor", desc: "Comandos disparados em eventos do floor (pre/post)" },
+  { id: "help", icon: BookOpen, label: "Ajuda / Manual", desc: "Manual do OmniRift — como usar tudo (tópicos + busca)" },
 ];
 const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
 
@@ -265,6 +268,7 @@ export function Sidebar() {
   const [showHooks, setShowHooks] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showRoutines, setShowRoutines] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [showConnections, setShowConnections] = useState(false);
   const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
@@ -290,6 +294,7 @@ export function Sidebar() {
     memory: () => setShowMemory(true),
     history: () => setShowHistory(true),
     routines: () => setShowRoutines(true),
+    help: () => setShowHelp(true),
     snapshots: () => setShowSnapshots(true),
     hooks: () => setShowHooks(true),
   };
@@ -299,6 +304,7 @@ export function Sidebar() {
     const h = (e: Event) => {
       switch ((e as CustomEvent<string>).detail) {
         case "routines": setShowRoutines(true); break;
+        case "help": setShowHelp(true); break;
         case "snapshots": setShowSnapshots(true); break;
         case "hooks": setShowHooks(true); break;
         case "memory": setShowMemory(true); break;
@@ -1418,6 +1424,7 @@ export function Sidebar() {
       {showReminders && <RemindersModal onClose={() => setShowReminders(false)} />}
       {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {reviewFloor && (
         <ReviewModal
           floor={reviewFloor}
