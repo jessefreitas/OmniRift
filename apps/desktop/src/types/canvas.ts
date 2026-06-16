@@ -26,6 +26,8 @@ export interface BaseCanvasNode {
   size: { width: number; height: number };
   /** Id do GroupNode pai — quando setado, `position` é relativa ao pai (move junto). */
   parentId?: string;
+  /** Comentário/anotação livre do usuário sobre este nó. */
+  comment?: string;
 }
 
 export interface TerminalNode extends BaseCanvasNode {
@@ -157,6 +159,7 @@ export interface CanvasNodePatch {
   input?: string;
   text?: string;
   path?: string;
+  comment?: string;
 }
 
 /** Conexão entre nós. */

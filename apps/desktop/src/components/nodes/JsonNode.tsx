@@ -6,6 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeComment } from "@/components/NodeComment";
 import { cn } from "@/lib/cn";
 import type { JsonNode as JsonNodeData } from "@/types/canvas";
 
@@ -282,6 +283,7 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
       {parsed && !parsed.ok && view === "text" && (
         <p className="shrink-0 px-2 py-1 text-[10px] text-danger border-t border-border bg-bg break-words">{parsed.error}</p>
       )}
+      <NodeComment value={data.comment} onChange={(v) => patchNode(id, { comment: v })} />
     </>
   );
 

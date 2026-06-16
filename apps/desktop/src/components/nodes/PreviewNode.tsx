@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { FileText, FolderOpen, RefreshCw, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeComment } from "@/components/NodeComment";
 import { readFile, renderMarkdown, isMarkdown, isHtml } from "@/lib/preview-client";
 import type { PreviewNode as PreviewNodeData } from "@/types/canvas";
 
@@ -85,6 +86,7 @@ export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
           <pre className="px-3 py-2 text-[11px] text-text whitespace-pre-wrap break-words font-mono">{content}</pre>
         )}
       </div>
+      <NodeComment value={data.comment} onChange={(v) => patchNode(id, { comment: v })} />
     </div>
   );
 }
