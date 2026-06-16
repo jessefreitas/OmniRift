@@ -19,6 +19,9 @@ use commands::http::http_request;
 use commands::license::{license_activate, license_status};
 use commands::llm::{llm_chat, llm_list_models};
 use commands::review_cfg::{agent_settings_config, review_config_path, review_config_write};
+use commands::mcp_servers::{
+    mcp_server_remove, mcp_server_set_enabled, mcp_server_upsert, mcp_servers_list,
+};
 use commands::scheduler::{scheduler_install, scheduler_list, scheduler_uninstall};
 use commands::serena::serena_ensure_project;
 use commands::git::{
@@ -189,6 +192,10 @@ pub fn run() {
             scheduler_list,
             license_status,
             license_activate,
+            mcp_servers_list,
+            mcp_server_upsert,
+            mcp_server_remove,
+            mcp_server_set_enabled,
             memory_providers_list,
             memory_connect,
             memory_test,

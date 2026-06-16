@@ -34,6 +34,7 @@ import {
   ScanSearch,
   SlidersHorizontal,
   BookOpen,
+  Server,
   Sparkles,
   TerminalSquare,
   Upload,
@@ -65,6 +66,7 @@ import { CompanionModal } from "@/components/CompanionModal";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { HelpModal } from "@/components/HelpModal";
+import { McpServersModal } from "@/components/McpServersModal";
 import { ReviewModal } from "@/components/ReviewModal";
 import { LlmConfigModal } from "@/components/LlmConfigModal";
 import { GitReposModal } from "@/components/GitReposModal";
@@ -95,6 +97,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
   { id: "hooks", icon: Webhook, label: "Hooks do floor", desc: "Comandos disparados em eventos do floor (pre/post)" },
   { id: "help", icon: BookOpen, label: "Ajuda / Manual", desc: "Manual do OmniRift — como usar tudo (tópicos + busca)" },
+  { id: "mcpservers", icon: Server, label: "MCP Servers", desc: "Tools MCP dos agentes (Postgres, GitHub, …) — liga/desliga por servidor" },
 ];
 const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
 
@@ -269,6 +272,7 @@ export function Sidebar() {
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showRoutines, setShowRoutines] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showMcpServers, setShowMcpServers] = useState(false);
   const [showConnections, setShowConnections] = useState(false);
   const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
@@ -295,6 +299,7 @@ export function Sidebar() {
     history: () => setShowHistory(true),
     routines: () => setShowRoutines(true),
     help: () => setShowHelp(true),
+    mcpservers: () => setShowMcpServers(true),
     snapshots: () => setShowSnapshots(true),
     hooks: () => setShowHooks(true),
   };
@@ -305,6 +310,7 @@ export function Sidebar() {
       switch ((e as CustomEvent<string>).detail) {
         case "routines": setShowRoutines(true); break;
         case "help": setShowHelp(true); break;
+        case "mcpservers": setShowMcpServers(true); break;
         case "snapshots": setShowSnapshots(true); break;
         case "hooks": setShowHooks(true); break;
         case "memory": setShowMemory(true); break;
@@ -1425,6 +1431,7 @@ export function Sidebar() {
       {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
       {reviewFloor && (
         <ReviewModal
           floor={reviewFloor}

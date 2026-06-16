@@ -79,6 +79,13 @@ CREATE TABLE IF NOT EXISTS memory_connections (
     is_active   INTEGER NOT NULL DEFAULT 0,
     updated_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS mcp_servers (
+    name        TEXT PRIMARY KEY,
+    spec_enc    TEXT NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    updated_at  TEXT NOT NULL
+);
 ";
 
 /// Metadados de um snapshot do canvas (sem o doc, pra listagem leve).
@@ -141,6 +148,16 @@ pub struct ConnRow {
     #[serde(skip_serializing)]
     pub token_enc: Option<String>,
     pub is_active: bool,
+}
+
+/// Linha da tabela mcp_servers (MCP custom injetado nos agentes).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerRow {
+    pub name: String,
+    #[serde(skip_serializing)]
+    pub spec_enc: String,
+    pub enabled: bool,
 }
 
 /// Metadados de início de uma sessão de agente (PTY).
@@ -556,6 +573,50 @@ impl Db {
             Some(r) => Ok(Some(r.get(0)?)),
             None => Ok(None),
         }
+    }
+
+    // ── MCP servers custom (injetados nos agentes via agent_mcp_config) ──────
+    pub fn mcp_upsert(&self, name: &str, spec_enc: &str, enabled: bool) -> Result<()> {
+        self.0.lock().execute(
+            "INSERT INTO mcp_servers (name, spec_enc, enabled, updated_at)
+             VALUES (?1, ?2, ?3, datetime('now'))
+             ON CONFLICT(name) DO UPDATE SET
+               spec_enc = excluded.spec_enc,
+               enabled = excluded.enabled,
+               updated_at = excluded.updated_at",
+            rusqlite::params![name, spec_enc, enabled as i64],
+        )?;
+        Ok(())
+    }
+
+    pub fn mcp_list(&self) -> Result<Vec<McpServerRow>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare("SELECT name, spec_enc, enabled FROM mcp_servers ORDER BY name")?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(McpServerRow {
+                    name: r.get(0)?,
+                    spec_enc: r.get(1)?,
+                    enabled: r.get::<_, i64>(2)? != 0,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn mcp_remove(&self, name: &str) -> Result<()> {
+        self.0
+            .lock()
+            .execute("DELETE FROM mcp_servers WHERE name = ?1", rusqlite::params![name])?;
+        Ok(())
+    }
+
+    pub fn mcp_set_enabled(&self, name: &str, enabled: bool) -> Result<()> {
+        self.0.lock().execute(
+            "UPDATE mcp_servers SET enabled = ?2, updated_at = datetime('now') WHERE name = ?1",
+            rusqlite::params![name, enabled as i64],
+        )?;
+        Ok(())
     }
 
     #[cfg(test)]

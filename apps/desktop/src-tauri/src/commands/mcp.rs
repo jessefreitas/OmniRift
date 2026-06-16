@@ -1,3 +1,4 @@
+use crate::db::Db;
 use crate::mcp::{registry::to_tool_name, AgentRegistry};
 use tauri::State;
 
@@ -118,6 +119,7 @@ fn find_serena() -> Option<(String, Vec<String>)> {
 pub fn agent_mcp_config(
     app: tauri::AppHandle,
     memory_registry: tauri::State<'_, std::sync::Arc<crate::memory::MemoryRegistry>>,
+    db: State<'_, Db>,
 ) -> Option<String> {
     use tauri::Manager;
     let mut servers = serde_json::Map::new();
@@ -161,6 +163,9 @@ pub fn agent_mcp_config(
     for (name, spec) in memory_registry.active_provider().agent_wiring().mcp_servers {
         servers.insert(name, spec);
     }
+
+    // MCP servers custom habilitados pelo usuário (Postgres/GitHub/filesystem/…).
+    crate::commands::mcp_servers::merge_enabled_into(&db, &mut servers);
 
     let dir = app.path().app_data_dir().ok()?;
     std::fs::create_dir_all(&dir).ok()?;
