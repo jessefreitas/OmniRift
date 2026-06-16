@@ -60,6 +60,7 @@ import { SnapshotsModal } from "@/components/SnapshotsModal";
 import { RoutinesModal } from "@/components/RoutinesModal";
 import { RemindersModal } from "@/components/RemindersModal";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
+import { CompanionModal } from "@/components/CompanionModal";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { ReviewModal } from "@/components/ReviewModal";
@@ -80,6 +81,7 @@ import type { AgentRole } from "@/types/pty";
 // Ferramentas da sidebar (ids = os mesmos do handler "maestri:open-tool" + Command
 // palette). Ordem reordenável por drag-and-drop; ações no map runTool() abaixo.
 const TOOL_DEFS: { id: string; icon: typeof Bot; label: string }[] = [
+  { id: "companion", icon: Sparkles, label: "Companheiro (IA)" },
   { id: "git", icon: GitFork, label: "Repositórios Git" },
   { id: "connections", icon: Plug, label: "Conexões de memória" },
   { id: "llm", icon: Cpu, label: "LLM do review (BYOK)" },
@@ -256,11 +258,13 @@ export function Sidebar() {
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showGitRepos, setShowGitRepos] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
+  const [showCompanion, setShowCompanion] = useState(false);
   const [cow, setCow] = useState<CowInfo | null>(null);
 
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
   const tools = useReorderable("maestri-tools-order-v1", TOOL_IDS);
   const runTool: Record<string, () => void> = {
+    companion: () => setShowCompanion(true),
     git: () => setShowGitRepos(true),
     connections: () => setShowConnections(true),
     llm: () => setShowLlmConfig(true),
@@ -287,6 +291,7 @@ export function Sidebar() {
         case "policy": setPolicyEditor({ label: "global" }); break;
         case "git": setShowGitRepos(true); break;
         case "reminders": setShowReminders(true); break;
+        case "companion": setShowCompanion(true); break;
       }
     };
     window.addEventListener("maestri:open-tool", h);
@@ -1354,6 +1359,7 @@ export function Sidebar() {
       {showSnapshots && <SnapshotsModal onClose={() => setShowSnapshots(false)} />}
       {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} />}
       {showReminders && <RemindersModal onClose={() => setShowReminders(false)} />}
+      {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
       {reviewFloor && (
         <ReviewModal
