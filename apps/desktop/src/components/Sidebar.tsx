@@ -13,6 +13,7 @@ import {
   Folder,
   FolderOpen,
   GitBranch,
+  AlertTriangle,
   Archive,
   ArchiveRestore,
   FilePlus,
@@ -52,7 +53,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig, setMaxAgents } from "@/lib/mcp-client";
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
-import { specListFiles, specArchive, specUnarchive, isDeadSpec, type SpecFile } from "@/lib/spec-client";
+import { specListFiles, specArchive, specUnarchive, isDeadSpec, pathsOverlap, type SpecFile } from "@/lib/spec-client";
 import { writeFile } from "@/lib/preview-client";
 import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
@@ -434,6 +435,14 @@ export function Sidebar() {
 
   const activeSpecs = useMemo(() => specs.filter((s) => !isDeadSpec(s)), [specs]);
   const deadSpecs = useMemo(() => specs.filter(isDeadSpec), [specs]);
+  const overlapWarnings = useMemo(() => {
+    const set = new Set<string>();
+    const wp = activeSpecs.filter((s) => s.paths.length > 0);
+    for (let i = 0; i < wp.length; i++)
+      for (let j = i + 1; j < wp.length; j++)
+        if (pathsOverlap(wp[i].paths, wp[j].paths)) { set.add(wp[i].path); set.add(wp[j].path); }
+    return set;
+  }, [activeSpecs]);
   const renderSpecRow = (s: SpecFile) => {
     const dead = isDeadSpec(s);
     return (
@@ -443,6 +452,11 @@ export function Sidebar() {
         {s.tasks > 0
           ? <span className="text-[9px] text-textMuted opacity-60 shrink-0 tabular-nums" title={`${s.doneTasks} de ${s.tasks} tasks`}>{s.doneTasks}/{s.tasks}</span>
           : <span className="text-[8px] uppercase px-1 rounded shrink-0 bg-surface2 text-textMuted">{s.status}</span>}
+        {overlapWarnings.has(s.path) && (
+          <Tooltip label="Sobreposição: outra spec ativa toca os mesmos paths — serialize ou redesenhe o escopo" side="top" className="shrink-0">
+            <AlertTriangle size={11} className="text-yellow-400 shrink-0" />
+          </Tooltip>
+        )}
         <Tooltip label={s.status === "archived" ? "Desarquivar" : "Arquivar (move pra archive/)"} side="top" className="shrink-0">
           <button onClick={() => void toggleArchiveSpec(s)} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all">
             {s.status === "archived" ? <ArchiveRestore size={11} /> : <Archive size={11} />}

@@ -38,3 +38,18 @@ export async function specUnarchive(dir: string, path: string): Promise<string> 
 export function isDeadSpec(s: SpecFile): boolean {
   return s.status === "done" || s.status === "obsolete" || s.status === "superseded" || s.status === "archived";
 }
+
+/** Prefixo "concreto" de um glob (tira `/**`, `/*`). */
+function globPrefix(g: string): string {
+  return g.replace(/\/?\*+.*$/, "").replace(/\\/g, "/");
+}
+
+/** Dois conjuntos de paths se sobrepõem (um é prefixo do outro). */
+export function pathsOverlap(a: string[], b: string[]): boolean {
+  for (const pa of a.map(globPrefix)) {
+    for (const pb of b.map(globPrefix)) {
+      if (pa && pb && (pa.startsWith(pb) || pb.startsWith(pa))) return true;
+    }
+  }
+  return false;
+}
