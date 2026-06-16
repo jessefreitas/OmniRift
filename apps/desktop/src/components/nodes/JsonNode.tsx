@@ -266,7 +266,7 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
           className="nodrag flex-1 px-2 py-1.5 text-[11px] bg-bg text-text resize-none focus:outline-none font-mono placeholder:text-textMuted"
         />
       ) : maximized && view === "graph" ? (
-        <div className="flex-1 min-h-0 relative bg-bg nodrag nowheel">
+        <div className="flex-1 min-h-0 relative bg-bg">
           <MindMap text={text} />
         </div>
       ) : (
