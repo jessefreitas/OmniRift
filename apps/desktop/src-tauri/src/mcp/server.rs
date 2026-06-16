@@ -1,4 +1,4 @@
-/// MCP (Model Context Protocol) SSE server embutido no Maestri.
+/// MCP (Model Context Protocol) SSE server embutido no OmniRift.
 ///
 /// Protocolo: JSON-RPC 2.0 sobre HTTP+SSE (spec MCP 2024-11-05).
 ///   GET  /sse     → abre stream SSE, envia evento "endpoint" com a URL de post
@@ -127,7 +127,7 @@ async fn handle_jsonrpc(state: Arc<McpState>, req: Value) -> Value {
         "initialize" => json!({
             "protocolVersion": "2024-11-05",
             "capabilities": { "tools": {} },
-            "serverInfo": { "name": "maestri-agents", "version": "1.0.0" }
+            "serverInfo": { "name": "omnirift-agents", "version": "1.0.0" }
         }),
 
         "tools/list" => {
@@ -186,7 +186,7 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
         "list_agents" => {
             let agents = state.agent_registry.list();
             let text = if agents.is_empty() {
-                "Nenhum agente registrado. Marque terminais na sidebar do Maestri.".to_string()
+                "Nenhum agente registrado. Marque terminais na sidebar do OmniRift.".to_string()
             } else {
                 agents
                     .iter()

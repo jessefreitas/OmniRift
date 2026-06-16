@@ -9,7 +9,7 @@ pub trait MemoryProvider: Send + Sync {
     async fn search(&self, q: MemoryQuery) -> anyhow::Result<Vec<MemoryRecord>>;
     async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>>;
     async fn forget(&self, id: &str) -> anyhow::Result<bool>;
-    /// Default: sem injeção — agente usa as tools `memory_*` do MCP do Maestri.
+    /// Default: sem injeção — agente usa as tools `memory_*` do MCP do OmniRift.
     fn agent_wiring(&self) -> AgentWiring {
         AgentWiring::none()
     }

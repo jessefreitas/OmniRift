@@ -452,7 +452,7 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
         "terminal_list" => {
             let agents = state.agent_registry.list();
             if agents.is_empty() {
-                return "Nenhum terminal-agente. Marque terminais na sidebar do Maestri.".into();
+                return "Nenhum terminal-agente. Marque terminais na sidebar do OmniRift.".into();
             }
             agents
                 .iter()

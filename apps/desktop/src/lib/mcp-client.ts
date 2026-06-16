@@ -1,6 +1,6 @@
 // src/lib/mcp-client.ts
 //
-// Ponte frontend → MCP server Maestri.
+// Ponte frontend → MCP server OmniRift.
 // Registra/remove agentes e retorna a URL do servidor local.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -63,5 +63,5 @@ export async function floorMirrorSet(
  */
 export async function mcpAddCommand(): Promise<string> {
   const url = await mcpServerUrl();
-  return `/mcp add --transport sse maestri-agents ${url}`;
+  return `/mcp add --transport sse omnirift-agents ${url}`;
 }

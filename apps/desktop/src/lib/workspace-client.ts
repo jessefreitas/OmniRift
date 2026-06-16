@@ -5,8 +5,8 @@ import type { AnyWorkspaceFile, WorkspaceFileV3 } from "@/types/workspace";
 export async function saveWorkspace(ws: WorkspaceFileV3): Promise<string | null> {
   const path = await save({
     title: "Salvar workspace",
-    defaultPath: `${ws.name || "workspace"}.maestri.json`,
-    filters: [{ name: "Maestri Workspace", extensions: ["json"] }],
+    defaultPath: `${ws.name || "workspace"}.omnirift.json`,
+    filters: [{ name: "OmniRift Workspace", extensions: ["json"] }],
   });
   if (!path) return null;
   await invoke("workspace_save", { path, content: JSON.stringify(ws, null, 2) });
@@ -17,7 +17,7 @@ export async function loadWorkspaceFromDisk(): Promise<AnyWorkspaceFile | null> 
   const path = await open({
     title: "Abrir workspace",
     multiple: false,
-    filters: [{ name: "Maestri Workspace", extensions: ["json"] }],
+    filters: [{ name: "OmniRift Workspace", extensions: ["json"] }],
   });
   if (!path || typeof path !== "string") return null;
   const content = await invoke<string>("workspace_load", { path });

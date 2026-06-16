@@ -195,7 +195,7 @@ function detectShell(): string {
 }
 
 const MCP_SSE_URL = "http://127.0.0.1:7844/sse";
-const MCP_ADD_CMD = `/mcp add --transport sse maestri-agents ${MCP_SSE_URL}`;
+const MCP_ADD_CMD = `/mcp add --transport sse omnirift-agents ${MCP_SSE_URL}`;
 
 export function Sidebar() {
   const addTerminal = useCanvasStore((s) => s.addTerminal);
@@ -420,10 +420,10 @@ export function Sidebar() {
       const desc = newDescs[sid] ?? lbl;
       return `  • ${toolName} — ${desc}`;
     }).join("\n");
-    invoke("pty_write", { sessionId: orchSid, data: `\n[Maestri] Equipe disponível via MCP:\n${display}\n` }).catch(console.warn);
+    invoke("pty_write", { sessionId: orchSid, data: `\n[OmniRift] Equipe disponível via MCP:\n${display}\n` }).catch(console.warn);
 
     // Input real: texto primeiro, depois \r como chamada separada (evita chunk único ignorar Enter)
-    const inputText = `${ORCHESTRATOR_CONTRACT}\n\nSua equipe atual (tools maestri-agents): ${summary}. Delegue TODAS as próximas tarefas a esses agentes — não execute nada você mesmo.`;
+    const inputText = `${ORCHESTRATOR_CONTRACT}\n\nSua equipe atual (tools omnirift-agents): ${summary}. Delegue TODAS as próximas tarefas a esses agentes — não execute nada você mesmo.`;
     setTimeout(() => {
       invoke("pty_write", { sessionId: orchSid, data: inputText }).catch(console.warn);
       setTimeout(() => {
@@ -445,7 +445,7 @@ export function Sidebar() {
       setMcpAgents(next);
       mcpRegisterAgent(label, sessionId, description, floorNameOf(sessionId)).catch(console.warn);
       // Papel no terminal do agente: texto + \r separado
-      const roleText = `Você está agindo como ${label} no canvas Maestri. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.`;
+      const roleText = `Você está agindo como ${label} no canvas OmniRift. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.`;
       invoke("pty_write", { sessionId, data: roleText }).catch(console.warn);
       setTimeout(() => {
         invoke("pty_write", { sessionId, data: "\r" }).catch(console.warn);
@@ -727,7 +727,7 @@ export function Sidebar() {
           <div>
             <h1 className="text-sm font-medium flex items-center gap-2">
               <span className="inline-block w-2 h-2 rounded-full bg-brand" />
-              Omni Canvas
+              OmniRift
             </h1>
             <p className="text-[11px] text-textMuted mt-0.5">Canvas infinito · OmniForge</p>
           </div>

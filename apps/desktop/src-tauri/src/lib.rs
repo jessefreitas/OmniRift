@@ -98,7 +98,7 @@ pub fn run() {
                 let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry);
                 match tokio::net::TcpListener::bind("127.0.0.1:7844").await {
                     Ok(listener) => {
-                        log::info!("Maestri MCP server: http://127.0.0.1:7844");
+                        log::info!("OmniRift MCP server: http://127.0.0.1:7844");
                         let _ = axum::serve(listener, router).await;
                     }
                     Err(e) => {
@@ -189,5 +189,5 @@ pub fn run() {
             memory_active,
         ])
         .run(tauri::generate_context!())
-        .expect("erro fatal rodando Maestri Linux");
+        .expect("erro fatal rodando OmniRift");
 }

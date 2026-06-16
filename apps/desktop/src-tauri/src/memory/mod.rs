@@ -1,4 +1,4 @@
-//! Camada de memória plugável do Maestri.
+//! Camada de memória plugável do OmniRift.
 //!
 //! `MemoryProvider` é a interface estável; `LocalProvider` (blackboard SQLite,
 //! default zero-config) e `OmniMemoryProvider` (gateway remoto) são as

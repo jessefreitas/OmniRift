@@ -6,7 +6,7 @@ Usado por:
     declarar "pronto" enquanto o review reprovar (NO-GO).
   - a tool MCP review_current (modo padrão: imprime o veredito em JSON).
 
-Config: lê review-config.json (escrito pelo app Maestri) com a LLM BYOK ativa
+Config: lê review-config.json (escrito pelo app OmniRift) com a LLM BYOK ativa
 ({provider, baseUrl, apiKey, model}) + as policies por escopo. Sem dependências
 externas — só stdlib.
 """
@@ -218,7 +218,7 @@ def review(cwd, config_path, base):
 
 def default_config_path():
     return os.environ.get("MAESTRI_REVIEW_CONFIG") or os.path.expanduser(
-        "~/.local/share/com.omniforge.maestri-linux/review-config.json"
+        "~/.local/share/com.omniforge.omnirift/review-config.json"
     )
 
 

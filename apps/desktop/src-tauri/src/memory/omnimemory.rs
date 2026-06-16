@@ -2,7 +2,7 @@
 //!
 //! `agent_wiring()` é a peça-chave do Brain Connect: injeta o MCP do OmniMemory
 //! (URL + Bearer) nos agentes, que então usam as tools nativas direto. `health`/
-//! `search`/`save` servem a UI/roteamento do Maestri.
+//! `search`/`save` servem a UI/roteamento do OmniRift.
 //!
 //! Gerado via Ollama (devstral) + auditado/finalizado pelo Claude (timeout,
 //! Bearer condicional, normalização de base, corpo nos erros HTTP).

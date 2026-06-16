@@ -1,5 +1,5 @@
 {
-  "name": "@maestri/terminal-node",
+  "name": "@omnirift/terminal-node",
   "version": "0.1.0",
   "private": true,
   "type": "module",
