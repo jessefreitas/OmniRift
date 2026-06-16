@@ -150,7 +150,11 @@ impl MemoryRegistry {
                 Ok(cfg) => Arc::new(OmniMemoryProvider::new(cfg)),
                 _ => Arc::new(LocalProvider::new(self.db.clone())),
             },
-            _ => Arc::new(LocalProvider::new(self.db.clone())),
+            ProviderKind::Obsidian => match self.connection(ProviderKind::Obsidian) {
+                Ok(cfg) => Arc::new(ObsidianProvider::new(cfg)),
+                _ => Arc::new(LocalProvider::new(self.db.clone())),
+            },
+            ProviderKind::Local => Arc::new(LocalProvider::new(self.db.clone())),
         }
     }
 }

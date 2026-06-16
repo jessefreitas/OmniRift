@@ -29,6 +29,8 @@ export function ConnectionsModal({ onClose }: Props) {
   const [active, setActive] = useState<ProviderKind | null>(null);
   const [omniEndpoint, setOmniEndpoint] = useState("");
   const [omniToken, setOmniToken] = useState("");
+  const [obsEndpoint, setObsEndpoint] = useState("");
+  const [obsToken, setObsToken] = useState("");
   const [health, setHealth] = useState<Record<string, ProviderHealth>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +42,8 @@ export function ConnectionsModal({ onClose }: Props) {
       setActive(act);
       const omni = list.find((c) => c.kind === "omnimemory");
       if (omni?.endpoint) setOmniEndpoint(omni.endpoint);
+      const obs = list.find((c) => c.kind === "obsidian");
+      if (obs?.endpoint) setObsEndpoint(obs.endpoint);
     } catch (e) {
       setError(String(e));
     }
@@ -81,6 +85,21 @@ export function ConnectionsModal({ onClose }: Props) {
       const ep = omniEndpoint.trim();
       await providerConnect({ kind: "omnimemory", endpoint: ep, token: omniToken.trim() });
       setOmniToken("");
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function connectObsidian() {
+    setBusy("connect:obsidian");
+    setError(null);
+    try {
+      const ep = obsEndpoint.trim();
+      await providerConnect({ kind: "obsidian", endpoint: ep, token: obsToken.trim() });
+      setObsToken("");
       await load();
     } catch (e) {
       setError(String(e));
@@ -184,14 +203,44 @@ export function ConnectionsModal({ onClose }: Props) {
             </div>
           </div>
 
-          {/* Obsidian — Fase 1c */}
-          <div className="rounded-md border border-border bg-bg/40 p-3 opacity-60">
+          {/* Obsidian — vault via plugin "Local REST API" */}
+          <div className="rounded-md border border-border bg-bg/40 p-3">
             <div className="flex items-center gap-2 mb-1">
-              <FileText size={14} className="text-textMuted" />
+              <FileText size={14} className="text-brand" />
               <span className="text-sm text-text font-medium flex-1">Obsidian</span>
-              <span className="text-[10px] text-textMuted">em breve · Fase 1c</span>
+              {configured("obsidian") && <span className="text-[10px] text-green-400/70">configurado</span>}
+              <ActiveBadge kind="obsidian" />
             </div>
-            <p className="text-[11px] text-textMuted">Vault local (notas + <code>[[links]]</code>). Provider ainda não implementado — cai no Local.</p>
+            <p className="text-[11px] text-textMuted mb-2">
+              Vault local via plugin <b>Local REST API</b> (notas + <code>[[links]]</code>). Ative o plugin no Obsidian, copie a API key e use a URL HTTPS de <code>127.0.0.1</code>.
+            </p>
+            <div className="space-y-1.5">
+              <input
+                value={obsEndpoint}
+                onChange={(e) => setObsEndpoint(e.target.value)}
+                placeholder="https://127.0.0.1:27124"
+                className="w-full px-2 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand font-mono"
+              />
+              <input
+                value={obsToken}
+                onChange={(e) => setObsToken(e.target.value)}
+                type="password"
+                placeholder={configured("obsidian") ? "API key (re-digite p/ atualizar)" : "API key do Local REST API"}
+                className="w-full px-2 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand font-mono"
+              />
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                onClick={() => void connectObsidian()}
+                disabled={busy === "connect:obsidian" || !obsEndpoint.trim() || !obsToken.trim()}
+                className="px-2.5 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 transition-colors"
+              >
+                {busy === "connect:obsidian" ? "salvando…" : "Conectar"}
+              </button>
+              <button onClick={() => void test("obsidian")} disabled={!configured("obsidian")} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">Testar</button>
+              <button onClick={() => void activate("obsidian")} disabled={!configured("obsidian") || active === "obsidian"} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">Usar</button>
+              <HealthLine kind="obsidian" />
+            </div>
           </div>
         </div>
 
