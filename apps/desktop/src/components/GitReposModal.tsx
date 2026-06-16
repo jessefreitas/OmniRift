@@ -14,7 +14,6 @@ import {
 } from "@/lib/git-providers";
 import { serenaEnsureProject } from "@/lib/serena-client";
 import { useCanvasStore } from "@/store/canvas-store";
-import { cn } from "@/lib/cn";
 
 interface Props {
   onClose: () => void;

@@ -50,7 +50,7 @@ import { floorGitCreate, floorGitLand } from "@/lib/git-client";
 import { specListFiles, type SpecFile } from "@/lib/spec-client";
 import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
-import { DEV_CONTRACT, ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
+import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
 import { RoleEditModal } from "@/components/RoleEditModal";
 import { DiffViewerModal } from "@/components/DiffViewerModal";
 import { SessionHistoryModal } from "@/components/SessionHistoryModal";
