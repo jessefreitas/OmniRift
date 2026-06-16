@@ -4,6 +4,7 @@ import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Copy, Maximize2, Minimize2, Play, Wrench, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import { DEV_TOOLS, findTool } from "@/lib/dev-tools";
 import type { DevToolsNode as DevToolsNodeData } from "@/types/canvas";
 
@@ -43,6 +44,7 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <Wrench size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1">DevTools</span>
+        <NodeHelp text="Caixa de ferramentas: escolha o conversor (Base64, hash, JWT…) no seletor, cole a entrada e rode (▶). Copie o resultado no botão ⧉." />
         <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? "Restaurar" : "Maximizar"} className="hover:text-brand shrink-0">
           {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
         </button>

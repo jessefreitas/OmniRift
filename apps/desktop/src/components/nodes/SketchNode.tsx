@@ -5,6 +5,7 @@ import { Tldraw, getSnapshot, loadSnapshot, type Editor } from "tldraw";
 import { Download, Maximize2, Minimize2, Pencil, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import { TLDRAW_ASSET_URLS } from "@/lib/tldraw-assets";
 import type { SketchNode as SketchNodeData } from "@/types/canvas";
 
@@ -98,6 +99,7 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
           >
             <Download size={12} />
           </button>
+          <NodeHelp text="Sketch (tldraw): desenhe à mão livre. Tela cheia (⤢) dá área grande e ponteiro preciso; exportar (↓) salva um PNG. Arraste pelo título." />
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); setIsFullscreen(true); }}

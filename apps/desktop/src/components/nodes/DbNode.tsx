@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Database, FolderOpen, Maximize2, Minimize2, Play, RefreshCw, Table2, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import { dbQuery, type QueryResult } from "@/lib/db-query-client";
 import { cn } from "@/lib/cn";
 import type { DbNode as DbNodeData } from "@/types/canvas";
@@ -128,6 +129,7 @@ export function DbNode({ id, data, selected }: NodeProps<DbRfNode>) {
         <Database size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1">{dbPath ? baseName(dbPath) : "SQLite"}</span>
         <button onClick={(e) => { e.stopPropagation(); void loadTables(); }} title="Recarregar tabelas" className="hover:text-brand shrink-0"><RefreshCw size={11} /></button>
+        <NodeHelp text="Banco SQLite: Abra um arquivo .db, clique numa tabela na lateral pra ver as linhas, ou escreva SQL e rode com Ctrl+Enter (▶). ⟳ recarrega as tabelas." />
         <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? "Restaurar" : "Maximizar"} className="hover:text-brand shrink-0">{maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}</button>
         <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0"><X size={12} /></button>
       </header>

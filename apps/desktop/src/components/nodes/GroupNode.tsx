@@ -3,6 +3,7 @@ import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import type { GroupNode as GroupNodeData } from "@/types/canvas";
 
 type GroupRfNode = Node<GroupNodeData & Record<string, unknown>, "group">;
@@ -62,6 +63,11 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
             {label}
           </span>
         )}
+        <NodeHelp
+          side="bottom"
+          className="opacity-70 hover:opacity-100"
+          text="Grupo: arraste pelo título pra mover tudo junto. Solte outros nodes por cima pra agrupar. Duplo-clique no nome pra renomear; o círculo troca a cor; a alça do canto redimensiona."
+        />
         <button
           onClick={(e) => { e.stopPropagation(); patchNode(id, { color: nextColor }); }}
           title="Trocar cor"

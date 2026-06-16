@@ -4,6 +4,7 @@ import { Camera, Copy, ExternalLink, Globe, RotateCw, X } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import { normalizeUrl, browserShot } from "@/lib/portal-client";
 import type { PortalNode as PortalNodeData } from "@/types/canvas";
 
@@ -59,6 +60,7 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
           placeholder="localhost:3000 ou uma URL…"
           className="flex-1 min-w-0 bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] text-text placeholder:text-textMuted focus:outline-none focus:border-brand cursor-text"
         />
+        <NodeHelp text="Portal: digite uma URL (ex.: localhost:3000) e Enter pra embutir a página. Sites com X-Frame-Options recusam embed — use abrir no navegador (↗) ou Snapshot (📷) pra renderizar HTTPS externo." />
         <button onClick={(e) => { e.stopPropagation(); if (shot) { setShot(null); } else { setReloadKey((k) => k + 1); } }} title={shot ? "Voltar pro iframe" : "Recarregar"} className="hover:text-text shrink-0">
           <RotateCw size={11} />
         </button>

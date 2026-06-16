@@ -11,6 +11,7 @@ import { Terminal as TerminalIcon, X, Maximize2, Minimize2, RefreshCw, Crown } f
 
 import { useTerminalSession } from "@/hooks/useTerminalSession";
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import { getOrchestratorMount, subscribeOrchestratorMount } from "@/lib/orchestrator-dock-mount";
 import { TerminalContextMenu } from "@/components/TerminalContextMenu";
 import { StatusDot } from "@/components/StatusDot";
@@ -331,6 +332,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             </button>
           )}
 
+          <NodeHelp text="Terminal/agente: digite normalmente. Duplo-clique no nome pra renomear. Ligue a saída deste node na entrada de outro pelas alças laterais (pipe A→B). ⤢ abre em tela cheia; ⟳ reconecta se o processo morrer." />
           {/* Botão maximizar */}
           <button
             onClick={(e) => {

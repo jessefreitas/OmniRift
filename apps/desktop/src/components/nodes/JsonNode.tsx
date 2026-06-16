@@ -6,6 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import { NodeComment } from "@/components/NodeComment";
 import { MindMap } from "@/components/MindMap";
 import { cn } from "@/lib/cn";
@@ -193,6 +194,7 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
             {parsed.ok ? "válido" : "inválido"}
           </span>
         )}
+        <NodeHelp text="JSON/código: cole o conteúdo ou Suba (↑) um arquivo. Alterne Texto / Árvore / Grafo. Maximize (⤡) abre o mapa mental navegável — vale pra JSON, XML e HTML. Comente no rodapé." />
         <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? "Restaurar" : "Maximizar"} className="hover:text-brand shrink-0">
           {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
         </button>

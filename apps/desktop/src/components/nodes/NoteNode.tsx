@@ -3,6 +3,7 @@ import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Check, Pin, StickyNote, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import { reminderAdd } from "@/lib/reminder-client";
 import type { NoteNode as NoteNodeData } from "@/types/canvas";
 
@@ -47,6 +48,7 @@ export function NoteNode({ id, data, selected }: NodeProps<NoteRfNode>) {
       <div className="node-drag-handle flex items-center gap-1.5 px-2 py-1 cursor-grab active:cursor-grabbing bg-black/5 select-none">
         <StickyNote size={11} className="text-black/50 shrink-0" />
         <span className="flex-1" />
+        <NodeHelp side="bottom" className="text-black/40 hover:text-black/80" text="Nota adesiva: escreva texto livre. O alfinete (📌) salva o texto nos Lembretes com prazo. O círculo troca a cor; arraste pelo topo." />
         <button
           onClick={(e) => { e.stopPropagation(); void saveReminder(); }}
           title={saved ? "Salvo nos Lembretes" : "Salvar como lembrete"}

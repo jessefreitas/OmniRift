@@ -6,6 +6,8 @@ interface TooltipProps {
   side?: "right" | "top" | "bottom";
   children: ReactNode;
   className?: string;
+  /** Balão largo com quebra de linha — pra textos de instrução ("como usar"). */
+  wide?: boolean;
 }
 
 /**
@@ -13,7 +15,7 @@ interface TooltipProps {
  * `group/tt` nomeado — não conflita com o `group` da linha de floor. Por padrão
  * abre à direita (a sidebar tem o canvas à direita, então não corta).
  */
-export function Tooltip({ label, side = "right", children, className }: TooltipProps) {
+export function Tooltip({ label, side = "right", children, className, wide }: TooltipProps) {
   const pos =
     side === "right"
       ? "left-full top-1/2 -translate-y-1/2 ml-2"
@@ -26,10 +28,11 @@ export function Tooltip({ label, side = "right", children, className }: TooltipP
       <span
         role="tooltip"
         className={cn(
-          "pointer-events-none absolute z-50 whitespace-nowrap rounded-md border border-border",
-          "bg-surface2 px-2 py-1 text-[11px] leading-tight text-text shadow-lg",
+          "pointer-events-none absolute z-50 rounded-md border border-border",
+          "bg-surface2 px-2 py-1 text-[11px] leading-snug text-text shadow-lg",
           "opacity-0 scale-95 transition-all duration-100",
           "group-hover/tt:opacity-100 group-hover/tt:scale-100",
+          wide ? "w-56 whitespace-normal text-left" : "whitespace-nowrap",
           pos,
         )}
       >
