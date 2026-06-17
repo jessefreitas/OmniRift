@@ -39,6 +39,7 @@ import {
   ScanSearch,
   SlidersHorizontal,
   BookOpen,
+  Gem,
   Server,
   Sparkles,
   TerminalSquare,
@@ -140,6 +141,7 @@ const INSTALL = {
   codex: "npm install -g @openai/codex",
   opencode: "curl -fsSL https://opencode.ai/install | bash",
   antigravity: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+  gemini: "npm install -g @google/gemini-cli",
 };
 
 // ORCHESTRATOR_CONTRACT, DEV_CONTRACT, DENY_DESTRUCTIVE e workerClaudeArgs vivem em
@@ -191,6 +193,16 @@ const PRESETS: AgentPreset[] = [
     icon: Code2,
     description: "OpenAI Codex CLI",
     installCmd: INSTALL.codex,
+  },
+  {
+    id: "gemini",
+    label: "Gemini CLI",
+    command: "gemini",
+    // Sem flag de system-prompt nativa → a persona da role vai como 1ª mensagem.
+    role: "custom",
+    icon: Gem,
+    description: "Google Gemini CLI (@google/gemini-cli) · comando: gemini",
+    installCmd: INSTALL.gemini,
   },
   {
     id: "opencode",
