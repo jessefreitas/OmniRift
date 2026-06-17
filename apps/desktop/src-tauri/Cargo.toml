@@ -59,6 +59,15 @@ base64 = "0.22"
 # universal em desktops); crypto-rust: RustCrypto p/ a sessão (sem OpenSSL de sistema).
 # Degrada gracioso se não houver daemon de keychain — ver memory/secret_store.rs.
 keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
+# Fase 9 — CodeNode & Debug IA: parser AST + métricas + file watch.
+# tree-sitter: parser incremental; grammars das 3 linguagens do próprio OmniRift.
+# (Se o build falhar por ABI, alinhar versões runtime↔grammar — ver plano Task 1.)
+tree-sitter = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.23"
+notify = "8"
+notify-debouncer-mini = "0.6"
 
 [dev-dependencies]
 tempfile = "3"
