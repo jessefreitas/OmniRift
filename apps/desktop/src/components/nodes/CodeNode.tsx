@@ -7,12 +7,13 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
-import { FileCode2, Maximize2, Minimize2, Save, X } from "lucide-react";
+import { FileCode2, Maximize2, Minimize2, Save, Send, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { NodeHelp } from "@/components/NodeHelp";
 import { NodeComment } from "@/components/NodeComment";
 import { codeOpen, codeSave, codeUnwatch, codeWatch, onCodeChanged } from "@/lib/code-client";
+import { ptyWrite } from "@/lib/pty-client";
 import type { CodeNode as CodeNodeData } from "@/types/canvas";
 
 const CodeMonaco = lazy(() => import("@/components/nodes/CodeMonaco"));
@@ -22,8 +23,25 @@ type CodeRfNode = Node<CodeNodeData & Record<string, unknown>, "code">;
 export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const patchNode = useCanvasStore((s) => s.patchNode);
+  const floors = useCanvasStore((s) => s.floors);
   const filePath = data.filePath;
   const fileName = filePath.split("/").pop() || filePath;
+
+  // Agentes abertos no canvas (qualquer floor) — alvos pra "enviar arquivo".
+  const agentTerminals = floors.flatMap((f) =>
+    f.nodes.flatMap((n) =>
+      n.kind === "terminal"
+        ? [{ sid: n.session_id, label: n.label || n.role, role: n.role, floor: f.name }]
+        : [],
+    ),
+  );
+
+  /** Manda o caminho do arquivo pro input do agente (Claude usa @, anexa o arquivo). */
+  function sendToAgent(sid: string, role: string) {
+    const ref = role === "claude-code" ? `@${filePath} ` : `${filePath} `;
+    void ptyWrite(sid, ref);
+    setShowSend(false);
+  }
 
   const [source, setSource] = useState("");
   const [language, setLanguage] = useState("plaintext");
@@ -32,6 +50,7 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [maximized, setMaximized] = useState(false);
+  const [showSend, setShowSend] = useState(false);
 
   // Refs pra o Ctrl+S do Monaco (capturado 1x no mount) enxergar o estado atual.
   const sourceRef = useRef(source);
@@ -104,7 +123,43 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
           {fileName}
           {dirty && <span className="text-yellow-400" title="não salvo"> ●</span>}
         </span>
-        <NodeHelp text="Editor de código (Monaco). Edite e salve com o botão 💾 ou Ctrl/Cmd+S. Se o arquivo mudar no disco e você não tiver edição pendente, recarrega sozinho. Métricas de complexidade chegam na próxima fase." />
+        <NodeHelp text="Editor de código (Monaco). Edite e salve com 💾 ou Ctrl/Cmd+S. Recarrega sozinho se o arquivo mudar no disco (sem edição pendente). O ✈ envia o caminho deste arquivo pro input de um agente aberto (Claude usa @, anexa o arquivo). Métricas chegam na próxima fase." />
+        <div className="relative shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowSend((s) => !s); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            title="Enviar este arquivo para um agente"
+            className="hover:text-brand"
+          >
+            <Send size={12} />
+          </button>
+          {showSend && (
+            <>
+              <div className="fixed inset-0 z-[60]" onPointerDown={(e) => { e.stopPropagation(); setShowSend(false); }} />
+              <div
+                className="absolute right-0 top-5 z-[61] w-56 rounded-md border border-border bg-surface1 shadow-xl py-1"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-textMuted">Enviar p/ agente</div>
+                {agentTerminals.length === 0 ? (
+                  <div className="px-2 py-1.5 text-[11px] text-textMuted opacity-60">Nenhum agente aberto — abra um em "Novo agente".</div>
+                ) : (
+                  agentTerminals.map((t) => (
+                    <button
+                      key={t.sid}
+                      onClick={(e) => { e.stopPropagation(); sendToAgent(t.sid, t.role); }}
+                      className="w-full text-left px-2 py-1.5 text-[11px] text-text hover:bg-surface2 flex items-center gap-2"
+                    >
+                      <Send size={11} className="text-textMuted shrink-0" />
+                      <span className="truncate flex-1">{t.label}</span>
+                      <span className="text-[9px] text-textMuted shrink-0">{t.floor}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </>
+          )}
+        </div>
         <button
           onClick={(e) => { e.stopPropagation(); onSave(); }}
           disabled={!dirty || saving}
