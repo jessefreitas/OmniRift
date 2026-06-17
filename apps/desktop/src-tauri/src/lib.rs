@@ -1,5 +1,6 @@
 pub mod code;
 pub mod commands;
+pub mod compress;
 pub mod db;
 pub mod git;
 pub mod mcp;
