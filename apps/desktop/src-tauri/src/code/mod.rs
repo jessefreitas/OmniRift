@@ -10,6 +10,27 @@ pub mod file_io;
 
 use serde::{Deserialize, Serialize};
 
+/// Id de linguagem do **Monaco** (syntax highlight) pela extensão. Independente
+/// do tree-sitter (que é pras métricas, 9c) — aqui é só o editor.
+pub fn monaco_language(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()).unwrap_or("") {
+        "rs" => "rust",
+        "ts" | "mts" | "cts" | "tsx" => "typescript",
+        "js" | "mjs" | "cjs" | "jsx" => "javascript",
+        "py" => "python",
+        "json" => "json",
+        "toml" => "toml",
+        "md" | "markdown" => "markdown",
+        "html" | "htm" => "html",
+        "css" => "css",
+        "sh" | "bash" => "shell",
+        "yml" | "yaml" => "yaml",
+        "sql" => "sql",
+        "go" => "go",
+        _ => "plaintext",
+    }
+}
+
 /// Métricas de UMA função (espelha `apps/desktop/src/types/code.ts`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -9,6 +9,7 @@ pub mod spec;
 
 use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles};
 use commands::browser::browser_shot;
+use commands::code::{code_open, code_save, code_unwatch, code_watch, CodeWatchers};
 use commands::dbnode::db_query;
 use commands::editor::{detect_editors, open_in_editor};
 use commands::fsinfo::{fs_cow_info, reflink_clone};
@@ -126,6 +127,7 @@ pub fn run() {
         .manage(pty_manager)
         .manage(agent_registry)
         .manage(floor_mirror)
+        .manage(CodeWatchers::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -209,6 +211,10 @@ pub fn run() {
             review_pathrules_write,
             review_history_add,
             review_history_list,
+            code_open,
+            code_save,
+            code_watch,
+            code_unwatch,
             serena_ensure_project,
             scheduler_install,
             scheduler_uninstall,

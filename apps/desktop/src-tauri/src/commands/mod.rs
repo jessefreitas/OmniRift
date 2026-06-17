@@ -1,5 +1,6 @@
 pub mod agent_docs;
 pub mod browser;
+pub mod code;
 pub mod dbnode;
 pub mod editor;
 pub mod explain;
