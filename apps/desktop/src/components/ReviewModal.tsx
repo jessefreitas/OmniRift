@@ -5,14 +5,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { History, RefreshCw, ScanLine, Settings2, Sliders, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink, EyeOff, History, RefreshCw, ScanLine, Settings2, Sliders, X } from "lucide-react";
 
 import { runReview, type Finding, type ReviewResult, type Severity } from "@/lib/review";
 import { loadLlmConfig } from "@/lib/llm-client";
 import { loadPolicy } from "@/lib/review-policy";
 import { reviewHistoryAdd, reviewHistoryList, recurrenceMap, runsTrend, type ReviewHistRow } from "@/lib/review-history-client";
+import { reviewSuppressRead, reviewSuppressWrite } from "@/lib/review-meta-client";
+import { detectEditors, loadPreferredEditor, openInEditor } from "@/lib/editor-client";
+import { ReviewSnippet } from "@/components/ReviewSnippet";
 import { cn } from "@/lib/cn";
 import type { Floor } from "@/types/workspace";
+
+/** Achados de "arquivo real" (não os marcadores "(PR)" / "(?)") ganham inline + abrir. */
+const isReal = (file: string) => !!file && !file.startsWith("(");
+const fkey = (f: Finding) => `${f.file}:${f.line ?? ""}:${f.title}`;
 
 interface Props {
   floor: Floor;
@@ -41,8 +48,38 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
   const scope = floor.repoRoot || floor.id;
   const [history, setHistory] = useState<ReviewHistRow[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [editorCmd, setEditorCmd] = useState<string | null>(null);
 
   useEffect(() => { reviewHistoryList(scope).then(setHistory).catch(() => {}); }, [scope]);
+
+  // Editor preferido (GUI) pra ação "abrir no arquivo:linha".
+  useEffect(() => {
+    detectEditors().then((eds) => {
+      const gui = eds.filter((e) => !e.terminal);
+      const pref = loadPreferredEditor();
+      setEditorCmd((gui.find((e) => e.id === pref) ?? gui[0])?.cmd ?? null);
+    }).catch(() => {});
+  }, []);
+
+  function toggleExpand(key: string) {
+    setExpanded((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }
+
+  async function ignore(f: Finding) {
+    const reason = window.prompt(`Ignorar "${f.title}"?\nMotivo (grava em .forgejo/review-suppress.json):`, "falso-positivo reconhecido");
+    if (reason === null) return;
+    const kws = Array.from(new Set((f.title.toLowerCase().match(/[\p{L}0-9]{4,}/gu) ?? []))).slice(0, 4);
+    const dir = floor.worktreePath || floor.repoRoot || ".";
+    try {
+      const cur = await reviewSuppressRead(dir);
+      await reviewSuppressWrite(dir, [...cur, { file: f.file, keywords: kws.length ? kws : [f.title.toLowerCase()], reason: reason || "ignorado pela UI" }]);
+      setDismissed((d) => new Set(d).add(fkey(f)));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
 
   async function run() {
     if (!config || !floor.worktreePath) return;
@@ -64,7 +101,7 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (config) void run(); }, []);
 
-  const all: Finding[] = result ? [...result.preflight, ...result.findings] : [];
+  const all: Finding[] = result ? [...result.preflight, ...result.findings].filter((f) => !dismissed.has(fkey(f))) : [];
   const grouped = SEV_ORDER.map((s) => ({ sev: s, items: all.filter((f) => f.severity === s) })).filter((g) => g.items.length);
   const recur = useMemo(() => recurrenceMap(history), [history]);
   const trend = useMemo(() => runsTrend(history), [history]);
@@ -145,6 +182,24 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
                           )}
                         </div>
                         {f.suggestion && <p className="text-[11px] text-textMuted mt-1 pl-1 border-l-2 border-border">{f.suggestion}</p>}
+                        <div className="flex items-center gap-3 mt-1.5 pl-1 text-[10px]">
+                          {isReal(f.file) && (
+                            <button onClick={() => toggleExpand(fkey(f))} className="flex items-center gap-0.5 text-textMuted hover:text-brand">
+                              {expanded.has(fkey(f)) ? <ChevronDown size={11} /> : <ChevronRight size={11} />} trecho
+                            </button>
+                          )}
+                          {isReal(f.file) && editorCmd && floor.worktreePath && (
+                            <button onClick={() => void openInEditor(editorCmd, `${floor.worktreePath}/${f.file}`, f.line)} className="flex items-center gap-0.5 text-textMuted hover:text-brand">
+                              <ExternalLink size={11} /> abrir
+                            </button>
+                          )}
+                          <button onClick={() => void ignore(f)} className="flex items-center gap-0.5 text-textMuted hover:text-danger" title="Suprimir esse achado (com motivo) nas próximas runs">
+                            <EyeOff size={11} /> ignorar
+                          </button>
+                        </div>
+                        {expanded.has(fkey(f)) && isReal(f.file) && floor.worktreePath && (
+                          <ReviewSnippet worktree={floor.worktreePath} file={f.file} line={f.line} />
+                        )}
                       </div>
                     ))}
                   </div>
