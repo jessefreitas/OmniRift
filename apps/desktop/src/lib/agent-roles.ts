@@ -19,6 +19,8 @@ export interface AgentRoleDef {
   master?: boolean;
   /** Só pra cli "shell": comando rodado ao abrir o terminal (opcional). */
   startupCmd?: string;
+  /** Skills (nomes de .claude/skills) curadas pra este role — injetadas na persona no spawn. */
+  skills?: string[];
 }
 
 /** CLIs/LLMs disponíveis pra rodar um role. claude injeta via --append-system-prompt;

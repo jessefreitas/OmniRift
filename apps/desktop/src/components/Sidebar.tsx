@@ -243,6 +243,13 @@ function detectShell(): string {
   return "bash";
 }
 
+// Anexa as skills curadas do role à persona — o agente passa a priorizá-las
+// (Claude Code auto-descobre as skills; isto direciona a escolha por role).
+function withSkills(prompt: string, skills?: string[]): string {
+  if (!skills || skills.length === 0) return prompt;
+  return `${prompt}\n\nSKILLS HABILITADAS (priorize usar quando a tarefa pedir): ${skills.join(", ")}.`;
+}
+
 const MCP_SSE_URL = "http://127.0.0.1:7844/sse";
 const MCP_ADD_CMD = `/mcp add --transport sse omnirift-agents ${MCP_SSE_URL}`;
 
@@ -854,10 +861,11 @@ export function Sidebar() {
     if (cli.systemPromptFlag) {
       // claude-code: contrato DEV + persona do role (concatenados) + deny + MCP.
       // Outros CLIs com flag de system-prompt: só a persona (não têm o perfil MCP).
+      const persona = withSkills(r.prompt, r.skills);
       const args =
         cli.role === "claude-code"
-          ? workerClaudeArgs(mcpConfigPath, r.prompt, settingsConfigPath)
-          : [cli.systemPromptFlag, r.prompt];
+          ? workerClaudeArgs(mcpConfigPath, persona, settingsConfigPath)
+          : [cli.systemPromptFlag, persona];
       addTerminal({ command: cli.command, args, role: cli.role, label: r.name });
       return;
     }
@@ -895,7 +903,7 @@ export function Sidebar() {
     const shellQuote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
     if (cli.role === "shell") {
       const startup = (r.startupCmd ?? "").trim();
-      const persona = r.prompt.trim();
+      const persona = withSkills(r.prompt, r.skills).trim();
       // CLI Claude Code (claude/claude-ollama/…): persona NATIVA via flag — carrega
       // no startup, sem corrida de boot/seleção de modelo. Outros CLIs de IA sem
       // flag: tenta injetar quando o terminal ficar pronto (best-effort).
@@ -907,7 +915,7 @@ export function Sidebar() {
       }
     } else {
       // CLIs LLM sem flag (opencode/antigravity): persona como 1ª mensagem.
-      sendLine(r.prompt, 1800);
+      sendLine(withSkills(r.prompt, r.skills), 1800);
     }
   }
 
@@ -942,13 +950,13 @@ export function Sidebar() {
   }
 
   // Salva (upsert) um role editado/criado no modal.
-  function saveRole(name: string, prompt: string, cli: string, startupCmd: string) {
+  function saveRole(name: string, prompt: string, cli: string, startupCmd: string, skills: string[]) {
     if (!editingRole) return;
     setRoles((prev) => {
       const exists = prev.some((x) => x.id === editingRole.id);
       const next = exists
-        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd } : x))
-        : [...prev, { ...editingRole, name, prompt, cli, startupCmd }];
+        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd, skills } : x))
+        : [...prev, { ...editingRole, name, prompt, cli, startupCmd, skills }];
       saveRoles(next);
       return next;
     });
@@ -1787,6 +1795,7 @@ export function Sidebar() {
         <RoleEditModal
           key={editingRole.id}
           role={editingRole}
+          cwd={currentCwd}
           onClose={() => setEditingRole(null)}
           onSave={saveRole}
         />

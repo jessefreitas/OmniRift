@@ -23,5 +23,6 @@ pub mod review_cfg;
 pub mod review_history;
 pub mod scheduler;
 pub mod serena;
+pub mod skills;
 pub mod spec;
 pub mod workspace;
