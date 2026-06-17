@@ -1566,7 +1566,7 @@ export function Sidebar() {
       )}
       {showLlmConfig && <LlmConfigModal onClose={() => setShowLlmConfig(false)} />}
       {showGitRepos && <GitReposModal onClose={() => setShowGitRepos(false)} />}
-      {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} onClose={() => setPolicyEditor(null)} />}
+      {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
     </aside>
   );
 }

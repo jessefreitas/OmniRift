@@ -18,7 +18,10 @@ use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
 use commands::license::{license_activate, license_status};
 use commands::llm::{llm_chat, llm_list_models};
-use commands::review_cfg::{agent_settings_config, review_config_path, review_config_write};
+use commands::review_cfg::{
+    agent_settings_config, review_config_path, review_config_write, review_context_read,
+    review_context_write, review_suppress_read, review_suppress_write,
+};
 use commands::mcp_servers::{
     mcp_server_remove, mcp_server_set_enabled, mcp_server_upsert, mcp_servers_list,
 };
@@ -195,6 +198,10 @@ pub fn run() {
             review_config_write,
             review_config_path,
             agent_settings_config,
+            review_context_read,
+            review_context_write,
+            review_suppress_read,
+            review_suppress_write,
             serena_ensure_project,
             scheduler_install,
             scheduler_uninstall,

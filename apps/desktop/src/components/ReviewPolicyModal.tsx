@@ -4,21 +4,40 @@
 // (categorias/pesos/blocking), gates (thresholds), coverage, contratos, limites
 // de PR, e o modo de gate. Salvo em localStorage por escopo.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plus, Sliders, Trash2, X } from "lucide-react";
 
 import { loadPolicy, savePolicy, type ReviewPolicy, type ReviewCategory } from "@/lib/review-policy";
 import { persistReviewConfig } from "@/lib/review-config-sync";
+import { reviewContextRead, reviewContextWrite, reviewSuppressRead, reviewSuppressWrite, type SuppressRule } from "@/lib/review-meta-client";
 
 interface Props {
   scope?: string;
   scopeLabel?: string;
+  /** cwd do projeto — pra editar o contexto/supressões committed em .forgejo. */
+  cwd?: string | null;
   onClose: () => void;
 }
 
-export function ReviewPolicyModal({ scope, scopeLabel, onClose }: Props) {
+// Presets de rigor: aplicam thresholds + quais categorias bloqueiam + coverage
+// (template inicial — tudo editável depois).
+const PRESETS: { id: string; label: string; block: string[]; maxCritical: number; maxWarning: number; coverage: number }[] = [
+  { id: "frouxo", label: "Frouxo", block: ["security"], maxCritical: 0, maxWarning: 5, coverage: 60 },
+  { id: "padrao", label: "Padrão", block: ["security"], maxCritical: 0, maxWarning: 1, coverage: 80 },
+  { id: "rigido", label: "Rígido", block: ["security", "quality"], maxCritical: 0, maxWarning: 0, coverage: 90 },
+];
+
+export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose }: Props) {
   const [p, setP] = useState<ReviewPolicy>(() => loadPolicy(scope));
+  const [ctx, setCtx] = useState("");
+  const [suppress, setSuppress] = useState<SuppressRule[]>([]);
+
+  useEffect(() => {
+    if (!cwd) return;
+    reviewContextRead(cwd).then(setCtx).catch(() => {});
+    reviewSuppressRead(cwd).then(setSuppress).catch(() => {});
+  }, [cwd]);
 
   const patch = (u: Partial<ReviewPolicy>) => setP((cur) => ({ ...cur, ...u }));
   const patchCat = (i: number, u: Partial<ReviewCategory>) =>
@@ -27,11 +46,26 @@ export function ReviewPolicyModal({ scope, scopeLabel, onClose }: Props) {
     setP((cur) => ({ ...cur, categories: [...cur.categories, { key: `cat${cur.categories.length}`, label: "Nova", weight: 3, blocking: false }] }));
   const delCat = (i: number) => setP((cur) => ({ ...cur, categories: cur.categories.filter((_, j) => j !== i) }));
 
+  function applyPreset(id: string) {
+    const pr = PRESETS.find((x) => x.id === id);
+    if (!pr) return;
+    setP((cur) => ({
+      ...cur,
+      thresholds: { maxCritical: pr.maxCritical, maxWarning: pr.maxWarning },
+      coverage: pr.coverage,
+      categories: cur.categories.map((c) => ({ ...c, blocking: pr.block.includes(c.key) })),
+    }));
+  }
+
   const num = (v: string): number | undefined => (v.trim() === "" ? undefined : Number(v));
 
   function save() {
     savePolicy(p, scope);
     void persistReviewConfig(); // espelha pro backend (Stop hook / MCP review)
+    if (cwd) {
+      void reviewContextWrite(cwd, ctx).catch(() => {});
+      void reviewSuppressWrite(cwd, suppress.filter((s) => s.file.trim())).catch(() => {});
+    }
     onClose();
   }
 
@@ -60,6 +94,17 @@ export function ReviewPolicyModal({ scope, scopeLabel, onClose }: Props) {
                 <option value="off">desligado</option>
               </select>
             </label>
+          </div>
+
+          {/* Presets de rigor */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] uppercase tracking-wider text-textMuted">Preset</span>
+            {PRESETS.map((pr) => (
+              <button key={pr.id} onClick={() => applyPreset(pr.id)} className="px-2 py-0.5 rounded text-[11px] border border-border text-textMuted hover:text-brand hover:border-brand transition-colors">
+                {pr.label}
+              </button>
+            ))}
+            <span className="text-[10px] text-textMuted opacity-50">aplica thresholds + o que bloqueia (editável depois)</span>
           </div>
 
           {/* Categorias (métricas) */}
@@ -104,6 +149,37 @@ export function ReviewPolicyModal({ scope, scopeLabel, onClose }: Props) {
             <label className="text-[11px] uppercase tracking-wider text-textMuted">Contratos / regras extras (vão no prompt)</label>
             <textarea value={p.contracts} onChange={(e) => patch({ contracts: e.target.value })} rows={4} placeholder="ex: nenhum console.log; toda função pública documentada; sem any em TS…" className="mt-1 w-full px-2 py-1.5 rounded-md text-[11px] bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono" />
           </div>
+
+          {/* Contexto de design (committed em .forgejo/review-context.md) */}
+          {cwd && (
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-textMuted">Contexto de design (o reviewer respeita)</label>
+              <textarea value={ctx} onChange={(e) => setCtx(e.target.value)} rows={5} placeholder="Decisões INTENCIONAIS que o reviewer NÃO deve flagar (threat model, chave pública embutida, ofuscação documentada…)" className="mt-1 w-full px-2 py-1.5 rounded-md text-[11px] bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono" />
+              <p className="mt-0.5 text-[10px] text-textMuted opacity-50">Salvo em <code>.forgejo/review-context.md</code> — usado pelo review do CI e local.</p>
+            </div>
+          )}
+
+          {/* Achados aceitos (supressões geríveis) */}
+          {cwd && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] uppercase tracking-wider text-textMuted">Achados aceitos (supressão)</span>
+                <button onClick={() => setSuppress((s) => [...s, { file: "", keywords: [], reason: "" }])} className="flex items-center gap-1 text-[11px] text-textMuted hover:text-brand"><Plus size={12} /> regra</button>
+              </div>
+              <div className="space-y-1">
+                {suppress.length === 0 && <p className="text-[10px] text-textMuted opacity-50">Nenhuma. Adicione pra silenciar um falso-positivo reconhecido (exige motivo).</p>}
+                {suppress.map((s, i) => (
+                  <div key={i} className="grid grid-cols-[110px_1fr_1fr_28px] gap-2 items-center">
+                    <input value={s.file} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, file: e.target.value } : x)))} placeholder="arquivo.rs" className={`${inp} font-mono`} />
+                    <input value={s.keywords.join(", ")} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, keywords: e.target.value.split(",").map((k) => k.trim()).filter(Boolean) } : x)))} placeholder="palavras (vírgula)" className={inp} />
+                    <input value={s.reason} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, reason: e.target.value } : x)))} placeholder="motivo" className={inp} />
+                    <button onClick={() => setSuppress((arr) => arr.filter((_, j) => j !== i))} className="text-textMuted hover:text-danger justify-self-center"><Trash2 size={12} /></button>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-0.5 text-[10px] text-textMuted opacity-50">Casa por arquivo + palavra no título do achado. Salvo em <code>.forgejo/review-suppress.json</code>.</p>
+            </div>
+          )}
         </div>
 
         <footer className="flex justify-end gap-2 px-4 py-3 border-t border-border shrink-0">
