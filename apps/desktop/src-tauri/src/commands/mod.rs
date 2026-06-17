@@ -16,6 +16,7 @@ pub mod llm;
 pub mod mcp;
 pub mod mcp_servers;
 pub mod memory;
+pub mod metrics;
 pub mod pty;
 pub mod review_cfg;
 pub mod review_history;

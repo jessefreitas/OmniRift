@@ -4,6 +4,7 @@ pub mod db;
 pub mod git;
 pub mod mcp;
 pub mod memory;
+pub mod metrics;
 pub mod pty;
 pub mod spec;
 
@@ -12,6 +13,7 @@ use commands::browser::browser_shot;
 use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
 use commands::code::{code_open, code_save, code_unwatch, code_watch, CodeWatchers};
 use commands::dbnode::db_query;
+use commands::metrics::metrics_snapshot;
 use commands::editor::{detect_editors, open_in_editor};
 use commands::fsinfo::{fs_cow_info, reflink_clone};
 use commands::explain::whatis_lookup;
@@ -109,6 +111,12 @@ pub fn run() {
             // Teto de agentes simultâneos do Orquestrador (default 5; ajustável).
             let max_agents = Arc::new(std::sync::atomic::AtomicUsize::new(5));
             app.manage(Arc::clone(&max_agents));
+
+            // Monitor de recursos (sub-fase A): sampler em thread de fundo (1s) que
+            // emite `resource://sample`. Degrada sozinho; falha de leitura não derruba.
+            let sampler = Arc::new(crate::metrics::sampler::Sampler::new());
+            sampler.start(app.handle().clone(), std::time::Duration::from_secs(1));
+            app.manage(sampler);
 
             // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente.
             tauri::async_runtime::spawn(async move {
@@ -216,6 +224,7 @@ pub fn run() {
             code_save,
             code_watch,
             code_unwatch,
+            metrics_snapshot,
             serena_ensure_project,
             scheduler_install,
             scheduler_uninstall,
