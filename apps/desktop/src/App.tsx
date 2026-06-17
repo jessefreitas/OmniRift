@@ -2,8 +2,10 @@ import { useEffect } from "react";
 import { Canvas } from "@/components/Canvas";
 import { Sidebar } from "@/components/Sidebar";
 import { ProjectTabs } from "@/components/ProjectTabs";
+import { ResourceChip } from "@/components/ResourceChip";
 import { initOrchestrationBridge } from "@/lib/orchestration-client";
 import { initPersistence } from "@/lib/persistence-client";
+import { initResourceStore } from "@/store/resource-store";
 import { startAutoSnapshot, stopAutoSnapshot } from "@/lib/auto-snapshot";
 import { persistReviewConfig } from "@/lib/review-config-sync";
 
@@ -48,6 +50,20 @@ export default function App() {
     void persistReviewConfig();
   }, []);
 
+  // Monitor de recursos: assina resource://sample uma vez (chip sempre-visível).
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    initResourceStore().then((u) => {
+      if (disposed) u();
+      else unlisten = u;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
   return (
     <div className="flex h-screen w-screen bg-bg">
       <Sidebar />
@@ -57,6 +73,7 @@ export default function App() {
           <Canvas />
         </div>
       </main>
+      <ResourceChip />
     </div>
   );
 }
