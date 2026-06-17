@@ -3,10 +3,12 @@
 //! BYO + decoração só-env). Registry SQLite + wiring no spawn + Headroom + UI vêm
 //! nas sub-fases seguintes.
 
+pub mod headroom;
 pub mod provider;
 pub mod rtk;
 pub mod types;
 
+pub use headroom::HeadroomProvider;
 pub use provider::{Compressor, NoneCompressor};
 pub use rtk::RtkProvider;
 pub use types::{CliFamily, CompressorKind, DetectStatus, SavingsReport, SpawnDecoration};

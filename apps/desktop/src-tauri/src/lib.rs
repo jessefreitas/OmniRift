@@ -15,6 +15,7 @@ use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
 use commands::code::{code_open, code_save, code_unwatch, code_watch, CodeWatchers};
 use commands::dbnode::db_query;
 use commands::metrics::metrics_snapshot;
+use commands::compress::compressor_list;
 use commands::editor::{detect_editors, open_in_editor};
 use commands::fsinfo::{fs_cow_info, reflink_clone};
 use commands::explain::whatis_lookup;
@@ -226,6 +227,7 @@ pub fn run() {
             code_watch,
             code_unwatch,
             metrics_snapshot,
+            compressor_list,
             serena_ensure_project,
             scheduler_install,
             scheduler_uninstall,

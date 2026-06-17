@@ -40,6 +40,7 @@ import {
   ScanSearch,
   SlidersHorizontal,
   BookOpen,
+  Gauge,
   Gem,
   Save,
   Server,
@@ -79,6 +80,7 @@ import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { HelpModal } from "@/components/HelpModal";
 import { McpServersModal } from "@/components/McpServersModal";
 import { ClisModal } from "@/components/ClisModal";
+import { CompressorsModal } from "@/components/CompressorsModal";
 import { clisList, type CliInfo } from "@/lib/clis-client";
 import { loadCustomClis, saveCustomClis, type CustomCli } from "@/lib/custom-clis";
 import { ReviewModal } from "@/components/ReviewModal";
@@ -113,6 +115,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "help", icon: BookOpen, label: "Ajuda / Manual", desc: "Manual do OmniRift — como usar tudo (tópicos + busca)" },
   { id: "mcpservers", icon: Server, label: "MCP Servers", desc: "Tools MCP dos agentes (Postgres, GitHub, …) — liga/desliga por servidor" },
   { id: "clis", icon: Download, label: "CLIs de IA", desc: "Instalar e gerenciar CLIs de agentes (Claude Code, Codex, Gemini, Aider, …)" },
+  { id: "compressors", icon: Gauge, label: "Compressores de token", desc: "Instalar/gerenciar compressores (RTK, Headroom) que cortam tokens dos agentes" },
 ];
 const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
 
@@ -318,6 +321,7 @@ export function Sidebar() {
   const [showHelp, setShowHelp] = useState(false);
   const [showMcpServers, setShowMcpServers] = useState(false);
   const [showClis, setShowClis] = useState(false);
+  const [showCompressors, setShowCompressors] = useState(false);
   // Lista "Novo agente" automática: CLIs instalados do catálogo + CLIs personalizados.
   const [catalogClis, setCatalogClis] = useState<CliInfo[]>([]);
   const [customClis, setCustomClis] = useState<CustomCli[]>(() => loadCustomClis());
@@ -359,6 +363,7 @@ export function Sidebar() {
     help: () => setShowHelp(true),
     mcpservers: () => setShowMcpServers(true),
     clis: () => setShowClis(true),
+    compressors: () => setShowCompressors(true),
     snapshots: () => setShowSnapshots(true),
     hooks: () => setShowHooks(true),
   };
@@ -371,6 +376,7 @@ export function Sidebar() {
         case "help": setShowHelp(true); break;
         case "mcpservers": setShowMcpServers(true); break;
         case "clis": setShowClis(true); break;
+        case "compressors": setShowCompressors(true); break;
         case "snapshots": setShowSnapshots(true); break;
         case "hooks": setShowHooks(true); break;
         case "memory": setShowMemory(true); break;
@@ -1800,6 +1806,7 @@ export function Sidebar() {
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
       {showClis && <ClisModal onClose={() => setShowClis(false)} />}
+      {showCompressors && <CompressorsModal onClose={() => setShowCompressors(false)} />}
       {closingFolder && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={() => setClosingFolder(false)}>
           <div className="w-[440px] max-w-[92vw] rounded-lg border border-border bg-surface1 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
