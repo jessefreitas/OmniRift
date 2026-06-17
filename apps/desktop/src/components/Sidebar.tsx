@@ -100,33 +100,34 @@ import type { AgentRole } from "@/types/pty";
 
 // Ferramentas da sidebar (ids = os mesmos do handler "maestri:open-tool" + Command
 // palette). Ordem reordenável por drag-and-drop; ações no map runTool() abaixo.
+// Ordem alfabética por label (o usuário ainda pode reordenar por drag).
 const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[] = [
-  { id: "companion", icon: Sparkles, label: "Companheiro (IA)", desc: "Chat IA lateral que enxerga o canvas e ajuda a operar" },
-  { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
-  { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
-  { id: "llm", icon: Cpu, label: "LLM do review (BYOK)", desc: "Escolher o modelo (sua chave/BYOK) que roda o code review" },
-  { id: "policy", icon: SlidersHorizontal, label: "Política de review", desc: "Regras de GO/NO-GO do review — o que bloqueia o merge" },
-  { id: "reminders", icon: Bookmark, label: "Lembretes", desc: "Notas do canvas viram lembretes com prazo" },
-  { id: "memory", icon: Brain, label: "Memória dos agentes", desc: "Ver e editar o que os agentes lembram (blackboard SQLite)" },
-  { id: "history", icon: History, label: "Histórico de sessões", desc: "Sessões anteriores gravadas dos agentes" },
-  { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos floors" },
-  { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
-  { id: "hooks", icon: Webhook, label: "Hooks do floor", desc: "Comandos disparados em eventos do floor (pre/post)" },
   { id: "help", icon: BookOpen, label: "Ajuda / Manual", desc: "Manual do OmniRift — como usar tudo (tópicos + busca)" },
-  { id: "mcpservers", icon: Server, label: "MCP Servers", desc: "Tools MCP dos agentes (Postgres, GitHub, …) — liga/desliga por servidor" },
   { id: "clis", icon: Download, label: "CLIs de IA", desc: "Instalar e gerenciar CLIs de agentes (Claude Code, Codex, Gemini, Aider, …)" },
   { id: "compressors", icon: Gauge, label: "Compressores de token", desc: "Instalar/gerenciar compressores (RTK, Headroom) que cortam tokens dos agentes" },
+  { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
+  { id: "history", icon: History, label: "Histórico de sessões", desc: "Sessões anteriores gravadas dos agentes" },
+  { id: "hooks", icon: Webhook, label: "Hooks do paralelo", desc: "Comandos disparados em eventos do paralelo (pre/post)" },
+  { id: "reminders", icon: Bookmark, label: "Lembretes", desc: "Notas do canvas viram lembretes com prazo" },
+  { id: "llm", icon: Cpu, label: "LLM do review (BYOK)", desc: "Escolher o modelo (sua chave/BYOK) que roda o code review" },
+  { id: "mcpservers", icon: Server, label: "MCP Servers", desc: "Tools MCP dos agentes (Postgres, GitHub, …) — liga/desliga por servidor" },
+  { id: "memory", icon: Brain, label: "Memória dos agentes", desc: "Ver e editar o que os agentes lembram (blackboard SQLite)" },
+  { id: "companion", icon: Sparkles, label: "OmniPartner (IA)", desc: "Chat IA lateral que enxerga o canvas e ajuda a operar" },
+  { id: "policy", icon: SlidersHorizontal, label: "Política de review", desc: "Regras de GO/NO-GO do review — o que bloqueia o merge" },
+  { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
+  { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos paralelos" },
+  { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
 ];
 const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
 
 // Seções da sidebar — reordenáveis por drag-and-drop (ordem persistida; CSS order).
 const SECTION_DEFS: { id: string; label: string }[] = [
-  { id: "floors", label: "Floors" },
-  { id: "tools", label: "Ferramentas" },
-  { id: "workspace", label: "Workspace" },
   { id: "project", label: "Projeto" },
+  { id: "workspace", label: "Workspace" },
+  { id: "floors", label: "Paralelos" },
   { id: "agents", label: "Novo agente" },
   { id: "roles", label: "Roles" },
+  { id: "tools", label: "Ferramentas" },
   { id: "mcp", label: "MCP Agents" },
   { id: "specs", label: "Specs" },
 ];
@@ -346,9 +347,10 @@ export function Sidebar() {
   const [cow, setCow] = useState<CowInfo | null>(null);
 
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
-  const tools = useReorderable("maestri-tools-order-v1", TOOL_IDS);
-  // Seções da sidebar reordenáveis (CSS order + popover de organização).
-  const secReorder = useReorderable("omnirift-sections-order-v1", SECTION_IDS);
+  // v2: nova ordem-base alfabética (reset do drag antigo do usuário).
+  const tools = useReorderable("omnirift-tools-order-v2", TOOL_IDS);
+  // Seções da sidebar reordenáveis (CSS order + popover). v2: Projeto/Workspace no topo.
+  const secReorder = useReorderable("omnirift-sections-order-v2", SECTION_IDS);
   const secStyle = (id: string) => ({ order: secReorder.order.indexOf(id) });
   const runTool: Record<string, () => void> = {
     companion: () => setShowCompanion(true),
@@ -704,10 +706,10 @@ export function Sidebar() {
   // editam sem conflito). Parte da branch atual do repo do floor ativo.
   async function createGitFloor() {
     if (!currentCwd) {
-      alert("Abra um projeto (pasta) primeiro — um floor-branch precisa de um repo git.");
+      alert("Abra um projeto (pasta) primeiro — um paralelo-branch precisa de um repo git.");
       return;
     }
-    const branch = prompt("Branch do novo floor (ex: feature/auth):");
+    const branch = prompt("Branch do novo paralelo (ex: feature/auth):");
     if (!branch?.trim()) return;
     try {
       const g = await floorGitCreate(currentCwd, branch.trim());
@@ -723,7 +725,7 @@ export function Sidebar() {
         });
       }
     } catch (e) {
-      alert("Falha ao criar floor git:\n" + String(e));
+      alert("Falha ao criar paralelo git:\n" + String(e));
     }
   }
 
@@ -741,7 +743,7 @@ export function Sidebar() {
           const r = await runReview(f.worktreePath, f.baseBranch, llm, policy);
           if (r.verdict === "NO-GO") {
             if (policy.gate === "block") {
-              alert(`🚫 Review reprovou (NO-GO · score ${r.score}). Land bloqueado.\nAbra o Review (⊟ no floor) pra ver os findings e corrija.`);
+              alert(`🚫 Review reprovou (NO-GO · score ${r.score}). Land bloqueado.\nAbra o Review (⊟ no paralelo) pra ver os findings e corrija.`);
               return;
             }
             if (!confirm(`⚠️ Review reprovou (NO-GO · score ${r.score}).\n${r.summary}\nLand mesmo assim?`)) return;
@@ -765,7 +767,7 @@ export function Sidebar() {
       await floorGitLand(f.repoRoot, f.branch, f.baseBranch, f.worktreePath);
       deleteFloor(f.id);
     } catch (e) {
-      alert("Land falhou (resolva conflitos no floor e tente de novo):\n" + String(e));
+      alert("Land falhou (resolva conflitos no paralelo e tente de novo):\n" + String(e));
     }
   }
 
@@ -1092,9 +1094,9 @@ export function Sidebar() {
       <div className="px-2 py-2 border-b border-border" style={secStyle("floors")}>
         <div className="flex items-center justify-between px-2 mb-1">
           <div className="flex items-center gap-1.5">
-            <p className="text-[11px] uppercase tracking-wider text-textMuted">Floors</p>
+            <p className="text-[11px] uppercase tracking-wider text-textMuted">Paralelos</p>
             <Tooltip
-              label={`Floors = branches git (worktree): objetos compartilhados (~zero disco), git-native, cross-platform.${cow ? ` FS ${cow.fs}${cow.reflink ? " · CoW/instantâneo ⚡" : ""}` : ""}`}
+              label={`Paralelos = branches git (worktree): objetos compartilhados (~zero disco), git-native, cross-platform.${cow ? ` FS ${cow.fs}${cow.reflink ? " · CoW/instantâneo ⚡" : ""}` : ""}`}
               side="bottom"
             >
               <span className="flex items-center gap-0.5 text-[9px] text-brand/70 bg-brand/10 px-1 rounded">
@@ -1113,7 +1115,7 @@ export function Sidebar() {
             )}
           </div>
           <div className="flex items-center gap-0.5">
-            <Tooltip label="Novo floor como branch git (worktree isolado)" side="bottom">
+            <Tooltip label="Novo paralelo como branch git (worktree isolado)" side="bottom">
               <button
                 onClick={createGitFloor}
                 className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
@@ -1121,7 +1123,7 @@ export function Sidebar() {
                 <GitBranch size={12} />
               </button>
             </Tooltip>
-            <Tooltip label="Novo floor vazio" side="bottom">
+            <Tooltip label="Novo paralelo vazio" side="bottom">
               <button
                 onClick={() => createFloor(undefined, { focus: true })}
                 className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
@@ -1144,7 +1146,7 @@ export function Sidebar() {
               )}
               onClick={() => switchFloor(f.id)}
               onDoubleClick={() => {
-                const name = prompt("Renomear floor", f.name);
+                const name = prompt("Renomear paralelo", f.name);
                 if (name) renameFloor(f.id, name.trim());
               }}
             >
@@ -1157,12 +1159,12 @@ export function Sidebar() {
                 </span>
               )}
               {f.branch && (
-                <Tooltip label={`Floor é a branch git "${f.branch}"`} side="top">
+                <Tooltip label={`Paralelo é a branch git "${f.branch}"`} side="top">
                   <GitBranch size={9} className="text-brand opacity-70 shrink-0" />
                 </Tooltip>
               )}
               <span className="text-xs flex-1 truncate">{f.name}</span>
-              <Tooltip label={`${f.nodes.length} nó(s) neste floor`} side="top">
+              <Tooltip label={`${f.nodes.length} nó(s) neste paralelo`} side="top">
                 <span className="text-[9px] text-textMuted opacity-60">{f.nodes.length}</span>
               </Tooltip>
               {f.branch && f.worktreePath && (
@@ -1218,7 +1220,7 @@ export function Sidebar() {
               )}
               {floors.length > 1 && (
                 <Tooltip
-                  label={f.branch ? "Tira do canvas (o worktree fica no disco)" : "Excluir floor"}
+                  label={f.branch ? "Tira do canvas (o worktree fica no disco)" : "Excluir paralelo"}
                   side="top"
                 >
                   <button
@@ -1699,7 +1701,7 @@ export function Sidebar() {
                     isOrch && "text-yellow-400",
                   )}>{label}{isOrch && <span className="ml-1 text-[9px] text-yellow-500 font-normal">orq</span>}</span>
                   {floorName && (
-                    <Tooltip label={`Vive no floor "${floorName}"`} side="top" className="shrink-0">
+                    <Tooltip label={`Vive no paralelo "${floorName}"`} side="top" className="shrink-0">
                       <span className="flex items-center gap-0.5 text-[8px] text-textMuted opacity-70 px-1 py-0.5 rounded bg-surface2 max-w-[64px]">
                         <GitBranch size={7} className="shrink-0" />
                         <span className="truncate">{floorName}</span>

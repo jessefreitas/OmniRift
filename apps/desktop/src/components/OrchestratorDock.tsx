@@ -108,7 +108,7 @@ export function OrchestratorDock() {
         {!onOrchFloor && (
           <button
             onClick={() => switchFloor(orch.floor.id)}
-            title="Ir pro floor do Orquestrador"
+            title="Ir pro paralelo do Orquestrador"
             className="p-0.5 rounded hover:bg-bg hover:text-text transition-colors shrink-0"
           >
             <CornerUpRight size={13} />

@@ -69,28 +69,28 @@ Cada agente é um terminal rodando um CLI de IA. Na criação você escolhe um *
 - **Shell (terminal puro)** — só um terminal, sem LLM.
 
 ## O Orquestrador 👑
-É o agente *master* que coordena os outros. Ele usa as tools \`omnirift-agents\` (via MCP) pra **delegar tarefas** aos demais agentes — inclusive em outros *floors*.
+É o agente *master* que coordena os outros. Ele usa as tools \`omnirift-agents\` (via MCP) pra **delegar tarefas** aos demais agentes — inclusive em outros *paralelos*.
 
-- **No floor do Orquestrador**, o terminal dele vive no próprio node — você digita direto.
-- **Em outro floor**, aparece um **dock flutuante** (canto inferior-direito) como controle remoto, pra você falar com ele de qualquer lugar.
+- **No paralelo do Orquestrador**, o terminal dele vive no próprio node — você digita direto.
+- **Em outro paralelo**, aparece um **dock flutuante** (canto inferior-direito) como controle remoto, pra você falar com ele de qualquer lugar.
 
 ## Roles
 Sidebar → *Roles*: edite as personas, crie as suas, ou descubra os \`.claude/agents/\` do projeto.`,
   },
   {
     id: "floors",
-    title: "Floors (= branches git)",
-    body: `# Floors
+    title: "Paralelos (= branches git)",
+    body: `# Paralelos
 
-Um **floor** é uma "tela" separada do canvas — e, quando criado a partir de um repositório, **equivale a uma branch git** (um *worktree* isolado).
+Um **paralelo** é uma "tela" separada do canvas — e, quando criado a partir de um repositório, **equivale a uma branch git** (um *worktree* isolado).
 
-- Cada floor tem seus próprios nodes e seu próprio \`cwd\`.
-- **Floor = branch**: trabalhe em paralelo sem misturar mudanças. O agente de um floor commita na branch daquele floor.
-- Sidebar → *Floors*: crie um floor vazio, ou um floor como **branch git** (worktree).
-- **Quick Jump**: \`Alt+1\`, \`Alt+2\`… pulam entre floors.
-- Veja o **diff** e rode **code review IA** de um floor direto na lista.
+- Cada paralelo tem seus próprios nodes e seu próprio \`cwd\`.
+- **Paralelo = branch**: trabalhe em paralelo sem misturar mudanças. O agente de um paralelo commita na branch daquele paralelo.
+- Sidebar → *Paralelos*: crie um paralelo vazio, ou um paralelo como **branch git** (worktree).
+- **Quick Jump**: \`Alt+1\`, \`Alt+2\`… pulam entre paralelos.
+- Veja o **diff** e rode **code review IA** de um paralelo direto na lista.
 
-Todos os floors ficam vivos ao mesmo tempo (os PTYs/agentes continuam rodando mesmo quando você está olhando outro floor).`,
+Todos os paralelos ficam vivos ao mesmo tempo (os PTYs/agentes continuam rodando mesmo quando você está olhando outro paralelo).`,
   },
   {
     id: "conexoes",
@@ -144,7 +144,7 @@ OmniRift integra um review de IA (BYOK — *bring your own key*):
 
 - **LLM do review** — escolha o modelo e cole **sua chave**. Nada de segredo no binário.
 - **Política de review** — regras de GO/NO-GO: 1+ CRITICAL ou 2+ WARNING bloqueiam.
-- Rode o review de um floor pela lista de *Floors* (diff da branch vs base).
+- Rode o review de um paralelo pela lista de *Paralelos* (diff da branch vs base).
 - Agentes Claude podem receber um **Stop hook** que os impede de encerrar enquanto o review reprovar.
 
 Categorias avaliadas: Segurança, Qualidade, Performance, Testes, Arquitetura, Estilo (estilo nunca bloqueia).`,
@@ -162,7 +162,7 @@ Categorias avaliadas: Segurança, Qualidade, Performance, Testes, Arquitetura, E
 | Seleção múltipla | Shift + arraste |
 | Maximizar node | botão ⤢ no cabeçalho |
 | Restaurar | ESC |
-| Pular entre floors | Alt+1, Alt+2, … |
+| Pular entre paralelos | Alt+1, Alt+2, … |
 | Renomear terminal | duplo-clique no nome |
 | Ajuda do node | ícone ? no cabeçalho |
 

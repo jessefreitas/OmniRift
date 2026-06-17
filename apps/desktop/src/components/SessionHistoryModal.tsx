@@ -101,7 +101,7 @@ export function SessionHistoryModal({ onClose }: Props) {
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="filtrar (role, floor, branch…)"
+            placeholder="filtrar (role, paralelo, branch…)"
             className="w-56 px-2 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand"
           />
           <button onClick={() => void load()} title="Recarregar" className="text-textMuted hover:text-brand p-1">

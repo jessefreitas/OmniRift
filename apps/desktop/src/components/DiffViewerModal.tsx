@@ -95,7 +95,7 @@ export function DiffViewerModal({ floor, onClose }: Props) {
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <FileDiffIcon size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text">Diff do floor</span>
+          <span className="text-sm font-medium text-text">Diff do paralelo</span>
           <span className="text-xs text-textMuted font-mono">
             {floor.branch ?? floor.name} <span className="opacity-50">vs</span> {base}
           </span>

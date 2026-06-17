@@ -31,7 +31,7 @@ export function HooksModal({ onClose }: Props) {
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
           <Webhook size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text flex-1">Hooks do floor</span>
+          <span className="text-sm font-medium text-text flex-1">Hooks do paralelo</span>
           <button onClick={onClose} className="text-textMuted hover:text-text" title="Fechar">
             <X size={16} />
           </button>

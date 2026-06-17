@@ -74,7 +74,7 @@ export function ReviewFixConfirm({ finding, floor, onClose, onDispatched }: Prop
         role: "claude-code",
         label: `fix: ${finding.file.split("/").pop()}`,
       });
-      onDispatched(node.id, `Agente de correção despachado no floor "${floor.name}". O review re-roda sozinho quando ele terminar.`);
+      onDispatched(node.id, `Agente de correção despachado no paralelo "${floor.name}". O review re-roda sozinho quando ele terminar.`);
       onClose();
     } catch (e) {
       setErr(String(e));
@@ -96,7 +96,7 @@ export function ReviewFixConfirm({ finding, floor, onClose, onDispatched }: Prop
           <div className="flex items-start gap-2 rounded-md border border-yellow-400/40 bg-yellow-400/10 px-3 py-2">
             <AlertTriangle size={15} className="text-yellow-300 mt-0.5 shrink-0" />
             <p className="text-[12px] text-yellow-100 leading-snug">
-              Um agente <b>Claude Code</b> vai abrir no floor <b>{floor.branch ?? floor.name}</b> e <b>editar arquivos da branch</b> pra corrigir este achado.
+              Um agente <b>Claude Code</b> vai abrir no paralelo <b>{floor.branch ?? floor.name}</b> e <b>editar arquivos da branch</b> pra corrigir este achado.
               Ele aplica só a correção mínima e re-roda o review. Nada é alterado sem este OK.
             </p>
           </div>

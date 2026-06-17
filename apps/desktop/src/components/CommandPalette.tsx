@@ -64,11 +64,11 @@ export function CommandPalette() {
     ];
     const projFloors = s.floors.filter((f) => f.projectId === s.activeProjectId);
     const floorCmds: Cmd[] = [
-      { id: "newfloor", label: "Novo floor", category: "Floor", run: act(() => s.createFloor(undefined, { focus: true })) },
+      { id: "newfloor", label: "Novo paralelo", category: "Paralelo", run: act(() => s.createFloor(undefined, { focus: true })) },
       ...projFloors.map((f, i) => ({
         id: `floor-${f.id}`,
         label: `Ir para: ${f.name}${i < 9 ? `  ·  Alt+${i + 1}` : ""}`,
-        category: "Floor",
+        category: "Paralelo",
         run: act(() => s.switchFloor(f.id)),
       })),
       ...s.projects.map((p) => ({
@@ -83,7 +83,7 @@ export function CommandPalette() {
     const openCmds: Cmd[] = [
       { id: "open-routines", label: "Abrir: Routines", category: "Abrir", run: openTool("routines") },
       { id: "open-snapshots", label: "Abrir: Snapshots do canvas", category: "Abrir", run: openTool("snapshots") },
-      { id: "open-hooks", label: "Abrir: Hooks do floor", category: "Abrir", run: openTool("hooks") },
+      { id: "open-hooks", label: "Abrir: Hooks do paralelo", category: "Abrir", run: openTool("hooks") },
       { id: "open-memory", label: "Abrir: Memória dos agentes", category: "Abrir", run: openTool("memory") },
       { id: "open-history", label: "Abrir: Histórico de sessões", category: "Abrir", run: openTool("history") },
       { id: "open-connections", label: "Abrir: Conexões de memória", category: "Abrir", run: openTool("connections") },
@@ -129,7 +129,7 @@ export function CommandPalette() {
             value={query}
             onChange={(e) => { setQuery(e.target.value); setSel(0); }}
             onKeyDown={onKey}
-            placeholder="Buscar comando… (criar node, ir pra floor)"
+            placeholder="Buscar comando… (criar node, ir pra paralelo)"
             className="flex-1 bg-transparent text-sm text-text placeholder:text-textMuted focus:outline-none"
           />
           <kbd className="text-[10px] text-textMuted opacity-60 border border-border rounded px-1">esc</kbd>

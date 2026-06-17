@@ -37,7 +37,7 @@ export function CompanionModal({ onClose }: Props) {
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <Sparkles size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text flex-1">Companheiro</span>
+          <span className="text-sm font-medium text-text flex-1">OmniPartner</span>
           <button
             onClick={() => void run()}
             disabled={loading}
@@ -55,7 +55,7 @@ export function CompanionModal({ onClose }: Props) {
             <pre className="text-[12px] text-text whitespace-pre-wrap break-words font-sans leading-relaxed">{out}</pre>
           ) : (
             <p className="text-[12px] text-textMuted opacity-70">
-              Clique em "Analisar canvas" — o Companheiro lê seus agentes, o estado deles e a memória do
+              Clique em "Analisar canvas" — o OmniPartner lê seus agentes, o estado deles e a memória do
               projeto, e sugere os próximos passos. Usa o LLM BYOK (qualquer provider), não fica preso a nuvem.
             </p>
           )}

@@ -395,7 +395,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
               No floor dele, o terminal vive aqui no node (sem dock). */}
           {isOrch && !isFullscreen && !orchOnActiveFloor && (
             <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-bg text-textMuted text-xs pointer-events-none">
-              <Crown size={13} className="text-yellow-500" /> rodando no dock (você está em outro floor) ↗
+              <Crown size={13} className="text-yellow-500" /> rodando no dock (você está em outro paralelo) ↗
             </div>
           )}
           {/* Feedback ao arrastar um arquivo da árvore por cima. */}
