@@ -77,6 +77,42 @@ def suppressed(f, extra=()):
     return any(fpat in fp and any(k in title for k in kws) for fpat, kws in rules)
 
 
+def load_pathrules(base="."):
+    """Regras por path geríveis pela UI (.forgejo/review-pathrules.json)."""
+    try:
+        with open(os.path.join(base, ".forgejo", "review-pathrules.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return []
+
+
+def pathrule_findings(diff_text, rules):
+    """Achados determinísticos por regra de path (exige teste / aviso de path)."""
+    import fnmatch
+    files = [ln[6:] for ln in diff_text.splitlines() if ln.startswith("+++ b/")]
+    out = []
+    for r in rules:
+        glob = (r.get("glob") or "").strip()
+        if not glob:
+            continue
+        sev = r.get("severity") if r.get("severity") in ("CRITICAL", "WARNING", "INFO") else "WARNING"
+        msg = r.get("message") or f"regra de path: {glob}"
+        for f in files:
+            if not fnmatch.fnmatch(f, glob):
+                continue
+            if r.get("requireTest"):
+                fl = f.lower()
+                if "test" in fl or "spec" in fl:
+                    continue  # o próprio arquivo já é um teste
+                base = os.path.splitext(os.path.basename(f))[0].lower()
+                has_test = any(base in t.lower() and ("test" in t.lower() or "spec" in t.lower()) for t in files if t != f)
+                if not has_test:
+                    out.append({"severity": sev, "category": "testing", "file": f, "title": f"{msg} — sem teste correspondente no diff", "suggestion": "Adicione/atualize o teste deste arquivo."})
+            else:
+                out.append({"severity": sev, "category": "quality", "file": f, "title": msg, "suggestion": None})
+    return out
+
+
 def load_config(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -259,6 +295,7 @@ def review(cwd, config_path, base):
         ai, llm_err = ai_review(diff, llm, policy)
         if ai:
             findings += ai
+    findings += pathrule_findings(diff, load_pathrules(cwd))  # regras por path
     findings = [f for f in findings if not suppressed(f, load_extra_suppress(cwd))]  # FPs ACK
     verdict, crit, warn = decide(findings, policy)
     return {"verdict": verdict, "crit": crit, "warn": warn, "findings": findings, "summary": render(findings, verdict, crit, warn), "llmError": llm_err, "policy": policy}
