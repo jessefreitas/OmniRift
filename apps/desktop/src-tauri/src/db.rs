@@ -655,6 +655,9 @@ impl Db {
     }
 
     // ── Histórico de review (Fase 2 — reincidência + tendência) ──────────────
+    /// Teto de runs guardadas por escopo (rotação, igual aos snapshots).
+    const REVIEW_HISTORY_MAX_RUNS: i64 = 50;
+
     pub fn review_history_add(
         &self,
         scope: &str,
@@ -680,6 +683,14 @@ impl Db {
                 )?;
             }
         }
+        // Rotação: mantém só as N runs mais recentes do escopo (descarta as antigas).
+        conn.execute(
+            "DELETE FROM review_history WHERE scope = ?1 AND run_ts NOT IN (
+                 SELECT run_ts FROM review_history WHERE scope = ?1
+                 GROUP BY run_ts ORDER BY run_ts DESC LIMIT ?2
+             )",
+            rusqlite::params![scope, Self::REVIEW_HISTORY_MAX_RUNS],
+        )?;
         Ok(())
     }
 
@@ -907,5 +918,31 @@ mod tests {
         assert!(rows[0].file.is_none());
 
         assert_eq!(db.review_history_list("repoB", 100).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn review_history_rotates_per_scope() {
+        let db = Db::in_memory().unwrap();
+        // Injeta 60 runs antigas com run_ts distintos (direto, p/ controlar o timestamp).
+        {
+            let conn = db.0.lock();
+            for i in 0..60 {
+                conn.execute(
+                    "INSERT INTO review_history (scope, run_ts, verdict) VALUES ('s', ?1, 'GO')",
+                    rusqlite::params![format!("2020-01-01 00:{:02}:00", i)],
+                )
+                .unwrap();
+            }
+        }
+        // Uma nova run (datetime('now') > 2020) dispara a rotação pro teto de 50.
+        db.review_history_add("s", None, Some("GO"), &[]).unwrap();
+
+        let rows = db.review_history_list("s", 10_000).unwrap();
+        let mut runs = std::collections::HashSet::new();
+        for r in &rows {
+            runs.insert(r.run_ts.clone());
+        }
+        assert_eq!(runs.len(), 50, "deve manter só as 50 runs mais recentes do escopo");
+        assert!(!runs.contains("2020-01-01 00:00:00"), "a run mais antiga foi descartada");
     }
 }
