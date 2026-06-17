@@ -41,6 +41,7 @@ import {
   BookOpen,
   Gem,
   Server,
+  Trash2,
   Sparkles,
   TerminalSquare,
   Upload,
@@ -75,6 +76,8 @@ import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { HelpModal } from "@/components/HelpModal";
 import { McpServersModal } from "@/components/McpServersModal";
 import { ClisModal } from "@/components/ClisModal";
+import { clisList, type CliInfo } from "@/lib/clis-client";
+import { loadCustomClis, saveCustomClis, type CustomCli } from "@/lib/custom-clis";
 import { ReviewModal } from "@/components/ReviewModal";
 import { LlmConfigModal } from "@/components/LlmConfigModal";
 import { GitReposModal } from "@/components/GitReposModal";
@@ -133,6 +136,8 @@ interface AgentPreset {
   description: string;
   /** Comando para instalar o CLI (botão de instalação no preset). */
   installCmd?: string;
+  /** true = CLI personalizado do usuário (pode remover). */
+  custom?: boolean;
 }
 
 // Instaladores oficiais dos CLIs (rodados num terminal ao clicar "instalar").
@@ -307,6 +312,11 @@ export function Sidebar() {
   const [showHelp, setShowHelp] = useState(false);
   const [showMcpServers, setShowMcpServers] = useState(false);
   const [showClis, setShowClis] = useState(false);
+  // Lista "Novo agente" automática: CLIs instalados do catálogo + CLIs personalizados.
+  const [catalogClis, setCatalogClis] = useState<CliInfo[]>([]);
+  const [customClis, setCustomClis] = useState<CustomCli[]>(() => loadCustomClis());
+  const [addingCli, setAddingCli] = useState(false);
+  const [newCli, setNewCli] = useState({ label: "", command: "", installCmd: "" });
   const [showConnections, setShowConnections] = useState(false);
   const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
@@ -414,7 +424,13 @@ export function Sidebar() {
   useEffect(() => {
     agentMcpConfig().then(setMcpConfigPath).catch(() => {});
     agentSettingsConfig().then(setSettingsConfigPath).catch(() => {});
+    void clisList().then(setCatalogClis).catch(() => {});
   }, []);
+
+  // Recarrega o catálogo quando o modal de CLIs fecha (pega o que foi instalado lá).
+  useEffect(() => {
+    if (!showClis) void clisList().then(setCatalogClis).catch(() => {});
+  }, [showClis]);
 
   // Lista specs/plans do projeto (default + raízes extras do usuário).
   const loadSpecs = useCallback(() => {
@@ -614,6 +630,54 @@ export function Sidebar() {
       ];
     }
     return preset.args;
+  }
+
+  // Lista "Novo agente" = presets curados + CLIs INSTALADOS do catálogo (que não
+  // já são preset) + CLIs personalizados. Instalou um CLI → aparece aqui sozinho.
+  const agentList: AgentPreset[] = (() => {
+    const presetIds = new Set(PRESETS.map((p) => p.id));
+    const extras: AgentPreset[] = catalogClis
+      .filter((c) => c.installed && !presetIds.has(c.id))
+      .map((c) => ({
+        id: c.id,
+        label: c.label,
+        command: c.binary,
+        role: "custom",
+        icon: Bot,
+        description: c.description,
+      }));
+    const custom: AgentPreset[] = customClis.map((c) => ({
+      id: `custom:${c.id}`,
+      label: c.label,
+      command: c.command,
+      role: "custom",
+      icon: TerminalSquare,
+      description: c.installCmd ? `personalizado · ${c.command}` : c.command,
+      installCmd: c.installCmd,
+      custom: true,
+    }));
+    return [...PRESETS, ...extras, ...custom];
+  })();
+
+  function saveNewCli() {
+    const label = newCli.label.trim();
+    const command = newCli.command.trim();
+    if (!label || !command) return;
+    const next = [
+      ...customClis,
+      { id: nanoid(), label, command, installCmd: newCli.installCmd.trim() || undefined },
+    ];
+    setCustomClis(next);
+    saveCustomClis(next);
+    setNewCli({ label: "", command: "", installCmd: "" });
+    setAddingCli(false);
+  }
+
+  function removeCustomCli(presetId: string) {
+    const id = presetId.replace(/^custom:/, "");
+    const next = customClis.filter((c) => c.id !== id);
+    setCustomClis(next);
+    saveCustomClis(next);
   }
 
   // Cria um floor git-backed: nova branch num worktree isolado (agentes paralelos
@@ -1245,10 +1309,61 @@ export function Sidebar() {
         style={secStyle("agents")}
         className="px-2 py-3 space-y-1 shrink-0"
       >
-        <div className="px-2 mb-1 sticky -top-3 z-10 bg-surface1 pt-3 pb-1">{sectionTitle("agents", "Novo agente")}</div>
+        <div className="px-2 mb-1 sticky -top-3 z-10 bg-surface1 pt-3 pb-1 flex items-center justify-between">
+          {sectionTitle("agents", "Novo agente")}
+          {isOpen("agents") && (
+            <Tooltip label="Adicionar um CLI personalizado" side="bottom">
+              <button
+                onClick={() => setAddingCli((a) => !a)}
+                className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
+              >
+                <Plus size={12} />
+              </button>
+            </Tooltip>
+          )}
+        </div>
+
+        {isOpen("agents") && addingCli && (
+          <div className="mx-2 mb-1 p-2 rounded-md border border-border bg-surface2 space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wide text-textMuted px-0.5">CLI personalizado</div>
+            <input
+              value={newCli.label}
+              onChange={(e) => setNewCli((s) => ({ ...s, label: e.target.value }))}
+              placeholder="Nome (ex: MeuCLI)"
+              className="w-full px-2 py-1 text-xs rounded bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none"
+            />
+            <input
+              value={newCli.command}
+              onChange={(e) => setNewCli((s) => ({ ...s, command: e.target.value }))}
+              placeholder="Comando (ex: mycli)"
+              className="w-full px-2 py-1 text-xs rounded bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none font-mono"
+            />
+            <input
+              value={newCli.installCmd}
+              onChange={(e) => setNewCli((s) => ({ ...s, installCmd: e.target.value }))}
+              placeholder="Instalação (opcional, ex: npm i -g mycli)"
+              className="w-full px-2 py-1 text-xs rounded bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none font-mono"
+            />
+            <div className="flex items-center justify-end gap-1.5 pt-0.5">
+              <button
+                onClick={() => { setAddingCli(false); setNewCli({ label: "", command: "", installCmd: "" }); }}
+                className="px-2 py-1 text-[11px] text-textMuted hover:text-text"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveNewCli}
+                disabled={!newCli.label.trim() || !newCli.command.trim()}
+                className="px-2 py-1 text-[11px] rounded bg-brand text-bg hover:bg-brand-hover disabled:opacity-40"
+              >
+                Adicionar
+              </button>
+            </div>
+          </div>
+        )}
 
         {isOpen("agents") &&
-          PRESETS.map((preset) => {
+          agentList.map((preset) => {
           const Icon = preset.icon;
           return (
             <div
@@ -1289,6 +1404,16 @@ export function Sidebar() {
                     className="px-2 py-2 text-textMuted hover:text-brand opacity-0 group-hover:opacity-100 transition-all"
                   >
                     <Download size={13} />
+                  </button>
+                </Tooltip>
+              )}
+              {preset.custom && (
+                <Tooltip label="Remover este CLI personalizado" side="top" className="shrink-0">
+                  <button
+                    onClick={() => removeCustomCli(preset.id)}
+                    className="px-2 py-2 text-textMuted hover:text-danger opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    <Trash2 size={13} />
                   </button>
                 </Tooltip>
               )}
