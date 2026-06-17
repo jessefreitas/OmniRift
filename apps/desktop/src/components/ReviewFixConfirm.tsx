@@ -21,7 +21,7 @@ interface Props {
   finding: Finding;
   floor: Floor;
   onClose: () => void;
-  onDispatched: (msg: string) => void;
+  onDispatched: (terminalId: string, msg: string) => void;
 }
 
 /** Prompt cirúrgico do agente de correção — só esse achado, mínima mudança. */
@@ -68,13 +68,13 @@ export function ReviewFixConfirm({ finding, floor, onClose, onDispatched }: Prop
       const store = useCanvasStore.getState();
       // Garante que o agente nasça no floor revisado (cwd = worktree da branch).
       store.switchFloor(floor.id);
-      store.addTerminal({
+      const node = store.addTerminal({
         command: claude?.command ?? "claude",
         args: [...workerClaudeArgs(mcpPath, undefined, settingsPath), prompt],
         role: "claude-code",
         label: `fix: ${finding.file.split("/").pop()}`,
       });
-      onDispatched(`Agente de correção despachado no floor "${floor.name}". Quando ele terminar (e auto-revisar), rode o review de novo (↻).`);
+      onDispatched(node.id, `Agente de correção despachado no floor "${floor.name}". O review re-roda sozinho quando ele terminar.`);
       onClose();
     } catch (e) {
       setErr(String(e));

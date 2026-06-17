@@ -3,7 +3,7 @@
 // Painel de Code Review de um floor: roda runReview (diff → LLM → findings),
 // mostra agrupado por severidade + veredito GO/NO-GO. Read-only.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight, ExternalLink, EyeOff, History, RefreshCw, ScanLine, Settings2, Sliders, Wand2, X } from "lucide-react";
 
@@ -15,6 +15,7 @@ import { reviewSuppressRead, reviewSuppressWrite } from "@/lib/review-meta-clien
 import { detectEditors, loadPreferredEditor, openInEditor } from "@/lib/editor-client";
 import { ReviewSnippet } from "@/components/ReviewSnippet";
 import { ReviewFixConfirm } from "@/components/ReviewFixConfirm";
+import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
 import type { Floor } from "@/types/workspace";
 
@@ -54,6 +55,10 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
   const [editorCmd, setEditorCmd] = useState<string | null>(null);
   const [fixing, setFixing] = useState<Finding | null>(null);
   const [dispatchNote, setDispatchNote] = useState<string | null>(null);
+  const [fixingAgentId, setFixingAgentId] = useState<string | null>(null);
+  // Status do agente de auto-fix despachado — pra re-revisar sozinho quando ele terminar.
+  const fixAgentStatus = useCanvasStore((s) => (fixingAgentId ? s.terminalStatuses[fixingAgentId] : undefined));
+  const fixBusyRef = useRef(false);
 
   useEffect(() => { reviewHistoryList(scope).then(setHistory).catch(() => {}); }, [scope]);
 
@@ -103,6 +108,21 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (config) void run(); }, []);
+
+  // Re-review automático: quando o agente de auto-fix termina (idle/done depois de
+  // ter trabalhado), roda o review de novo. "dead" só limpa o watch.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!fixingAgentId) { fixBusyRef.current = false; return; }
+    if (fixAgentStatus === "working") fixBusyRef.current = true;
+    else if (fixAgentStatus === "dead") { setFixingAgentId(null); fixBusyRef.current = false; }
+    else if (fixBusyRef.current && (fixAgentStatus === "done" || fixAgentStatus === "idle")) {
+      fixBusyRef.current = false;
+      setFixingAgentId(null);
+      setDispatchNote("Agente de correção terminou — re-revisando…");
+      void run();
+    }
+  }, [fixAgentStatus, fixingAgentId]);
 
   const all: Finding[] = result ? [...result.preflight, ...result.findings].filter((f) => !dismissed.has(fkey(f))) : [];
   const grouped = SEV_ORDER.map((s) => ({ sev: s, items: all.filter((f) => f.severity === s) })).filter((g) => g.items.length);
@@ -231,7 +251,7 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
             finding={fixing}
             floor={floor}
             onClose={() => setFixing(null)}
-            onDispatched={(msg) => setDispatchNote(msg)}
+            onDispatched={(id, msg) => { setFixingAgentId(id); setDispatchNote(msg); }}
           />
         )}
       </div>
