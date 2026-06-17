@@ -17,6 +17,14 @@ interface Props {
   onClose: () => void;
 }
 
+// Presets de rigor: aplicam thresholds + quais categorias bloqueiam + coverage
+// (template inicial — tudo editável depois).
+const PRESETS: { id: string; label: string; block: string[]; maxCritical: number; maxWarning: number; coverage: number }[] = [
+  { id: "frouxo", label: "Frouxo", block: ["security"], maxCritical: 0, maxWarning: 5, coverage: 60 },
+  { id: "padrao", label: "Padrão", block: ["security"], maxCritical: 0, maxWarning: 1, coverage: 80 },
+  { id: "rigido", label: "Rígido", block: ["security", "quality"], maxCritical: 0, maxWarning: 0, coverage: 90 },
+];
+
 export function ReviewPolicyModal({ scope, scopeLabel, onClose }: Props) {
   const [p, setP] = useState<ReviewPolicy>(() => loadPolicy(scope));
 
@@ -26,6 +34,17 @@ export function ReviewPolicyModal({ scope, scopeLabel, onClose }: Props) {
   const addCat = () =>
     setP((cur) => ({ ...cur, categories: [...cur.categories, { key: `cat${cur.categories.length}`, label: "Nova", weight: 3, blocking: false }] }));
   const delCat = (i: number) => setP((cur) => ({ ...cur, categories: cur.categories.filter((_, j) => j !== i) }));
+
+  function applyPreset(id: string) {
+    const pr = PRESETS.find((x) => x.id === id);
+    if (!pr) return;
+    setP((cur) => ({
+      ...cur,
+      thresholds: { maxCritical: pr.maxCritical, maxWarning: pr.maxWarning },
+      coverage: pr.coverage,
+      categories: cur.categories.map((c) => ({ ...c, blocking: pr.block.includes(c.key) })),
+    }));
+  }
 
   const num = (v: string): number | undefined => (v.trim() === "" ? undefined : Number(v));
 
@@ -60,6 +79,17 @@ export function ReviewPolicyModal({ scope, scopeLabel, onClose }: Props) {
                 <option value="off">desligado</option>
               </select>
             </label>
+          </div>
+
+          {/* Presets de rigor */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] uppercase tracking-wider text-textMuted">Preset</span>
+            {PRESETS.map((pr) => (
+              <button key={pr.id} onClick={() => applyPreset(pr.id)} className="px-2 py-0.5 rounded text-[11px] border border-border text-textMuted hover:text-brand hover:border-brand transition-colors">
+                {pr.label}
+              </button>
+            ))}
+            <span className="text-[10px] text-textMuted opacity-50">aplica thresholds + o que bloqueia (editável depois)</span>
           </div>
 
           {/* Categorias (métricas) */}
