@@ -81,6 +81,13 @@ export function GitReposModal({ onClose }: Props) {
     }
   }
 
+  const tokenHint =
+    kind === "github"
+      ? "Crie o token em github.com/settings/tokens (escopo: repo)"
+      : kind === "gitlab"
+        ? "Crie o token em gitlab.com → Access Tokens (escopos: read_api, read_repository)"
+        : "Crie no seu Forgejo/Gitea → Settings → Applications (escopo: repo)";
+
   const shown = filter.trim()
     ? repos.filter((r) => r.fullName.toLowerCase().includes(filter.trim().toLowerCase()))
     : repos;
@@ -112,6 +119,7 @@ export function GitReposModal({ onClose }: Props) {
             </button>
           </div>
           {error && <p className="text-[11px] text-danger break-words">{error}</p>}
+          <p className="text-[10px] text-textMuted opacity-60">🔑 {tokenHint}</p>
         </div>
 
         {/* Lista de repos */}

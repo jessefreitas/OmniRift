@@ -33,20 +33,27 @@ pub async fn git_list_repos(kind: String, base_url: String, token: String) -> Re
     if token.is_empty() {
         return Err("token vazio".into());
     }
-    let (url, auth) = match kind.as_str() {
+    let (url, auth_header, auth_value) = match kind.as_str() {
         "github" => (
             "https://api.github.com/user/repos?per_page=100&sort=updated".to_string(),
+            "Authorization",
             format!("Bearer {token}"),
+        ),
+        "gitlab" => (
+            format!("{}/api/v4/projects?membership=true&per_page=100&order_by=last_activity_at", base_url.trim_end_matches('/')),
+            "PRIVATE-TOKEN",
+            token.clone(),
         ),
         // forgejo / gitea
         _ => (
             format!("{}/api/v1/repos/search?limit=50&exclusive=false", base_url.trim_end_matches('/')),
+            "Authorization",
             format!("token {token}"),
         ),
     };
     let resp = http()
         .get(&url)
-        .header("Authorization", auth)
+        .header(auth_header, auth_value)
         .header("Accept", "application/json")
         .send()
         .await
@@ -57,15 +64,24 @@ pub async fn git_list_repos(kind: String, base_url: String, token: String) -> Re
         return Err(format!("{kind} retornou {status}: {}", text.chars().take(200).collect::<String>()));
     }
     let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("resposta não-JSON: {e}"))?;
-    // GitHub: array no topo. Forgejo search: { data: [...] }.
+    // GitHub/GitLab: array no topo. Forgejo search: { data: [...] }.
     let arr = v.as_array().cloned().or_else(|| v.get("data").and_then(|x| x.as_array().cloned())).unwrap_or_default();
+    let gitlab = kind == "gitlab"; // GitLab usa nomes de campo próprios.
     let repos = arr
         .iter()
         .map(|r| RemoteRepo {
             name: r.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-            full_name: r.get("full_name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-            clone_url: r.get("clone_url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-            private: r.get("private").and_then(|x| x.as_bool()).unwrap_or(false),
+            full_name: r
+                .get(if gitlab { "path_with_namespace" } else { "full_name" })
+                .and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            clone_url: r
+                .get(if gitlab { "http_url_to_repo" } else { "clone_url" })
+                .and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            private: if gitlab {
+                r.get("visibility").and_then(|x| x.as_str()).map(|vis| vis != "public").unwrap_or(true)
+            } else {
+                r.get("private").and_then(|x| x.as_bool()).unwrap_or(false)
+            },
             description: r.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string(),
             default_branch: r.get("default_branch").and_then(|x| x.as_str()).unwrap_or("main").to_string(),
         })

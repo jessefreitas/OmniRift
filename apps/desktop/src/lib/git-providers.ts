@@ -6,7 +6,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-export type GitProviderKind = "github" | "forgejo";
+export type GitProviderKind = "github" | "forgejo" | "gitlab";
 
 export interface GitProviderConfig {
   kind: GitProviderKind;
@@ -34,6 +34,7 @@ export async function gitClone(cloneUrl: string, destDir: string, token?: string
 
 export const GIT_PRESETS: { id: string; label: string; kind: GitProviderKind; baseUrl: string }[] = [
   { id: "github", label: "GitHub", kind: "github", baseUrl: "https://api.github.com" },
+  { id: "gitlab", label: "GitLab", kind: "gitlab", baseUrl: "https://gitlab.com" },
   { id: "forgejo-omni", label: "Forgejo (omnimemory)", kind: "forgejo", baseUrl: "https://git.omnimemory.com.br" },
   { id: "forgejo", label: "Forgejo / Gitea (custom)", kind: "forgejo", baseUrl: "" },
 ];
