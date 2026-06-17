@@ -72,3 +72,48 @@ pub fn agent_settings_config(app: tauri::AppHandle) -> Option<String> {
     std::fs::write(&path, serde_json::to_string_pretty(&settings).ok()?).ok()?;
     Some(path.to_string_lossy().into_owned())
 }
+
+// ── Contexto de design + supressões do reviewer (committed em <projeto>/.forgejo) ──
+// Lidos pelos scripts de review (CI e local) pra evitar falso-positivo; editáveis
+// na tela "Política de Review".
+
+fn forgejo_dir(dir: &str) -> PathBuf {
+    std::path::Path::new(dir).join(".forgejo")
+}
+
+#[tauri::command]
+pub fn review_context_read(dir: String) -> String {
+    std::fs::read_to_string(forgejo_dir(&dir).join("review-context.md")).unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn review_context_write(dir: String, content: String) -> Result<(), String> {
+    let d = forgejo_dir(&dir);
+    std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+    std::fs::write(d.join("review-context.md"), content).map_err(|e| e.to_string())
+}
+
+/// Regra de supressão de achado reconhecido (accepted-risk).
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SuppressRule {
+    pub file: String,
+    pub keywords: Vec<String>,
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[tauri::command]
+pub fn review_suppress_read(dir: String) -> Vec<SuppressRule> {
+    std::fs::read_to_string(forgejo_dir(&dir).join("review-suppress.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn review_suppress_write(dir: String, rules: Vec<SuppressRule>) -> Result<(), String> {
+    let d = forgejo_dir(&dir);
+    std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(&rules).map_err(|e| e.to_string())?;
+    std::fs::write(d.join("review-suppress.json"), json).map_err(|e| e.to_string())
+}

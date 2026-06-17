@@ -73,10 +73,21 @@ SUPPRESS = [
 ]
 
 
-def suppressed(f):
+def load_extra_suppress(base="."):
+    """Regras de supressão geríveis pela UI (.forgejo/review-suppress.json)."""
+    try:
+        with open(os.path.join(base, ".forgejo", "review-suppress.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+        return [(r.get("file", "").lower(), [k.lower() for k in r.get("keywords", [])]) for r in data if r.get("file")]
+    except Exception:
+        return []
+
+
+def suppressed(f, extra=()):
     fp = (f.get("file") or "").lower()
     title = (f.get("title") or "").lower()
-    return any(fpat in fp and any(k in title for k in kws) for fpat, kws in SUPPRESS)
+    rules = SUPPRESS + list(extra)
+    return any(fpat in fp and any(k in title for k in kws) for fpat, kws in rules)
 
 
 def preflight(diff_text):
@@ -223,7 +234,7 @@ def main():
     ai = ai_review(diff, key) if key else None
     if ai is not None:
         findings += ai
-    findings = [f for f in findings if not suppressed(f)]  # tira os falso-positivos ACK
+    findings = [f for f in findings if not suppressed(f, load_extra_suppress("."))]  # FPs ACK
     verdict, crit, warn = decide(findings)
     body = render(findings, verdict, crit, warn)
     print(body)
