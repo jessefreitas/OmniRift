@@ -4,17 +4,31 @@
 use super::provider::Compressor;
 use super::types::{CliFamily, CompressorKind, DetectStatus, SpawnDecoration};
 
-// Fork do Jesse (jessefreitas/headroom) — instala direto do git com os extras [all].
+// Upstream chopratejas/headroom via git, com os extras [all]. `python3 -m pip`
+// em vez de `pip` cru (mais confiável — muitos sistemas só têm pip3/python3).
 const INSTALL_HINT: &str =
-    "pip install \"headroom-ai[all] @ git+https://github.com/jessefreitas/headroom.git\"";
+    "python3 -m pip install \"headroom-ai[all] @ git+https://github.com/chopratejas/headroom.git\"";
 
-fn cmd_in_path(cmd: &str) -> bool {
+/// Disponível no PATH (which/where) OU nos dirs comuns de install do pip
+/// (~/.local/bin), resolvendo o caso de não estar no PATH do processo do app.
+fn cmd_available(cmd: &str) -> bool {
     let finder = if cfg!(windows) { "where" } else { "which" };
-    std::process::Command::new(finder)
+    let in_path = std::process::Command::new(finder)
         .arg(cmd)
         .output()
         .map(|o| o.status.success())
-        .unwrap_or(false)
+        .unwrap_or(false);
+    if in_path {
+        return true;
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        for sub in [".local/bin", "bin"] {
+            if std::path::Path::new(&format!("{home}/{sub}/{cmd}")).exists() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub struct HeadroomProvider;
@@ -25,7 +39,7 @@ impl Compressor for HeadroomProvider {
     }
 
     fn detect(&self) -> DetectStatus {
-        let installed = cmd_in_path("headroom");
+        let installed = cmd_available("headroom");
         let version = if installed {
             std::process::Command::new("headroom")
                 .arg("--version")

@@ -5,16 +5,32 @@
 use super::provider::Compressor;
 use super::types::{CliFamily, CompressorKind, DetectStatus, SpawnDecoration};
 
-const INSTALL_HINT: &str = "cargo install --git https://github.com/rtk-ai/rtk";
+// Quick-install (binário pronto, ~/.local/bin) — não compila do zero como o
+// `cargo install --git` (que é lento e pode quebrar por deps de build).
+const INSTALL_HINT: &str =
+    "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh";
 
-/// O comando está no PATH? Cross-platform (where no Windows, which no resto).
-fn cmd_in_path(cmd: &str) -> bool {
+/// Está disponível? PATH (which/where) OU nos dirs comuns de install
+/// (~/.local/bin do quick-install, ~/.cargo/bin do cargo install). Resolve o caso
+/// de instalar e o binário não estar no PATH do processo do app.
+fn cmd_available(cmd: &str) -> bool {
     let finder = if cfg!(windows) { "where" } else { "which" };
-    std::process::Command::new(finder)
+    let in_path = std::process::Command::new(finder)
         .arg(cmd)
         .output()
         .map(|o| o.status.success())
-        .unwrap_or(false)
+        .unwrap_or(false);
+    if in_path {
+        return true;
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        for sub in [".local/bin", ".cargo/bin", "bin"] {
+            if std::path::Path::new(&format!("{home}/{sub}/{cmd}")).exists() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub struct RtkProvider;
@@ -25,7 +41,7 @@ impl Compressor for RtkProvider {
     }
 
     fn detect(&self) -> DetectStatus {
-        let installed = cmd_in_path("rtk");
+        let installed = cmd_available("rtk");
         let version = if installed {
             std::process::Command::new("rtk")
                 .arg("--version")
@@ -74,7 +90,7 @@ mod tests {
     #[test]
     fn rtk_detect_has_install_hint() {
         let d = RtkProvider.detect();
-        assert!(d.install_hint.contains("cargo install"), "BYO: traz a dica de install");
+        assert!(d.install_hint.contains("rtk-ai/rtk"), "BYO: traz a dica de install (repo do RTK)");
         // Nesta máquina o rtk não está instalado → installed=false (degrada, não quebra).
     }
 }
