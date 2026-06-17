@@ -4,7 +4,8 @@
 // um criador do store; o node nasce numa posição default e o usuário arrasta.
 
 import type { LucideIcon } from "lucide-react";
-import { Braces, Database, FileText, FolderTree, Frame, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench } from "lucide-react";
+import { Braces, Database, FileCode2, FileText, FolderTree, Frame, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { Tooltip } from "@/components/Tooltip";
@@ -46,7 +47,13 @@ export function CanvasToolbar() {
   const addJsonNode = useCanvasStore((s) => s.addJsonNode);
   const addExplainNode = useCanvasStore((s) => s.addExplainNode);
   const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
+  const addCodeNode = useCanvasStore((s) => s.addCodeNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
+
+  async function pickAndAddCode() {
+    const sel = await open({ multiple: false, defaultPath: currentCwd ?? undefined });
+    if (typeof sel === "string") addCodeNode({ filePath: sel });
+  }
 
   return (
     <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-0.5 px-1.5 py-1 rounded-xl bg-surface2/90 backdrop-blur border border-border shadow-lg">
@@ -71,6 +78,7 @@ export function CanvasToolbar() {
       <ToolBtn label="JSON (formatar + árvore)" icon={Braces} onClick={() => addJsonNode()} />
       <ToolBtn label="explainshell (explica comandos)" icon={ScrollText} onClick={() => addExplainNode()} />
       <ToolBtn label="Preview (.md / .html)" icon={FileText} onClick={() => addPreviewNode()} />
+      <ToolBtn label="Código (editor Monaco)" icon={FileCode2} onClick={() => void pickAndAddCode()} />
     </div>
   );
 }

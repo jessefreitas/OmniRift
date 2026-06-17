@@ -17,7 +17,8 @@ export type NodeKind =
   | "devtools"
   | "json"
   | "explain"
-  | "preview";
+  | "preview"
+  | "code";
 
 export interface BaseCanvasNode {
   id: string;
@@ -119,6 +120,12 @@ export interface PreviewNode extends BaseCanvasNode {
   path: string;
 }
 
+export interface CodeNode extends BaseCanvasNode {
+  kind: "code";
+  /** Caminho do arquivo aberto no editor Monaco. */
+  filePath: string;
+}
+
 export type CanvasNode =
   | TerminalNode
   | NoteNode
@@ -131,7 +138,8 @@ export type CanvasNode =
   | DevToolsNode
   | JsonNode
   | ExplainNode
-  | PreviewNode;
+  | PreviewNode
+  | CodeNode;
 
 /**
  * Patch parcial pra `patchNode` — todos os campos editáveis de qualquer node,
@@ -159,6 +167,7 @@ export interface CanvasNodePatch {
   input?: string;
   text?: string;
   path?: string;
+  filePath?: string;
   comment?: string;
 }
 

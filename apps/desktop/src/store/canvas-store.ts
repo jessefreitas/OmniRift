@@ -5,6 +5,7 @@ import type {
   CanvasEdge,
   CanvasNode,
   CanvasNodePatch,
+  CodeNode,
   DbNode,
   DevToolsNode,
   ExplainNode,
@@ -73,6 +74,7 @@ interface CanvasState {
   addJsonNode: (params?: { text?: string; position?: { x: number; y: number } }) => JsonNode;
   addExplainNode: (params?: { command?: string; position?: { x: number; y: number } }) => ExplainNode;
   addPreviewNode: (params?: { path?: string; position?: { x: number; y: number } }) => PreviewNode;
+  addCodeNode: (params: { filePath: string; position?: { x: number; y: number } }) => CodeNode;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
   reparentNode: (nodeId: string, parentId: string | null) => void;
@@ -378,6 +380,18 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       path: path ?? "",
       position: position ?? defaultPosition(),
       size: { width: 520, height: 460 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addCodeNode: ({ filePath, position }) => {
+    const node: CodeNode = {
+      id: nanoid(),
+      kind: "code",
+      filePath,
+      position: position ?? defaultPosition(),
+      size: { width: 800, height: 560 },
     };
     set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;

@@ -33,6 +33,7 @@ import { DevToolsNode } from "@/components/nodes/DevToolsNode";
 import { JsonNode } from "@/components/nodes/JsonNode";
 import { ExplainShellNode } from "@/components/nodes/ExplainShellNode";
 import { PreviewNode } from "@/components/nodes/PreviewNode";
+import { CodeNode } from "@/components/nodes/CodeNode";
 import { useCanvasStore } from "@/store/canvas-store";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
 import type { CanvasNode } from "@/types/canvas";
@@ -59,6 +60,7 @@ const nodeTypes = {
   json: JsonNode,
   explain: ExplainShellNode,
   preview: PreviewNode,
+  code: CodeNode,
 };
 
 /** Cor de cada node no minimap, por tipo — pra dar pra "ler" o canvas de longe. */
@@ -74,6 +76,7 @@ const MINIMAP_COLORS: Record<string, string> = {
   devtools: "rgb(250, 204, 21)",
   json: "rgb(96, 165, 250)",
   explain: "rgb(148, 163, 184)",
+  code: "rgb(96, 165, 250)",
 };
 function miniMapNodeColor(n: Node): string {
   return MINIMAP_COLORS[n.type ?? ""] ?? "rgb(120, 120, 130)";
