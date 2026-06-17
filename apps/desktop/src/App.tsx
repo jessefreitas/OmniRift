@@ -3,6 +3,7 @@ import { Canvas } from "@/components/Canvas";
 import { Sidebar } from "@/components/Sidebar";
 import { ProjectTabs } from "@/components/ProjectTabs";
 import { ResourceChip } from "@/components/ResourceChip";
+import { ResourcePanel } from "@/components/ResourcePanel";
 import { initOrchestrationBridge } from "@/lib/orchestration-client";
 import { initPersistence } from "@/lib/persistence-client";
 import { initResourceStore } from "@/store/resource-store";
@@ -74,6 +75,7 @@ export default function App() {
         </div>
       </main>
       <ResourceChip />
+      <ResourcePanel />
     </div>
   );
 }
