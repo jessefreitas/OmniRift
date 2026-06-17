@@ -45,7 +45,7 @@ impl ObsidianProvider {
 fn slug(s: &str) -> String {
     let cleaned: String = s
         .chars()
-        .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
         .collect();
     cleaned.trim_matches('-').chars().take(40).collect()
 }

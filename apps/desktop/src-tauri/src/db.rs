@@ -86,6 +86,18 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
     enabled     INTEGER NOT NULL DEFAULT 1,
     updated_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS review_history (
+    id        INTEGER PRIMARY KEY,
+    scope     TEXT NOT NULL,
+    run_ts    TEXT NOT NULL,
+    sha       TEXT,
+    verdict   TEXT,
+    file      TEXT,
+    category  TEXT,
+    severity  TEXT,
+    title     TEXT
+);
 ";
 
 /// Metadados de um snapshot do canvas (sem o doc, pra listagem leve).
@@ -158,6 +170,29 @@ pub struct McpServerRow {
     #[serde(skip_serializing)]
     pub spec_enc: String,
     pub enabled: bool,
+}
+
+/// Item de finding gravado no histórico de review (entrada da add).
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewHistItem {
+    pub file: String,
+    pub category: String,
+    pub severity: String,
+    pub title: String,
+}
+
+/// Linha do histórico de review (saída).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewHistRow {
+    pub run_ts: String,
+    pub sha: Option<String>,
+    pub verdict: Option<String>,
+    pub file: Option<String>,
+    pub category: Option<String>,
+    pub severity: Option<String>,
+    pub title: Option<String>,
 }
 
 /// Metadados de início de uma sessão de agente (PTY).
@@ -619,6 +654,57 @@ impl Db {
         Ok(())
     }
 
+    // ── Histórico de review (Fase 2 — reincidência + tendência) ──────────────
+    pub fn review_history_add(
+        &self,
+        scope: &str,
+        sha: Option<&str>,
+        verdict: Option<&str>,
+        items: &[ReviewHistItem],
+    ) -> Result<()> {
+        let conn = self.0.lock();
+        // run_ts único pro batch inteiro → agrupa os findings da mesma run.
+        let run_ts: String = conn.query_row("SELECT datetime('now')", [], |r| r.get(0))?;
+        if items.is_empty() {
+            // run sem achados: grava 1 linha-marcador (file NULL) pra contar a run.
+            conn.execute(
+                "INSERT INTO review_history (scope, run_ts, sha, verdict) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![scope, run_ts, sha, verdict],
+            )?;
+        } else {
+            for it in items {
+                conn.execute(
+                    "INSERT INTO review_history (scope, run_ts, sha, verdict, file, category, severity, title)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    rusqlite::params![scope, run_ts, sha, verdict, it.file, it.category, it.severity, it.title],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn review_history_list(&self, scope: &str, limit: i64) -> Result<Vec<ReviewHistRow>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT run_ts, sha, verdict, file, category, severity, title FROM review_history
+             WHERE scope = ?1 ORDER BY id DESC LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![scope, limit], |r| {
+                Ok(ReviewHistRow {
+                    run_ts: r.get(0)?,
+                    sha: r.get(1)?,
+                    verdict: r.get(2)?,
+                    file: r.get(3)?,
+                    category: r.get(4)?,
+                    severity: r.get(5)?,
+                    title: r.get(6)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     #[cfg(test)]
     fn in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
@@ -794,5 +880,32 @@ mod tests {
         // UPSERT: segundo save sobrescreve o mesmo row.
         db.save(r#"{"version":2,"name":"x"}"#).unwrap();
         assert_eq!(db.load().unwrap().as_deref(), Some(r#"{"version":2,"name":"x"}"#));
+    }
+
+    #[test]
+    fn review_history_roundtrip_and_marker() {
+        let db = Db::in_memory().unwrap();
+        let item = |f: &str, t: &str| ReviewHistItem {
+            file: f.into(),
+            category: "security".into(),
+            severity: "WARNING".into(),
+            title: t.into(),
+        };
+
+        // Run com 2 achados.
+        db.review_history_add("repoA", Some("sha1"), Some("NO-GO"), &[item("a.rs", "leak"), item("b.rs", "todo")])
+            .unwrap();
+        // Run limpa → grava 1 linha-marcador (file NULL).
+        db.review_history_add("repoA", Some("sha2"), Some("GO"), &[]).unwrap();
+        // Escopo diferente não vaza.
+        db.review_history_add("repoB", None, Some("GO"), &[item("z.rs", "x")]).unwrap();
+
+        let rows = db.review_history_list("repoA", 100).unwrap();
+        assert_eq!(rows.len(), 3); // 2 findings + 1 marcador
+        // Mais novo primeiro: a linha-marcador (sha2) vem antes.
+        assert_eq!(rows[0].sha.as_deref(), Some("sha2"));
+        assert!(rows[0].file.is_none());
+
+        assert_eq!(db.review_history_list("repoB", 100).unwrap().len(), 1);
     }
 }

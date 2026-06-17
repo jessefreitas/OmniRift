@@ -23,6 +23,7 @@ use commands::review_cfg::{
     review_context_write, review_pathrules_read, review_pathrules_write, review_suppress_read,
     review_suppress_write,
 };
+use commands::review_history::{review_history_add, review_history_list};
 use commands::mcp_servers::{
     mcp_server_remove, mcp_server_set_enabled, mcp_server_upsert, mcp_servers_list,
 };
@@ -205,6 +206,8 @@ pub fn run() {
             review_suppress_write,
             review_pathrules_read,
             review_pathrules_write,
+            review_history_add,
+            review_history_list,
             serena_ensure_project,
             scheduler_install,
             scheduler_uninstall,
