@@ -9,6 +9,7 @@ pub mod local;
 pub mod omnimemory;
 pub mod obsidian;
 pub mod registry;
+pub mod secret_store;
 
 pub use local::LocalProvider;
 pub use obsidian::ObsidianProvider;
