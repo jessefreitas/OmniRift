@@ -251,6 +251,7 @@ export function Sidebar() {
   const setCurrentCwd = useCanvasStore((s) => s.setCurrentCwd);
   const workspaceName = useCanvasStore((s) => s.workspaceName);
   const closeFolder = useCanvasStore((s) => s.closeFolder);
+  const dirtyFiles = useCanvasStore((s) => s.dirtyFiles);
   const [closingFolder, setClosingFolder] = useState(false);
   const getWorkspaceSnapshot = useCanvasStore((s) => s.getWorkspaceSnapshot);
   const restoreWorkspace = useCanvasStore((s) => s.restoreWorkspace);
@@ -1734,6 +1735,14 @@ export function Sidebar() {
             <p className="px-4 py-3 text-[12px] text-textMuted leading-snug">
               Os <b className="text-text">agentes/terminais</b> abertos serão fechados e o canvas deste projeto será limpo. Quer salvar antes?
             </p>
+            {dirtyFiles.size > 0 && (
+              <div className="mx-4 mb-1 px-3 py-2 rounded-md border border-yellow-400/40 bg-yellow-400/10 text-[11px] text-yellow-200 flex items-start gap-2">
+                <span className="shrink-0">⚠️</span>
+                <span>
+                  <b>{dirtyFiles.size}</b> arquivo(s) com edições <b>não salvas</b> no editor. Salvar/snapshot do canvas <b>não</b> grava esses arquivos — salve com Ctrl/Cmd+S no CodeNode antes de encerrar, ou eles serão perdidos.
+                </span>
+              </div>
+            )}
             <div className="px-4 pb-3 flex flex-col gap-1.5">
               <button onClick={() => void saveAndCloseFolder()} className="w-full px-3 py-2 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover text-left flex items-center gap-2">
                 <Save size={13} /> Salvar e encerrar

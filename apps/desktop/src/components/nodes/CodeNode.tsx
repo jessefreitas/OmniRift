@@ -23,6 +23,7 @@ type CodeRfNode = Node<CodeNodeData & Record<string, unknown>, "code">;
 export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const patchNode = useCanvasStore((s) => s.patchNode);
+  const setFileDirty = useCanvasStore((s) => s.setFileDirty);
   const floors = useCanvasStore((s) => s.floors);
   const filePath = data.filePath;
   const fileName = filePath.split("/").pop() || filePath;
@@ -129,6 +130,13 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
     setSource(v);
     setDirty(true);
   };
+
+  // Espelha o estado "não salvo" no store (pro aviso ao encerrar o projeto) e
+  // limpa ao desmontar.
+  useEffect(() => {
+    setFileDirty(id, dirty);
+    return () => setFileDirty(id, false);
+  }, [id, dirty, setFileDirty]);
 
   const card = (
     <>

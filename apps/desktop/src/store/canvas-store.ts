@@ -58,6 +58,9 @@ interface CanvasState {
   /** Encerra o projeto: fecha os floors do projeto ativo (mata os PTYs no unmount),
    *  deixa 1 floor vazio e limpa a pasta. "Fechar a pasta" = encerrar o projeto. */
   closeFolder: () => void;
+  /** Ids dos CodeNodes com edição não salva (pra avisar antes de encerrar). */
+  dirtyFiles: Set<string>;
+  setFileDirty: (nodeId: string, dirty: boolean) => void;
   addTerminal: (params: {
     command: string;
     args?: string[];
@@ -238,7 +241,16 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       const fresh: Floor = { id: nanoid(), name: "Floor 1", cwd: null, projectId: pid, nodes: [], edges: [] };
       // Tira os floors do projeto ativo (terminais desmontam → PTYs morrem) + 1 floor limpo.
       const floors = [...s.floors.filter((f) => f.projectId !== pid), fresh];
-      return { floors, activeFloorId: fresh.id, currentCwd: null };
+      return { floors, activeFloorId: fresh.id, currentCwd: null, dirtyFiles: new Set() };
+    }),
+  dirtyFiles: new Set<string>(),
+  setFileDirty: (nodeId, dirty) =>
+    set((s) => {
+      if (dirty === s.dirtyFiles.has(nodeId)) return s; // sem mudança → não re-renderiza
+      const next = new Set(s.dirtyFiles);
+      if (dirty) next.add(nodeId);
+      else next.delete(nodeId);
+      return { dirtyFiles: next };
     }),
 
   addTerminal: ({ command, args, role = "shell", position, label, id }) => {
