@@ -117,3 +117,32 @@ pub fn review_suppress_write(dir: String, rules: Vec<SuppressRule>) -> Result<()
     let json = serde_json::to_string_pretty(&rules).map_err(|e| e.to_string())?;
     std::fs::write(d.join("review-suppress.json"), json).map_err(|e| e.to_string())
 }
+
+/// Regra de path: arquivos que casam com `glob` exigem teste e/ou geram um aviso.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathRule {
+    pub glob: String,
+    #[serde(default)]
+    pub require_test: bool,
+    #[serde(default)]
+    pub severity: String,
+    #[serde(default)]
+    pub message: String,
+}
+
+#[tauri::command]
+pub fn review_pathrules_read(dir: String) -> Vec<PathRule> {
+    std::fs::read_to_string(forgejo_dir(&dir).join("review-pathrules.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn review_pathrules_write(dir: String, rules: Vec<PathRule>) -> Result<(), String> {
+    let d = forgejo_dir(&dir);
+    std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(&rules).map_err(|e| e.to_string())?;
+    std::fs::write(d.join("review-pathrules.json"), json).map_err(|e| e.to_string())
+}

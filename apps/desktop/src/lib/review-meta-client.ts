@@ -23,3 +23,17 @@ export async function reviewSuppressRead(dir: string): Promise<SuppressRule[]> {
 export async function reviewSuppressWrite(dir: string, rules: SuppressRule[]): Promise<void> {
   return invoke("review_suppress_write", { dir, rules });
 }
+
+export interface PathRule {
+  glob: string;
+  requireTest: boolean;
+  severity: string;
+  message: string;
+}
+
+export async function reviewPathrulesRead(dir: string): Promise<PathRule[]> {
+  return invoke<PathRule[]>("review_pathrules_read", { dir });
+}
+export async function reviewPathrulesWrite(dir: string, rules: PathRule[]): Promise<void> {
+  return invoke("review_pathrules_write", { dir, rules });
+}

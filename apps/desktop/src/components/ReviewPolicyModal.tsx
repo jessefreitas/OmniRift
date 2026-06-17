@@ -10,7 +10,7 @@ import { Plus, Sliders, Trash2, X } from "lucide-react";
 
 import { loadPolicy, savePolicy, type ReviewPolicy, type ReviewCategory } from "@/lib/review-policy";
 import { persistReviewConfig } from "@/lib/review-config-sync";
-import { reviewContextRead, reviewContextWrite, reviewSuppressRead, reviewSuppressWrite, type SuppressRule } from "@/lib/review-meta-client";
+import { reviewContextRead, reviewContextWrite, reviewSuppressRead, reviewSuppressWrite, reviewPathrulesRead, reviewPathrulesWrite, type SuppressRule, type PathRule } from "@/lib/review-meta-client";
 
 interface Props {
   scope?: string;
@@ -32,11 +32,13 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose }: Props) {
   const [p, setP] = useState<ReviewPolicy>(() => loadPolicy(scope));
   const [ctx, setCtx] = useState("");
   const [suppress, setSuppress] = useState<SuppressRule[]>([]);
+  const [pathrules, setPathrules] = useState<PathRule[]>([]);
 
   useEffect(() => {
     if (!cwd) return;
     reviewContextRead(cwd).then(setCtx).catch(() => {});
     reviewSuppressRead(cwd).then(setSuppress).catch(() => {});
+    reviewPathrulesRead(cwd).then(setPathrules).catch(() => {});
   }, [cwd]);
 
   const patch = (u: Partial<ReviewPolicy>) => setP((cur) => ({ ...cur, ...u }));
@@ -65,6 +67,7 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose }: Props) {
     if (cwd) {
       void reviewContextWrite(cwd, ctx).catch(() => {});
       void reviewSuppressWrite(cwd, suppress.filter((s) => s.file.trim())).catch(() => {});
+      void reviewPathrulesWrite(cwd, pathrules.filter((r) => r.glob.trim())).catch(() => {});
     }
     onClose();
   }
@@ -178,6 +181,29 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose }: Props) {
                 ))}
               </div>
               <p className="mt-0.5 text-[10px] text-textMuted opacity-50">Casa por arquivo + palavra no título do achado. Salvo em <code>.forgejo/review-suppress.json</code>.</p>
+            </div>
+          )}
+
+          {/* Regras por path */}
+          {cwd && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] uppercase tracking-wider text-textMuted">Regras por path</span>
+                <button onClick={() => setPathrules((r) => [...r, { glob: "", requireTest: true, severity: "WARNING", message: "" }])} className="flex items-center gap-1 text-[11px] text-textMuted hover:text-brand"><Plus size={12} /> regra</button>
+              </div>
+              <div className="space-y-1">
+                {pathrules.length === 0 && <p className="text-[10px] text-textMuted opacity-50">Ex.: "src/api/** exige teste"; "**/migrations/** → aviso de DBA".</p>}
+                {pathrules.map((r, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_64px_64px_1fr_28px] gap-2 items-center">
+                    <input value={r.glob} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, glob: e.target.value } : x)))} placeholder="src/api/**" className={`${inp} font-mono`} />
+                    <label className="flex items-center gap-1 text-[10px] text-textMuted"><input type="checkbox" checked={r.requireTest} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, requireTest: e.target.checked } : x)))} /> teste</label>
+                    <select value={r.severity} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, severity: e.target.value } : x)))} className={inp}><option value="WARNING">WARN</option><option value="INFO">INFO</option></select>
+                    <input value={r.message} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, message: e.target.value } : x)))} placeholder="mensagem" className={inp} />
+                    <button onClick={() => setPathrules((arr) => arr.filter((_, j) => j !== i))} className="text-textMuted hover:text-danger justify-self-center"><Trash2 size={12} /></button>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-0.5 text-[10px] text-textMuted opacity-50">"teste" = arquivos que casam exigem um teste no diff. Salvo em <code>.forgejo/review-pathrules.json</code> (advisory).</p>
             </div>
           )}
         </div>
