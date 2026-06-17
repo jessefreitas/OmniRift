@@ -65,6 +65,8 @@ Para findings com `suggestion`, oferecer **aplicar**:
 - Ou, pra fixes triviais determinísticos (remover console.log, etc.), patch direto.
 - Respeita o teto de agentes + aprovação do Orquestrador.
 
+> **Decisão (2026-06-17, implementado):** **sempre via agente, nunca patch cego** — e com **gate de permissão explícito**: "Corrigir" abre um diálogo (`ReviewFixConfirm`) que AVISA que um Claude Code vai editar a branch, mostra o prompt exato, checa o teto de agentes, e só despacha após o OK do usuário. O worker sobe com `workerClaudeArgs` (contrato DEV → passo 7 = `review_current` gateado por Stop hook), então o re-review é automático no fim. Patch determinístico direto ficou de fora (risco > ganho).
+
 ---
 
 ## Fase 5 — Diff-aware inline

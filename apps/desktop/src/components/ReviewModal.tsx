@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronRight, ExternalLink, EyeOff, History, RefreshCw, ScanLine, Settings2, Sliders, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink, EyeOff, History, RefreshCw, ScanLine, Settings2, Sliders, Wand2, X } from "lucide-react";
 
 import { runReview, type Finding, type ReviewResult, type Severity } from "@/lib/review";
 import { loadLlmConfig } from "@/lib/llm-client";
@@ -14,6 +14,7 @@ import { reviewHistoryAdd, reviewHistoryList, recurrenceMap, runsTrend, type Rev
 import { reviewSuppressRead, reviewSuppressWrite } from "@/lib/review-meta-client";
 import { detectEditors, loadPreferredEditor, openInEditor } from "@/lib/editor-client";
 import { ReviewSnippet } from "@/components/ReviewSnippet";
+import { ReviewFixConfirm } from "@/components/ReviewFixConfirm";
 import { cn } from "@/lib/cn";
 import type { Floor } from "@/types/workspace";
 
@@ -51,6 +52,8 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [editorCmd, setEditorCmd] = useState<string | null>(null);
+  const [fixing, setFixing] = useState<Finding | null>(null);
+  const [dispatchNote, setDispatchNote] = useState<string | null>(null);
 
   useEffect(() => { reviewHistoryList(scope).then(setHistory).catch(() => {}); }, [scope]);
 
@@ -149,6 +152,12 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
               )}
             </div>
           )}
+          {dispatchNote && (
+            <div className="px-4 py-2 text-[11px] text-green-300 bg-green-500/10 border-b border-border/50 flex items-start gap-2">
+              <Wand2 size={13} className="mt-0.5 shrink-0" />
+              <span>{dispatchNote}</span>
+            </div>
+          )}
           {!config ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center">
               <p className="text-[13px] text-textMuted">Nenhum LLM configurado pro review.</p>
@@ -193,6 +202,11 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
                               <ExternalLink size={11} /> abrir
                             </button>
                           )}
+                          {isReal(f.file) && (
+                            <button onClick={() => setFixing(f)} className="flex items-center gap-0.5 text-textMuted hover:text-brand" title="Despachar um agente pra corrigir (avisa e pede permissão antes de editar)">
+                              <Wand2 size={11} /> corrigir
+                            </button>
+                          )}
                           <button onClick={() => void ignore(f)} className="flex items-center gap-0.5 text-textMuted hover:text-danger" title="Suprimir esse achado (com motivo) nas próximas runs">
                             <EyeOff size={11} /> ignorar
                           </button>
@@ -212,6 +226,14 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
         <footer className="px-4 py-1.5 border-t border-border text-[10px] text-textMuted opacity-60 shrink-0">
           Gate: <b>{policy.gate}</b> · thresholds {policy.thresholds.maxCritical} CRITICAL / {policy.thresholds.maxWarning} WARNING · LLM do usuário (BYOK).
         </footer>
+        {fixing && (
+          <ReviewFixConfirm
+            finding={fixing}
+            floor={floor}
+            onClose={() => setFixing(null)}
+            onDispatched={(msg) => setDispatchNote(msg)}
+          />
+        )}
       </div>
     </div>,
     document.body,
