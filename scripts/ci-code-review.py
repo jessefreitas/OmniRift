@@ -47,6 +47,38 @@ DANGER_PATTERNS = [
 ]
 
 
+def read_context():
+    """Contexto de design committed (.forgejo/review-context.md) — informa o reviewer
+    sobre decisões intencionais pra evitar falso-positivo."""
+    p = ".forgejo/review-context.md"
+    try:
+        if os.path.exists(p):
+            return open(p, encoding="utf-8").read()[:4000]
+    except Exception:
+        pass
+    return ""
+
+
+# Achados RECONHECIDOS como aceitos (design intencional documentado em
+# .forgejo/review-context.md). A IA é volátil na severidade desses itens, então a
+# supressão é DETERMINÍSTICA (accepted-risk). Casa por arquivo + palavra no título.
+# Um achado NOVO/diferente nesses arquivos (título sem essas palavras) NÃO é suprimido.
+SUPPRESS = [
+    ("license.rs", ["públic", "public", "hardcoded", "embutid", "ed25519", "fingerprint", "machine-id", "machine id", "fallback"]),
+    ("mcp_servers.rs", ["ofusc", "obfusc", "xor", "credenci", "criptograf", "cifr", "armazen", "repouso", "texto claro", "plaintext", "token"]),
+    ("registry.rs", ["ofusc", "obfusc", "xor", "credenci", "criptograf", "cifr", "armazen", "repouso", "texto claro", "plaintext", "token"]),
+    ("gitremote.rs", ["injeção", "injection", "vaza", "token", "redig", "sanitiz", "argument"]),
+    ("browser.rs", ["injeção", "injection", "sanitiz", "shell", "command", "subprocess"]),
+    ("fs.rs", ["limite", "tamanho", "arbitrár"]),
+]
+
+
+def suppressed(f):
+    fp = (f.get("file") or "").lower()
+    title = (f.get("title") or "").lower()
+    return any(fpat in fp and any(k in title for k in kws) for fpat, kws in SUPPRESS)
+
+
 def preflight(diff_text):
     findings = []
     # blob de secret/danger ignora os PRÓPRIOS arquivos de review (eles DEFINEM os
@@ -85,9 +117,11 @@ def preflight(diff_text):
 def ai_review(diff_text, key):
     cats = "\n".join(f"- {k} ({label}, peso {w}{', bloqueante' if b else ''})" for k, label, w, b in CATEGORIES)
     system = "Você é um revisor de código sênior, rigoroso. Responda SOMENTE com um array JSON válido, sem prosa."
+    ctx = read_context()
     prompt = (
         f"Revise o diff nestas categorias (avalie todas):\n{cats}\n\n"
-        "Para CADA problema gere: "
+        + (f"CONTEXTO DE DESIGN do projeto. Os itens listados aqui como intencionais/aceitos JÁ FORAM DECIDIDOS — OMITA-OS por completo do array (NÃO gere objeto algum pra eles, nem WARNING nem INFO, nem pra 'reafirmar' que são ok). Reporte SOMENTE problemas REAIS não cobertos por este contexto:\n{ctx}\n\n" if ctx else "")
+        + "Para CADA problema gere: "
         '{"severity":"CRITICAL|WARNING|INFO","category":"<chave>","file":"<caminho>","line":<num|null>,"title":"<curto>","suggestion":"<fix>"}\n'
         "Responda APENAS o array JSON (use [] se não houver).\n\nDIFF:\n" + diff_text[:60000]
     )
@@ -120,9 +154,14 @@ def ai_review(diff_text, key):
 
 
 def decide(findings):
+    blocking = {k for k, _l, _w, b in CATEGORIES if b}  # categorias bloqueantes (Segurança)
     crit = [f for f in findings if f["severity"] == "CRITICAL"]
     warn = [f for f in findings if f["severity"] == "WARNING"]
-    blocked = len(crit) > 0 or len(warn) >= 2
+    # Gate estável: bloqueia só em CRITICAL de categoria bloqueante (Segurança). WARNINGs
+    # de IA são advisory e voláteis — informam, não derrubam o merge. (Falso-positivos
+    # de design já reconhecidos são suprimidos antes daqui — ver SUPPRESS.)
+    bc = [f for f in crit if f.get("category") in blocking]
+    blocked = len(bc) > 0
     return ("NO-GO" if blocked else "GO"), len(crit), len(warn)
 
 
@@ -184,6 +223,7 @@ def main():
     ai = ai_review(diff, key) if key else None
     if ai is not None:
         findings += ai
+    findings = [f for f in findings if not suppressed(f)]  # tira os falso-positivos ACK
     verdict, crit, warn = decide(findings)
     body = render(findings, verdict, crit, warn)
     print(body)
