@@ -36,25 +36,74 @@ const KNOWN: &[(&str, &str, &str, bool)] = &[
     ("micro", "micro", "micro", true),
 ];
 
-fn which(cmd: &str) -> bool {
-    std::process::Command::new("which")
+/// O comando está no PATH? Cross-platform: `where` no Windows, `which` no resto.
+fn cmd_in_path(cmd: &str) -> bool {
+    let finder = if cfg!(windows) { "where" } else { "which" };
+    std::process::Command::new(finder)
         .arg(cmd)
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
 
-/// Lista os editores instalados no host (supera o Maestri, que fixa 3).
+/// Fora do PATH: tenta achar o editor por outros meios da plataforma.
+/// Linux: varre os `.desktop` (pega editor instalado via .deb/AppImage/snap que
+/// não pôs binário no PATH). Devolve o comando/caminho de launch.
+#[cfg(target_os = "linux")]
+fn resolve_offpath(cmd: &str) -> Option<String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let dirs = [
+        "/usr/share/applications".to_string(),
+        "/var/lib/flatpak/exports/share/applications".to_string(),
+        "/var/lib/snapd/desktop/applications".to_string(),
+        format!("{home}/.local/share/applications"),
+        format!("{home}/.local/share/flatpak/exports/share/applications"),
+    ];
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
+                continue;
+            }
+            let Ok(content) = std::fs::read_to_string(&path) else { continue };
+            for line in content.lines() {
+                let Some(rest) = line.strip_prefix("Exec=") else { continue };
+                // 1º token (o binário), ignorando field codes (%F/%U/…).
+                let bin = rest.split_whitespace().next().unwrap_or("");
+                let base = bin.rsplit('/').next().unwrap_or(bin);
+                if base == cmd && !bin.is_empty() {
+                    return Some(bin.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn resolve_offpath(_cmd: &str) -> Option<String> {
+    None
+}
+
+/// Lista os editores instalados no host. Acha pelo PATH (which/where) e, fora do
+/// PATH no Linux, pelos `.desktop` (.deb/AppImage/snap). Cross-platform.
 #[tauri::command]
 pub fn detect_editors() -> Vec<EditorInfo> {
     KNOWN
         .iter()
-        .filter(|(_, _, cmd, _)| which(cmd))
-        .map(|(id, label, cmd, term)| EditorInfo {
-            id: id.to_string(),
-            label: label.to_string(),
-            cmd: cmd.to_string(),
-            terminal: *term,
+        .filter_map(|(id, label, cmd, term)| {
+            let resolved = if cmd_in_path(cmd) {
+                Some(cmd.to_string())
+            } else {
+                resolve_offpath(cmd)
+            };
+            resolved.map(|c| EditorInfo {
+                id: id.to_string(),
+                label: label.to_string(),
+                cmd: c,
+                terminal: *term,
+            })
         })
         .collect()
 }
@@ -69,7 +118,12 @@ pub fn open_in_editor(cmd: String, path: String, line: Option<u32>) -> Result<()
         return Err("editor vazio".into());
     }
     let mut c = std::process::Command::new(&cmd);
-    match (cmd.as_str(), line) {
+    // Casa pelo BASENAME — o cmd pode ser um caminho absoluto (achado via .desktop).
+    let base = std::path::Path::new(&cmd)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(cmd.as_str());
+    match (base, line) {
         ("code" | "code-insiders" | "cursor" | "windsurf", Some(l)) => {
             c.arg("-g").arg(format!("{path}:{l}"));
         }
