@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -40,6 +41,7 @@ import {
   SlidersHorizontal,
   BookOpen,
   Gem,
+  Save,
   Server,
   Trash2,
   Sparkles,
@@ -54,6 +56,7 @@ import { nanoid } from "nanoid";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
+import { snapshotCreate } from "@/lib/snapshot-client";
 import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig, setMaxAgents } from "@/lib/mcp-client";
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
 import { specListFiles, specArchive, specUnarchive, isDeadSpec, pathsOverlap, type SpecFile } from "@/lib/spec-client";
@@ -247,6 +250,8 @@ export function Sidebar() {
   const currentCwd = useCanvasStore((s) => s.currentCwd);
   const setCurrentCwd = useCanvasStore((s) => s.setCurrentCwd);
   const workspaceName = useCanvasStore((s) => s.workspaceName);
+  const closeFolder = useCanvasStore((s) => s.closeFolder);
+  const [closingFolder, setClosingFolder] = useState(false);
   const getWorkspaceSnapshot = useCanvasStore((s) => s.getWorkspaceSnapshot);
   const restoreWorkspace = useCanvasStore((s) => s.restoreWorkspace);
   const allFloors = useCanvasStore((s) => s.floors);
@@ -939,6 +944,26 @@ export function Sidebar() {
     if (ws) restoreWorkspace(ws);
   }
 
+  // Encerrar o projeto (fechar a pasta): salva/snapshot opcional, depois fecha
+  // os floors+agentes do projeto e limpa a pasta.
+  async function saveAndCloseFolder() {
+    const ws = getWorkspaceSnapshot();
+    await saveWorkspace({ ...ws, name: nameRef.current?.value.trim() || ws.name }).catch(() => {});
+    closeFolder();
+    setClosingFolder(false);
+  }
+  async function snapshotAndCloseFolder() {
+    const ws = getWorkspaceSnapshot();
+    const label = `Encerramento — ${cwdLabel ?? "projeto"}`;
+    await snapshotCreate(label, JSON.stringify(ws), false).catch(() => {});
+    closeFolder();
+    setClosingFolder(false);
+  }
+  function discardAndCloseFolder() {
+    closeFolder();
+    setClosingFolder(false);
+  }
+
   const cwdLabel = currentCwd
     ? currentCwd.split("/").filter(Boolean).pop() ?? currentCwd
     : null;
@@ -1259,9 +1284,9 @@ export function Sidebar() {
             {cwdLabel ?? "Selecionar pasta…"}
           </span>
           {currentCwd && (
-            <Tooltip label="Limpar a pasta do projeto" side="top" className="shrink-0">
+            <Tooltip label="Encerrar o projeto (fecha pasta + agentes)" side="top" className="shrink-0">
               <button
-                onClick={(e) => { e.stopPropagation(); setCurrentCwd(null); }}
+                onClick={(e) => { e.stopPropagation(); setClosingFolder(true); }}
                 className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
               >
                 <X size={10} />
@@ -1699,6 +1724,34 @@ export function Sidebar() {
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
       {showClis && <ClisModal onClose={() => setShowClis(false)} />}
+      {closingFolder && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={() => setClosingFolder(false)}>
+          <div className="w-[440px] max-w-[92vw] rounded-lg border border-border bg-surface1 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-border">
+              <div className="text-sm font-medium text-text">Encerrar o projeto?</div>
+              <div className="text-[11px] text-textMuted mt-0.5 truncate" title={currentCwd ?? ""}>{cwdLabel ?? "projeto"}</div>
+            </div>
+            <p className="px-4 py-3 text-[12px] text-textMuted leading-snug">
+              Os <b className="text-text">agentes/terminais</b> abertos serão fechados e o canvas deste projeto será limpo. Quer salvar antes?
+            </p>
+            <div className="px-4 pb-3 flex flex-col gap-1.5">
+              <button onClick={() => void saveAndCloseFolder()} className="w-full px-3 py-2 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover text-left flex items-center gap-2">
+                <Save size={13} /> Salvar e encerrar
+              </button>
+              <button onClick={() => void snapshotAndCloseFolder()} className="w-full px-3 py-2 rounded-md text-xs bg-surface2 text-text hover:bg-bg border border-border text-left flex items-center gap-2">
+                <Archive size={13} /> Snapshot da sessão e encerrar
+              </button>
+              <button onClick={discardAndCloseFolder} className="w-full px-3 py-2 rounded-md text-xs text-danger hover:bg-danger/10 text-left flex items-center gap-2">
+                <Trash2 size={13} /> Encerrar sem salvar
+              </button>
+              <button onClick={() => setClosingFolder(false)} className="w-full px-3 py-1.5 rounded-md text-xs text-textMuted hover:text-text text-center mt-0.5">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
       {reviewFloor && (
         <ReviewModal
           floor={reviewFloor}

@@ -55,6 +55,9 @@ interface CanvasState {
 
   // node/edge ops (agem no floor ativo)
   setCurrentCwd: (cwd: string | null) => void;
+  /** Encerra o projeto: fecha os floors do projeto ativo (mata os PTYs no unmount),
+   *  deixa 1 floor vazio e limpa a pasta. "Fechar a pasta" = encerrar o projeto. */
+  closeFolder: () => void;
   addTerminal: (params: {
     command: string;
     args?: string[];
@@ -229,6 +232,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       currentCwd: cwd,
       floors: s.floors.map((f) => (f.id === s.activeFloorId ? { ...f, cwd } : f)),
     })),
+  closeFolder: () =>
+    set((s) => {
+      const pid = s.activeProjectId;
+      const fresh: Floor = { id: nanoid(), name: "Floor 1", cwd: null, projectId: pid, nodes: [], edges: [] };
+      // Tira os floors do projeto ativo (terminais desmontam → PTYs morrem) + 1 floor limpo.
+      const floors = [...s.floors.filter((f) => f.projectId !== pid), fresh];
+      return { floors, activeFloorId: fresh.id, currentCwd: null };
+    }),
 
   addTerminal: ({ command, args, role = "shell", position, label, id }) => {
     const nodeId = id ?? nanoid();
