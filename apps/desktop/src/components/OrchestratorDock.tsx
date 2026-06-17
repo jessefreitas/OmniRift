@@ -78,6 +78,9 @@ export function OrchestratorDock() {
   if (!orch) return null; // nenhum orquestrador designado → sem dock
 
   const onOrchFloor = orch.floor.id === activeFloorId;
+  // No floor do próprio Orquestrador o terminal volta pro node → sem dock flutuante.
+  // (getOrchestratorMount() vira null → TerminalNode recoloca o xterm no slot do nó.)
+  if (onOrchFloor) return null;
 
   return (
     <div

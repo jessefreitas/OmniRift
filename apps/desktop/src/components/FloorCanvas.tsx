@@ -32,6 +32,7 @@ import { DbNode } from "@/components/nodes/DbNode";
 import { DevToolsNode } from "@/components/nodes/DevToolsNode";
 import { JsonNode } from "@/components/nodes/JsonNode";
 import { ExplainShellNode } from "@/components/nodes/ExplainShellNode";
+import { PreviewNode } from "@/components/nodes/PreviewNode";
 import { useCanvasStore } from "@/store/canvas-store";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
 import type { CanvasNode } from "@/types/canvas";
@@ -57,6 +58,7 @@ const nodeTypes = {
   devtools: DevToolsNode,
   json: JsonNode,
   explain: ExplainShellNode,
+  preview: PreviewNode,
 };
 
 /** Cor de cada node no minimap, por tipo — pra dar pra "ler" o canvas de longe. */
@@ -211,14 +213,17 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       onConnect={onConnect}
       onNodeDragStop={onNodeDragStop}
       proOptions={{ hideAttribution: true }}
-      minZoom={0.2}
+      minZoom={0.15}
       maxZoom={2.5}
       defaultViewport={{ x: 0, y: 0, zoom: 1 }}
       fitView={false}
-      panOnScroll
-      panOnDrag={[1, 2]}
-      selectionOnDrag
-      selectNodesOnDrag={false}
+      panOnDrag
+      panOnScroll={false}
+      zoomOnScroll
+      zoomOnDoubleClick={false}
+      selectionOnDrag={false}
+      selectionKeyCode="Shift"
+      nodeDragThreshold={4}
       deleteKeyCode={["Backspace", "Delete"]}
       colorMode="dark"
     >

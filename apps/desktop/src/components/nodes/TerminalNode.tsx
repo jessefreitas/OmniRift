@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Handle,
@@ -11,9 +11,11 @@ import { Terminal as TerminalIcon, X, Maximize2, Minimize2, RefreshCw, Crown } f
 
 import { useTerminalSession } from "@/hooks/useTerminalSession";
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import { getOrchestratorMount, subscribeOrchestratorMount } from "@/lib/orchestrator-dock-mount";
 import { TerminalContextMenu } from "@/components/TerminalContextMenu";
 import { StatusDot } from "@/components/StatusDot";
+import { useProcInfo } from "@/hooks/useProcInfo";
 import { ptyWrite } from "@/lib/pty-client";
 import { cn } from "@/lib/cn";
 import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
@@ -27,13 +29,21 @@ type TerminalRfNode = Node<TerminalNodeData & Record<string, unknown>, "terminal
 
 type TerminalNodeProps = NodeProps<TerminalRfNode>;
 
-export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
+function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const renameNode = useCanvasStore((s) => s.renameNode);
   const addToClipboard = useCanvasStore((s) => s.addToClipboard);
   const termStatus = useCanvasStore((s) => s.terminalStatuses[data.session_id] ?? "idle");
+  const proc = useProcInfo(data.session_id, termStatus !== "dead");
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
   const isOrch = orchestratorSid === data.session_id;
+  // Orquestrador no floor ATIVO → terminal vive no próprio node; noutro floor → dock.
+  // Selector devolve boolean → só re-renderiza quando o estado realmente vira.
+  const orchOnActiveFloor = useCanvasStore((s) => {
+    if (s.orchestratorSid !== data.session_id) return true;
+    const f = s.floors.find((fl) => fl.nodes.some((n) => n.kind === "terminal" && n.session_id === s.orchestratorSid));
+    return !f || f.id === s.activeFloorId;
+  });
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data.label ?? data.command);
@@ -120,13 +130,13 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
     if (!host) return;
     let target: HTMLElement | null = null;
     if (isFullscreen) target = fullscreenSlotRef.current;
-    else if (isOrch) target = getOrchestratorMount();
+    else if (isOrch && !orchOnActiveFloor) target = getOrchestratorMount();
     if (!target) target = homeSlotRef.current;
     if (target && host.parentElement !== target) {
       target.appendChild(host);
       setTimeout(fit, 50);
     }
-  }, [isFullscreen, isOrch, fit, containerRef]);
+  }, [isFullscreen, isOrch, orchOnActiveFloor, fit, containerRef]);
 
   useEffect(() => { place(); }, [place]);
   useEffect(() => subscribeOrchestratorMount(place), [place]);
@@ -304,6 +314,16 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
             {data.role}
           </span>
 
+          {/* Process mgmt: RSS do processo (PID no tooltip). */}
+          {proc?.alive && (
+            <span
+              className="text-[9px] font-mono text-textMuted opacity-50 shrink-0 tabular-nums"
+              title={`PID ${proc.pid} · ${(proc.rssKb / 1024).toFixed(1)} MB RSS`}
+            >
+              {(proc.rssKb / 1024).toFixed(0)}M
+            </span>
+          )}
+
           {/* Botão reconectar — só aparece quando o processo morreu */}
           {termStatus === "dead" && (
             <button
@@ -319,6 +339,7 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
             </button>
           )}
 
+          <NodeHelp text="Terminal/agente: digite normalmente. Duplo-clique no nome pra renomear. Ligue a saída deste node na entrada de outro pelas alças laterais (pipe A→B). ⤢ abre em tela cheia; ⟳ reconecta se o processo morrer." />
           {/* Botão maximizar */}
           <button
             onClick={(e) => {
@@ -370,10 +391,11 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
               falha ao iniciar: {error}
             </div>
           )}
-          {/* Quando é o Orquestrador, o xterm vive no dock — aqui mostra um aviso. */}
-          {isOrch && !isFullscreen && (
+          {/* Orquestrador num OUTRO floor: o xterm está no dock — aqui mostra o aviso.
+              No floor dele, o terminal vive aqui no node (sem dock). */}
+          {isOrch && !isFullscreen && !orchOnActiveFloor && (
             <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-bg text-textMuted text-xs pointer-events-none">
-              <Crown size={13} className="text-yellow-500" /> rodando no dock do Orquestrador ↗
+              <Crown size={13} className="text-yellow-500" /> rodando no dock (você está em outro floor) ↗
             </div>
           )}
           {/* Feedback ao arrastar um arquivo da árvore por cima. */}
@@ -404,3 +426,6 @@ export function TerminalNode({ id, data, selected }: TerminalNodeProps) {
     </>
   );
 }
+
+// memo: o terminal é o node mais pesado — evita re-render quando outro node muda.
+export const TerminalNode = memo(TerminalNodeBase);

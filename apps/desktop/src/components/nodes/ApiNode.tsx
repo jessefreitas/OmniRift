@@ -3,6 +3,8 @@ import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Globe, Send, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { useNodeMaximize } from "@/hooks/useNodeMaximize";
+import { NodeHelp } from "@/components/NodeHelp";
 import { httpRequest, type HttpResponse } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
 import type { ApiNode as ApiNodeData } from "@/types/canvas";
@@ -37,6 +39,7 @@ export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
   const [resp, setResp] = useState<HttpResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { maxBtn, frame } = useNodeMaximize();
 
   const hasBody = method !== "GET" && method !== "DELETE";
 
@@ -58,15 +61,13 @@ export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
     }
   }
 
-  return (
-    <div
-      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
-      style={{ width: data.size?.width ?? 440, height: data.size?.height ?? 380 }}
-    >
-      <NodeResizer isVisible={selected} minWidth={300} minHeight={240} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+  const card = (
+    <>
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <Globe size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1">API</span>
+        <NodeHelp text="Cliente HTTP: escolha o método, digite a URL e tecle Enter (ou Send). Em POST/PUT/PATCH preencha o corpo JSON. A resposta e o status aparecem abaixo." />
+        {maxBtn}
         <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
@@ -136,6 +137,17 @@ export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
           </p>
         )}
       </div>
-    </div>
+    </>
+  );
+
+  return frame(
+    card,
+    <div
+      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
+      style={{ width: data.size?.width ?? 440, height: data.size?.height ?? 380 }}
+    >
+      <NodeResizer isVisible={selected} minWidth={300} minHeight={240} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      {card}
+    </div>,
   );
 }

@@ -2,26 +2,44 @@ import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  Bookmark,
   Bot,
   ChevronDown,
   ChevronRight,
   Code2,
+  Cpu,
+  Crown,
   Download,
   Folder,
   FolderOpen,
   GitBranch,
+  AlertTriangle,
+  Archive,
+  ArchiveRestore,
+  FilePlus,
+  FileText,
+  FolderPlus,
   Brain,
   GitCompare,
+  GitFork,
   GitMerge,
+  GripVertical,
   History,
   Link2,
   Orbit,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
+  Plug,
   Plus,
   RefreshCw,
+  Repeat,
   Rocket,
+  ScanLine,
+  ScanSearch,
+  SlidersHorizontal,
+  BookOpen,
+  Server,
   Sparkles,
   TerminalSquare,
   Upload,
@@ -34,23 +52,73 @@ import { nanoid } from "nanoid";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
-import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig } from "@/lib/mcp-client";
+import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig, setMaxAgents } from "@/lib/mcp-client";
 import { floorGitCreate, floorGitLand } from "@/lib/git-client";
-import { specListFiles, type SpecFile } from "@/lib/spec-client";
-import { agentDocsStatus, agentDocsSync, type AgentDocsStatus } from "@/lib/agent-docs-client";
+import { specListFiles, specArchive, specUnarchive, isDeadSpec, pathsOverlap, type SpecFile } from "@/lib/spec-client";
+import { writeFile } from "@/lib/preview-client";
+import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
-import { DEV_CONTRACT, ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
+import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
 import { RoleEditModal } from "@/components/RoleEditModal";
 import { DiffViewerModal } from "@/components/DiffViewerModal";
 import { SessionHistoryModal } from "@/components/SessionHistoryModal";
 import { MemoryModal } from "@/components/MemoryModal";
 import { HooksModal } from "@/components/HooksModal";
+import { SnapshotsModal } from "@/components/SnapshotsModal";
+import { RoutinesModal } from "@/components/RoutinesModal";
+import { RemindersModal } from "@/components/RemindersModal";
+import { EditorOpenButton } from "@/components/EditorOpenButton";
+import { CompanionModal } from "@/components/CompanionModal";
+import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
+import { ConnectionsModal } from "@/components/ConnectionsModal";
+import { HelpModal } from "@/components/HelpModal";
+import { McpServersModal } from "@/components/McpServersModal";
+import { ReviewModal } from "@/components/ReviewModal";
+import { LlmConfigModal } from "@/components/LlmConfigModal";
+import { GitReposModal } from "@/components/GitReposModal";
+import { ReviewPolicyModal } from "@/components/ReviewPolicyModal";
+import { loadPolicy } from "@/lib/review-policy";
+import { loadLlmConfig } from "@/lib/llm-client";
+import { runReview } from "@/lib/review";
 import { loadHooks, runFloorHook } from "@/lib/hooks-client";
 import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
 import { cn } from "@/lib/cn";
+import { useReorderable } from "@/hooks/useReorderable";
 import type { AgentRole } from "@/types/pty";
+
+// Ferramentas da sidebar (ids = os mesmos do handler "maestri:open-tool" + Command
+// palette). Ordem reordenável por drag-and-drop; ações no map runTool() abaixo.
+const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[] = [
+  { id: "companion", icon: Sparkles, label: "Companheiro (IA)", desc: "Chat IA lateral que enxerga o canvas e ajuda a operar" },
+  { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
+  { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
+  { id: "llm", icon: Cpu, label: "LLM do review (BYOK)", desc: "Escolher o modelo (sua chave/BYOK) que roda o code review" },
+  { id: "policy", icon: SlidersHorizontal, label: "Política de review", desc: "Regras de GO/NO-GO do review — o que bloqueia o merge" },
+  { id: "reminders", icon: Bookmark, label: "Lembretes", desc: "Notas do canvas viram lembretes com prazo" },
+  { id: "memory", icon: Brain, label: "Memória dos agentes", desc: "Ver e editar o que os agentes lembram (blackboard SQLite)" },
+  { id: "history", icon: History, label: "Histórico de sessões", desc: "Sessões anteriores gravadas dos agentes" },
+  { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos floors" },
+  { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
+  { id: "hooks", icon: Webhook, label: "Hooks do floor", desc: "Comandos disparados em eventos do floor (pre/post)" },
+  { id: "help", icon: BookOpen, label: "Ajuda / Manual", desc: "Manual do OmniRift — como usar tudo (tópicos + busca)" },
+  { id: "mcpservers", icon: Server, label: "MCP Servers", desc: "Tools MCP dos agentes (Postgres, GitHub, …) — liga/desliga por servidor" },
+];
+const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
+
+// Seções da sidebar — reordenáveis por drag-and-drop (ordem persistida; CSS order).
+const SECTION_DEFS: { id: string; label: string }[] = [
+  { id: "floors", label: "Floors" },
+  { id: "tools", label: "Ferramentas" },
+  { id: "workspace", label: "Workspace" },
+  { id: "project", label: "Projeto" },
+  { id: "agents", label: "Novo agente" },
+  { id: "roles", label: "Roles" },
+  { id: "mcp", label: "MCP Agents" },
+  { id: "specs", label: "Specs" },
+];
+const SECTION_IDS = SECTION_DEFS.map((s) => s.id);
 
 interface AgentPreset {
   id: string;
@@ -152,16 +220,20 @@ function detectShell(): string {
 }
 
 const MCP_SSE_URL = "http://127.0.0.1:7844/sse";
-const MCP_ADD_CMD = `/mcp add --transport sse maestri-agents ${MCP_SSE_URL}`;
+const MCP_ADD_CMD = `/mcp add --transport sse omnirift-agents ${MCP_SSE_URL}`;
 
 export function Sidebar() {
   const addTerminal = useCanvasStore((s) => s.addTerminal);
+  const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
   const setCurrentCwd = useCanvasStore((s) => s.setCurrentCwd);
   const workspaceName = useCanvasStore((s) => s.workspaceName);
   const getWorkspaceSnapshot = useCanvasStore((s) => s.getWorkspaceSnapshot);
   const restoreWorkspace = useCanvasStore((s) => s.restoreWorkspace);
-  const floors = useCanvasStore((s) => s.floors);
+  const allFloors = useCanvasStore((s) => s.floors);
+  const activeProjectId = useCanvasStore((s) => s.activeProjectId);
+  // A sidebar mostra/opera só os floors do projeto ATIVO (floors é flat no store).
+  const floors = useMemo(() => allFloors.filter((f) => f.projectId === activeProjectId), [allFloors, activeProjectId]);
   const activeFloorId = useCanvasStore((s) => s.activeFloorId);
   const createFloor = useCanvasStore((s) => s.createFloor);
   const switchFloor = useCanvasStore((s) => s.switchFloor);
@@ -195,7 +267,20 @@ export function Sidebar() {
   const setOrchestratorSid = useCanvasStore((s) => s.setOrchestratorSid);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
+  const [settingsConfigPath, setSettingsConfigPath] = useState<string | null>(null);
   const [specs, setSpecs] = useState<SpecFile[]>([]);
+  const [specRoots, setSpecRoots] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("omnirift-spec-roots") ?? "[]"); } catch { return []; }
+  });
+  const [showDeadSpecs, setShowDeadSpecs] = useState(false);
+  const [maxAgents, setMaxAgentsState] = useState<number>(() => {
+    const n = Number(localStorage.getItem("omnirift-max-agents"));
+    return n >= 1 && n <= 16 ? n : 5;
+  });
+  useEffect(() => {
+    try { localStorage.setItem("omnirift-max-agents", String(maxAgents)); } catch { /* ignore */ }
+    setMaxAgents(maxAgents).catch(() => {});
+  }, [maxAgents]);
   const [docsStatus, setDocsStatus] = useState<AgentDocsStatus | null>(null);
   const [roles, setRoles] = useState<AgentRoleDef[]>(() => loadRoles());
   const [editingRole, setEditingRole] = useState<AgentRoleDef | null>(null);
@@ -203,6 +288,63 @@ export function Sidebar() {
   const [showHistory, setShowHistory] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
   const [showHooks, setShowHooks] = useState(false);
+  const [showSnapshots, setShowSnapshots] = useState(false);
+  const [showRoutines, setShowRoutines] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [showMcpServers, setShowMcpServers] = useState(false);
+  const [showConnections, setShowConnections] = useState(false);
+  const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
+  const [showLlmConfig, setShowLlmConfig] = useState(false);
+  const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
+  const [showGitRepos, setShowGitRepos] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
+  const [showCompanion, setShowCompanion] = useState(false);
+  const [showSectionOrder, setShowSectionOrder] = useState(false);
+  const [cow, setCow] = useState<CowInfo | null>(null);
+
+  // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
+  const tools = useReorderable("maestri-tools-order-v1", TOOL_IDS);
+  // Seções da sidebar reordenáveis (CSS order + popover de organização).
+  const secReorder = useReorderable("omnirift-sections-order-v1", SECTION_IDS);
+  const secStyle = (id: string) => ({ order: secReorder.order.indexOf(id) });
+  const runTool: Record<string, () => void> = {
+    companion: () => setShowCompanion(true),
+    git: () => setShowGitRepos(true),
+    connections: () => setShowConnections(true),
+    llm: () => setShowLlmConfig(true),
+    policy: () => setPolicyEditor({ label: "global" }),
+    reminders: () => setShowReminders(true),
+    memory: () => setShowMemory(true),
+    history: () => setShowHistory(true),
+    routines: () => setShowRoutines(true),
+    help: () => setShowHelp(true),
+    mcpservers: () => setShowMcpServers(true),
+    snapshots: () => setShowSnapshots(true),
+    hooks: () => setShowHooks(true),
+  };
+
+  // Abre os modais de ferramenta via Command palette (CustomEvent "maestri:open-tool").
+  useEffect(() => {
+    const h = (e: Event) => {
+      switch ((e as CustomEvent<string>).detail) {
+        case "routines": setShowRoutines(true); break;
+        case "help": setShowHelp(true); break;
+        case "mcpservers": setShowMcpServers(true); break;
+        case "snapshots": setShowSnapshots(true); break;
+        case "hooks": setShowHooks(true); break;
+        case "memory": setShowMemory(true); break;
+        case "history": setShowHistory(true); break;
+        case "connections": setShowConnections(true); break;
+        case "llm": setShowLlmConfig(true); break;
+        case "policy": setPolicyEditor({ label: "global" }); break;
+        case "git": setShowGitRepos(true); break;
+        case "reminders": setShowReminders(true); break;
+        case "companion": setShowCompanion(true); break;
+      }
+    };
+    window.addEventListener("maestri:open-tool", h);
+    return () => window.removeEventListener("maestri:open-tool", h);
+  }, []);
 
   // Esconde/mostra a barra inteira (persiste).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -254,18 +396,96 @@ export function Sidebar() {
   // docs ao vivo) uma vez — injetado via --mcp-config nos agentes claude.
   useEffect(() => {
     agentMcpConfig().then(setMcpConfigPath).catch(() => {});
+    agentSettingsConfig().then(setSettingsConfigPath).catch(() => {});
   }, []);
 
-  // Lista specs/plans do projeto ativo (pro dispatch paralelo).
-  useEffect(() => {
+  // Lista specs/plans do projeto (default + raízes extras do usuário).
+  const loadSpecs = useCallback(() => {
     if (!currentCwd) { setSpecs([]); return; }
-    specListFiles(currentCwd).then(setSpecs).catch(() => setSpecs([]));
-  }, [currentCwd]);
+    specListFiles(currentCwd, specRoots).then(setSpecs).catch(() => setSpecs([]));
+  }, [currentCwd, specRoots]);
+  useEffect(() => { loadSpecs(); }, [loadSpecs]);
+  useEffect(() => {
+    try { localStorage.setItem("omnirift-spec-roots", JSON.stringify(specRoots)); } catch { /* ignore */ }
+  }, [specRoots]);
+
+  async function toggleArchiveSpec(s: SpecFile) {
+    if (!currentCwd) return;
+    try {
+      if (s.status === "archived") await specUnarchive(currentCwd, s.path);
+      else await specArchive(currentCwd, s.path);
+      loadSpecs();
+    } catch (e) { alert(String(e)); }
+  }
+
+  async function importSpecRoot() {
+    const sel = await open({ directory: true, multiple: false, title: "Adicionar pasta de specs/planos" });
+    if (typeof sel === "string" && !specRoots.includes(sel)) setSpecRoots((r) => [...r, sel]);
+  }
+
+  async function newDoc(kind: "spec" | "plan") {
+    if (!currentCwd) return;
+    const raw = window.prompt(`Nome ${kind === "plan" ? "do plano" : "da spec"}:`, kind === "plan" ? "novo-plano" : "nova-spec");
+    if (!raw) return;
+    const slug = raw.trim().replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "") || kind;
+    const today = new Date().toISOString().slice(0, 10);
+    const sub = kind === "plan" ? "plans" : "specs";
+    const path = `${currentCwd}/docs/superpowers/${sub}/${today}-${slug}.md`;
+    const tpl = kind === "plan"
+      ? `# ${raw.trim()}\n\n**Goal:** \n\n**Architecture:** \n\n## Task 1: \n- [ ] passo\n\n## Task 2: \n- [ ] passo\n`
+      : `---\nstatus: active\n# paths: [src/...]  # descomente pra detectar sobreposição\n---\n\n# ${raw.trim()} — Design\n\n**Goal:** \n\n**Architecture:** \n\n**Data flow:** \n\n**Error handling:** \n\n**Testing:** \n`;
+    try { await writeFile(path, tpl); loadSpecs(); addPreviewNode({ path }); }
+    catch (e) { alert(String(e)); }
+  }
+
+  const activeSpecs = useMemo(() => specs.filter((s) => !isDeadSpec(s)), [specs]);
+  const deadSpecs = useMemo(() => specs.filter(isDeadSpec), [specs]);
+  const overlapWarnings = useMemo(() => {
+    const set = new Set<string>();
+    const wp = activeSpecs.filter((s) => s.paths.length > 0);
+    for (let i = 0; i < wp.length; i++)
+      for (let j = i + 1; j < wp.length; j++)
+        if (pathsOverlap(wp[i].paths, wp[j].paths)) { set.add(wp[i].path); set.add(wp[j].path); }
+    return set;
+  }, [activeSpecs]);
+  const renderSpecRow = (s: SpecFile) => {
+    const dead = isDeadSpec(s);
+    return (
+      <div key={s.path} className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2">
+        <span className={cn("text-[8px] px-1 rounded shrink-0 uppercase", s.kind === "plan" ? "bg-brand/20 text-brand" : "bg-surface2 text-textMuted")}>{s.kind}</span>
+        <button onClick={() => addPreviewNode({ path: s.path })} title={`Abrir ${s.path}`} className={cn("text-[11px] flex-1 truncate text-left hover:text-brand", dead && "line-through opacity-60")}>{s.title}</button>
+        {s.tasks > 0
+          ? <span className="text-[9px] text-textMuted opacity-60 shrink-0 tabular-nums" title={`${s.doneTasks} de ${s.tasks} tasks`}>{s.doneTasks}/{s.tasks}</span>
+          : <span className="text-[8px] uppercase px-1 rounded shrink-0 bg-surface2 text-textMuted">{s.status}</span>}
+        {overlapWarnings.has(s.path) && (
+          <Tooltip label="Sobreposição: outra spec ativa toca os mesmos paths — serialize ou redesenhe o escopo" side="top" className="shrink-0">
+            <AlertTriangle size={11} className="text-yellow-400 shrink-0" />
+          </Tooltip>
+        )}
+        <Tooltip label={s.status === "archived" ? "Desarquivar" : "Arquivar (move pra archive/)"} side="top" className="shrink-0">
+          <button onClick={() => void toggleArchiveSpec(s)} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all">
+            {s.status === "archived" ? <ArchiveRestore size={11} /> : <Archive size={11} />}
+          </button>
+        </Tooltip>
+        <Tooltip label={dead ? "Spec concluída/arquivada — não despacha" : orchestratorSid ? "Enviar ao Orquestrador (dispatch paralelo)" : "Defina um Orquestrador primeiro"} side="top" className="shrink-0">
+          <button onClick={() => dispatchSpec(s)} disabled={!orchestratorSid || dead} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+            <Rocket size={11} />
+          </button>
+        </Tooltip>
+      </div>
+    );
+  };
 
   // Status de CLAUDE.md/AGENTS.md do projeto ativo (pro sync de roles).
   useEffect(() => {
     if (!currentCwd) { setDocsStatus(null); return; }
     agentDocsStatus(currentCwd).then(setDocsStatus).catch(() => setDocsStatus(null));
+  }, [currentCwd]);
+
+  // CoW/git-native dos floors (badge informativo).
+  useEffect(() => {
+    if (!currentCwd) { setCow(null); return; }
+    fsCowInfo(currentCwd).then(setCow).catch(() => setCow(null));
   }, [currentCwd]);
 
   // Re-registra agentes automaticamente após restart (aguarda PTYs spawnarem)
@@ -319,10 +539,10 @@ export function Sidebar() {
       const desc = newDescs[sid] ?? lbl;
       return `  • ${toolName} — ${desc}`;
     }).join("\n");
-    invoke("pty_write", { sessionId: orchSid, data: `\n[Maestri] Equipe disponível via MCP:\n${display}\n` }).catch(console.warn);
+    invoke("pty_write", { sessionId: orchSid, data: `\n[OmniRift] Equipe disponível via MCP:\n${display}\n` }).catch(console.warn);
 
     // Input real: texto primeiro, depois \r como chamada separada (evita chunk único ignorar Enter)
-    const inputText = `${ORCHESTRATOR_CONTRACT}\n\nSua equipe atual (tools maestri-agents): ${summary}. Delegue TODAS as próximas tarefas a esses agentes — não execute nada você mesmo.`;
+    const inputText = `${ORCHESTRATOR_CONTRACT}\n\nSua equipe atual (tools omnirift-agents): ${summary}. Delegue TODAS as próximas tarefas a esses agentes — não execute nada você mesmo.`;
     setTimeout(() => {
       invoke("pty_write", { sessionId: orchSid, data: inputText }).catch(console.warn);
       setTimeout(() => {
@@ -344,7 +564,7 @@ export function Sidebar() {
       setMcpAgents(next);
       mcpRegisterAgent(label, sessionId, description, floorNameOf(sessionId)).catch(console.warn);
       // Papel no terminal do agente: texto + \r separado
-      const roleText = `Você está agindo como ${label} no canvas Maestri. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.`;
+      const roleText = `Você está agindo como ${label} no canvas OmniRift. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.`;
       invoke("pty_write", { sessionId, data: roleText }).catch(console.warn);
       setTimeout(() => {
         invoke("pty_write", { sessionId, data: "\r" }).catch(console.warn);
@@ -369,8 +589,12 @@ export function Sidebar() {
   // agente nasce com estrutura de código por linguagem (Serena) + docs ao vivo
   // (Context7) apontados pra pasta do projeto.
   function argsWithMcp(preset: AgentPreset): string[] | undefined {
-    if (mcpConfigPath && preset.role === "claude-code") {
-      return [...(preset.args ?? []), "--mcp-config", mcpConfigPath];
+    if (preset.role === "claude-code") {
+      return [
+        ...(preset.args ?? []),
+        ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath] : []),
+        ...(settingsConfigPath ? ["--settings", settingsConfigPath] : []),
+      ];
     }
     return preset.args;
   }
@@ -407,6 +631,25 @@ export function Sidebar() {
   async function landFloor(f: Floor) {
     if (!f.repoRoot || !f.branch || !f.worktreePath || !f.baseBranch) return;
     if (!confirm(`Land "${f.branch}" → "${f.baseBranch}"?\nFaz merge e remove o worktree.`)) return;
+    // Review gate: se a política liga o gate, roda o code review antes do merge.
+    const policy = loadPolicy(f.repoRoot);
+    if (policy.enabled && policy.gate !== "off") {
+      const llm = loadLlmConfig();
+      if (llm) {
+        try {
+          const r = await runReview(f.worktreePath, f.baseBranch, llm, policy);
+          if (r.verdict === "NO-GO") {
+            if (policy.gate === "block") {
+              alert(`🚫 Review reprovou (NO-GO · score ${r.score}). Land bloqueado.\nAbra o Review (⊟ no floor) pra ver os findings e corrija.`);
+              return;
+            }
+            if (!confirm(`⚠️ Review reprovou (NO-GO · score ${r.score}).\n${r.summary}\nLand mesmo assim?`)) return;
+          }
+        } catch (e) {
+          console.warn("[review gate] falhou, não bloqueia o Land:", e);
+        }
+      }
+    }
     // Hook onLand: roda (bloqueante) no worktree antes do merge; falha aborta o Land.
     const hooks = loadHooks();
     if (hooks.onLand) {
@@ -479,28 +722,99 @@ export function Sidebar() {
       // Outros CLIs com flag de system-prompt: só a persona (não têm o perfil MCP).
       const args =
         cli.role === "claude-code"
-          ? workerClaudeArgs(mcpConfigPath, r.prompt)
+          ? workerClaudeArgs(mcpConfigPath, r.prompt, settingsConfigPath)
           : [cli.systemPromptFlag, r.prompt];
       addTerminal({ command: cli.command, args, role: cli.role, label: r.name });
       return;
     }
     const node = addTerminal({ command: cli.command, role: cli.role, label: r.name });
-    setTimeout(() => {
-      invoke("pty_write", { sessionId: node.session_id, data: r.prompt }).catch(console.warn);
+    // Envia uma linha (texto + Enter à parte) após `delay` ms.
+    const sendLine = (text: string, delay: number) => {
+      if (!text.trim()) return;
       setTimeout(() => {
-        invoke("pty_write", { sessionId: node.session_id, data: "\r" }).catch(console.warn);
-      }, 200);
-    }, 1800);
+        invoke("pty_write", { sessionId: node.session_id, data: text }).catch(console.warn);
+        setTimeout(() => invoke("pty_write", { sessionId: node.session_id, data: "\r" }).catch(console.warn), 200);
+      }, delay);
+    };
+    // Injeta `text` QUANDO o terminal fica pronto (idle, depois do boot/seleção de
+    // modelo) — robusto a tempo de boot variável; não injeta durante prompts.
+    const injectWhenReady = (sid: string, text: string) => {
+      if (!text.trim()) return;
+      let ready = false, done = false;
+      const finish = () => {
+        if (done) return;
+        done = true; unsub(); clearTimeout(graceT); clearTimeout(killT);
+        sendLine(text, 150);
+      };
+      const unsub = useCanvasStore.subscribe((s) => {
+        const st = s.terminalStatuses[sid];
+        if (ready && (st === "idle" || st === "done")) finish();
+      });
+      const graceT = setTimeout(() => {
+        ready = true;
+        const st = useCanvasStore.getState().terminalStatuses[sid];
+        if (st === "idle" || st === "done") finish();
+      }, 1500);
+      const killT = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
+    };
+    // Aspas simples seguras pro bash (escapa ' interno).
+    const shellQuote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
+    if (cli.role === "shell") {
+      const startup = (r.startupCmd ?? "").trim();
+      const persona = r.prompt.trim();
+      // CLI Claude Code (claude/claude-ollama/…): persona NATIVA via flag — carrega
+      // no startup, sem corrida de boot/seleção de modelo. Outros CLIs de IA sem
+      // flag: tenta injetar quando o terminal ficar pronto (best-effort).
+      if (persona && /\bclaude\b/i.test(startup)) {
+        sendLine(`${startup} --append-system-prompt ${shellQuote(persona)}`, 400);
+      } else {
+        sendLine(startup, 400);
+        if (startup && persona) injectWhenReady(node.session_id, persona);
+      }
+    } else {
+      // CLIs LLM sem flag (opencode/antigravity): persona como 1ª mensagem.
+      sendLine(r.prompt, 1800);
+    }
+  }
+
+  // Descobre roles do projeto (.claude/agents/*.md) e importa os que ainda não existem.
+  async function discoverProjectRoles() {
+    if (!currentCwd) return;
+    let found;
+    try {
+      found = await discoverRoles(currentCwd);
+    } catch (e) {
+      alert("Falha ao descobrir roles:\n" + String(e));
+      return;
+    }
+    if (found.length === 0) {
+      alert("Nenhum role em .claude/agents/ deste projeto.");
+      return;
+    }
+    setRoles((prev) => {
+      const have = new Set(prev.map((r) => r.name.toLowerCase()));
+      const fresh = found
+        .filter((f) => !have.has(f.name.toLowerCase()))
+        .map((f) => ({ id: nanoid(), name: f.name, prompt: f.prompt || f.description, cli: "claude" }));
+      if (fresh.length === 0) {
+        alert("Todos os roles do projeto já estão na biblioteca.");
+        return prev;
+      }
+      const next = [...prev, ...fresh];
+      saveRoles(next);
+      alert(`${fresh.length} role(s) importado(s) de .claude/agents/.`);
+      return next;
+    });
   }
 
   // Salva (upsert) um role editado/criado no modal.
-  function saveRole(name: string, prompt: string, cli: string) {
+  function saveRole(name: string, prompt: string, cli: string, startupCmd: string) {
     if (!editingRole) return;
     setRoles((prev) => {
       const exists = prev.some((x) => x.id === editingRole.id);
       const next = exists
-        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli } : x))
-        : [...prev, { ...editingRole, name, prompt, cli }];
+        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd } : x))
+        : [...prev, { ...editingRole, name, prompt, cli, startupCmd }];
       saveRoles(next);
       return next;
     });
@@ -573,25 +887,65 @@ export function Sidebar() {
           <div>
             <h1 className="text-sm font-medium flex items-center gap-2">
               <span className="inline-block w-2 h-2 rounded-full bg-brand" />
-              Omni Canvas
+              OmniRift
             </h1>
             <p className="text-[11px] text-textMuted mt-0.5">Canvas infinito · OmniForge</p>
           </div>
-          <button
-            onClick={toggleSidebar}
-            title="Esconder barra lateral"
-            className="p-1 rounded text-textMuted hover:text-text hover:bg-surface2 transition-colors shrink-0"
-          >
-            <PanelLeftClose size={15} />
-          </button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={() => setShowSectionOrder((v) => !v)}
+              title="Organizar as seções da barra (arraste)"
+              className={cn("p-1 rounded hover:bg-surface2 transition-colors", showSectionOrder ? "text-brand" : "text-textMuted hover:text-brand")}
+            >
+              <GripVertical size={15} />
+            </button>
+            <button
+              onClick={toggleSidebar}
+              title="Esconder barra lateral"
+              className="p-1 rounded text-textMuted hover:text-text hover:bg-surface2 transition-colors"
+            >
+              <PanelLeftClose size={15} />
+            </button>
+          </div>
         </div>
       </header>
 
+      {showSectionOrder && (
+        <div className="px-2 py-2 border-b border-border bg-surface2/40">
+          <p className="px-1 text-[10px] uppercase tracking-wider text-textMuted mb-1">Organizar seções · arraste</p>
+          {secReorder.order.map((sid) => {
+            const def = SECTION_DEFS.find((s) => s.id === sid);
+            if (!def) return null;
+            return (
+              <div
+                key={sid}
+                {...secReorder.dnd(sid)}
+                className={cn(
+                  "flex items-center gap-1.5 px-1.5 py-1 rounded text-xs text-textMuted hover:bg-surface1 cursor-grab active:cursor-grabbing",
+                  secReorder.overId === sid && "border-t-2 border-brand",
+                )}
+              >
+                <GripVertical size={11} className="opacity-50 shrink-0" /> {def.label}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
       {/* Floors */}
-      <div className="px-2 py-2 border-b border-border">
+      <div className="px-2 py-2 border-b border-border" style={secStyle("floors")}>
         <div className="flex items-center justify-between px-2 mb-1">
           <div className="flex items-center gap-1.5">
             <p className="text-[11px] uppercase tracking-wider text-textMuted">Floors</p>
+            <Tooltip
+              label={`Floors = branches git (worktree): objetos compartilhados (~zero disco), git-native, cross-platform.${cow ? ` FS ${cow.fs}${cow.reflink ? " · CoW/instantâneo ⚡" : ""}` : ""}`}
+              side="bottom"
+            >
+              <span className="flex items-center gap-0.5 text-[9px] text-brand/70 bg-brand/10 px-1 rounded">
+                <GitBranch size={8} /> git-native{cow?.reflink ? " ⚡" : ""}
+              </span>
+            </Tooltip>
             {floors.filter(isReadyToLand).length > 0 && (
               <Tooltip
                 label={`${floors.filter(isReadyToLand).length} floor(s) com agente pronto pra Land`}
@@ -604,30 +958,6 @@ export function Sidebar() {
             )}
           </div>
           <div className="flex items-center gap-0.5">
-            <Tooltip label="Hooks do floor (onCreate / onLand)" side="bottom">
-              <button
-                onClick={() => setShowHooks(true)}
-                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-              >
-                <Webhook size={12} />
-              </button>
-            </Tooltip>
-            <Tooltip label="Memória dos agentes (blackboard + erros)" side="bottom">
-              <button
-                onClick={() => setShowMemory(true)}
-                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-              >
-                <Brain size={12} />
-              </button>
-            </Tooltip>
-            <Tooltip label="Histórico de sessões dos agentes" side="bottom">
-              <button
-                onClick={() => setShowHistory(true)}
-                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-              >
-                <History size={12} />
-              </button>
-            </Tooltip>
             <Tooltip label="Novo floor como branch git (worktree isolado)" side="bottom">
               <button
                 onClick={createGitFloor}
@@ -693,6 +1023,19 @@ export function Sidebar() {
                   </button>
                 </Tooltip>
               )}
+              {f.branch && f.worktreePath && (
+                <Tooltip label={`Code review IA de "${f.branch}" vs "${f.baseBranch}"`} side="top">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setReviewFloor(f);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all"
+                  >
+                    <ScanLine size={10} />
+                  </button>
+                </Tooltip>
+              )}
               {f.branch && (
                 <Tooltip
                   label={
@@ -740,8 +1083,38 @@ export function Sidebar() {
         </div>
       </div>
 
+      {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
+      <div className="px-2 py-2 border-b border-border" style={secStyle("tools")}>
+        <div className="px-2 mb-1">{sectionTitle("tools", "Ferramentas")}</div>
+        {isOpen("tools") && (
+          <div className="space-y-0.5">
+            {tools.order.map((id) => {
+              const def = TOOL_DEFS.find((t) => t.id === id);
+              if (!def) return null;
+              const Icon = def.icon;
+              return (
+                <Tooltip key={id} label={def.desc} side="right" className="w-full">
+                  <button
+                    {...tools.dnd(id)}
+                    onClick={runTool[id]}
+                    className={cn(
+                      "group w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-textMuted",
+                      "hover:text-brand hover:bg-surface2 transition-colors cursor-grab active:cursor-grabbing",
+                      tools.overId === id && "border-t-2 border-brand",
+                    )}
+                  >
+                    <GripVertical size={11} className="shrink-0 opacity-0 group-hover:opacity-40 -ml-1" />
+                    <Icon size={13} className="shrink-0 opacity-80" /> {def.label}
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Workspace */}
-      <div className="px-2 py-2 border-b border-border space-y-1">
+      <div className="px-2 py-2 border-b border-border space-y-1" style={secStyle("workspace")}>
         <p className="px-2 text-[11px] uppercase tracking-wider text-textMuted mb-1">
           Workspace
         </p>
@@ -781,7 +1154,7 @@ export function Sidebar() {
       </div>
 
       {/* Seletor de pasta do projeto */}
-      <div className="px-2 py-2 border-b border-border">
+      <div className="px-2 py-2 border-b border-border" style={secStyle("project")}>
         <p className="px-2 text-[11px] uppercase tracking-wider text-textMuted mb-1">
           Projeto
         </p>
@@ -820,6 +1193,7 @@ export function Sidebar() {
             {currentCwd}
           </p>
         )}
+        {currentCwd && <EditorOpenButton path={currentCwd} />}
         {/* Sync CLAUDE.md ↔ AGENTS.md (regras de projeto pros agentes) */}
         {currentCwd && docsStatus && (docsStatus.claude || docsStatus.agents) && (
           <div className="px-2 mt-1 flex items-center gap-1.5 text-[9px]">
@@ -851,9 +1225,10 @@ export function Sidebar() {
       </div>
 
       <section
-        className={cn("px-2 py-3 space-y-1", isOpen("agents") ? "flex-1 overflow-y-auto" : "shrink-0")}
+        style={secStyle("agents")}
+        className="px-2 py-3 space-y-1 shrink-0"
       >
-        <div className="px-2 mb-1">{sectionTitle("agents", "Novo agente")}</div>
+        <div className="px-2 mb-1 sticky -top-3 z-10 bg-surface1 pt-3 pb-1">{sectionTitle("agents", "Novo agente")}</div>
 
         {isOpen("agents") &&
           PRESETS.map((preset) => {
@@ -872,6 +1247,7 @@ export function Sidebar() {
                     label: preset.label,
                   })
                 }
+                title={preset.description}
                 className="flex-1 min-w-0 text-left flex items-start gap-3 px-2 py-2"
               >
                 <Icon
@@ -905,36 +1281,58 @@ export function Sidebar() {
       </section>
 
       {/* Roles — personas de agente (--append-system-prompt) */}
-      <div className="px-2 py-2 border-t border-border">
+      <div className="px-2 py-2 border-t border-border" style={secStyle("roles")}>
         <div className="flex items-center justify-between px-2 mb-1.5">
           {sectionTitle("roles", "Roles")}
-          <Tooltip label="Novo role custom" side="bottom">
-            <button
-              onClick={() => setEditingRole({ id: nanoid(), name: "", prompt: "" })}
-              className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
-            >
-              <Plus size={12} />
-            </button>
-          </Tooltip>
+          <div className="flex items-center gap-0.5">
+            {currentCwd && (
+              <Tooltip label="Descobrir roles do projeto (.claude/agents)" side="bottom">
+                <button
+                  onClick={() => void discoverProjectRoles()}
+                  className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
+                >
+                  <ScanSearch size={12} />
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip label="Novo role custom" side="bottom">
+              <button
+                onClick={() => setEditingRole({ id: nanoid(), name: "", prompt: "" })}
+                className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
+              >
+                <Plus size={12} />
+              </button>
+            </Tooltip>
+          </div>
         </div>
         {isOpen("roles") && (
           <div className="space-y-0.5">
             {roles.map((r) => (
               <div
                 key={r.id}
-                className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2"
+                className={cn(
+                  "group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2",
+                  r.master && "bg-yellow-400/5 ring-1 ring-yellow-400/20",
+                )}
               >
-                <UserCog size={12} className="text-brand/70 shrink-0" />
+                {r.master ? (
+                  <Crown size={12} className="text-yellow-400 shrink-0" />
+                ) : (
+                  <UserCog size={12} className="text-brand/70 shrink-0" />
+                )}
                 <button
                   onClick={() => spawnRole(r)}
                   title={r.prompt}
-                  className="flex-1 min-w-0 text-left text-xs truncate hover:text-brand transition-colors"
+                  className={cn(
+                    "flex-1 min-w-0 text-left text-xs truncate hover:text-brand transition-colors",
+                    r.master && "font-medium",
+                  )}
                 >
                   {r.name}
                 </button>
-                {(r.cli ?? "claude") !== "claude" && (
+                {((r.cli ?? "claude") !== "claude" || r.master) && (
                   <span className="text-[8px] px-1 rounded shrink-0 bg-brand/15 text-brand uppercase">
-                    {r.cli}
+                    {r.cli ?? "claude"}
                   </span>
                 )}
                 <Tooltip label="Editar prompt" side="top" className="shrink-0">
@@ -962,17 +1360,32 @@ export function Sidebar() {
       </div>
 
       {/* MCP Agents */}
-      <div className="px-2 py-2 border-t border-border">
-        <div className="flex items-center justify-between px-2 mb-1.5">
+      <div className="px-2 py-2 border-t border-border" style={secStyle("mcp")}>
+        <div className="flex items-center justify-between px-2 mb-1.5 gap-2">
           {sectionTitle("mcp", "MCP Agents")}
-          <Tooltip label="Copia o comando /mcp add pra conectar o Orquestrador ao MCP do maestri" side="bottom">
-            <button
-              onClick={copyMcpCmd}
-              className="text-[10px] text-textMuted hover:text-brand transition-colors px-1.5 py-0.5 rounded hover:bg-surface2"
-            >
-              {copiedCmd ? "✓ copiado" : "copiar cmd"}
-            </button>
-          </Tooltip>
+          <div className="flex items-center gap-2 shrink-0">
+            <Tooltip label="Teto de agentes simultâneos do Orquestrador (ele pergunta antes de abrir; o resto roda em ondas)" side="bottom">
+              <label className="flex items-center gap-1 text-[10px] text-textMuted">
+                máx
+                <input
+                  type="number"
+                  min={1}
+                  max={16}
+                  value={maxAgents}
+                  onChange={(e) => setMaxAgentsState(Math.max(1, Math.min(16, Number(e.target.value) || 5)))}
+                  className="w-9 px-1 py-0.5 rounded text-[10px] bg-bg border border-border text-text text-center focus:outline-none focus:border-brand"
+                />
+              </label>
+            </Tooltip>
+            <Tooltip label="Copia o comando /mcp add pra conectar o Orquestrador ao MCP" side="bottom">
+              <button
+                onClick={copyMcpCmd}
+                className="text-[10px] text-textMuted hover:text-brand transition-colors px-1.5 py-0.5 rounded hover:bg-surface2"
+              >
+                {copiedCmd ? "✓ copiado" : "copiar cmd"}
+              </button>
+            </Tooltip>
+          </div>
         </div>
 
         {/* Lista de terminais que podem ser agentes */}
@@ -1084,54 +1497,37 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Specs — dispatch paralelo (Fase C) */}
-      <div className="px-2 py-2 border-t border-border">
-        <div className="px-2 mb-1.5">{sectionTitle("specs", "Specs")}</div>
+      {/* Specs — ciclo de vida + dispatch (Fase C) */}
+      <div className="px-2 py-2 border-t border-border" style={secStyle("specs")}>
+        <div className="px-2 mb-1.5 flex items-center gap-1">
+          <div className="flex-1">{sectionTitle("specs", "Specs")}</div>
+          <button onClick={() => void newDoc("spec")} disabled={!currentCwd} title="Nova spec (design)" className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FileText size={12} /></button>
+          <button onClick={() => void newDoc("plan")} disabled={!currentCwd} title="Novo plano (tasks)" className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FilePlus size={12} /></button>
+          <button onClick={() => void importSpecRoot()} title="Adicionar pasta de specs/planos" className="text-textMuted hover:text-brand p-0.5"><FolderPlus size={12} /></button>
+        </div>
         {isOpen("specs") && (
           !currentCwd ? (
-          <p className="px-2 text-[10px] text-textMuted opacity-60">Abra um projeto pra listar specs.</p>
-        ) : specs.length === 0 ? (
-          <p className="px-2 text-[10px] text-textMuted opacity-60">Nenhuma spec em docs/superpowers/.</p>
-        ) : (
-          <div className="space-y-0.5">
-            {specs.map((s) => (
-              <div
-                key={s.path}
-                className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2"
-              >
-                <span
-                  className={cn(
-                    "text-[8px] px-1 rounded shrink-0 uppercase",
-                    s.kind === "plan" ? "bg-brand/20 text-brand" : "bg-surface2 text-textMuted",
-                  )}
-                >
-                  {s.kind}
-                </span>
-                <span className="text-[11px] flex-1 truncate" title={s.path}>
-                  {s.title}
-                </span>
-                <span className="text-[9px] text-textMuted opacity-60 shrink-0">{s.tasks}t</span>
-                <Tooltip
-                  label={
-                    orchestratorSid
-                      ? "Dispatch paralelo: o Orquestrador agrupa as Tasks e spawna 1 agente por branch"
-                      : "Defina um Orquestrador (botão 'O') primeiro"
-                  }
-                  side="top"
-                  className="shrink-0"
-                >
+            <p className="px-2 text-[10px] text-textMuted opacity-60">Abra um projeto pra listar specs.</p>
+          ) : specs.length === 0 ? (
+            <p className="px-2 text-[10px] text-textMuted opacity-60">Nenhuma spec. Crie com + ou adicione uma pasta.</p>
+          ) : (
+            <div className="space-y-0.5">
+              {activeSpecs.map(renderSpecRow)}
+              {deadSpecs.length > 0 && (
+                <>
                   <button
-                    onClick={() => dispatchSpec(s)}
-                    disabled={!orchestratorSid}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    onClick={() => setShowDeadSpecs((v) => !v)}
+                    className="w-full text-left px-2 py-1 text-[9px] uppercase tracking-wider text-textMuted opacity-60 hover:opacity-100"
                   >
-                    <Rocket size={11} />
+                    {showDeadSpecs ? "▾" : "▸"} Concluídos / arquivados ({deadSpecs.length})
                   </button>
-                </Tooltip>
-              </div>
-            ))}
-          </div>
-        ))}
+                  {showDeadSpecs && deadSpecs.map(renderSpecRow)}
+                </>
+              )}
+            </div>
+          )
+        )}
+      </div>
       </div>
 
       <footer className="px-4 py-3 border-t border-border text-[10px] text-textMuted">
@@ -1153,6 +1549,24 @@ export function Sidebar() {
       {showHistory && <SessionHistoryModal onClose={() => setShowHistory(false)} />}
       {showMemory && <MemoryModal onClose={() => setShowMemory(false)} />}
       {showHooks && <HooksModal onClose={() => setShowHooks(false)} />}
+      {showSnapshots && <SnapshotsModal onClose={() => setShowSnapshots(false)} />}
+      {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} cwd={currentCwd} />}
+      {showReminders && <RemindersModal onClose={() => setShowReminders(false)} />}
+      {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
+      {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
+      {reviewFloor && (
+        <ReviewModal
+          floor={reviewFloor}
+          onClose={() => setReviewFloor(null)}
+          onConfigure={() => setShowLlmConfig(true)}
+          onEditPolicy={() => setPolicyEditor({ scope: reviewFloor.repoRoot || reviewFloor.id, label: reviewFloor.name })}
+        />
+      )}
+      {showLlmConfig && <LlmConfigModal onClose={() => setShowLlmConfig(false)} />}
+      {showGitRepos && <GitReposModal onClose={() => setShowGitRepos(false)} />}
+      {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} onClose={() => setPolicyEditor(null)} />}
     </aside>
   );
 }

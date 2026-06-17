@@ -1,8 +1,8 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "maestri-linux",
+  "productName": "OmniRift",
   "version": "0.1.0",
-  "identifier": "com.omniforge.maestri-linux",
+  "identifier": "com.omniforge.omnirift",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Maestri Linux",
+        "title": "OmniRift",
         "width": 1400,
         "height": 900,
         "minWidth": 900,

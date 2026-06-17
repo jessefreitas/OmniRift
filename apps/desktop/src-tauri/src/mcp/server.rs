@@ -1,4 +1,4 @@
-/// MCP (Model Context Protocol) SSE server embutido no Maestri.
+/// MCP (Model Context Protocol) SSE server embutido no OmniRift.
 ///
 /// Protocolo: JSON-RPC 2.0 sobre HTTP+SSE (spec MCP 2024-11-05).
 ///   GET  /sse     → abre stream SSE, envia evento "endpoint" com a URL de post
@@ -35,6 +35,10 @@ pub struct McpState {
     pub(crate) sessions: Arc<DashMap<String, broadcast::Sender<String>>>,
     pub(crate) app: tauri::AppHandle,
     pub(crate) floor_mirror: Arc<parking_lot::Mutex<Value>>,
+    /// Provider de memória ativo (roteia as tools memory_*).
+    pub(crate) memory_registry: Arc<crate::memory::MemoryRegistry>,
+    /// Teto de agentes simultâneos que o Orquestrador pode ter (default 5).
+    pub(crate) max_agents: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 pub fn mcp_router(
@@ -42,6 +46,8 @@ pub fn mcp_router(
     agent_registry: Arc<AgentRegistry>,
     app: tauri::AppHandle,
     floor_mirror: Arc<parking_lot::Mutex<Value>>,
+    memory_registry: Arc<crate::memory::MemoryRegistry>,
+    max_agents: Arc<std::sync::atomic::AtomicUsize>,
 ) -> Router {
     let state = Arc::new(McpState {
         pty_manager,
@@ -49,6 +55,8 @@ pub fn mcp_router(
         sessions: Arc::new(DashMap::new()),
         app,
         floor_mirror,
+        memory_registry,
+        max_agents,
     });
     Router::new()
         .route("/sse", get(sse_handler))
@@ -123,7 +131,7 @@ async fn handle_jsonrpc(state: Arc<McpState>, req: Value) -> Value {
         "initialize" => json!({
             "protocolVersion": "2024-11-05",
             "capabilities": { "tools": {} },
-            "serverInfo": { "name": "maestri-agents", "version": "1.0.0" }
+            "serverInfo": { "name": "omnirift-agents", "version": "1.0.0" }
         }),
 
         "tools/list" => {
@@ -153,6 +161,7 @@ async fn handle_jsonrpc(state: Arc<McpState>, req: Value) -> Value {
                 }));
             }
             tools.extend(crate::mcp::tools::terminal_tool_defs());
+            tools.push(crate::mcp::tools::review_tool_def());
             json!({ "tools": tools })
         }
 
@@ -181,7 +190,7 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
         "list_agents" => {
             let agents = state.agent_registry.list();
             let text = if agents.is_empty() {
-                "Nenhum agente registrado. Marque terminais na sidebar do Maestri.".to_string()
+                "Nenhum agente registrado. Marque terminais na sidebar do OmniRift.".to_string()
             } else {
                 agents
                     .iter()
@@ -211,7 +220,12 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
         }
 
         t if t.starts_with("memory_") => {
-            let text = crate::mcp::tools::memory_dispatch(&state, t, args);
+            let text = crate::mcp::tools::memory_dispatch(&state, t, args).await;
+            json!({ "content": [{ "type": "text", "text": text }] })
+        }
+
+        "review_current" => {
+            let text = crate::mcp::tools::review_dispatch(&state, args).await;
             json!({ "content": [{ "type": "text", "text": text }] })
         }
 
@@ -251,8 +265,13 @@ async fn do_send_task(
     // line-mode trava em TUI — Claude/agy redesenham a tela e nunca "ficam idle".
     let mut rx = state.pty_manager.subscribe_state();
 
-    // Claude/agy/codex operam em raw mode: Enter é \r.
-    state.pty_manager.write(&session_id, format!("{task}\r").as_bytes())?;
+    // Claude/agy/codex operam em raw mode: Enter é \r. Mandar o \r JUNTO do texto
+    // faz o TUI tratar tudo como colagem e às vezes NÃO submeter — o texto fica no
+    // buffer do input e o agente nunca roda (0 tokens). Escreve o texto e, ~200ms
+    // depois, o Enter sozinho (mesmo padrão do spawnRole no front).
+    state.pty_manager.write(&session_id, task.as_bytes())?;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    state.pty_manager.write(&session_id, b"\r")?;
 
     // Espera o agente trabalhar e então assentar (done/idle/blocked). No estouro
     // do timeout, devolve a tela atual mesmo assim (melhor que travar 10min).

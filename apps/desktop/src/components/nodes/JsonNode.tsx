@@ -1,8 +1,14 @@
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
-import { Braces, ChevronRight, Code2, ListTree, Network, X } from "lucide-react";
+import { Braces, ChevronRight, Code2, ListTree, Maximize2, Minimize2, Network, Upload, X } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
+import { NodeComment } from "@/components/NodeComment";
+import { MindMap } from "@/components/MindMap";
 import { cn } from "@/lib/cn";
 import type { JsonNode as JsonNodeData } from "@/types/canvas";
 
@@ -83,7 +89,7 @@ function GraphNode({ k, value }: { k: string | null; value: unknown }) {
   const prims = entries.filter(([, v]) => isPrimitive(v));
   const objs = entries.filter(([, v]) => !isPrimitive(v));
   return (
-    <div className="flex items-center gap-0">
+    <div className="flex items-start gap-0">
       <div className="rounded-md border border-border bg-surface1 shadow-sm overflow-hidden shrink-0">
         <div className="px-2 py-0.5 bg-surface2 text-[10px] text-textMuted border-b border-border font-mono">
           {k ?? "root"} <span className="opacity-50">{isArr ? `[${entries.length}]` : `{${entries.length}}`}</span>
@@ -100,17 +106,18 @@ function GraphNode({ k, value }: { k: string | null; value: unknown }) {
         )}
       </div>
       {objs.length > 0 && (
-        <>
-          <div className="w-5 h-px bg-border shrink-0" />
-          <div className="flex flex-col gap-3 py-1">
+        <div className="flex items-start">
+          {/* ligação: linha do pai → spine vertical → stub por filho (árvore/mapa mental) */}
+          <div className="w-5 h-px bg-brand/50 shrink-0 mt-[14px]" />
+          <div className="flex flex-col gap-3 py-1 border-l-2 border-brand/30">
             {objs.map(([ck, cv], i) => (
               <div key={i} className="flex items-center">
-                <div className="w-3 h-px bg-border shrink-0" />
+                <div className="w-5 h-px bg-brand/40 shrink-0" />
                 <GraphNode k={isArr ? `[${ck}]` : ck} value={cv} />
               </div>
             ))}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -121,6 +128,7 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [text, setText] = useState(data.text || "");
   const [view, setView] = useState<"text" | "tree" | "graph">("text");
+  const [maximized, setMaximized] = useState(false);
 
   const parsed = useMemo<{ ok: true; value: unknown } | { ok: false; error: string } | null>(() => {
     if (!text.trim()) return null;
@@ -145,13 +153,39 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
       patchNode(id, { text: m });
     }
   }
+  async function uploadJson() {
+    try {
+      const sel = await open({ multiple: false, filters: [{ name: "JSON", extensions: ["json"] }] });
+      if (typeof sel !== "string") return;
+      const content = await invoke<string>("read_file", { path: sel });
+      setText(content);
+      patchNode(id, { text: content });
+      setView("graph"); // abre direto como mapa mental
+    } catch (e) {
+      console.warn("[json] upload falhou:", e);
+    }
+  }
+  // Arrastar pra navegar o grafo (pan), além do scroll/wheel.
+  function startPan(e: React.MouseEvent<HTMLDivElement>) {
+    if (view !== "graph" || e.button !== 0) return;
+    const el = e.currentTarget;
+    const sx = e.clientX, sy = e.clientY, sl = el.scrollLeft, st = el.scrollTop;
+    el.style.cursor = "grabbing";
+    const move = (ev: MouseEvent) => {
+      el.scrollLeft = sl - (ev.clientX - sx);
+      el.scrollTop = st - (ev.clientY - sy);
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      el.style.cursor = "";
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
 
-  return (
-    <div
-      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
-      style={{ width: data.size?.width ?? 460, height: data.size?.height ?? 420 }}
-    >
-      <NodeResizer isVisible={selected} minWidth={320} minHeight={280} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+  const card = (
+    <>
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <Braces size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1">JSON</span>
@@ -160,6 +194,10 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
             {parsed.ok ? "válido" : "inválido"}
           </span>
         )}
+        <NodeHelp text="JSON/código: cole o conteúdo ou Suba (↑) um arquivo. Alterne Texto / Árvore / Grafo. Maximize (⤡) abre o mapa mental navegável — vale pra JSON, XML e HTML. Comente no rodapé." />
+        <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? "Restaurar" : "Maximizar"} className="hover:text-brand shrink-0">
+          {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+        </button>
         <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
@@ -186,13 +224,22 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
           <button
             onClick={() => setView("graph")}
             onPointerDown={(e) => e.stopPropagation()}
-            disabled={!parsed?.ok}
+            disabled={!text.trim()}
+            title="Mapa mental (JSON/XML/HTML) — maximize pra navegar"
             className={cn("flex items-center gap-1 px-2 py-1 text-[11px] disabled:opacity-40", view === "graph" ? "bg-brand text-bg" : "bg-bg text-textMuted hover:text-text")}
           >
             <Network size={11} /> Grafo
           </button>
         </div>
         <div className="flex-1" />
+        <button
+          onClick={uploadJson}
+          onPointerDown={(e) => e.stopPropagation()}
+          title="Subir um arquivo .json"
+          className="flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-surface2 text-text hover:bg-bg border border-border"
+        >
+          <Upload size={11} /> Subir
+        </button>
         <button
           onClick={format}
           onPointerDown={(e) => e.stopPropagation()}
@@ -220,12 +267,26 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
           placeholder='{ "cole": "seu json aqui" }'
           className="nodrag flex-1 px-2 py-1.5 text-[11px] bg-bg text-text resize-none focus:outline-none font-mono placeholder:text-textMuted"
         />
+      ) : maximized && view === "graph" ? (
+        <div className="flex-1 min-h-0 relative bg-bg">
+          <MindMap text={text} />
+        </div>
       ) : (
-        <div className="flex-1 overflow-auto bg-bg nodrag px-1.5 py-1.5 text-[11px] font-mono" onPointerDown={(e) => e.stopPropagation()}>
-          {!parsed?.ok ? (
+        <div
+          className={cn("flex-1 overflow-auto bg-bg nodrag nowheel px-1.5 py-1.5 text-[11px] font-mono", view === "graph" && "cursor-grab active:cursor-grabbing")}
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={startPan}
+        >
+          {view === "graph" ? (
+            parsed?.ok ? (
+              <div className="inline-block min-w-full py-2"><GraphNode k={null} value={parsed.value} /></div>
+            ) : (
+              <div className="flex items-center justify-center h-full text-center text-textMuted opacity-60 text-[11px] px-6">
+                Maximize (⤡) pra ver o mapa mental — funciona com JSON, XML e HTML.
+              </div>
+            )
+          ) : !parsed?.ok ? (
             <p className="text-textMuted opacity-50">JSON inválido — corrija no modo Texto.</p>
-          ) : view === "graph" ? (
-            <div className="inline-block min-w-full py-2"><GraphNode k={null} value={parsed.value} /></div>
           ) : (
             <TreeNode k={null} value={parsed.value} depth={0} />
           )}
@@ -236,6 +297,28 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
       {parsed && !parsed.ok && view === "text" && (
         <p className="shrink-0 px-2 py-1 text-[10px] text-danger border-t border-border bg-bg break-words">{parsed.error}</p>
       )}
+      <NodeComment value={data.comment} onChange={(v) => patchNode(id, { comment: v })} />
+    </>
+  );
+
+  if (maximized) {
+    return createPortal(
+      <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4" onClick={() => setMaximized(false)}>
+        <div className="w-[92vw] h-[90vh] rounded-lg border border-border bg-surface1 shadow-2xl flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          {card}
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
+  return (
+    <div
+      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
+      style={{ width: data.size?.width ?? 460, height: data.size?.height ?? 420 }}
+    >
+      <NodeResizer isVisible={selected} minWidth={320} minHeight={280} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      {card}
     </div>
   );
 }

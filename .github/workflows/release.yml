@@ -1,0 +1,56 @@
+# Release do OmniRift — builda os instaladores no GitHub e anexa ao Release.
+# Dispara num push de tag `v*` (ex.: git tag v0.1.0 && git push --tags).
+# Plataformas: Linux (.AppImage + .deb) e Windows (.exe NSIS + .msi). Sem macOS.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {} # permite disparar manual pela aba Actions
+
+permissions:
+  contents: write # tauri-action cria o Release e anexa os assets
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            bundles: "deb,appimage"
+          - os: windows-latest
+            bundles: "nsis,msi"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Dependências do Linux (WebKitGTK etc.)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: npm ci
+
+      - name: Build + Release (tauri-action)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "OmniRift ${{ github.ref_name }}"
+          releaseDraft: true # sai como rascunho — você revisa e publica
+          args: --bundles ${{ matrix.bundles }}

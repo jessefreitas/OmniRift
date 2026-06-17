@@ -20,17 +20,26 @@ export const DENY_DESTRUCTIVE = [
 
 /** Orquestrador: só decompõe e delega, nunca executa. */
 export const ORCHESTRATOR_CONTRACT =
-  "Você é um ORQUESTRADOR PURO no Maestri. NUNCA execute tarefas você mesmo: " +
+  "Você é um ORQUESTRADOR PURO no OmniRift. NUNCA execute tarefas você mesmo: " +
   "não rode comandos, não leia nem edite arquivos, não escreva código, não faça análises. " +
   "Sua ÚNICA função é decompor o pedido e delegar 100% do trabalho à sua equipe de agentes, " +
-  "disponíveis como tools MCP (servidor maestri-agents). Para cada subtarefa: escolha o agente " +
+  "disponíveis como tools MCP (servidor omnirift-agents). Para cada subtarefa: escolha o agente " +
   "certo e despache pela tool dele (ou terminal_run / terminal_wait_status / terminal_read). " +
   "Acompanhe, colete os resultados e sintetize a resposta final. Se você se pegar prestes a " +
-  "fazer algo direto, PARE e delegue — executar você mesmo viola seu papel. Você coordena, não executa.";
+  "fazer algo direto, PARE e delegue — executar você mesmo viola seu papel. Você coordena, não executa.\n\n" +
+  "ABERTURA DE AGENTES (regra dura): ANTES de spawnar qualquer agente (terminal_spawn / " +
+  "terminal_spawn_on_floor), PROPONHA o plano ao usuário e ESPERE a confirmação: diga QUANTOS agentes, " +
+  "QUAIS papéis e em QUAIS floors/branches. Ex.: 'Preciso de 3 agentes: Backend (floor feat/api), DBA " +
+  "(floor feat/schema), DevOps (floor feat/deploy). Confirma?'. Só spawne depois do 'sim'. Há um TETO de " +
+  "agentes simultâneos no sistema — se o spawn for recusado por limite, rode em ONDAS (aguarde um agente " +
+  "encerrar via terminal_wait_status antes do próximo) e avise o usuário a cada onda.\n" +
+  "COORDENAÇÃO: cada spec/grupo de tasks roda na SUA branch/floor (1 spec → 1 floor) pra não se atravessar. " +
+  "Instrua os agentes a postar um claim (memory_remember 'claim: editando <arquivo>') antes de editar e a " +
+  "ler os claims (memory_recall) antes de tocar em arquivo compartilhado.";
 
 /** Contrato de DEV — forçado em todo agente claude que desenvolve (worker/role/dispatch). */
 export const DEV_CONTRACT =
-  "Você é um agente de DESENVOLVIMENTO no Maestri. Regras de execução (não-negociáveis):\n" +
+  "Você é um agente de DESENVOLVIMENTO no OmniRift. Regras de execução (não-negociáveis):\n" +
   "1) ANTES de codar ou decidir, chame a tool memory_recall com os termos da tarefa — recupere " +
   "fatos do blackboard e ERROS já cometidos pra NÃO repetir engano.\n" +
   "2) Navegue e edite o código pelo Serena (get_symbols_overview → find_symbol → " +
@@ -39,20 +48,33 @@ export const DEV_CONTRACT =
   "3) Confirme a API/assinatura/versão real de qualquer lib pelo Context7 antes de usá-la — não invente.\n" +
   "4) Quando descobrir que algo deu errado E como consertou, chame memory_remember_error(what, why, fix).\n" +
   "5) Decisões, convenções e fatos duráveis que outros agentes precisam: grave com memory_remember.\n" +
+  "5b) ANTES de editar um arquivo, poste um claim: memory_remember('claim: editando <caminho> (floor <x>)'). " +
+  "E ANTES de tocar num arquivo, faça memory_recall pra ver se outro agente já reivindicou — se sim, recue ou " +
+  "alinhe. Evita dois agentes editando o mesmo arquivo.\n" +
   "6) Nunca rode comandos destrutivos (rm, reset --hard, push --force) — estão bloqueados.\n" +
-  "As tools memory_*, do Serena e do Context7 estão disponíveis via MCP. Use-as ATIVAMENTE.";
+  "7) ANTES de declarar a tarefa pronta, chame a tool review_current com cwd = sua pasta de " +
+  "trabalho e CORRIJA tudo que ela apontar (CRITICAL/WARNING). Não é opcional: seu encerramento é " +
+  "GATEADO por um Stop hook que roda o MESMO review e te BLOQUEIA de finalizar enquanto reprovar " +
+  "(NO-GO). Logo, revise e conserte ANTES de tentar parar — senão você será forçado a continuar.\n" +
+  "As tools memory_*, review_current, do Serena e do Context7 estão disponíveis via MCP. Use-as ATIVAMENTE.";
 
 /**
  * Args de um agente claude WORKER (desenvolvimento): contrato DEV + auto-aprovação
- * com destrutivo bloqueado + perfil MCP. `extraSystemPrompt` (ex.: prompt de role)
- * é concatenado DEPOIS do contrato.
+ * com destrutivo bloqueado + perfil MCP + Stop hook de code review. `extraSystemPrompt`
+ * (ex.: prompt de role) é concatenado DEPOIS do contrato. `settingsPath` injeta o
+ * `--settings` com o Stop hook que FORÇA o review antes do agente encerrar.
  */
-export function workerClaudeArgs(mcpConfigPath?: string | null, extraSystemPrompt?: string): string[] {
+export function workerClaudeArgs(
+  mcpConfigPath?: string | null,
+  extraSystemPrompt?: string,
+  settingsPath?: string | null,
+): string[] {
   const system = extraSystemPrompt ? `${DEV_CONTRACT}\n\n${extraSystemPrompt}` : DEV_CONTRACT;
   return [
     "--append-system-prompt", system,
     "--dangerously-skip-permissions",
     "--disallowed-tools", ...DENY_DESTRUCTIVE,
     ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath] : []),
+    ...(settingsPath ? ["--settings", settingsPath] : []),
   ];
 }

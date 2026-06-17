@@ -6,7 +6,7 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCanvasStore } from "@/store/canvas-store";
-import { floorMirrorSet, agentMcpConfig } from "@/lib/mcp-client";
+import { floorMirrorSet, agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
 import { floorGitCreate } from "@/lib/git-client";
 import { workerClaudeArgs } from "@/lib/agent-contract";
 import type { AgentRole } from "@/types/pty";
@@ -34,8 +34,9 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
   // orquestrador) nasce com o mesmo contrato de dev (Serena + Context7 + memória)
   // e deny-list, igual aos presets manuais. É o "forçar via dispatch".
   const mcpConfigPath = await agentMcpConfig().catch(() => null);
+  const settingsPath = await agentSettingsConfig().catch(() => null);
   const devArgs = (role: AgentRole) =>
-    role === "claude-code" ? workerClaudeArgs(mcpConfigPath) : undefined;
+    role === "claude-code" ? workerClaudeArgs(mcpConfigPath, undefined, settingsPath) : undefined;
 
   const unSpawn = await listen<SpawnRequest>("canvas://spawn-request", (event) => {
     const p = event.payload;
@@ -101,12 +102,14 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
   let lastSig = "";
   const pushMirror = () => {
     const s = useCanvasStore.getState();
+    // Só os floors do projeto ATIVO — o orquestrador opera no projeto corrente.
+    const pf = s.floors.filter((f) => f.projectId === s.activeProjectId);
     const sig =
-      s.activeFloorId + "|" + s.floors.map((f) => `${f.id}:${f.name}:${f.nodes.length}`).join(",");
+      s.activeProjectId + "|" + s.activeFloorId + "|" + pf.map((f) => `${f.id}:${f.name}:${f.nodes.length}`).join(",");
     if (sig === lastSig) return;
     lastSig = sig;
     floorMirrorSet(
-      s.floors.map((f) => ({ id: f.id, name: f.name, nodes: f.nodes.length })),
+      pf.map((f) => ({ id: f.id, name: f.name, nodes: f.nodes.length })),
       s.activeFloorId,
     ).catch(() => {});
   };

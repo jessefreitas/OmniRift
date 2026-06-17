@@ -26,3 +26,10 @@ Thumbs.db
 
 # Serena (cache de estrutura de código por projeto — gerado pelos agentes)
 .serena/
+
+# Python (scripts/ — caches de bytecode)
+__pycache__/
+*.pyc
+
+# Licença OmniRift — chave PRIVADA do keygen (NUNCA comitar)
+tools/.omnirift-license.key

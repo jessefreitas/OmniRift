@@ -5,6 +5,7 @@
 // os seus. Persiste em localStorage (seed = BUILTIN_ROLES no primeiro uso).
 
 import type { AgentRole } from "@/types/pty";
+import { ORCHESTRATOR_CONTRACT } from "@/lib/agent-contract";
 
 export interface AgentRoleDef {
   id: string;
@@ -14,6 +15,10 @@ export interface AgentRoleDef {
   cli?: string;
   /** true = veio dos padrões (não deletável; pode editar/resetar). */
   builtin?: boolean;
+  /** true = o Orquestrador master (coordena os outros; destaque na UI). */
+  master?: boolean;
+  /** Só pra cli "shell": comando rodado ao abrir o terminal (opcional). */
+  startupCmd?: string;
 }
 
 /** CLIs/LLMs disponíveis pra rodar um role. claude injeta via --append-system-prompt;
@@ -26,14 +31,29 @@ export interface RoleCli {
   systemPromptFlag?: string;
 }
 
+/** Shell do SO (terminal puro, sem LLM) — pra roles que são só um terminal. */
+function detectShell(): string {
+  if (typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)) return "powershell.exe";
+  return "bash";
+}
+
 export const ROLE_CLIS: RoleCli[] = [
   { id: "claude", label: "Claude Code", command: "claude", role: "claude-code", systemPromptFlag: "--append-system-prompt" },
   { id: "codex", label: "Codex", command: "codex", role: "codex" },
   { id: "opencode", label: "OpenCode", command: "opencode", role: "opencode" },
   { id: "antigravity", label: "Antigravity (agy)", command: "agy", role: "antigravity" },
+  { id: "shell", label: "Shell (terminal puro)", command: detectShell(), role: "shell" },
 ];
 
 export const BUILTIN_ROLES: AgentRoleDef[] = [
+  {
+    id: "orquestrador",
+    name: "Orquestrador",
+    builtin: true,
+    master: true,
+    cli: "claude", // recomendado (MCP nativo p/ orquestrar); editável pra outro CLI/LLM
+    prompt: ORCHESTRATOR_CONTRACT,
+  },
   {
     id: "devops",
     name: "DevOps",
@@ -106,7 +126,13 @@ const KEY = "maestri-agent-roles-v1";
 export function loadRoles(): AgentRoleDef[] {
   try {
     const s = localStorage.getItem(KEY);
-    if (s) return JSON.parse(s) as AgentRoleDef[];
+    if (s) {
+      const saved = JSON.parse(s) as AgentRoleDef[];
+      // Mescla builtins novos (ex: Orquestrador) que ainda não estão salvos.
+      const ids = new Set(saved.map((r) => r.id));
+      const missing = BUILTIN_ROLES.filter((b) => !ids.has(b.id));
+      return [...missing, ...saved];
+    }
   } catch {
     /* ignore */
   }

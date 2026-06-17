@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { Terminal, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { useNodeMaximize } from "@/hooks/useNodeMaximize";
+import { NodeHelp } from "@/components/NodeHelp";
 import { cn } from "@/lib/cn";
 import { explainShell, type SegKind } from "@/lib/shell-explain";
 import type { ExplainNode as ExplainNodeData } from "@/types/canvas";
@@ -34,6 +36,7 @@ export function ExplainShellNode({ id, data, selected }: NodeProps<ExplainRfNode
   const [whatis, setWhatis] = useState<Record<string, string>>({});
 
   const segments = useMemo(() => explainShell(command), [command]);
+  const { maxBtn, frame } = useNodeMaximize();
 
   // Busca a descrição real (man-db) de cada comando único presente.
   useEffect(() => {
@@ -46,15 +49,13 @@ export function ExplainShellNode({ id, data, selected }: NodeProps<ExplainRfNode
     });
   }, [segments, whatis]);
 
-  return (
-    <div
-      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
-      style={{ width: data.size?.width ?? 460, height: data.size?.height ?? 360 }}
-    >
-      <NodeResizer isVisible={selected} minWidth={320} minHeight={240} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+  const card = (
+    <>
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <Terminal size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1">explainshell</span>
+        <NodeHelp text="Explica um comando shell: digite acima e cada parte (comando, flag, argumento, operador) é colorida e descrita com o man-db real do sistema." />
+        {maxBtn}
         <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
@@ -102,6 +103,17 @@ export function ExplainShellNode({ id, data, selected }: NodeProps<ExplainRfNode
           );
         })}
       </div>
-    </div>
+    </>
+  );
+
+  return frame(
+    card,
+    <div
+      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
+      style={{ width: data.size?.width ?? 460, height: data.size?.height ?? 360 }}
+    >
+      <NodeResizer isVisible={selected} minWidth={320} minHeight={240} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      {card}
+    </div>,
   );
 }

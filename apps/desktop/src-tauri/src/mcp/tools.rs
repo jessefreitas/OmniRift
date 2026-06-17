@@ -242,8 +242,19 @@ fn fmt_memories(rows: &[crate::db::MemoryRow], title: &str) -> String {
     s
 }
 
-/// Despacha as tools `memory_*` (blackboard + erros) — persistem no SQLite (durável).
-pub fn memory_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+/// Despacha as tools `memory_*`. Local (default) = blackboard rico INALTERADO;
+/// provider remoto ativo = roteia pelo MemoryProvider.
+pub async fn memory_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    if state.memory_registry.active_kind() == crate::memory::ProviderKind::Local {
+        memory_dispatch_local(state, tool, args)
+    } else {
+        memory_dispatch_provider(state, tool, args).await
+    }
+}
+
+/// Caminho Local — blackboard SQLite com semântica rica (fact/error/scope/tags).
+/// Corpo original, comportamento idêntico (zero regressão).
+fn memory_dispatch_local(state: &McpState, tool: &str, args: Value) -> String {
     let db = state.app.state::<crate::db::Db>();
     match tool {
         "memory_remember" => {
@@ -325,6 +336,98 @@ pub fn memory_dispatch(state: &McpState, tool: &str, args: Value) -> String {
     }
 }
 
+/// Caminho provider remoto — mapeia o blackboard pra superfície MemoryProvider
+/// (value→content, kind→category, scope→project). Usado quando o provider ativo
+/// não é o Local (ex.: OmniMemory).
+async fn memory_dispatch_provider(state: &McpState, tool: &str, args: Value) -> String {
+    use crate::memory::{MemoryQuery, NewMemory};
+    let p = state.memory_registry.active_provider();
+    let kind = state.memory_registry.active_kind();
+    match tool {
+        "memory_remember" => {
+            let value = arg_str(&args, "value");
+            if value.is_empty() {
+                return "❌ 'value' é obrigatório".into();
+            }
+            let category = arg_opt(&args, "kind").unwrap_or_else(|| "fact".into());
+            match p
+                .save(NewMemory { content: value, category, project: arg_opt(&args, "scope") })
+                .await
+            {
+                Ok(id) => format!("✅ memória {id} gravada ({kind:?})"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_remember_error" => {
+            let what = arg_str(&args, "what");
+            let fix = arg_str(&args, "fix");
+            if what.is_empty() || fix.is_empty() {
+                return "❌ 'what' e 'fix' são obrigatórios".into();
+            }
+            let why = arg_str(&args, "why");
+            let value = format!("ERRO: {what}\nCAUSA: {why}\nFIX: {fix}");
+            match p
+                .save(NewMemory { content: value, category: "error".into(), project: arg_opt(&args, "scope") })
+                .await
+            {
+                Ok(id) => format!("✅ erro {id} registrado ({kind:?})"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_recall" => {
+            let query = arg_str(&args, "query");
+            if query.is_empty() {
+                return "❌ 'query' é obrigatório".into();
+            }
+            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10).max(1) as usize;
+            match p
+                .search(MemoryQuery { query: query.clone(), project: arg_opt(&args, "scope"), limit })
+                .await
+            {
+                Ok(recs) => fmt_records(&recs, &format!("recall '{query}'")),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_list" => {
+            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(50).max(1) as usize;
+            match p
+                .search(MemoryQuery { query: String::new(), project: arg_opt(&args, "scope"), limit })
+                .await
+            {
+                Ok(recs) => fmt_records(&recs, "memórias"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "memory_forget" => {
+            // ids de provider remoto são string; aceita number também.
+            let id = arg_opt(&args, "id").unwrap_or_else(|| {
+                args.get("id").and_then(|v| v.as_i64()).map(|n| n.to_string()).unwrap_or_default()
+            });
+            if id.is_empty() {
+                return "❌ 'id' inválido".into();
+            }
+            match p.forget(&id).await {
+                Ok(true) => format!("🗑 memória {id} apagada"),
+                Ok(false) => format!("memória {id} não encontrada (ou forget não suportado por {kind:?})"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        other => format!("❌ tool de memória desconhecida: {other}"),
+    }
+}
+
+/// Formata MemoryRecords (provider remoto) pro agente ler.
+fn fmt_records(recs: &[crate::memory::MemoryRecord], title: &str) -> String {
+    if recs.is_empty() {
+        return format!("Nada na memória pra '{title}'.");
+    }
+    let mut s = format!("{} resultado(s) — {title}:\n", recs.len());
+    for m in recs {
+        s.push_str(&format!("\n#{} ({})\n{}\n", m.id, m.category, m.content));
+    }
+    s
+}
+
 /// Nome do floor ativo, lido do espelho (floor_mirror) que o frontend mantém.
 /// Usado pra anotar a topologia cross-floor dos agentes (em qual branch cada um vive).
 pub(crate) fn active_floor_name(state: &McpState) -> Option<String> {
@@ -344,12 +447,27 @@ fn floor_suffix(floor: &Option<String>) -> String {
 }
 
 /// Despacha as tools `terminal_*`. Devolve o texto do envelope MCP.
+/// Devolve Some(erro) se já bateu o teto de agentes simultâneos.
+fn over_agent_cap(state: &McpState) -> Option<String> {
+    let active = state.agent_registry.list().len();
+    let cap = state.max_agents.load(std::sync::atomic::Ordering::Relaxed);
+    if active >= cap {
+        Some(format!(
+            "❌ Teto de {cap} agentes simultâneos atingido ({active} ativos). Rode em ONDAS: \
+             aguarde um agente encerrar (terminal_wait_status) antes do próximo, ou peça ao \
+             usuário pra aumentar o teto."
+        ))
+    } else {
+        None
+    }
+}
+
 pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> String {
     match tool {
         "terminal_list" => {
             let agents = state.agent_registry.list();
             if agents.is_empty() {
-                return "Nenhum terminal-agente. Marque terminais na sidebar do Maestri.".into();
+                return "Nenhum terminal-agente. Marque terminais na sidebar do OmniRift.".into();
             }
             agents
                 .iter()
@@ -479,6 +597,9 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             if command.is_empty() || label.is_empty() {
                 return "❌ 'command' e 'label' são obrigatórios".into();
             }
+            if let Some(msg) = over_agent_cap(state) {
+                return msg;
+            }
             let role = arg_str(&args, "role");
             let cwd = args.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string());
             let position = args.get("position").cloned();
@@ -521,6 +642,9 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             let label = arg_str(&args, "label");
             if branch.is_empty() || command.is_empty() || label.is_empty() {
                 return "❌ 'branch', 'command' e 'label' são obrigatórios".into();
+            }
+            if let Some(msg) = over_agent_cap(state) {
+                return msg;
             }
             let role = arg_str(&args, "role");
             let task = arg_str(&args, "task");
@@ -614,6 +738,74 @@ pub async fn workspace_dispatch(state: &McpState, tool: &str, args: Value) -> St
             format!("solicitado: fechar floor '{id}'")
         }
         other => format!("❌ tool de workspace desconhecida: {other}"),
+    }
+}
+
+// ── review_current ─────────────────────────────────────────────────────────────
+
+/// Tool MCP que deixa o agente se AUTO-REVISAR (mesmo motor do Stop hook / gate).
+pub fn review_tool_def() -> Value {
+    json!({
+        "name": "review_current",
+        "description": "Roda o code review (mesmo motor do gate/Stop hook) sobre o diff do SEU worktree. \
+            Chame ANTES de declarar a tarefa pronta — se reprovar (NO-GO), corrija e rode de novo. \
+            Passe `cwd` = a pasta absoluta onde você está trabalhando (o worktree do floor).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "cwd": { "type": "string", "description": "Caminho absoluto do seu worktree (a pasta do floor)." },
+                "base": { "type": "string", "description": "Branch base pra comparar (opcional; detecta sozinho se omitir)." }
+            },
+            "required": ["cwd"]
+        }
+    })
+}
+
+/// Roda o `local-review.py` headless sobre o worktree do agente e devolve o veredito.
+pub async fn review_dispatch(state: &McpState, args: Value) -> String {
+    let cwd = args.get("cwd").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    if cwd.is_empty() {
+        return "Erro: passe `cwd` (a pasta absoluta do seu worktree) para review_current.".into();
+    }
+    let base = args.get("base").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let app = state.app.clone();
+    let script = match crate::commands::review_cfg::ensure_review_script(&app) {
+        Ok(p) => p,
+        Err(e) => return format!("Erro ao preparar o review: {e}"),
+    };
+    let cfg = match app.path().app_data_dir() {
+        Ok(d) => d.join("review-config.json"),
+        Err(e) => return format!("Erro: app_data_dir indisponível: {e}"),
+    };
+
+    let result = tokio::task::spawn_blocking(move || {
+        let mut cmd = std::process::Command::new("python3");
+        cmd.arg(&script).arg("--cwd").arg(&cwd).arg("--config").arg(&cfg);
+        if !base.is_empty() {
+            cmd.arg("--base").arg(&base);
+        }
+        cmd.output()
+    })
+    .await;
+
+    match result {
+        Ok(Ok(o)) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<Value>(stdout.trim()) {
+                Ok(v) => {
+                    let verdict = v.get("verdict").and_then(|x| x.as_str()).unwrap_or("?");
+                    let summary = v.get("summary").and_then(|x| x.as_str()).unwrap_or("");
+                    let mut s = format!("Code review: {verdict}\n{summary}");
+                    if let Some(e) = v.get("llmError").and_then(|x| x.as_str()) {
+                        s.push_str(&format!("\n(LLM indisponível: {e} — só o pré-flight rodou)"));
+                    }
+                    s
+                }
+                Err(_) => format!("review (saída crua):\n{}", stdout.trim()),
+            }
+        }
+        Ok(Err(e)) => format!("Erro ao rodar python3 local-review.py: {e}"),
+        Err(e) => format!("Erro de execução do review: {e}"),
     }
 }
 

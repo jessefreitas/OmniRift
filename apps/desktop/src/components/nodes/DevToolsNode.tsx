@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
-import { Copy, Play, Wrench, X } from "lucide-react";
+import { Copy, Maximize2, Minimize2, Play, Wrench, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import { DEV_TOOLS, findTool } from "@/lib/dev-tools";
 import type { DevToolsNode as DevToolsNodeData } from "@/types/canvas";
 
@@ -16,6 +18,7 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
   const [output, setOutput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [maximized, setMaximized] = useState(false);
 
   const tool = findTool(toolId);
 
@@ -36,15 +39,15 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
     setTimeout(() => setCopied(false), 1200);
   }
 
-  return (
-    <div
-      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
-      style={{ width: data.size?.width ?? 420, height: data.size?.height ?? 380 }}
-    >
-      <NodeResizer isVisible={selected} minWidth={300} minHeight={260} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+  const card = (
+    <>
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <Wrench size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1">DevTools</span>
+        <NodeHelp text="Caixa de ferramentas: escolha o conversor (Base64, hash, JWT…) no seletor, cole a entrada e rode (▶). Copie o resultado no botão ⧉." />
+        <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? "Restaurar" : "Maximizar"} className="hover:text-brand shrink-0">
+          {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+        </button>
         <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
@@ -105,6 +108,27 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
           </p>
         )}
       </div>
+    </>
+  );
+
+  if (maximized) {
+    return createPortal(
+      <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4" onClick={() => setMaximized(false)}>
+        <div className="w-[80vw] h-[85vh] max-w-[1100px] rounded-lg border border-border bg-surface1 shadow-2xl flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          {card}
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
+  return (
+    <div
+      className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
+      style={{ width: data.size?.width ?? 360, height: data.size?.height ?? 320 }}
+    >
+      <NodeResizer isVisible={selected} minWidth={280} minHeight={240} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      {card}
     </div>
   );
 }

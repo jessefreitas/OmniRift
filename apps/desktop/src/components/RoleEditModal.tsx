@@ -11,7 +11,7 @@ import { ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 
 interface Props {
   role: AgentRoleDef;
-  onSave: (name: string, prompt: string, cli: string) => void;
+  onSave: (name: string, prompt: string, cli: string, startupCmd: string) => void;
   onClose: () => void;
 }
 
@@ -19,6 +19,8 @@ export function RoleEditModal({ role, onSave, onClose }: Props) {
   const [name, setName] = useState(role.name);
   const [prompt, setPrompt] = useState(role.prompt);
   const [cli, setCli] = useState(role.cli ?? "claude");
+  const [startupCmd, setStartupCmd] = useState(role.startupCmd ?? "");
+  const isShell = cli === "shell";
 
   return createPortal(
     <div
@@ -61,9 +63,23 @@ export function RoleEditModal({ role, onSave, onClose }: Props) {
               ))}
             </select>
           </div>
+          {isShell && (
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-textMuted">Comando ao abrir (opcional)</label>
+              <input
+                value={startupCmd}
+                onChange={(e) => setStartupCmd(e.target.value)}
+                placeholder="ex: npm run dev"
+                className="mt-1 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono"
+              />
+              <p className="mt-1 text-[10px] text-textMuted opacity-60">
+                Roda ao abrir. Se for um CLI Claude (ex.: claude-ollama), a persona abaixo entra nativa via --append-system-prompt.
+              </p>
+            </div>
+          )}
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">
-              Prompt (persona / instruções)
+              {isShell ? "Persona (injetada no CLI que o comando abrir)" : "Prompt (persona / instruções)"}
             </label>
             <textarea
               value={prompt}
@@ -73,7 +89,9 @@ export function RoleEditModal({ role, onSave, onClose }: Props) {
               className="mt-1 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono"
             />
             <p className="mt-1 text-[10px] text-textMuted opacity-60">
-              Injetado como <code>--append-system-prompt</code> num Claude Code.
+              {isShell
+                ? "CLI Claude (claude-ollama): vai nativa via --append-system-prompt. Sem comando de início, é ignorada."
+                : "Injetado como --append-system-prompt num Claude Code."}
             </p>
           </div>
         </div>
@@ -85,8 +103,8 @@ export function RoleEditModal({ role, onSave, onClose }: Props) {
             Cancelar
           </button>
           <button
-            onClick={() => onSave(name.trim() || "Role", prompt, cli)}
-            disabled={!prompt.trim()}
+            onClick={() => onSave(name.trim() || "Role", prompt, cli, startupCmd)}
+            disabled={!isShell && !prompt.trim()}
             className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Salvar

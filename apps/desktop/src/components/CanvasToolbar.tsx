@@ -4,7 +4,7 @@
 // um criador do store; o node nasce numa posição default e o usuário arrasta.
 
 import type { LucideIcon } from "lucide-react";
-import { Braces, Database, FolderTree, Frame, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench } from "lucide-react";
+import { Braces, Database, FileText, FolderTree, Frame, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { Tooltip } from "@/components/Tooltip";
@@ -45,6 +45,7 @@ export function CanvasToolbar() {
   const addDevToolsNode = useCanvasStore((s) => s.addDevToolsNode);
   const addJsonNode = useCanvasStore((s) => s.addJsonNode);
   const addExplainNode = useCanvasStore((s) => s.addExplainNode);
+  const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
 
   return (
@@ -69,6 +70,7 @@ export function CanvasToolbar() {
       <ToolBtn label="DevTools (base64/JWT/hash/JSON⇄YAML…)" icon={Wrench} onClick={() => addDevToolsNode()} />
       <ToolBtn label="JSON (formatar + árvore)" icon={Braces} onClick={() => addJsonNode()} />
       <ToolBtn label="explainshell (explica comandos)" icon={ScrollText} onClick={() => addExplainNode()} />
+      <ToolBtn label="Preview (.md / .html)" icon={FileText} onClick={() => addPreviewNode()} />
     </div>
   );
 }

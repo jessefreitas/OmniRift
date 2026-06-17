@@ -16,7 +16,8 @@ export type NodeKind =
   | "db"
   | "devtools"
   | "json"
-  | "explain";
+  | "explain"
+  | "preview";
 
 export interface BaseCanvasNode {
   id: string;
@@ -25,6 +26,8 @@ export interface BaseCanvasNode {
   size: { width: number; height: number };
   /** Id do GroupNode pai — quando setado, `position` é relativa ao pai (move junto). */
   parentId?: string;
+  /** Comentário/anotação livre do usuário sobre este nó. */
+  comment?: string;
 }
 
 export interface TerminalNode extends BaseCanvasNode {
@@ -110,6 +113,12 @@ export interface ExplainNode extends BaseCanvasNode {
   command: string;
 }
 
+export interface PreviewNode extends BaseCanvasNode {
+  kind: "preview";
+  /** Caminho do arquivo a pré-visualizar (.md renderizado, .html em iframe). */
+  path: string;
+}
+
 export type CanvasNode =
   | TerminalNode
   | NoteNode
@@ -121,7 +130,8 @@ export type CanvasNode =
   | DbNode
   | DevToolsNode
   | JsonNode
-  | ExplainNode;
+  | ExplainNode
+  | PreviewNode;
 
 /**
  * Patch parcial pra `patchNode` — todos os campos editáveis de qualquer node,
@@ -148,6 +158,8 @@ export interface CanvasNodePatch {
   tool?: string;
   input?: string;
   text?: string;
+  path?: string;
+  comment?: string;
 }
 
 /** Conexão entre nós. */

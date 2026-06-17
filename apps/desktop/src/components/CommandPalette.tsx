@@ -62,16 +62,36 @@ export function CommandPalette() {
       { id: "json", label: "JSON (formatar + árvore)", category: "Criar", run: act(() => s.addJsonNode()) },
       { id: "explain", label: "explainshell", category: "Criar", run: act(() => s.addExplainNode()) },
     ];
+    const projFloors = s.floors.filter((f) => f.projectId === s.activeProjectId);
     const floorCmds: Cmd[] = [
       { id: "newfloor", label: "Novo floor", category: "Floor", run: act(() => s.createFloor(undefined, { focus: true })) },
-      ...s.floors.map((f, i) => ({
+      ...projFloors.map((f, i) => ({
         id: `floor-${f.id}`,
         label: `Ir para: ${f.name}${i < 9 ? `  ·  Alt+${i + 1}` : ""}`,
         category: "Floor",
         run: act(() => s.switchFloor(f.id)),
       })),
+      ...s.projects.map((p) => ({
+        id: `project-${p.id}`,
+        label: `Ir para projeto: ${p.name}`,
+        category: "Projeto",
+        run: act(() => s.setActiveProject(p.id)),
+      })),
     ];
-    return [...create, ...floorCmds];
+    const openTool = (tool: string) =>
+      act(() => window.dispatchEvent(new CustomEvent("maestri:open-tool", { detail: tool })));
+    const openCmds: Cmd[] = [
+      { id: "open-routines", label: "Abrir: Routines", category: "Abrir", run: openTool("routines") },
+      { id: "open-snapshots", label: "Abrir: Snapshots do canvas", category: "Abrir", run: openTool("snapshots") },
+      { id: "open-hooks", label: "Abrir: Hooks do floor", category: "Abrir", run: openTool("hooks") },
+      { id: "open-memory", label: "Abrir: Memória dos agentes", category: "Abrir", run: openTool("memory") },
+      { id: "open-history", label: "Abrir: Histórico de sessões", category: "Abrir", run: openTool("history") },
+      { id: "open-connections", label: "Abrir: Conexões de memória", category: "Abrir", run: openTool("connections") },
+      { id: "open-llm", label: "Abrir: Config do LLM (review)", category: "Abrir", run: openTool("llm") },
+      { id: "open-policy", label: "Abrir: Política de review", category: "Abrir", run: openTool("policy") },
+      { id: "open-git", label: "Abrir: Repositórios Git", category: "Abrir", run: openTool("git") },
+    ];
+    return [...create, ...floorCmds, ...openCmds];
   }, [open]);
 
   const filtered = useMemo(() => {

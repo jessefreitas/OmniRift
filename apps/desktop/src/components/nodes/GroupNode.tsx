@@ -3,6 +3,7 @@ import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import type { GroupNode as GroupNodeData } from "@/types/canvas";
 
 type GroupRfNode = Node<GroupNodeData & Record<string, unknown>, "group">;
@@ -12,6 +13,7 @@ const GROUP_COLORS = ["#29a2a7", "#9a6dd7", "#46a758", "#f5a623", "#e5484d", "#3
 export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
+  const empty = useCanvasStore((s) => !s.floors.some((f) => f.nodes.some((n) => n.parentId === id)));
   const [label, setLabel] = useState(data.label ?? "Grupo");
   const [editing, setEditing] = useState(false);
 
@@ -62,6 +64,11 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
             {label}
           </span>
         )}
+        <NodeHelp
+          side="bottom"
+          className="opacity-70 hover:opacity-100"
+          text="Grupo: arraste pelo título pra mover tudo junto. Solte outros nodes por cima pra agrupar. Duplo-clique no nome pra renomear; o círculo troca a cor; a alça do canto redimensiona."
+        />
         <button
           onClick={(e) => { e.stopPropagation(); patchNode(id, { color: nextColor }); }}
           title="Trocar cor"
@@ -76,8 +83,15 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
           <X size={12} />
         </button>
       </div>
-      {/* Corpo vazio: arrasta só pelo header; os nodes por cima ficam interativos. */}
-      <div className="flex-1" />
+      {/* Corpo: arrasta só pelo header; os nodes por cima ficam interativos.
+          Hint só quando o grupo está vazio (some quando há nodes dentro). */}
+      <div className="flex-1 flex items-center justify-center pointer-events-none select-none">
+        {empty && (
+          <span className="text-[11px] opacity-50" style={{ color }}>
+            arraste nodes pra cá pra agrupar
+          </span>
+        )}
+      </div>
     </div>
   );
 }
