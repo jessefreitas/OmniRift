@@ -12,9 +12,11 @@ import { persistReviewConfig } from "@/lib/review-config-sync";
 
 interface Props {
   onClose: () => void;
+  /** Embute sem backdrop/portal próprio (painel unificado Code Review IA). */
+  embedded?: boolean;
 }
 
-export function LlmConfigModal({ onClose }: Props) {
+export function LlmConfigModal({ onClose, embedded }: Props) {
   const init = loadLlmConfig();
   const [provider, setProvider] = useState<LlmProvider>(init?.provider ?? "openai");
   const [baseUrl, setBaseUrl] = useState(init?.baseUrl ?? LLM_PRESETS[0].baseUrl);
@@ -70,13 +72,12 @@ export function LlmConfigModal({ onClose }: Props) {
     onClose();
   }
 
-  return createPortal(
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="w-[540px] max-w-[92vw] rounded-lg border border-border bg-surface1 shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+  const card = (
+      <div className={embedded ? "flex flex-col" : "w-[540px] max-w-[92vw] rounded-lg border border-border bg-surface1 shadow-2xl flex flex-col"} onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
           <Cpu size={15} className="text-brand" />
           <span className="text-sm font-medium text-text flex-1">LLM do Review (BYOK)</span>
-          <button onClick={onClose} className="text-textMuted hover:text-text" title="Fechar"><X size={16} /></button>
+          {!embedded && <button onClick={onClose} className="text-textMuted hover:text-text" title="Fechar"><X size={16} /></button>}
         </header>
         <div className="p-4 space-y-3">
           <div>
@@ -137,7 +138,9 @@ export function LlmConfigModal({ onClose }: Props) {
           </div>
         </footer>
       </div>
-    </div>,
+  );
+  return embedded ? card : createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>{card}</div>,
     document.body,
   );
 }

@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronRight,
   Code2,
-  Cpu,
   Crown,
   Download,
   Folder,
@@ -38,7 +37,6 @@ import {
   Rocket,
   ScanLine,
   ScanSearch,
-  SlidersHorizontal,
   BookOpen,
   Gauge,
   Gem,
@@ -87,6 +85,7 @@ import { ReviewModal } from "@/components/ReviewModal";
 import { LlmConfigModal } from "@/components/LlmConfigModal";
 import { GitReposModal } from "@/components/GitReposModal";
 import { ReviewPolicyModal } from "@/components/ReviewPolicyModal";
+import { ReviewSettingsModal } from "@/components/ReviewSettingsModal";
 import { loadPolicy } from "@/lib/review-policy";
 import { loadLlmConfig } from "@/lib/llm-client";
 import { runReview } from "@/lib/review";
@@ -104,16 +103,15 @@ import type { AgentRole } from "@/types/pty";
 const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[] = [
   { id: "help", icon: BookOpen, label: "Ajuda / Manual", desc: "Manual do OmniRift — como usar tudo (tópicos + busca)" },
   { id: "clis", icon: Download, label: "CLIs de IA", desc: "Instalar e gerenciar CLIs de agentes (Claude Code, Codex, Gemini, Aider, …)" },
+  { id: "review-ai", icon: ScanSearch, label: "Code Review IA", desc: "LLM (BYOK) + Política de GO/NO-GO num painel só (abas)" },
   { id: "compressors", icon: Gauge, label: "Compressores de token", desc: "Instalar/gerenciar compressores (RTK, Headroom) que cortam tokens dos agentes" },
   { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
   { id: "history", icon: History, label: "Histórico de sessões", desc: "Sessões anteriores gravadas dos agentes" },
   { id: "hooks", icon: Webhook, label: "Hooks do paralelo", desc: "Comandos disparados em eventos do paralelo (pre/post)" },
   { id: "reminders", icon: Bookmark, label: "Lembretes", desc: "Notas do canvas viram lembretes com prazo" },
-  { id: "llm", icon: Cpu, label: "LLM do review (BYOK)", desc: "Escolher o modelo (sua chave/BYOK) que roda o code review" },
   { id: "mcpservers", icon: Server, label: "MCP Servers", desc: "Tools MCP dos agentes (Postgres, GitHub, …) — liga/desliga por servidor" },
   { id: "memory", icon: Brain, label: "Memória dos agentes", desc: "Ver e editar o que os agentes lembram (blackboard SQLite)" },
   { id: "companion", icon: Sparkles, label: "OmniPartner (IA)", desc: "Chat IA lateral que enxerga o canvas e ajuda a operar" },
-  { id: "policy", icon: SlidersHorizontal, label: "Política de review", desc: "Regras de GO/NO-GO do review — o que bloqueia o merge" },
   { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
   { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos paralelos" },
   { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
@@ -340,6 +338,7 @@ export function Sidebar() {
   const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
+  const [showReviewAi, setShowReviewAi] = useState(false);
   const [showGitRepos, setShowGitRepos] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
   const [showCompanion, setShowCompanion] = useState(false);
@@ -348,7 +347,7 @@ export function Sidebar() {
 
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
   // v2: nova ordem-base alfabética (reset do drag antigo do usuário).
-  const tools = useReorderable("omnirift-tools-order-v2", TOOL_IDS);
+  const tools = useReorderable("omnirift-tools-order-v3", TOOL_IDS);
   // Seções da sidebar reordenáveis (CSS order + popover). v2: Projeto/Workspace no topo.
   const secReorder = useReorderable("omnirift-sections-order-v2", SECTION_IDS);
   const secStyle = (id: string) => ({ order: secReorder.order.indexOf(id) });
@@ -356,8 +355,7 @@ export function Sidebar() {
     companion: () => setShowCompanion(true),
     git: () => setShowGitRepos(true),
     connections: () => setShowConnections(true),
-    llm: () => setShowLlmConfig(true),
-    policy: () => setPolicyEditor({ label: "global" }),
+    "review-ai": () => setShowReviewAi(true),
     reminders: () => setShowReminders(true),
     memory: () => setShowMemory(true),
     history: () => setShowHistory(true),
@@ -384,8 +382,7 @@ export function Sidebar() {
         case "memory": setShowMemory(true); break;
         case "history": setShowHistory(true); break;
         case "connections": setShowConnections(true); break;
-        case "llm": setShowLlmConfig(true); break;
-        case "policy": setPolicyEditor({ label: "global" }); break;
+        case "review-ai": setShowReviewAi(true); break;
         case "git": setShowGitRepos(true); break;
         case "reminders": setShowReminders(true); break;
         case "companion": setShowCompanion(true); break;
@@ -1856,6 +1853,7 @@ export function Sidebar() {
       {showLlmConfig && <LlmConfigModal onClose={() => setShowLlmConfig(false)} />}
       {showGitRepos && <GitReposModal onClose={() => setShowGitRepos(false)} />}
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
+      {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
     </aside>
   );
 }

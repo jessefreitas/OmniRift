@@ -87,8 +87,7 @@ export function CommandPalette() {
       { id: "open-memory", label: "Abrir: Memória dos agentes", category: "Abrir", run: openTool("memory") },
       { id: "open-history", label: "Abrir: Histórico de sessões", category: "Abrir", run: openTool("history") },
       { id: "open-connections", label: "Abrir: Conexões de memória", category: "Abrir", run: openTool("connections") },
-      { id: "open-llm", label: "Abrir: Config do LLM (review)", category: "Abrir", run: openTool("llm") },
-      { id: "open-policy", label: "Abrir: Política de review", category: "Abrir", run: openTool("policy") },
+      { id: "open-review-ai", label: "Abrir: Code Review IA", category: "Abrir", run: openTool("review-ai") },
       { id: "open-git", label: "Abrir: Repositórios Git", category: "Abrir", run: openTool("git") },
     ];
     return [...create, ...floorCmds, ...openCmds];

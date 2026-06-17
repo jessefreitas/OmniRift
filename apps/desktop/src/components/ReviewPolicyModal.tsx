@@ -18,6 +18,8 @@ interface Props {
   /** cwd do projeto — pra editar o contexto/supressões committed em .forgejo. */
   cwd?: string | null;
   onClose: () => void;
+  /** Embute sem backdrop/portal próprio (painel unificado Code Review IA). */
+  embedded?: boolean;
 }
 
 // Presets de rigor: aplicam thresholds + quais categorias bloqueiam + coverage
@@ -28,7 +30,7 @@ const PRESETS: { id: string; label: string; block: string[]; maxCritical: number
   { id: "rigido", label: "Rígido", block: ["security", "quality"], maxCritical: 0, maxWarning: 0, coverage: 90 },
 ];
 
-export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose }: Props) {
+export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }: Props) {
   const [p, setP] = useState<ReviewPolicy>(() => loadPolicy(scope));
   const [ctx, setCtx] = useState("");
   const [suppress, setSuppress] = useState<SuppressRule[]>([]);
@@ -74,13 +76,12 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose }: Props) {
 
   const inp = "px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand";
 
-  return createPortal(
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="w-[680px] max-w-[94vw] max-h-[90vh] rounded-lg border border-border bg-surface1 shadow-2xl flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+  const card = (
+      <div className={embedded ? "flex flex-col max-h-[76vh] overflow-hidden" : "w-[680px] max-w-[94vw] max-h-[90vh] rounded-lg border border-border bg-surface1 shadow-2xl flex flex-col overflow-hidden"} onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <Sliders size={15} className="text-brand" />
           <span className="text-sm font-medium text-text flex-1">Política de Review {scopeLabel && <span className="text-[11px] text-textMuted">· {scopeLabel}</span>}</span>
-          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar"><X size={16} /></button>
+          {!embedded && <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar"><X size={16} /></button>}
         </header>
 
         <div className="flex-1 overflow-auto p-4 space-y-4 text-[12px]">
@@ -213,7 +214,9 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose }: Props) {
           <button onClick={save} className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover">Salvar</button>
         </footer>
       </div>
-    </div>,
+  );
+  return embedded ? card : createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>{card}</div>,
     document.body,
   );
 }
