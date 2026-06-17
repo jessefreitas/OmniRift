@@ -6,6 +6,8 @@
 //! seguintes — cada `pub mod` é adicionado quando o arquivo é criado, pra não
 //! quebrar o build com módulo inexistente.
 
+pub mod file_io;
+
 use serde::{Deserialize, Serialize};
 
 /// Métricas de UMA função (espelha `apps/desktop/src/types/code.ts`).
