@@ -9,6 +9,7 @@ pub mod spec;
 
 use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles};
 use commands::browser::browser_shot;
+use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
 use commands::code::{code_open, code_save, code_unwatch, code_watch, CodeWatchers};
 use commands::dbnode::db_query;
 use commands::editor::{detect_editors, open_in_editor};
@@ -230,6 +231,10 @@ pub fn run() {
             memory_test,
             memory_set_active,
             memory_active,
+            clis_list,
+            cli_install,
+            cli_uninstall,
+            cli_validate,
         ])
         .run(tauri::generate_context!())
         .expect("erro fatal rodando OmniRift");
