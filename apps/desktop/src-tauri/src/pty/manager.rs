@@ -123,6 +123,15 @@ impl PtyManager {
         self.sessions.iter().map(|e| e.key().clone()).collect()
     }
 
+    /// (session_id, root_pid) das sessões vivas — pro Monitor de Recursos atribuir
+    /// CPU/RAM por agente (soma o processo-raiz + descendentes).
+    pub fn session_pids(&self) -> Vec<(SessionId, u32)> {
+        self.sessions
+            .iter()
+            .filter_map(|e| e.value().root_pid().map(|pid| (e.key().clone(), pid)))
+            .collect()
+    }
+
     pub fn subscribe_by_id(&self, id: &str) -> anyhow::Result<broadcast::Receiver<Vec<u8>>> {
         Ok(self.sessions
             .get(id)

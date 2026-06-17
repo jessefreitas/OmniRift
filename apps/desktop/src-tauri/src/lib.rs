@@ -80,6 +80,7 @@ pub fn run() {
         Arc::new(parking_lot::Mutex::new(serde_json::json!({ "floors": [], "activeFloorId": null })));
 
     let mcp_pm = Arc::clone(&pty_manager);
+    let sampler_pm = Arc::clone(&pty_manager);
     let mcp_ar = Arc::clone(&agent_registry);
     let mcp_fm = Arc::clone(&floor_mirror);
 
@@ -118,7 +119,7 @@ pub fn run() {
             // Monitor de recursos (sub-fase A): sampler em thread de fundo (1s) que
             // emite `resource://sample`. Degrada sozinho; falha de leitura não derruba.
             let sampler = Arc::new(crate::metrics::sampler::Sampler::new());
-            sampler.start(app.handle().clone(), std::time::Duration::from_secs(1));
+            sampler.start(app.handle().clone(), std::time::Duration::from_secs(1), sampler_pm);
             app.manage(sampler);
 
             // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente.

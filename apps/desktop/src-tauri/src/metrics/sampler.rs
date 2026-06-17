@@ -52,18 +52,19 @@ impl Sampler {
 
     /// Sobe a thread: a cada `interval`, mede o global e emite `resource://sample`.
     /// Falha de leitura nunca derruba a thread (sysinfo não entra em pânico aqui).
-    pub fn start(&self, app: AppHandle, interval: Duration) {
+    pub fn start(&self, app: AppHandle, interval: Duration, manager: Arc<crate::pty::PtyManager>) {
         let ring = Arc::clone(&self.ring);
         std::thread::spawn(move || {
             let mut probe = SystemProbe::new();
             // CPU% exige 2 leituras separadas por ≥ MINIMUM_CPU_UPDATE_INTERVAL.
             std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL.max(Duration::from_millis(200)));
             loop {
+                let agents = probe.sample_agents(&manager.session_pids());
                 let sample = ResourceSample {
                     ts: now_ms(),
                     global: probe.sample(),
-                    gpus: Vec::new(),   // fase C
-                    agents: Vec::new(), // fase D
+                    gpus: Vec::new(), // fase C (GPU)
+                    agents,
                 };
                 push_capped(&mut ring.lock(), sample.clone(), RING_CAP);
                 let _ = app.emit("resource://sample", &sample);

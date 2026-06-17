@@ -1,10 +1,11 @@
 //! SystemProbe — leitura de CPU/RAM/swap/disco/rede via sysinfo (sub-fase A).
 
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use sysinfo::{Disks, Networks, System};
+use sysinfo::{Disks, Networks, ProcessesToUpdate, System};
 
-use super::{DiskStats, GlobalStats, NetStats};
+use super::{AgentStat, DiskStats, GlobalStats, NetStats};
 
 pub struct SystemProbe {
     sys: System,
@@ -72,5 +73,51 @@ impl SystemProbe {
             disk,
             net,
         }
+    }
+
+    /// Consumo por agente: refresh dos processos e soma CPU%/RSS do processo-raiz
+    /// de cada sessão + descendentes. `label` fica vazio (o frontend resolve via id).
+    pub fn sample_agents(&mut self, sessions: &[(String, u32)]) -> Vec<AgentStat> {
+        if sessions.is_empty() {
+            return Vec::new();
+        }
+        self.sys.refresh_processes(ProcessesToUpdate::All, true);
+        let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+        let mut stats: HashMap<u32, (f32, u64)> = HashMap::new();
+        for (pid, p) in self.sys.processes() {
+            let id = pid.as_u32();
+            stats.insert(id, (p.cpu_usage(), p.memory()));
+            if let Some(parent) = p.parent() {
+                children.entry(parent.as_u32()).or_default().push(id);
+            }
+        }
+        sessions
+            .iter()
+            .map(|(sid, root)| {
+                let (mut cpu, mut rss) = (0.0f32, 0u64);
+                let mut seen = HashSet::new();
+                let mut stack = vec![*root];
+                while let Some(pid) = stack.pop() {
+                    if !seen.insert(pid) {
+                        continue;
+                    }
+                    if let Some((c, m)) = stats.get(&pid) {
+                        cpu += *c;
+                        rss += *m;
+                    }
+                    if let Some(kids) = children.get(&pid) {
+                        stack.extend(kids);
+                    }
+                }
+                AgentStat {
+                    session_id: sid.clone(),
+                    label: String::new(),
+                    pid: *root,
+                    cpu_pct: cpu,
+                    rss_bytes: rss,
+                    vram_bytes: None,
+                }
+            })
+            .collect()
     }
 }
