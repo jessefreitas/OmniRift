@@ -15,12 +15,26 @@ interface Props {
   language: string;
   onChange: (v: string) => void;
   onSave: () => void;
+  /** Recebe o texto selecionado quando o usuário aciona "Enviar seleção" no menu. */
+  onSendSelection?: (text: string) => void;
 }
 
-export default function CodeMonaco({ value, language, onChange, onSave }: Props) {
+export default function CodeMonaco({ value, language, onChange, onSave, onSendSelection }: Props) {
   const handleMount: OnMount = (editor, monaco) => {
     // Ctrl/Cmd+S salva sem sair do editor.
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => onSave());
+    // Item no menu de clique-direito NATIVO do Monaco: envia a seleção pro agente.
+    editor.addAction({
+      id: "send-selection-to-agent",
+      label: "✈ Enviar seleção p/ agente",
+      contextMenuGroupId: "navigation",
+      contextMenuOrder: 1.5,
+      run: (ed) => {
+        const sel = ed.getSelection();
+        const text = sel ? ed.getModel()?.getValueInRange(sel) ?? "" : "";
+        if (text.trim()) onSendSelection?.(text);
+      },
+    });
   };
 
   return (

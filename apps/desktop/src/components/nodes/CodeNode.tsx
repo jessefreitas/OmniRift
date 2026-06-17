@@ -36,12 +36,26 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
     ),
   );
 
-  /** Manda o caminho do arquivo pro input do agente (Claude usa @, anexa o arquivo). */
+  /** Manda pro input do agente: a SELEÇÃO (se houver) ou o caminho do arquivo
+   *  (Claude usa @, anexa o arquivo). */
   function sendToAgent(sid: string, role: string) {
-    const ref = role === "claude-code" ? `@${filePath} ` : `${filePath} `;
-    void ptyWrite(sid, ref);
+    const payload =
+      pendingSelection != null
+        ? pendingSelection
+        : role === "claude-code"
+          ? `@${filePath} `
+          : `${filePath} `;
+    void ptyWrite(sid, payload);
     setShowSend(false);
+    setPendingSelection(null);
   }
+
+  // Aberto pelo menu nativo do Monaco ("Enviar seleção") — guarda o trecho e abre
+  // o seletor de agentes. Estável (refs/setters) p/ a ação capturada no mount do Monaco.
+  const onSendSelection = useCallback((text: string) => {
+    setPendingSelection(text);
+    setShowSend(true);
+  }, []);
 
   const [source, setSource] = useState("");
   const [language, setLanguage] = useState("plaintext");
@@ -51,6 +65,7 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const [saving, setSaving] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [showSend, setShowSend] = useState(false);
+  const [pendingSelection, setPendingSelection] = useState<string | null>(null);
 
   // Refs pra o Ctrl+S do Monaco (capturado 1x no mount) enxergar o estado atual.
   const sourceRef = useRef(source);
@@ -126,7 +141,7 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
         <NodeHelp text="Editor de código (Monaco). Edite e salve com 💾 ou Ctrl/Cmd+S. Recarrega sozinho se o arquivo mudar no disco (sem edição pendente). O ✈ envia o caminho deste arquivo pro input de um agente aberto (Claude usa @, anexa o arquivo). Métricas chegam na próxima fase." />
         <div className="relative shrink-0">
           <button
-            onClick={(e) => { e.stopPropagation(); setShowSend((s) => !s); }}
+            onClick={(e) => { e.stopPropagation(); setPendingSelection(null); setShowSend((s) => !s); }}
             onPointerDown={(e) => e.stopPropagation()}
             title="Enviar este arquivo para um agente"
             className="hover:text-brand"
@@ -135,12 +150,16 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
           </button>
           {showSend && (
             <>
-              <div className="fixed inset-0 z-[60]" onPointerDown={(e) => { e.stopPropagation(); setShowSend(false); }} />
+              <div className="fixed inset-0 z-[60]" onPointerDown={(e) => { e.stopPropagation(); setShowSend(false); setPendingSelection(null); }} />
               <div
                 className="absolute right-0 top-5 z-[61] w-56 rounded-md border border-border bg-surface1 shadow-xl py-1"
                 onPointerDown={(e) => e.stopPropagation()}
               >
-                <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-textMuted">Enviar p/ agente</div>
+                <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-textMuted">
+                  {pendingSelection != null
+                    ? `Enviar seleção (${pendingSelection.split("\n").length} linha${pendingSelection.split("\n").length > 1 ? "s" : ""}) p/`
+                    : "Enviar p/ agente"}
+                </div>
                 {agentTerminals.length === 0 ? (
                   <div className="px-2 py-1.5 text-[11px] text-textMuted opacity-60">Nenhum agente aberto — abra um em "Novo agente".</div>
                 ) : (
@@ -183,7 +202,7 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
           <p className="px-3 py-2 text-[11px] text-textMuted">abrindo {fileName}…</p>
         ) : (
           <Suspense fallback={<p className="px-3 py-2 text-[11px] text-textMuted">carregando editor…</p>}>
-            <CodeMonaco value={source} language={language} onChange={onEdit} onSave={onSave} />
+            <CodeMonaco value={source} language={language} onChange={onEdit} onSave={onSave} onSendSelection={onSendSelection} />
           </Suspense>
         )}
       </div>
