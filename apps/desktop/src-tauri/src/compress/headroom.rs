@@ -4,7 +4,9 @@
 use super::provider::Compressor;
 use super::types::{CliFamily, CompressorKind, DetectStatus, SpawnDecoration};
 
-const INSTALL_HINT: &str = "pip install \"headroom-ai[all]\"";
+// Fork do Jesse (jessefreitas/headroom) — instala direto do git com os extras [all].
+const INSTALL_HINT: &str =
+    "pip install \"headroom-ai[all] @ git+https://github.com/jessefreitas/headroom.git\"";
 
 fn cmd_in_path(cmd: &str) -> bool {
     let finder = if cfg!(windows) { "where" } else { "which" };
