@@ -1,4 +1,4 @@
-# Maestri Linux — CLAUDE.md
+# OmniRift — CLAUDE.md
 
 ## O que é este projeto
 
@@ -72,4 +72,4 @@ Maestri como **interface de conexão a um cérebro de memória plugável** (Omni
 - **`src-tauri/src/memory/`**: trait `MemoryProvider` + `LocalProvider` (blackboard SQLite existente = **default zero-config**) + `OmniMemoryProvider` (gateway remoto). `MemoryRegistry` mantém o provider ativo + conexões (tabela `memory_connections`, token ofuscado em repouso — keychain é Fase 2).
 - As tools MCP **`memory_*`** roteiam pelo provider ativo (Local = comportamento original, intocado). `agent_mcp_config` **injeta o MCP do provider ativo** em todo agente claude (merge, não `--strict`) → agentes nascem memory-aware.
 - Comandos da **Área de Conexões** (UI Fase 1b): `memory_providers_list`, `memory_connect`, `memory_test`, `memory_set_active`, `memory_active`.
-- **Status:** Fase 1a (backend) ✅ na branch `feat/memory-provider-fase1` (43/43 testes, zero regressão). Pendente: 1b (Área de Conexões UI React), 1c (provider Obsidian). "Maestri" é codename — produto será renomeado.
+- **Status:** Fase 1 completa (1a backend ✅ + 1b Área de Conexões UI ✅ + 1c provider Obsidian ✅). **Fase 2:** tokens de conexão no **keychain do SO** (`memory/secret_store.rs`, crate `keyring`), com fallback ofuscado + migração dos tokens legados do SQLite; `OBF_KEY` mantido só como chave de migração. Pendente da Fase 2: multi-DB via `sqlx` (Postgres compartilhado). Nome do produto é **OmniRift** ("Maestri" era só codename, já aposentado).
