@@ -16,6 +16,7 @@ pub mod mcp_servers;
 pub mod memory;
 pub mod pty;
 pub mod review_cfg;
+pub mod review_history;
 pub mod scheduler;
 pub mod serena;
 pub mod spec;

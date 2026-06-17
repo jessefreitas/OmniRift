@@ -5,11 +5,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { RefreshCw, ScanLine, Settings2, Sliders, X } from "lucide-react";
+import { History, RefreshCw, ScanLine, Settings2, Sliders, X } from "lucide-react";
 
 import { runReview, type Finding, type ReviewResult, type Severity } from "@/lib/review";
 import { loadLlmConfig } from "@/lib/llm-client";
 import { loadPolicy } from "@/lib/review-policy";
+import { reviewHistoryAdd, reviewHistoryList, recurrenceMap, runsTrend, type ReviewHistRow } from "@/lib/review-history-client";
 import { cn } from "@/lib/cn";
 import type { Floor } from "@/types/workspace";
 
@@ -37,13 +38,22 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
   const config = useMemo(() => loadLlmConfig(), []);
   const policy = useMemo(() => loadPolicy(floor.repoRoot || floor.id), [floor]);
   const base = floor.baseBranch ?? "main";
+  const scope = floor.repoRoot || floor.id;
+  const [history, setHistory] = useState<ReviewHistRow[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
+  useEffect(() => { reviewHistoryList(scope).then(setHistory).catch(() => {}); }, [scope]);
 
   async function run() {
     if (!config || !floor.worktreePath) return;
     setLoading(true);
     setError(null);
     try {
-      setResult(await runReview(floor.worktreePath, base, config, policy));
+      const r = await runReview(floor.worktreePath, base, config, policy);
+      setResult(r);
+      const items = [...r.preflight, ...r.findings].map((f) => ({ file: f.file, category: f.category, severity: f.severity, title: f.title }));
+      await reviewHistoryAdd(scope, floor.branch ?? null, r.verdict, items);
+      reviewHistoryList(scope).then(setHistory).catch(() => {});
     } catch (e) {
       setError(String(e));
     } finally {
@@ -56,6 +66,8 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
 
   const all: Finding[] = result ? [...result.preflight, ...result.findings] : [];
   const grouped = SEV_ORDER.map((s) => ({ sev: s, items: all.filter((f) => f.severity === s) })).filter((g) => g.items.length);
+  const recur = useMemo(() => recurrenceMap(history), [history]);
+  const trend = useMemo(() => runsTrend(history), [history]);
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -73,6 +85,7 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
             </span>
           )}
           <div className="flex-1" />
+          <button onClick={() => setShowHistory((h) => !h)} title="Histórico de reviews" className={cn("p-1", showHistory ? "text-brand" : "text-textMuted hover:text-brand")}><History size={14} /></button>
           <button onClick={onEditPolicy} title="Editar política de review" className="text-textMuted hover:text-brand p-1"><Sliders size={14} /></button>
           <button onClick={onConfigure} title="Configurar LLM (BYOK)" className="text-textMuted hover:text-brand p-1"><Settings2 size={14} /></button>
           <button onClick={() => void run()} disabled={!config} title="Rodar de novo" className="text-textMuted hover:text-brand p-1 disabled:opacity-40">
@@ -82,6 +95,23 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
         </header>
 
         <div className="flex-1 overflow-auto">
+          {showHistory && (
+            <div className="border-b border-border bg-bg/30">
+              <div className="px-4 py-1 text-[10px] uppercase tracking-wide text-textMuted">Histórico · {trend.length} run(s)</div>
+              {trend.length === 0 ? (
+                <p className="px-4 py-2 text-[11px] text-textMuted opacity-60">Sem histórico ainda — rode um review.</p>
+              ) : (
+                trend.slice(0, 12).map((t) => (
+                  <div key={t.runTs} className="flex items-center gap-2 px-4 py-1 text-[11px] border-b border-border/30">
+                    <span className={cn("font-bold w-12", t.verdict === "GO" ? "text-green-400" : "text-danger")}>{t.verdict ?? "?"}</span>
+                    <span className="text-textMuted">{t.count} achado(s)</span>
+                    <span className="flex-1" />
+                    <span className="text-textMuted opacity-60 font-mono text-[10px]">{t.runTs}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
           {!config ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center">
               <p className="text-[13px] text-textMuted">Nenhum LLM configurado pro review.</p>
@@ -108,6 +138,11 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
                           <span className={cn("text-[9px] uppercase px-1.5 py-0.5 rounded border", sevStyle(g.sev))}>{f.category}</span>
                           <span className="text-[11px] text-brand font-mono">{f.file}{f.line ? `:${f.line}` : ""}</span>
                           <span className="text-[12px] text-text">{f.title}</span>
+                          {(recur.get(`${f.file}|${f.title}`) ?? 0) > 0 && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/15 text-yellow-300 border border-yellow-400/30" title="apareceu em runs anteriores deste escopo">
+                              voltou {recur.get(`${f.file}|${f.title}`)}×
+                            </span>
+                          )}
                         </div>
                         {f.suggestion && <p className="text-[11px] text-textMuted mt-1 pl-1 border-l-2 border-border">{f.suggestion}</p>}
                       </div>
