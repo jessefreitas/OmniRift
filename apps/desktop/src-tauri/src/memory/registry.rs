@@ -6,6 +6,7 @@ use crate::memory::local::LocalProvider;
 use crate::memory::obsidian::ObsidianProvider;
 use crate::memory::omnimemory::OmniMemoryProvider;
 use crate::memory::provider::MemoryProvider;
+use crate::memory::secret_store;
 use crate::memory::types::*;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -32,9 +33,13 @@ fn parse_kind(s: &str) -> Option<ProviderKind> {
     }
 }
 
-// ── Ofuscação v1 do token em repouso ────────────────────────────────────────
-// NÃO é cifragem forte — é ofuscação pra não deixar o token em texto claro no
-// arquivo SQLite. TODO Fase 2: keychain do OS (libsecret/Keychain/Credential Mgr).
+// ── Ofuscação v1 do token em repouso (LEGADO — fallback do keychain) ─────────
+// A Fase 2 move os tokens pro keychain do SO (ver `secret_store`). Isto só
+// permanece como FALLBACK quando o keychain está indisponível e pra MIGRAR
+// tokens antigos já gravados no SQLite. NÃO é cifragem forte.
+// ⚠️ NÃO altere OBF_KEY: o valor precisa bater com o que cifrou os tokens
+// legados em repouso, senão a migração não consegue lê-los. (Prefixo "maestri-"
+// é histórico — chave de migração, não branding.)
 const OBF_KEY: &[u8] = b"maestri-mem-v1-obfuscation-not-crypto";
 
 fn obfuscate(s: &str) -> String {
@@ -76,11 +81,17 @@ impl MemoryRegistry {
         }
     }
 
-    /// Cria/atualiza uma conexão (token ofuscado em repouso).
+    /// Cria/atualiza uma conexão. O token vai pro keychain do SO; só cai na
+    /// ofuscação no SQLite se o keychain estiver indisponível (fallback).
     pub fn upsert_connection(&self, cfg: ConnectionConfig) -> anyhow::Result<()> {
-        let token_enc = cfg.token.as_deref().map(obfuscate);
+        let acct = kind_str(cfg.kind);
+        let token_enc = match cfg.token.as_deref() {
+            None => None,
+            Some(t) if secret_store::set(acct, t) => None, // keychain guarda → nada no DB
+            Some(t) => Some(obfuscate(t)),                 // sem keychain → fallback ofuscado
+        };
         self.db
-            .conn_upsert(kind_str(cfg.kind), cfg.endpoint.as_deref(), token_enc.as_deref())?;
+            .conn_upsert(acct, cfg.endpoint.as_deref(), token_enc.as_deref())?;
         Ok(())
     }
 
@@ -97,16 +108,29 @@ impl MemoryRegistry {
         *self.active.read()
     }
 
-    /// Conexão completa (token desofuscado) — uso interno.
+    /// Conexão completa (token resolvido) — uso interno. Lê do keychain; se não
+    /// houver, usa o token legado ofuscado no DB e MIGRA pro keychain.
     pub fn connection(&self, kind: ProviderKind) -> anyhow::Result<ConnectionConfig> {
+        let acct = kind_str(kind);
         let row = self
             .db
-            .conn_get(kind_str(kind))?
-            .ok_or_else(|| anyhow::anyhow!("sem conexão '{}'", kind_str(kind)))?;
+            .conn_get(acct)?
+            .ok_or_else(|| anyhow::anyhow!("sem conexão '{}'", acct))?;
+        let token = secret_store::get(acct).or_else(|| {
+            // Legado: token ainda ofuscado no SQLite → desofusca, e se o keychain
+            // estiver disponível migra pra lá (limpando o token_enc do banco).
+            let legacy = row.token_enc.as_deref().and_then(deobfuscate);
+            if let Some(t) = &legacy {
+                if secret_store::set(acct, t) {
+                    let _ = self.db.conn_upsert(acct, row.endpoint.as_deref(), None);
+                }
+            }
+            legacy
+        });
         Ok(ConnectionConfig {
             kind,
             endpoint: row.endpoint,
-            token: row.token_enc.and_then(|e| deobfuscate(&e)),
+            token,
         })
     }
 
@@ -173,6 +197,10 @@ mod tests {
 
     #[tokio::test]
     async fn set_active_and_resolve() {
+        // Força o fallback ofuscado: o teste NUNCA pode tocar o keychain real do
+        // SO (senão sobrescreveria o token de verdade do usuário). Exercita o
+        // caminho de migração/fallback no SQLite de ponta a ponta.
+        std::env::set_var("OMNIRIFT_NO_KEYCHAIN", "1");
         let dir = tempfile::tempdir().unwrap();
         let db = Arc::new(Db::open(dir.path()).unwrap());
         let reg = MemoryRegistry::new(db.clone());
