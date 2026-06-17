@@ -323,6 +323,14 @@ export function Sidebar() {
   const [customClis, setCustomClis] = useState<CustomCli[]>(() => loadCustomClis());
   const [addingCli, setAddingCli] = useState(false);
   const [newCli, setNewCli] = useState({ label: "", command: "", installCmd: "" });
+  // CLI que roda o Orquestrador (escolhível; default claude). Persiste.
+  const [orchCli, setOrchCli] = useState<string>(() => localStorage.getItem("omnirift-orch-cli") || "claude");
+  const [orchMenu, setOrchMenu] = useState(false);
+  function pickOrchCli(id: string) {
+    setOrchCli(id);
+    try { localStorage.setItem("omnirift-orch-cli", id); } catch { /* */ }
+    setOrchMenu(false);
+  }
   const [showConnections, setShowConnections] = useState(false);
   const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
@@ -802,6 +810,40 @@ export function Sidebar() {
   // Cria um agente no CLI escolhido com a persona do role. claude usa
   // --append-system-prompt (nível-sistema) + deny-list + MCP; os outros CLIs não
   // têm flag de system-prompt → a persona vai como 1ª mensagem após o CLI subir.
+  /** Spawna o Orquestrador no CLI escolhido, com ORCHESTRATOR_CONTRACT (não o
+   *  DEV_CONTRACT do worker). Claude = flag nativa; sem flag = 1ª mensagem quando pronto. */
+  function spawnOrchestrator(cliId: string) {
+    const cli = ROLE_CLIS.find((c) => c.id === cliId) ?? ROLE_CLIS[0];
+    if (cli.role === "claude-code") {
+      const args = [
+        "--append-system-prompt", ORCHESTRATOR_CONTRACT,
+        "--dangerously-skip-permissions",
+        "--disallowed-tools", ...DENY_DESTRUCTIVE,
+        ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath] : []),
+        ...(settingsConfigPath ? ["--settings", settingsConfigPath] : []),
+      ];
+      addTerminal({ command: cli.command, args, role: cli.role, label: "Orquestrador" });
+      return;
+    }
+    if (cli.systemPromptFlag) {
+      addTerminal({ command: cli.command, args: [cli.systemPromptFlag, ORCHESTRATOR_CONTRACT], role: cli.role, label: "Orquestrador" });
+      return;
+    }
+    // CLI sem flag (codex/gemini/opencode/antigravity): persona como 1ª mensagem
+    // quando o terminal fica pronto (robusto a tempo de boot/seleção de modelo).
+    const node = addTerminal({ command: cli.command, role: cli.role, label: "Orquestrador" });
+    const sid = node.session_id;
+    let ready = false, done = false;
+    const send = () => {
+      invoke("pty_write", { sessionId: sid, data: ORCHESTRATOR_CONTRACT }).catch(console.warn);
+      setTimeout(() => invoke("pty_write", { sessionId: sid, data: "\r" }).catch(console.warn), 200);
+    };
+    const finish = () => { if (done) return; done = true; unsub(); clearTimeout(g); clearTimeout(k); setTimeout(send, 150); };
+    const unsub = useCanvasStore.subscribe((s) => { const st = s.terminalStatuses[sid]; if (ready && (st === "idle" || st === "done")) finish(); });
+    const g = setTimeout(() => { ready = true; const st = useCanvasStore.getState().terminalStatuses[sid]; if (st === "idle" || st === "done") finish(); }, 1500);
+    const k = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
+  }
+
   function spawnRole(r: AgentRoleDef) {
     const cli = ROLE_CLIS.find((c) => c.id === (r.cli ?? "claude")) ?? ROLE_CLIS[0];
     if (cli.systemPromptFlag) {
@@ -1391,6 +1433,8 @@ export function Sidebar() {
         {isOpen("agents") &&
           agentList.map((preset) => {
           const Icon = preset.icon;
+          const isOrch = preset.id === "orquestrador";
+          const orchLabel = ROLE_CLIS.find((c) => c.id === orchCli)?.label ?? "Claude Code";
           return (
             <div
               key={preset.id}
@@ -1398,14 +1442,16 @@ export function Sidebar() {
             >
               <button
                 onClick={() =>
-                  addTerminal({
-                    command: preset.command,
-                    args: argsWithMcp(preset),
-                    role: preset.role,
-                    label: preset.label,
-                  })
+                  isOrch
+                    ? spawnOrchestrator(orchCli)
+                    : addTerminal({
+                        command: preset.command,
+                        args: argsWithMcp(preset),
+                        role: preset.role,
+                        label: preset.label,
+                      })
                 }
-                title={preset.description}
+                title={isOrch ? `Orquestrador rodando em ${orchLabel} — só decompõe e delega` : preset.description}
                 className="flex-1 min-w-0 text-left flex items-start gap-3 px-2 py-2"
               >
                 <Icon
@@ -1415,7 +1461,7 @@ export function Sidebar() {
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium truncate">{preset.label}</div>
                   <div className="text-[10px] text-textMuted truncate">
-                    {preset.description}
+                    {isOrch ? `${orchLabel} · só decompõe e delega` : preset.description}
                   </div>
                 </div>
                 <Plus
@@ -1423,6 +1469,35 @@ export function Sidebar() {
                   className="mt-1 text-textMuted opacity-0 group-hover:opacity-100 transition-opacity"
                 />
               </button>
+              {isOrch && (
+                <div className="relative shrink-0">
+                  <Tooltip label="Escolher o CLI do Orquestrador" side="top">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setOrchMenu((m) => !m); }}
+                      className="px-2 py-2 text-textMuted hover:text-brand"
+                    >
+                      <ChevronDown size={13} />
+                    </button>
+                  </Tooltip>
+                  {orchMenu && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOrchMenu(false); }} />
+                      <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-md border border-border bg-surface1 shadow-xl py-1">
+                        <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-textMuted">Rodar Orquestrador em</div>
+                        {ROLE_CLIS.filter((c) => c.id !== "shell").map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={(e) => { e.stopPropagation(); pickOrchCli(c.id); }}
+                            className={cn("w-full text-left px-2 py-1.5 text-[11px] hover:bg-surface2", c.id === orchCli ? "text-brand" : "text-text")}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
               {preset.installCmd && (
                 <Tooltip label={`Instalar a CLI do ${preset.label}`} side="top" className="shrink-0">
                   <button
