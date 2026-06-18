@@ -87,6 +87,7 @@ import { GitReposModal } from "@/components/GitReposModal";
 import { ReviewPolicyModal } from "@/components/ReviewPolicyModal";
 import { ReviewSettingsModal } from "@/components/ReviewSettingsModal";
 import { loadPolicy } from "@/lib/review-policy";
+import { loadDefaultCompressor } from "@/lib/compress-client";
 import { loadLlmConfig } from "@/lib/llm-client";
 import { runReview } from "@/lib/review";
 import { loadHooks, runFloorHook } from "@/lib/hooks-client";
@@ -834,16 +835,16 @@ export function Sidebar() {
         ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath] : []),
         ...(settingsConfigPath ? ["--settings", settingsConfigPath] : []),
       ];
-      addTerminal({ command: cli.command, args, role: cli.role, label: "Orquestrador" });
+      addTerminal({ command: cli.command, args, role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
       return;
     }
     if (cli.systemPromptFlag) {
-      addTerminal({ command: cli.command, args: [cli.systemPromptFlag, ORCHESTRATOR_CONTRACT], role: cli.role, label: "Orquestrador" });
+      addTerminal({ command: cli.command, args: [cli.systemPromptFlag, ORCHESTRATOR_CONTRACT], role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
       return;
     }
     // CLI sem flag (codex/gemini/opencode/antigravity): persona como 1ª mensagem
     // quando o terminal fica pronto (robusto a tempo de boot/seleção de modelo).
-    const node = addTerminal({ command: cli.command, role: cli.role, label: "Orquestrador" });
+    const node = addTerminal({ command: cli.command, role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
     const sid = node.session_id;
     let ready = false, done = false;
     const send = () => {
@@ -866,10 +867,10 @@ export function Sidebar() {
         cli.role === "claude-code"
           ? workerClaudeArgs(mcpConfigPath, persona, settingsConfigPath)
           : [cli.systemPromptFlag, persona];
-      addTerminal({ command: cli.command, args, role: cli.role, label: r.name });
+      addTerminal({ command: cli.command, args, role: cli.role, label: r.name, compressor: r.compressor ?? loadDefaultCompressor() });
       return;
     }
-    const node = addTerminal({ command: cli.command, role: cli.role, label: r.name });
+    const node = addTerminal({ command: cli.command, role: cli.role, label: r.name, compressor: r.compressor ?? loadDefaultCompressor() });
     // Envia uma linha (texto + Enter à parte) após `delay` ms.
     const sendLine = (text: string, delay: number) => {
       if (!text.trim()) return;
@@ -950,13 +951,13 @@ export function Sidebar() {
   }
 
   // Salva (upsert) um role editado/criado no modal.
-  function saveRole(name: string, prompt: string, cli: string, startupCmd: string, skills: string[]) {
+  function saveRole(name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string) {
     if (!editingRole) return;
     setRoles((prev) => {
       const exists = prev.some((x) => x.id === editingRole.id);
       const next = exists
-        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd, skills } : x))
-        : [...prev, { ...editingRole, name, prompt, cli, startupCmd, skills }];
+        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd, skills, compressor } : x))
+        : [...prev, { ...editingRole, name, prompt, cli, startupCmd, skills, compressor }];
       saveRoles(next);
       return next;
     });
@@ -1462,6 +1463,7 @@ export function Sidebar() {
                         args: argsWithMcp(preset),
                         role: preset.role,
                         label: preset.label,
+                        compressor: loadDefaultCompressor(),
                       })
                 }
                 title={isOrch ? `Orquestrador rodando em ${orchLabel} — só decompõe e delega` : preset.description}

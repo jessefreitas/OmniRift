@@ -45,6 +45,10 @@ export interface TerminalNode extends BaseCanvasNode {
   label?: string;
   /** Pasta de trabalho do processo. */
   cwd?: string;
+  /** Env extra injetada no spawn (ex.: decoração do compressor — só env). */
+  env?: Array<[string, string]>;
+  /** Compressor de token ativo neste agente (kind: "rtk"|"headroom"|"none"). */
+  compressor?: string;
 }
 
 export interface NoteNode extends BaseCanvasNode {

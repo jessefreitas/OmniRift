@@ -15,7 +15,7 @@ interface Props {
   role: AgentRoleDef;
   /** cwd do projeto ativo — pra listar as skills de .claude/skills. */
   cwd?: string | null;
-  onSave: (name: string, prompt: string, cli: string, startupCmd: string, skills: string[]) => void;
+  onSave: (name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string) => void;
   onClose: () => void;
 }
 
@@ -26,6 +26,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
   const [startupCmd, setStartupCmd] = useState(role.startupCmd ?? "");
   const [skills, setSkills] = useState<string[]>(role.skills ?? []);
   const [available, setAvailable] = useState<SkillInfo[]>([]);
+  const [compressor, setCompressor] = useState(role.compressor ?? "none");
   const isShell = cli === "shell";
 
   useEffect(() => {
@@ -71,6 +72,21 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider text-textMuted">Compressor de token</label>
+            <select
+              value={compressor}
+              onChange={(e) => setCompressor(e.target.value)}
+              className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text focus:outline-none focus:border-brand"
+            >
+              <option value="none">Nenhum</option>
+              <option value="rtk">RTK · Rust Token Killer (saída de comando)</option>
+              <option value="headroom">Headroom (chamada ao LLM)</option>
+            </select>
+            <p className="mt-1 text-[10px] text-textMuted opacity-60">
+              Aplicado só via env no spawn (não toca command/args). Instale-o em Ferramentas → Compressores.
+            </p>
           </div>
           {isShell && (
             <div>
@@ -143,7 +159,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
             Cancelar
           </button>
           <button
-            onClick={() => onSave(name.trim() || "Role", prompt, cli, startupCmd, skills)}
+            onClick={() => onSave(name.trim() || "Role", prompt, cli, startupCmd, skills, compressor)}
             disabled={!isShell && !prompt.trim()}
             className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >

@@ -21,6 +21,8 @@ export interface AgentRoleDef {
   startupCmd?: string;
   /** Skills (nomes de .claude/skills) curadas pra este role — injetadas na persona no spawn. */
   skills?: string[];
+  /** Compressor de token deste role ("none"|"rtk"|"headroom"). Decora só env no spawn. */
+  compressor?: string;
 }
 
 /** CLIs/LLMs disponíveis pra rodar um role. claude injeta via --append-system-prompt;

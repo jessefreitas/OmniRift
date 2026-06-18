@@ -64,6 +64,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
         command: data.command,
         args: data.args,
         cwd: data.cwd,
+        env: data.env,
       },
     });
 
@@ -313,6 +314,15 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
           <span className="text-[10px] opacity-50 truncate shrink-0">
             {data.role}
           </span>
+
+          {data.compressor && (
+            <span
+              title={`Compressor de token ativo: ${data.compressor.toUpperCase()} (decora só env no spawn)`}
+              className="text-[8px] uppercase tracking-wide px-1 rounded bg-brand/15 text-brand shrink-0"
+            >
+              ⚡{data.compressor}
+            </span>
+          )}
 
           {/* Process mgmt: RSS do processo (PID no tooltip). */}
           {proc?.alive && (

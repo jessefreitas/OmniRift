@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
+import { compressorEnv } from "@/lib/compress-client";
 import type {
   ApiNode,
   CanvasEdge,
@@ -68,6 +69,8 @@ interface CanvasState {
     position?: { x: number; y: number };
     label?: string;
     id?: string;
+    /** Compressor de token deste agente ("rtk"|"headroom"|"none"). Decora só env. */
+    compressor?: string;
   }) => TerminalNode;
   addNote: (params?: { position?: { x: number; y: number }; content?: string; color?: string }) => NoteNode;
   addGroup: (params?: { position?: { x: number; y: number }; label?: string }) => GroupNode;
@@ -253,9 +256,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       return { dirtyFiles: next };
     }),
 
-  addTerminal: ({ command, args, role = "shell", position, label, id }) => {
+  addTerminal: ({ command, args, role = "shell", position, label, id, compressor }) => {
     const nodeId = id ?? nanoid();
     const cwd = get().currentCwd ?? undefined;
+    const env = compressor && compressor !== "none" ? compressorEnv(compressor, nodeId) : undefined;
     const node: TerminalNode = {
       id: nodeId,
       kind: "terminal",
@@ -265,6 +269,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       role,
       label,
       cwd,
+      env,
+      compressor: compressor && compressor !== "none" ? compressor : undefined,
       position: position ?? defaultPosition(),
       size: { width: 520, height: 320 },
     };

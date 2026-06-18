@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
 import { nanoid } from "nanoid";
 import { Gauge, RefreshCw, Download, Plus, Trash2, X } from "lucide-react";
 
-import { compressorList, type CompressorInfo } from "@/lib/compress-client";
+import { compressorList, loadDefaultCompressor, saveDefaultCompressor, type CompressorInfo } from "@/lib/compress-client";
 import {
   loadCustomCompressors,
   saveCustomCompressors,
@@ -24,6 +24,7 @@ export function CompressorsModal({ onClose }: { onClose: () => void }) {
   const [adding, setAdding] = useState(false);
   const [newComp, setNewComp] = useState({ label: "", installCmd: "" });
   const addTerminal = useCanvasStore((s) => s.addTerminal);
+  const [defaultComp, setDefaultComp] = useState<string>(() => loadDefaultCompressor());
 
   const refresh = () => {
     setLoading(true);
@@ -82,6 +83,19 @@ export function CompressorsModal({ onClose }: { onClose: () => void }) {
           </button>
           <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar"><X size={16} /></button>
         </header>
+
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-surface2/30 shrink-0">
+          <span className="text-[11px] text-textMuted">Padrão p/ novos agentes:</span>
+          <select
+            value={defaultComp}
+            onChange={(e) => { setDefaultComp(e.target.value); saveDefaultCompressor(e.target.value); }}
+            className="px-2 py-1 text-[11px] rounded bg-bg border border-border text-text focus:outline-none focus:border-brand"
+          >
+            <option value="none">Nenhum</option>
+            {list.map((c) => (<option key={c.kind} value={c.kind}>{c.label}</option>))}
+          </select>
+          <span className="text-[10px] text-textMuted opacity-50">cada role pode sobrescrever no editor</span>
+        </div>
 
         {adding && (
           <div className="px-4 py-3 border-b border-border bg-surface2 space-y-1.5">
