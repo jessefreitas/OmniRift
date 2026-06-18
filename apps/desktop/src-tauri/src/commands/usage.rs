@@ -89,6 +89,8 @@ pub fn price(model: &str) -> (f64, f64) {
         (3.0, 15.0)
     } else if m.contains("haiku") {
         (0.8, 4.0)
+    } else if m.contains("fable") {
+        (5.0, 25.0) // estimativa (Anthropic mid-tier); calibrar quando publicarem.
     } else if m.contains("gpt-5") || m.contains("gpt5") {
         (1.25, 10.0)
     } else if m.contains("gpt-4o-mini") {
@@ -98,6 +100,7 @@ pub fn price(model: &str) -> (f64, f64) {
     } else if m.contains("gemini") {
         (1.25, 5.0)
     } else {
+        // Modelos locais (Ollama: qwen/llama/devstral/glm/kimi/…) custam $0.
         (0.0, 0.0)
     }
 }
@@ -364,18 +367,25 @@ fn with_cache<R>(cache: &UsageCache, force: bool, f: impl FnOnce(&CacheInner) ->
 }
 
 /// Agrega buckets (no período) + o ledger nativo → (agregado, subtotal nativo).
-fn aggregate(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow]) -> (Agg, Tally) {
+/// `only` (cwd) filtra pra um único projeto quando setado.
+fn aggregate(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow], only: Option<&str>) -> (Agg, Tally) {
     let mut agg = Agg::default();
     for b in &c.buckets {
+        if only.is_some_and(|p| p != b.cwd) {
+            continue;
+        }
         if within_date(&b.date, cutoff) {
             agg.add(&b.cwd, &b.model, b.calls, b.inp, b.out, b.cr, b.cc);
         }
     }
     let mut native = Tally::default();
     for r in ledger {
+        let project = r.project.as_deref().unwrap_or("(OmniRift nativo)");
+        if only.is_some_and(|p| p != project) {
+            continue;
+        }
         let date = r.at.get(..10).unwrap_or(NO_DATE);
         if within_date(date, cutoff) {
-            let project = r.project.as_deref().unwrap_or("(OmniRift nativo)");
             agg.add(project, &r.model, 1, r.input_tokens, r.output_tokens, 0, 0);
             bump(&mut native, 1, r.input_tokens, r.output_tokens, 0, 0, &r.model);
         }
@@ -383,8 +393,8 @@ fn aggregate(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow]) -> (
     (agg, native)
 }
 
-fn build_report(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow]) -> UsageReport {
-    let (agg, native) = aggregate(c, cutoff, ledger);
+fn build_report(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow], only: Option<&str>) -> UsageReport {
+    let (agg, native) = aggregate(c, cutoff, ledger, only);
 
     let mut by_model: Vec<ModelUsage> = agg
         .models
@@ -410,12 +420,13 @@ fn build_report(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow]) -
 pub fn usage_scan(
     since_days: Option<i64>,
     force: Option<bool>,
+    project: Option<String>,
     db: State<'_, Db>,
     cache: State<'_, UsageCache>,
 ) -> Result<UsageReport, String> {
     let cutoff = cutoff_date(since_days);
     let ledger = db.ledger_rows(None).unwrap_or_default();
-    with_cache(&cache, force.unwrap_or(false), |c| build_report(c, &cutoff, &ledger))
+    with_cache(&cache, force.unwrap_or(false), |c| build_report(c, &cutoff, &ledger, project.as_deref()))
 }
 
 /// Gasto do mês corrente por projeto (CLI + nativo) vs orçamento → status.
@@ -428,7 +439,7 @@ pub fn usage_budget_status(db: State<'_, Db>, cache: State<'_, UsageCache>) -> R
     let cutoff = Some(month_start_date());
     let ledger = db.ledger_rows(None).unwrap_or_default();
     let costs: HashMap<String, f64> = with_cache(&cache, false, |c| {
-        let (agg, _) = aggregate(c, &cutoff, &ledger);
+        let (agg, _) = aggregate(c, &cutoff, &ledger, None);
         agg.projects.into_iter().map(|(k, t)| (k, t.cost_usd)).collect()
     })?;
 

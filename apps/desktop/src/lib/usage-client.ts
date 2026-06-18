@@ -37,8 +37,12 @@ export interface UsageReport {
 /** Períodos do filtro. `null` = tudo; 0 = hoje; N = últimos N dias. */
 export type Period = null | 0 | 7 | 30;
 
-export async function usageScan(sinceDays: Period = null, force = false): Promise<UsageReport> {
-  return invoke<UsageReport>("usage_scan", { sinceDays, force });
+export async function usageScan(
+  sinceDays: Period = null,
+  force = false,
+  project: string | null = null,
+): Promise<UsageReport> {
+  return invoke<UsageReport>("usage_scan", { sinceDays, force, project });
 }
 
 export interface BudgetStatus {

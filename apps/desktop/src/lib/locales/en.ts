@@ -831,6 +831,8 @@ export const en: Record<string, string> = {
   "usage.nativePrefix": "Of these,",
   "usage.nativeSuffix": "native to OmniRift",
   "usage.noBudgets": "No budget. Set a monthly limit per project to get alerts and a gate on native actions.",
+  "usage.onlyThis": "This project only",
+  "usage.onlyThisTip": "Show only the active project",
   "usage.output": "Output",
   "usage.perMonth": "/mo",
   "usage.period30": "30 days",

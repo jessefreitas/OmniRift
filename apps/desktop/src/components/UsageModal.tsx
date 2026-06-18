@@ -36,26 +36,31 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
   );
 }
 
-export function UsageModal({ onClose }: { onClose: () => void }) {
+export function UsageModal({ onClose, activeProject }: { onClose: () => void; activeProject?: string | null }) {
   const t = useT();
   const [report, setReport] = useState<UsageReport | null>(null);
   const [budgets, setBudgets] = useState<BudgetStatus[]>([]);
   const [period, setPeriod] = useState<Period>(null);
+  const [onlyThis, setOnlyThis] = useState(false);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  const load = useCallback((p: Period, force = false) => {
-    setLoading(true);
-    setErr(null);
-    Promise.all([usageScan(p, force), usageBudgetStatus()])
-      .then(([r, b]) => {
-        setReport(r);
-        setBudgets(b);
-      })
-      .catch((e) => setErr(String(e)))
-      .finally(() => setLoading(false));
-  }, []);
-  useEffect(() => load(period), [load, period]);
+  const proj = onlyThis && activeProject ? activeProject : null;
+  const load = useCallback(
+    (p: Period, projectKey: string | null, force = false) => {
+      setLoading(true);
+      setErr(null);
+      Promise.all([usageScan(p, force, projectKey), usageBudgetStatus()])
+        .then(([r, b]) => {
+          setReport(r);
+          setBudgets(b);
+        })
+        .catch((e) => setErr(String(e)))
+        .finally(() => setLoading(false));
+    },
+    [],
+  );
+  useEffect(() => load(period, proj), [load, period, proj]);
 
   const total = report?.total;
   const native = report?.native;
@@ -88,7 +93,16 @@ export function UsageModal({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
-          <button onClick={() => load(period, true)} title={t("common.reload", "Recarregar")} className="text-textMuted hover:text-brand p-1">
+          {activeProject && (
+            <button
+              onClick={() => setOnlyThis((v) => !v)}
+              title={t("usage.onlyThisTip", "Mostrar só o projeto ativo")}
+              className={"px-2 py-1 text-[11px] rounded-md border border-border mr-1 " + (onlyThis ? "bg-brand/20 text-brand" : "text-textMuted hover:text-text")}
+            >
+              {t("usage.onlyThis", "Só este projeto")}
+            </button>
+          )}
+          <button onClick={() => load(period, proj, true)} title={t("common.reload", "Recarregar")} className="text-textMuted hover:text-brand p-1">
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
           <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("common.close", "Fechar")}><X size={16} /></button>
@@ -125,7 +139,7 @@ export function UsageModal({ onClose }: { onClose: () => void }) {
                 t={t}
                 budgets={budgets}
                 projects={report!.byProject.map((p) => p.project)}
-                onChanged={() => load(period)}
+                onChanged={() => load(period, proj)}
               />
 
               {/* Por modelo/LLM */}

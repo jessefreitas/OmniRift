@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect, useMemo } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -65,32 +65,35 @@ import { writeFile } from "@/lib/preview-client";
 import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
-import { RoleEditModal } from "@/components/RoleEditModal";
-import { DiffViewerModal } from "@/components/DiffViewerModal";
-import { SessionHistoryModal } from "@/components/SessionHistoryModal";
-import { MemoryModal } from "@/components/MemoryModal";
-import { HooksModal } from "@/components/HooksModal";
-import { SnapshotsModal } from "@/components/SnapshotsModal";
-import { RoutinesModal } from "@/components/RoutinesModal";
-import { RemindersModal } from "@/components/RemindersModal";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
-import { CompanionModal } from "@/components/CompanionModal";
-import { AppearanceModal } from "@/components/AppearanceModal";
-import { UsageModal } from "@/components/UsageModal";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
-import { ConnectionsModal } from "@/components/ConnectionsModal";
-import { HelpModal } from "@/components/HelpModal";
-import { McpServersModal } from "@/components/McpServersModal";
-import { ClisModal } from "@/components/ClisModal";
-import { CompressorsModal } from "@/components/CompressorsModal";
 import { clisList, type CliInfo } from "@/lib/clis-client";
 import { loadCustomClis, saveCustomClis, type CustomCli } from "@/lib/custom-clis";
-import { ReviewModal } from "@/components/ReviewModal";
-import { LlmConfigModal } from "@/components/LlmConfigModal";
-import { GitReposModal } from "@/components/GitReposModal";
-import { ReviewPolicyModal } from "@/components/ReviewPolicyModal";
-import { ReviewSettingsModal } from "@/components/ReviewSettingsModal";
+
+// Modais carregados sob demanda (lazy) — saem do bundle inicial (index ~1.3MB) e só
+// baixam quando abertos. Renderizados sob um único <Suspense> no fim do componente.
+const RoleEditModal = lazy(() => import("@/components/RoleEditModal").then((m) => ({ default: m.RoleEditModal })));
+const DiffViewerModal = lazy(() => import("@/components/DiffViewerModal").then((m) => ({ default: m.DiffViewerModal })));
+const SessionHistoryModal = lazy(() => import("@/components/SessionHistoryModal").then((m) => ({ default: m.SessionHistoryModal })));
+const MemoryModal = lazy(() => import("@/components/MemoryModal").then((m) => ({ default: m.MemoryModal })));
+const HooksModal = lazy(() => import("@/components/HooksModal").then((m) => ({ default: m.HooksModal })));
+const SnapshotsModal = lazy(() => import("@/components/SnapshotsModal").then((m) => ({ default: m.SnapshotsModal })));
+const RoutinesModal = lazy(() => import("@/components/RoutinesModal").then((m) => ({ default: m.RoutinesModal })));
+const RemindersModal = lazy(() => import("@/components/RemindersModal").then((m) => ({ default: m.RemindersModal })));
+const CompanionModal = lazy(() => import("@/components/CompanionModal").then((m) => ({ default: m.CompanionModal })));
+const AppearanceModal = lazy(() => import("@/components/AppearanceModal").then((m) => ({ default: m.AppearanceModal })));
+const UsageModal = lazy(() => import("@/components/UsageModal").then((m) => ({ default: m.UsageModal })));
+const ConnectionsModal = lazy(() => import("@/components/ConnectionsModal").then((m) => ({ default: m.ConnectionsModal })));
+const HelpModal = lazy(() => import("@/components/HelpModal").then((m) => ({ default: m.HelpModal })));
+const McpServersModal = lazy(() => import("@/components/McpServersModal").then((m) => ({ default: m.McpServersModal })));
+const ClisModal = lazy(() => import("@/components/ClisModal").then((m) => ({ default: m.ClisModal })));
+const CompressorsModal = lazy(() => import("@/components/CompressorsModal").then((m) => ({ default: m.CompressorsModal })));
+const ReviewModal = lazy(() => import("@/components/ReviewModal").then((m) => ({ default: m.ReviewModal })));
+const LlmConfigModal = lazy(() => import("@/components/LlmConfigModal").then((m) => ({ default: m.LlmConfigModal })));
+const GitReposModal = lazy(() => import("@/components/GitReposModal").then((m) => ({ default: m.GitReposModal })));
+const ReviewPolicyModal = lazy(() => import("@/components/ReviewPolicyModal").then((m) => ({ default: m.ReviewPolicyModal })));
+const ReviewSettingsModal = lazy(() => import("@/components/ReviewSettingsModal").then((m) => ({ default: m.ReviewSettingsModal })));
 import { loadPolicy } from "@/lib/review-policy";
 import { loadDefaultCompressor } from "@/lib/compress-client";
 import { loadLlmConfig } from "@/lib/llm-client";
@@ -368,10 +371,21 @@ export function Sidebar() {
   const [todayCost, setTodayCost] = useState<number | null>(null);
   useEffect(() => {
     let live = true;
-    usageScan(0)
-      .then((r) => { if (live) setTodayCost(r.total.costUsd); })
-      .catch(() => {});
-    return () => { live = false; };
+    const run = () =>
+      usageScan(0)
+        .then((r) => { if (live) setTodayCost(r.total.costUsd); })
+        .catch(() => {});
+    // Deferido pra ocioso: a varredura do disco não disputa com o primeiro paint.
+    // typeof guard porque o WebKitGTK pode não ter requestIdleCallback em runtime.
+    const id =
+      typeof window.requestIdleCallback === "function"
+        ? window.requestIdleCallback(run, { timeout: 2000 })
+        : window.setTimeout(run, 800);
+    return () => {
+      live = false;
+      if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(id);
+      else clearTimeout(id);
+    };
   }, [showUsage]);
 
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
@@ -1831,6 +1845,7 @@ export function Sidebar() {
         <div className="opacity-70 mt-0.5">v0.1.0 · {tr("sidebar.localBuild", "build local")}</div>
       </footer>
 
+      <Suspense fallback={null}>
       {editingRole && (
         <RoleEditModal
           key={editingRole.id}
@@ -1904,7 +1919,8 @@ export function Sidebar() {
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
       {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
       {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}
-      {showUsage && <UsageModal onClose={() => setShowUsage(false)} />}
+      {showUsage && <UsageModal onClose={() => setShowUsage(false)} activeProject={currentCwd} />}
+      </Suspense>
     </aside>
   );
 }
