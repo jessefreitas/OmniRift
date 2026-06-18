@@ -12,7 +12,6 @@ import {
   loadRoutines,
   saveRoutines,
   runRoutine,
-  scheduleLabel,
   ROUTINE_TEMPLATES,
   ROUTINE_CATEGORIES,
   type Routine,
@@ -29,6 +28,14 @@ interface Props {
 
 export function RoutinesModal({ onClose, cwd }: Props) {
   const t = useT();
+
+  // Versão localizada do scheduleLabel da lib (que devolve PT fixo). Reconstrói
+  // o mesmo formato usando as chaves i18n — não toca na lib (fonte PT/fallback).
+  function localScheduleLabel(s: { intervalMin?: number | null; atTime?: string | null }): string {
+    if (s.atTime) return `${t("routines.at", "às")} ${s.atTime}`;
+    if (s.intervalMin) return `${t("routines.every", "a cada")} ${s.intervalMin} ${t("routines.min", "min")}`;
+    return t("routines.manual", "manual");
+  }
   const [routines, setRoutines] = useState<Routine[]>(() => loadRoutines());
   const [showTemplates, setShowTemplates] = useState(false);
   const [installed, setInstalled] = useState<Set<string>>(new Set());
@@ -131,18 +138,18 @@ export function RoutinesModal({ onClose, cwd }: Props) {
               </div>
               {ROUTINE_CATEGORIES.map((cat) => (
                 <div key={cat} className="space-y-1">
-                  <div className="text-[9px] uppercase tracking-wider text-textMuted opacity-60">{cat}</div>
+                  <div className="text-[9px] uppercase tracking-wider text-textMuted opacity-60">{t("routineCat." + cat, cat)}</div>
                   <div className="grid grid-cols-2 gap-1.5">
-                    {ROUTINE_TEMPLATES.filter((t) => t.category === cat).map((t) => (
+                    {ROUTINE_TEMPLATES.filter((tpl) => tpl.category === cat).map((tpl) => (
                       <button
-                        key={t.name}
-                        onClick={() => addFromTemplate(t)}
-                        title={t.command}
+                        key={tpl.name}
+                        onClick={() => addFromTemplate(tpl)}
+                        title={tpl.command}
                         className="text-left rounded border border-border bg-bg/60 hover:border-brand hover:bg-surface2 px-2 py-1.5 transition-colors"
                       >
-                        <div className="text-[11px] text-text font-medium truncate">{t.name}</div>
-                        <div className="text-[10px] text-textMuted opacity-70 truncate">{t.desc}</div>
-                        <div className="text-[9px] text-brand mt-0.5">{scheduleLabel(t)}</div>
+                        <div className="text-[11px] text-text font-medium truncate">{t("routineTpl." + tpl.name, tpl.name)}</div>
+                        <div className="text-[10px] text-textMuted opacity-70 truncate">{t("routineTplDesc." + tpl.name, tpl.desc)}</div>
+                        <div className="text-[9px] text-brand mt-0.5">{localScheduleLabel(tpl)}</div>
                       </button>
                     ))}
                   </div>
@@ -218,7 +225,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                       className="px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
                     />
                   </label>
-                  <span className="ml-auto text-[10px] text-brand opacity-80">{scheduleLabel(r)}</span>
+                  <span className="ml-auto text-[10px] text-brand opacity-80">{localScheduleLabel(r)}</span>
                 </div>
               </div>
             ))

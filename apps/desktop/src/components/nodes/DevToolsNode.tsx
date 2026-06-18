@@ -63,8 +63,8 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
           onPointerDown={(e) => e.stopPropagation()}
           className="flex-1 min-w-0 px-1 py-1 rounded text-[11px] font-medium bg-bg border border-border text-text focus:outline-none focus:border-brand"
         >
-          {DEV_TOOLS.map((t) => (
-            <option key={t.id} value={t.id}>{t.label}</option>
+          {DEV_TOOLS.map((dt) => (
+            <option key={dt.id} value={dt.id}>{t("devtool." + dt.id, dt.label)}</option>
           ))}
         </select>
         <button
@@ -85,7 +85,7 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
           e.stopPropagation();
         }}
         onPointerDown={(e) => e.stopPropagation()}
-        placeholder={tool.hint}
+        placeholder={t("devtoolHint." + tool.id, tool.hint)}
         className="nodrag h-24 shrink-0 px-2 py-1.5 text-[11px] bg-bg border-b border-border text-text resize-none focus:outline-none font-mono placeholder:text-textMuted"
       />
 

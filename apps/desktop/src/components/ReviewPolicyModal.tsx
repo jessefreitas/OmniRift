@@ -125,7 +125,7 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }:
               </div>
               {p.categories.map((c, i) => (
                 <div key={i} className="grid grid-cols-[1fr_70px_60px_60px_28px] gap-2 items-center">
-                  <input value={c.label} onChange={(e) => patchCat(i, { label: e.target.value })} className={inp} />
+                  <input value={t("reviewCategory." + c.key, c.label)} onChange={(e) => patchCat(i, { label: e.target.value })} className={inp} />
                   <input value={c.key} onChange={(e) => patchCat(i, { key: e.target.value })} className={`${inp} font-mono`} />
                   <input type="number" value={c.weight} onChange={(e) => patchCat(i, { weight: Number(e.target.value) })} className={inp} />
                   <input type="checkbox" checked={c.blocking} onChange={(e) => patchCat(i, { blocking: e.target.checked })} className="justify-self-center" />

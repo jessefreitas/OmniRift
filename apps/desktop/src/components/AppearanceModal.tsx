@@ -81,7 +81,7 @@ export function AppearanceModal({ onClose }: { onClose: () => void }) {
             <div className="flex flex-wrap gap-1.5">
               {PRESETS.map((p) => (
                 <button key={p.name} onClick={() => apply(p.theme)} className="px-2.5 py-1 rounded border border-border text-[11px] text-textMuted hover:text-brand hover:border-brand">
-                  {p.name}
+                  {tr("themePreset." + p.name, p.name)}
                 </button>
               ))}
             </div>
@@ -92,7 +92,7 @@ export function AppearanceModal({ onClose }: { onClose: () => void }) {
             <div className="text-[11px] uppercase tracking-wider text-textMuted mb-1">{tr("appearance.accent")}</div>
             <div className="flex items-center gap-1.5 flex-wrap">
               {ACCENTS.map((a) => (
-                <button key={a.name} title={a.name} onClick={() => apply({ ...theme, colors: { ...theme.colors, brand: a.brand, "brand-hover": a.hover } })}
+                <button key={a.name} title={tr("accent." + a.name, a.name)} onClick={() => apply({ ...theme, colors: { ...theme.colors, brand: a.brand, "brand-hover": a.hover } })}
                   className="w-6 h-6 rounded-full border border-border" style={{ background: `rgb(${a.brand})` }} />
               ))}
               <input type="color" value={channelsToHex(theme.colors.brand)}
