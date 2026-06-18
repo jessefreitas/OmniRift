@@ -820,7 +820,7 @@ export const en: Record<string, string> = {
   "usage.cache": "Cache (read+write)",
   "usage.calls": "Calls",
   "usage.estCost": "Estimated cost",
-  "usage.footer": "Real data from Claude Code sessions (~/.claude/projects) — {n} sessions. Cost is an estimate (per-model prices).",
+  "usage.footer": "Real data from Claude Code + Codex sessions — {n} sessions. Cost is an estimate (per-model prices). Gemini is excluded (doesn't log tokens).",
   "usage.grandTotal": "Grand total",
   "usage.input": "Input",
   "usage.output": "Output",

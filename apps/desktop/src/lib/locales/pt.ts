@@ -820,7 +820,7 @@ export const pt: Record<string, string> = {
   "usage.cache": "Cache (read+write)",
   "usage.calls": "Chamadas",
   "usage.estCost": "Custo estimado",
-  "usage.footer": "Dados reais das sessões do Claude Code (~/.claude/projects) — {n} sessões. Custo é estimativa (preços por modelo).",
+  "usage.footer": "Dados reais das sessões do Claude Code + Codex — {n} sessões. Custo é estimativa (preços por modelo). Gemini fica de fora (não loga token).",
   "usage.grandTotal": "Total geral",
   "usage.input": "Entrada",
   "usage.output": "Saída",
