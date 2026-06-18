@@ -168,7 +168,7 @@ export function ClisModal({ onClose }: ClisModalProps) {
                       )}
                     </div>
                     <p className="text-[10px] text-textMuted opacity-70 leading-snug mt-0.5 line-clamp-2">
-                      {cli.description}
+                      {t("cliDesc." + cli.id, cli.description)}
                     </p>
                   </div>
 
