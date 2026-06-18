@@ -97,6 +97,7 @@ import type { Floor } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { useReorderable } from "@/hooks/useReorderable";
 import type { AgentRole } from "@/types/pty";
 
@@ -259,6 +260,7 @@ const MCP_ADD_CMD = `/mcp add --transport sse omnirift-agents ${MCP_SSE_URL}`;
 
 export function Sidebar() {
   const addTerminal = useCanvasStore((s) => s.addTerminal);
+  const tr = useT();
   const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
   const setCurrentCwd = useCanvasStore((s) => s.setCurrentCwd);
@@ -1094,7 +1096,7 @@ export function Sidebar() {
                   secReorder.overId === sid && "border-t-2 border-brand",
                 )}
               >
-                <GripVertical size={11} className="opacity-50 shrink-0" /> {def.label}
+                <GripVertical size={11} className="opacity-50 shrink-0" /> {tr("section." + (def.id === "floors" ? "parallels" : def.id), def.label)}
               </div>
             );
           })}
@@ -1106,7 +1108,7 @@ export function Sidebar() {
       <div className="px-2 py-2 border-b border-border" style={secStyle("floors")}>
         <div className="flex items-center justify-between px-2 mb-1">
           <div className="flex items-center gap-1.5">
-            <p className="text-[11px] uppercase tracking-wider text-textMuted">Paralelos</p>
+            <p className="text-[11px] uppercase tracking-wider text-textMuted">{tr("section.parallels")}</p>
             <Tooltip
               label={`Paralelos = branches git (worktree): objetos compartilhados (~zero disco), git-native, cross-platform.${cow ? ` FS ${cow.fs}${cow.reflink ? " · CoW/instantâneo ⚡" : ""}` : ""}`}
               side="bottom"
@@ -1254,7 +1256,7 @@ export function Sidebar() {
 
       {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
       <div className="px-2 py-2 border-b border-border" style={secStyle("tools")}>
-        <div className="px-2 mb-1">{sectionTitle("tools", "Ferramentas")}</div>
+        <div className="px-2 mb-1">{sectionTitle("tools", tr("section.tools"))}</div>
         {isOpen("tools") && (
           <div className="space-y-0.5">
             {tools.order.map((id) => {
@@ -1285,7 +1287,7 @@ export function Sidebar() {
       {/* Workspace */}
       <div className="px-2 py-2 border-b border-border space-y-1" style={secStyle("workspace")}>
         <p className="px-2 text-[11px] uppercase tracking-wider text-textMuted mb-1">
-          Workspace
+          {tr("section.workspace")}
         </p>
         <input
           ref={nameRef}
@@ -1325,7 +1327,7 @@ export function Sidebar() {
       {/* Seletor de pasta do projeto */}
       <div className="px-2 py-2 border-b border-border" style={secStyle("project")}>
         <p className="px-2 text-[11px] uppercase tracking-wider text-textMuted mb-1">
-          Projeto
+          {tr("section.project")}
         </p>
         <div
           role="button"
@@ -1398,7 +1400,7 @@ export function Sidebar() {
         className="px-2 py-3 space-y-1 shrink-0"
       >
         <div className="px-2 mb-1 sticky -top-3 z-10 bg-surface1 pt-3 pb-1 flex items-center justify-between">
-          {sectionTitle("agents", "Novo agente")}
+          {sectionTitle("agents", tr("section.agents"))}
           {isOpen("agents") && (
             <Tooltip label="Adicionar um CLI personalizado" side="bottom">
               <button
@@ -1547,7 +1549,7 @@ export function Sidebar() {
       {/* Roles — personas de agente (--append-system-prompt) */}
       <div className="px-2 py-2 border-t border-border" style={secStyle("roles")}>
         <div className="flex items-center justify-between px-2 mb-1.5">
-          {sectionTitle("roles", "Roles")}
+          {sectionTitle("roles", tr("section.roles"))}
           <div className="flex items-center gap-0.5">
             {currentCwd && (
               <Tooltip label="Descobrir roles do projeto (.claude/agents)" side="bottom">
@@ -1626,7 +1628,7 @@ export function Sidebar() {
       {/* MCP Agents */}
       <div className="px-2 py-2 border-t border-border" style={secStyle("mcp")}>
         <div className="flex items-center justify-between px-2 mb-1.5 gap-2">
-          {sectionTitle("mcp", "MCP Agents")}
+          {sectionTitle("mcp", tr("section.mcp"))}
           <div className="flex items-center gap-2 shrink-0">
             <Tooltip label="Teto de agentes simultâneos do Orquestrador (ele pergunta antes de abrir; o resto roda em ondas)" side="bottom">
               <label className="flex items-center gap-1 text-[10px] text-textMuted">
@@ -1764,7 +1766,7 @@ export function Sidebar() {
       {/* Specs — ciclo de vida + dispatch (Fase C) */}
       <div className="px-2 py-2 border-t border-border" style={secStyle("specs")}>
         <div className="px-2 mb-1.5 flex items-center gap-1">
-          <div className="flex-1">{sectionTitle("specs", "Specs")}</div>
+          <div className="flex-1">{sectionTitle("specs", tr("section.specs"))}</div>
           <button onClick={() => void newDoc("spec")} disabled={!currentCwd} title="Nova spec (design)" className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FileText size={12} /></button>
           <button onClick={() => void newDoc("plan")} disabled={!currentCwd} title="Novo plano (tasks)" className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FilePlus size={12} /></button>
           <button onClick={() => void importSpecRoot()} title="Adicionar pasta de specs/planos" className="text-textMuted hover:text-brand p-0.5"><FolderPlus size={12} /></button>
