@@ -16,8 +16,10 @@ import {
 } from "@/lib/editor-client";
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 export function EditorOpenButton({ path, line }: { path: string; line?: number }) {
+  const t = useT();
   const [editors, setEditors] = useState<EditorInfo[]>([]);
   const [pref, setPref] = useState<string | null>(() => loadPreferredEditor());
   const [open, setOpen] = useState(false);
@@ -44,12 +46,12 @@ export function EditorOpenButton({ path, line }: { path: string; line?: number }
     <div className="px-2 mt-1 flex items-center gap-1 text-[10px] relative">
       <button
         onClick={() => chosen && run(chosen)}
-        title={`Abrir no ${chosen?.label}`}
+        title={`${t("editorOpen.openIn", "Abrir no")} ${chosen?.label}`}
         className="flex items-center gap-1 text-textMuted hover:text-brand transition-colors"
       >
-        <Code2 size={11} /> Abrir no {chosen?.label ?? "editor"}
+        <Code2 size={11} /> {t("editorOpen.openIn", "Abrir no")} {chosen?.label ?? t("editorOpen.editor", "editor")}
       </button>
-      <button onClick={() => setOpen((o) => !o)} title="Escolher editor" className="text-textMuted hover:text-brand">
+      <button onClick={() => setOpen((o) => !o)} title={t("editorOpen.chooseEditor", "Escolher editor")} className="text-textMuted hover:text-brand">
         <ChevronDown size={10} />
       </button>
       {open && (
@@ -66,7 +68,7 @@ export function EditorOpenButton({ path, line }: { path: string; line?: number }
                 )}
               >
                 {e.label}
-                {e.terminal && <span className="text-textMuted opacity-60"> · terminal</span>}
+                {e.terminal && <span className="text-textMuted opacity-60"> · {t("editorOpen.terminal", "terminal")}</span>}
               </button>
             ))}
           </div>

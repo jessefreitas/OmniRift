@@ -7,6 +7,7 @@ import { Download, Maximize2, Minimize2, Pencil, X } from "lucide-react";
 import { useCanvasStore } from "@/store/canvas-store";
 import { NodeHelp } from "@/components/NodeHelp";
 import { TLDRAW_ASSET_URLS } from "@/lib/tldraw-assets";
+import { useT } from "@/lib/i18n";
 import type { SketchNode as SketchNodeData } from "@/types/canvas";
 
 import "tldraw/tldraw.css";
@@ -14,6 +15,7 @@ import "tldraw/tldraw.css";
 type SketchRfNode = Node<SketchNodeData & Record<string, unknown>, "sketch">;
 
 export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
+  const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const saveTimer = useRef<number>(0);
@@ -90,20 +92,20 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
         <NodeResizer isVisible={selected} minWidth={280} minHeight={220} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
         <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
           <Pencil size={12} className="text-brand shrink-0" />
-          <span className="text-xs font-medium truncate flex-1">Sketch</span>
+          <span className="text-xs font-medium truncate flex-1">{t("sketch.title", "Sketch")}</span>
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); void exportPng(); }}
-            title="Exportar PNG"
+            title={t("sketch.exportPng", "Exportar PNG")}
             className="hover:text-text shrink-0"
           >
             <Download size={12} />
           </button>
-          <NodeHelp text="Sketch (tldraw): desenhe à mão livre. Tela cheia (⤢) dá área grande e ponteiro preciso; exportar (↓) salva um PNG. Arraste pelo título." />
+          <NodeHelp text={t("sketch.help", "Sketch (tldraw): desenhe à mão livre. Tela cheia (⤢) dá área grande e ponteiro preciso; exportar (↓) salva um PNG. Arraste pelo título.")} />
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); setIsFullscreen(true); }}
-            title="Tela cheia (desenhar grande, ponteiro preciso)"
+            title={t("sketch.fullscreen", "Tela cheia (desenhar grande, ponteiro preciso)")}
             className="hover:text-text shrink-0"
           >
             <Maximize2 size={12} />
@@ -111,7 +113,7 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); removeNode(id); }}
-            title="Fechar"
+            title={t("sketch.close", "Fechar")}
             className="hover:text-danger shrink-0"
           >
             <X size={12} />
@@ -120,7 +122,7 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
         <div className="flex-1 relative bg-bg">
           {isFullscreen ? (
             <div className="absolute inset-0 flex items-center justify-center gap-1.5 text-textMuted text-xs">
-              <Maximize2 size={13} /> desenhando em tela cheia…
+              <Maximize2 size={13} /> {t("sketch.drawingFullscreen", "desenhando em tela cheia…")}
             </div>
           ) : (
             tldraw
@@ -133,18 +135,18 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
           <div className="fixed inset-0 z-[9999] bg-surface1 flex flex-col">
             <header className="flex items-center gap-2 px-4 py-2 bg-surface2 border-b border-border text-textMuted shrink-0">
               <Pencil size={14} className="text-brand" />
-              <span className="text-xs font-medium flex-1">Sketch — tela cheia</span>
-              <span className="text-[10px] opacity-50">ESC pra sair</span>
+              <span className="text-xs font-medium flex-1">{t("sketch.fullscreenTitle", "Sketch — tela cheia")}</span>
+              <span className="text-[10px] opacity-50">{t("sketch.escToExit", "ESC pra sair")}</span>
               <button
                 onClick={() => void exportPng()}
-                title="Exportar PNG"
+                title={t("sketch.exportPng", "Exportar PNG")}
                 className="p-1 rounded hover:bg-bg hover:text-text transition-colors"
               >
                 <Download size={14} />
               </button>
               <button
                 onClick={() => setIsFullscreen(false)}
-                title="Sair da tela cheia"
+                title={t("sketch.exitFullscreen", "Sair da tela cheia")}
                 className="p-1 rounded hover:bg-bg hover:text-text transition-colors"
               >
                 <Minimize2 size={14} />

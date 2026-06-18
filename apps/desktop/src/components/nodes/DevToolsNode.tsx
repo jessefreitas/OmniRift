@@ -4,6 +4,7 @@ import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Copy, Maximize2, Minimize2, Play, Wrench, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { useT } from "@/lib/i18n";
 import { NodeHelp } from "@/components/NodeHelp";
 import { DEV_TOOLS, findTool } from "@/lib/dev-tools";
 import type { DevToolsNode as DevToolsNodeData } from "@/types/canvas";
@@ -11,6 +12,7 @@ import type { DevToolsNode as DevToolsNodeData } from "@/types/canvas";
 type DevRfNode = Node<DevToolsNodeData & Record<string, unknown>, "devtools">;
 
 export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
+  const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [toolId, setToolId] = useState(data.tool || "b64enc");
@@ -44,11 +46,11 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <Wrench size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1">DevTools</span>
-        <NodeHelp text="Caixa de ferramentas: escolha o conversor (Base64, hash, JWT…) no seletor, cole a entrada e rode (▶). Copie o resultado no botão ⧉." />
-        <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? "Restaurar" : "Maximizar"} className="hover:text-brand shrink-0">
+        <NodeHelp text={t("devtools.help", "Caixa de ferramentas: escolha o conversor (Base64, hash, JWT…) no seletor, cole a entrada e rode (▶). Copie o resultado no botão ⧉.")} />
+        <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? t("common.restore", "Restaurar") : t("common.maximize", "Maximizar")} className="hover:text-brand shrink-0">
           {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
         </button>
-        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title={t("common.close", "Fechar")} className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
       </header>
@@ -67,10 +69,10 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
         </select>
         <button
           onClick={() => void run()}
-          title="Rodar"
+          title={t("devtools.run", "Rodar")}
           className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover transition-colors"
         >
-          <Play size={11} /> Run
+          <Play size={11} /> {t("devtools.runLabel", "Run")}
         </button>
       </div>
 
@@ -92,10 +94,10 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
         {output && (
           <button
             onClick={copy}
-            title="Copiar"
+            title={t("devtools.copy", "Copiar")}
             className="absolute top-1 right-1 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-surface2 text-textMuted hover:text-brand border border-border"
           >
-            <Copy size={10} /> {copied ? "copiado" : "copiar"}
+            <Copy size={10} /> {copied ? t("devtools.copied", "copiado") : t("devtools.copyLabel", "copiar")}
           </button>
         )}
         {error ? (
@@ -104,7 +106,7 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
           <pre className="px-2 py-1.5 text-[11px] text-text whitespace-pre-wrap break-all font-mono">{output}</pre>
         ) : (
           <p className="px-2 py-2 text-[10px] text-textMuted opacity-50">
-            Saída aparece aqui. Ctrl+Enter ou Run pra converter.
+            {t("devtools.emptyHint", "Saída aparece aqui. Ctrl+Enter ou Run pra converter.")}
           </p>
         )}
       </div>

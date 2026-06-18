@@ -10,6 +10,7 @@ import { Bookmark, ExternalLink, Trash2, X } from "lucide-react";
 import { remindersList, reminderSetDone, reminderDelete, type Reminder } from "@/lib/reminder-client";
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 interface Props {
   onClose: () => void;
@@ -21,6 +22,7 @@ function fmt(s: string): string {
 }
 
 export function RemindersModal({ onClose }: Props) {
+  const t = useT();
   const [items, setItems] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,8 +63,8 @@ export function RemindersModal({ onClose }: Props) {
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <Bookmark size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text flex-1">Lembretes</span>
-          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar">
+          <span className="text-sm font-medium text-text flex-1">{t("reminders.title", "Lembretes")}</span>
+          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("common.close", "Fechar")}>
             <X size={16} />
           </button>
         </header>
@@ -73,8 +75,8 @@ export function RemindersModal({ onClose }: Props) {
           ) : items.length === 0 ? (
             <p className="px-4 py-3 text-[12px] text-textMuted opacity-60">
               {loading
-                ? "Carregando…"
-                : "Nenhum lembrete. Numa nota do canvas, clique no 📌 pra salvar aqui."}
+                ? t("common.loading", "Carregando…")
+                : t("reminders.empty", "Nenhum lembrete. Numa nota do canvas, clique no 📌 pra salvar aqui.")}
             </p>
           ) : (
             items.map((r) => (
@@ -83,7 +85,7 @@ export function RemindersModal({ onClose }: Props) {
                   type="checkbox"
                   checked={r.done}
                   onChange={() => void toggle(r)}
-                  title={r.done ? "Reabrir" : "Marcar como feito"}
+                  title={r.done ? t("reminders.reopen", "Reabrir") : t("reminders.markDone", "Marcar como feito")}
                   className="mt-0.5 accent-brand shrink-0"
                 />
                 <div className="min-w-0 flex-1">
@@ -98,15 +100,15 @@ export function RemindersModal({ onClose }: Props) {
                 {r.floorId && (
                   <button
                     onClick={() => openOnCanvas(r)}
-                    title="Abrir a nota no canvas"
+                    title={t("reminders.openNoteTitle", "Abrir a nota no canvas")}
                     className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 rounded text-[11px] text-textMuted hover:text-brand border border-border hover:border-brand transition-colors shrink-0"
                   >
-                    <ExternalLink size={12} /> Abrir
+                    <ExternalLink size={12} /> {t("common.open", "Abrir")}
                   </button>
                 )}
                 <button
                   onClick={() => void del(r.id)}
-                  title="Excluir lembrete"
+                  title={t("reminders.deleteTitle", "Excluir lembrete")}
                   className="opacity-0 group-hover:opacity-100 text-textMuted hover:text-danger p-1 shrink-0"
                 >
                   <Trash2 size={13} />

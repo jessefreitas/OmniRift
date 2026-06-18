@@ -19,6 +19,7 @@ import {
   openHomepage,
 } from "@/lib/clis-client";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 interface ClisModalProps {
   onClose: () => void;
@@ -30,6 +31,7 @@ const tierLabels: Record<"official" | "community", string> = {
 };
 
 export function ClisModal({ onClose }: ClisModalProps) {
+  const t = useT();
   const [clis, setClis] = useState<CliInfo[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +72,7 @@ export function ClisModal({ onClose }: ClisModalProps) {
   };
 
   const handleUninstall = async (cli: CliInfo) => {
-    if (!window.confirm(`Remover ${cli.label} do sistema?`)) return;
+    if (!window.confirm(`${t("clis.removeConfirmPrefix", "Remover")} ${cli.label} ${t("clis.removeConfirmSuffix", "do sistema?")}`)) return;
 
     setError(null);
     setInstallingId(cli.id);
@@ -100,7 +102,7 @@ export function ClisModal({ onClose }: ClisModalProps) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
             <Download size={15} className="text-brand shrink-0" />
-            <h2 className="text-sm font-medium text-text">CLIs de agentes</h2>
+            <h2 className="text-sm font-medium text-text">{t("clis.title", "CLIs de agentes")}</h2>
           </div>
 
           <div className="flex items-center gap-1">
@@ -115,14 +117,14 @@ export function ClisModal({ onClose }: ClisModalProps) {
               )}
             >
               <RefreshCw size={14} className={cn(loading && "animate-spin")} />
-              Atualizar
+              {t("clis.refresh", "Atualizar")}
             </button>
 
             <button
               type="button"
               onClick={onClose}
               className="p-1 rounded text-textMuted hover:text-danger hover:bg-surface2 transition-colors"
-              aria-label="Fechar"
+              aria-label={t("common.close", "Fechar")}
             >
               <X size={15} />
             </button>
@@ -137,10 +139,10 @@ export function ClisModal({ onClose }: ClisModalProps) {
           )}
 
           {loading && clis === null ? (
-            <div className="text-sm text-textMuted text-center py-8">Carregando…</div>
+            <div className="text-sm text-textMuted text-center py-8">{t("common.loading", "Carregando…")}</div>
           ) : clis === null || clis.length === 0 ? (
             <div className="text-sm text-textMuted text-center py-8">
-              Nenhuma CLI encontrada.
+              {t("clis.empty", "Nenhuma CLI encontrada.")}
             </div>
           ) : (
             clis.map((cli) => {
@@ -174,10 +176,10 @@ export function ClisModal({ onClose }: ClisModalProps) {
                     {cli.installed ? (
                       <div className="flex items-center gap-1.5 text-[10px] text-brand bg-brand/10 px-2 py-0.5 rounded-full border border-brand/20">
                         <CheckCircle2 size={11} />
-                        <span>instalado</span>
+                        <span>{t("clis.installed", "instalado")}</span>
                       </div>
                     ) : (
-                      <span className="text-[10px] text-textMuted">não instalado</span>
+                      <span className="text-[10px] text-textMuted">{t("clis.notInstalled", "não instalado")}</span>
                     )}
 
                     {cli.installed && cli.version && (
@@ -197,8 +199,8 @@ export function ClisModal({ onClose }: ClisModalProps) {
                         type="button"
                         onClick={() => openHomepage(cli.homepage)}
                         className="p-1 rounded text-textMuted hover:text-brand hover:bg-surface2 transition-colors"
-                        aria-label="Abrir site oficial"
-                        title="Abrir site oficial"
+                        aria-label={t("clis.openHomepage", "Abrir site oficial")}
+                        title={t("clis.openHomepage", "Abrir site oficial")}
                       >
                         <ExternalLink size={13} />
                       </button>
@@ -214,7 +216,7 @@ export function ClisModal({ onClose }: ClisModalProps) {
                           )}
                         >
                           <Trash2 size={12} />
-                          Remover
+                          {t("common.remove", "Remover")}
                         </button>
                       ) : (
                         <button
@@ -227,7 +229,7 @@ export function ClisModal({ onClose }: ClisModalProps) {
                           )}
                         >
                           <Download size={12} />
-                          Instalar
+                          {t("common.install", "Instalar")}
                         </button>
                       )}
                     </div>
@@ -239,8 +241,7 @@ export function ClisModal({ onClose }: ClisModalProps) {
         </div>
 
         <div className="px-4 py-2 border-t border-border text-[10px] text-textMuted opacity-60 shrink-0">
-          CLIs oficiais e da comunidade, instalados via npm/pipx/curl. Sem telemetria — a
-          instalação roda localmente.
+          {t("clis.footer", "CLIs oficiais e da comunidade, instalados via npm/pipx/curl. Sem telemetria — a instalação roda localmente.")}
         </div>
       </div>
     </div>,

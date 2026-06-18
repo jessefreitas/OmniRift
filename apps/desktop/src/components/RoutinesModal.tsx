@@ -19,6 +19,7 @@ import {
   type RoutineTemplate,
 } from "@/lib/routines";
 import { osSlug, schedulerInstall, schedulerUninstall, schedulerList } from "@/lib/scheduler-client";
+import { useT } from "@/lib/i18n";
 
 interface Props {
   onClose: () => void;
@@ -27,6 +28,7 @@ interface Props {
 }
 
 export function RoutinesModal({ onClose, cwd }: Props) {
+  const t = useT();
   const [routines, setRoutines] = useState<Routine[]>(() => loadRoutines());
   const [showTemplates, setShowTemplates] = useState(false);
   const [installed, setInstalled] = useState<Set<string>>(new Set());
@@ -40,7 +42,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
   function add() {
     persist([
       ...routines,
-      { id: nanoid(), name: "Nova routine", command: "", intervalMin: null, atTime: null, enabled: false },
+      { id: nanoid(), name: t("routines.newRoutineName", "Nova routine"), command: "", intervalMin: null, atTime: null, enabled: false },
     ]);
   }
 
@@ -79,9 +81,9 @@ export function RoutinesModal({ onClose, cwd }: Props) {
       if (installed.has(slug)) {
         await schedulerUninstall(r.name);
       } else {
-        if (!cwd) { setSchedErr("Abra um projeto (pasta) antes de agendar no SO."); return; }
-        if (!r.atTime && !r.intervalMin) { setSchedErr("Defina horário (às HH:MM) ou intervalo antes de agendar no SO."); return; }
-        if (!r.command.trim()) { setSchedErr("A routine precisa de um comando."); return; }
+        if (!cwd) { setSchedErr(t("routines.errNoProject", "Abra um projeto (pasta) antes de agendar no SO.")); return; }
+        if (!r.atTime && !r.intervalMin) { setSchedErr(t("routines.errNoSchedule", "Defina horário (às HH:MM) ou intervalo antes de agendar no SO.")); return; }
+        if (!r.command.trim()) { setSchedErr(t("routines.errNoCommand", "A routine precisa de um comando.")); return; }
         await schedulerInstall(r.name, r.command, cwd, r.atTime, r.intervalMin);
       }
       await reloadInstalled();
@@ -103,15 +105,15 @@ export function RoutinesModal({ onClose, cwd }: Props) {
             onClick={() => setShowTemplates((s) => !s)}
             className={`flex items-center gap-1 px-2.5 py-1 rounded text-[12px] border transition-colors ${showTemplates ? "border-brand text-brand bg-brand/10" : "border-border text-textMuted hover:text-text"}`}
           >
-            <LayoutTemplate size={13} /> Modelos
+            <LayoutTemplate size={13} /> {t("routines.templates", "Modelos")}
           </button>
           <button
             onClick={add}
             className="flex items-center gap-1 px-2.5 py-1 rounded text-[12px] bg-brand text-bg hover:bg-brand-hover transition-colors"
           >
-            <Plus size={13} /> Nova
+            <Plus size={13} /> {t("routines.new", "Nova")}
           </button>
-          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar">
+          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("common.close", "Fechar")}>
             <X size={16} />
           </button>
         </header>
@@ -124,8 +126,8 @@ export function RoutinesModal({ onClose, cwd }: Props) {
           {showTemplates && (
             <div className="rounded-md border border-brand/40 bg-brand/5 p-2.5 space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-[12px] font-medium text-text">Modelos prontos</span>
-                <span className="text-[10px] text-textMuted opacity-60">clique pra adicionar — entra desativada</span>
+                <span className="text-[12px] font-medium text-text">{t("routines.readyTemplates", "Modelos prontos")}</span>
+                <span className="text-[10px] text-textMuted opacity-60">{t("routines.clickToAdd", "clique pra adicionar — entra desativada")}</span>
               </div>
               {ROUTINE_CATEGORIES.map((cat) => (
                 <div key={cat} className="space-y-1">
@@ -150,7 +152,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
           )}
           {routines.length === 0 && !showTemplates ? (
             <p className="px-1 py-3 text-[12px] text-textMuted opacity-60">
-              Sem routines. Crie uma ação (comando shell) com trigger manual ou por intervalo.
+              {t("routines.empty", "Sem routines. Crie uma ação (comando shell) com trigger manual ou por intervalo.")}
             </p>
           ) : (
             routines.map((r) => (
@@ -164,26 +166,26 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                   <button
                     onClick={() => runRoutine(r)}
                     disabled={!r.command.trim()}
-                    title="Rodar agora"
+                    title={t("routines.runNow", "Rodar agora")}
                     className="flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40"
                   >
-                    <Play size={11} /> Rodar
+                    <Play size={11} /> {t("routines.run", "Rodar")}
                   </button>
                   <button
                     onClick={() => void toggleOsSchedule(r)}
-                    title={installed.has(osSlug(r.name)) ? "Agendado no SO (clique p/ remover)" : "Agendar no SO — roda com o app fechado"}
+                    title={installed.has(osSlug(r.name)) ? t("routines.scheduledOs", "Agendado no SO (clique p/ remover)") : t("routines.scheduleOs", "Agendar no SO — roda com o app fechado")}
                     className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${installed.has(osSlug(r.name)) ? "border-brand text-brand bg-brand/10" : "bg-surface2 text-text hover:text-brand border-border"}`}
                   >
-                    <CalendarClock size={11} /> {installed.has(osSlug(r.name)) ? "no SO ✓" : "SO"}
+                    <CalendarClock size={11} /> {installed.has(osSlug(r.name)) ? t("routines.onOs", "no SO ✓") : t("routines.os", "SO")}
                   </button>
-                  <button onClick={() => del(r.id)} title="Apagar" className="text-textMuted hover:text-danger p-1">
+                  <button onClick={() => del(r.id)} title={t("common.delete", "Apagar")} className="text-textMuted hover:text-danger p-1">
                     <Trash2 size={13} />
                   </button>
                 </div>
                 <input
                   value={r.command}
                   onChange={(e) => patch(r.id, { command: e.target.value })}
-                  placeholder="comando shell (ex: git fetch --all)"
+                  placeholder={t("routines.commandPh", "comando shell (ex: git fetch --all)")}
                   className="w-full px-2 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand font-mono"
                 />
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-textMuted">
@@ -193,10 +195,10 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                       checked={r.enabled}
                       onChange={(e) => patch(r.id, { enabled: e.target.checked })}
                     />
-                    ativa
+                    {t("routines.enabled", "ativa")}
                   </label>
                   <label className="flex items-center gap-1.5">
-                    a cada
+                    {t("routines.every", "a cada")}
                     <input
                       type="number"
                       min={0}
@@ -205,10 +207,10 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                       placeholder="—"
                       className="w-14 px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
                     />
-                    min
+                    {t("routines.min", "min")}
                   </label>
                   <label className="flex items-center gap-1.5">
-                    <Clock size={11} className="opacity-70" /> às
+                    <Clock size={11} className="opacity-70" /> {t("routines.at", "às")}
                     <input
                       type="time"
                       value={r.atTime ?? ""}
@@ -223,7 +225,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
           )}
         </div>
         <footer className="px-4 py-2 border-t border-border text-[10px] text-textMuted opacity-60 shrink-0">
-          Routines ativas rodam em background enquanto o app está aberto. <b>Agendar no SO</b> (🗓) cria um timer do sistema (systemd/Task Scheduler) que roda o comando mesmo com o app fechado.
+          {t("routines.footer1", "Routines ativas rodam em background enquanto o app está aberto.")} <b>{t("routines.footerScheduleOs", "Agendar no SO")}</b> {t("routines.footer2", "(🗓) cria um timer do sistema (systemd/Task Scheduler) que roda o comando mesmo com o app fechado.")}
         </footer>
       </div>
     </div>,

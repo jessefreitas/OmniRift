@@ -15,6 +15,7 @@ import {
 import { useCanvasStore } from "@/store/canvas-store";
 import { useNodeMaximize } from "@/hooks/useNodeMaximize";
 import { NodeHelp } from "@/components/NodeHelp";
+import { useT } from "@/lib/i18n";
 import { isMarkdown, isHtml } from "@/lib/preview-client";
 import { listDir, type DirEntry } from "@/lib/fs-client";
 import type { FileTreeNode as FileTreeNodeData } from "@/types/canvas";
@@ -25,6 +26,7 @@ const isVisible = (showHidden: boolean) => (e: DirEntry) => showHidden || !e.nam
 
 /** Item recursivo: pasta expande sob demanda (lazy) e cacheia os filhos. */
 function TreeItem({ entry, depth, showHidden }: { entry: DirEntry; depth: number; showHidden: boolean }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [children, setChildren] = useState<DirEntry[] | null>(null);
   const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
@@ -48,7 +50,7 @@ function TreeItem({ entry, depth, showHidden }: { entry: DirEntry; depth: number
             addPreviewNode({ path: entry.path });
           }
         }}
-        title={previewable ? "Duplo-clique pra pré-visualizar" : undefined}
+        title={previewable ? t("fileTree.previewHint", "Duplo-clique pra pré-visualizar") : undefined}
         draggable
         onDragStart={(e) => {
           // Arrasta o caminho do arquivo/pasta — solta num terminal pra inserir.
@@ -81,6 +83,7 @@ function TreeItem({ entry, depth, showHidden }: { entry: DirEntry; depth: number
 }
 
 export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) {
+  const t = useT();
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [roots, setRoots] = useState<DirEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,9 +91,9 @@ export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) 
   const { maxBtn, frame } = useNodeMaximize();
 
   const load = useCallback(() => {
-    if (!data.rootPath) { setError("sem pasta — abra um projeto"); return; }
+    if (!data.rootPath) { setError(t("fileTree.noFolder", "sem pasta — abra um projeto")); return; }
     listDir(data.rootPath).then((r) => { setRoots(r); setError(null); }).catch((e) => setError(String(e)));
-  }, [data.rootPath]);
+  }, [data.rootPath, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -101,15 +104,15 @@ export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) 
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <Folder size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1" title={data.rootPath}>{rootName}</span>
-        <button onClick={(e) => { e.stopPropagation(); setShowHidden((h) => !h); }} title={showHidden ? "Esconder ocultos" : "Mostrar ocultos"} className="hover:text-text shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); setShowHidden((h) => !h); }} title={showHidden ? t("fileTree.hideHidden", "Esconder ocultos") : t("fileTree.showHidden", "Mostrar ocultos")} className="hover:text-text shrink-0">
           {showHidden ? <Eye size={11} /> : <EyeOff size={11} />}
         </button>
-        <button onClick={(e) => { e.stopPropagation(); load(); }} title="Recarregar" className="hover:text-text shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); load(); }} title={t("fileTree.reload", "Recarregar")} className="hover:text-text shrink-0">
           <RefreshCw size={11} />
         </button>
-        <NodeHelp text="Árvore de arquivos: clique numa pasta pra expandir. Arraste um arquivo pra dentro de um terminal e o caminho é inserido. Duplo-clique em .md/.html abre um preview. O olho mostra/esconde ocultos." />
+        <NodeHelp text={t("fileTree.help", "Árvore de arquivos: clique numa pasta pra expandir. Arraste um arquivo pra dentro de um terminal e o caminho é inserido. Duplo-clique em .md/.html abre um preview. O olho mostra/esconde ocultos.")} />
         {maxBtn}
-        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title={t("fileTree.close", "Fechar")} className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
       </header>
@@ -117,7 +120,7 @@ export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) 
         {error ? (
           <p className="px-2 text-[10px] text-danger">{error}</p>
         ) : roots === null ? (
-          <p className="px-2 text-[10px] text-textMuted opacity-60">carregando…</p>
+          <p className="px-2 text-[10px] text-textMuted opacity-60">{t("fileTree.loading", "carregando…")}</p>
         ) : (
           roots.filter(isVisible(showHidden)).map((e) => (
             <TreeItem key={e.path} entry={e} depth={0} showHidden={showHidden} />

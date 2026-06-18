@@ -12,6 +12,7 @@ import { Download, FileUp, Sparkles, X } from "lucide-react";
 import { ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 import { skillsList, skillsImportMd, skillsImportGithub, type SkillInfo } from "@/lib/skills-client";
 import { loadGitProviders } from "@/lib/git-providers";
+import { useT } from "@/lib/i18n";
 
 interface Props {
   role: AgentRoleDef;
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
+  const t = useT();
   const [name, setName] = useState(role.name);
   const [prompt, setPrompt] = useState(role.prompt);
   const [cli, setCli] = useState(role.cli ?? "claude");
@@ -45,7 +47,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
 
   // Importa um .md avulso → vira skill do projeto e já entra marcada.
   async function importMd() {
-    if (!cwd) { setImportMsg("abra um projeto primeiro"); return; }
+    if (!cwd) { setImportMsg(t("roleEdit.openProjectFirst", "abra um projeto primeiro")); return; }
     const sel = await openDialog({ multiple: false, filters: [{ name: "Skill (.md)", extensions: ["md"] }] });
     if (typeof sel !== "string") return;
     setImporting(true); setImportMsg(null);
@@ -60,8 +62,8 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
 
   // Importa todos os SKILL.md de um repo GitHub (público dispensa token).
   async function importGithub() {
-    if (!cwd) { setImportMsg("abra um projeto primeiro"); return; }
-    const url = window.prompt("URL do repo GitHub com SKILL.md (ex.: github.com/owner/repo):");
+    if (!cwd) { setImportMsg(t("roleEdit.openProjectFirst", "abra um projeto primeiro")); return; }
+    const url = window.prompt(t("roleEdit.githubRepoPrompt", "URL do repo GitHub com SKILL.md (ex.: github.com/owner/repo):"));
     if (!url?.trim()) return;
     setImporting(true); setImportMsg(null);
     try {
@@ -69,7 +71,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
       const infos = await skillsImportGithub(cwd, url.trim(), token);
       await loadSkills();
       setSkills((s) => [...new Set([...s, ...infos.map((i) => i.name)])]);
-      setImportMsg(`✓ + ${infos.length} skill(s) do GitHub`);
+      setImportMsg(`✓ + ${infos.length} ${t("roleEdit.skillsFromGithub", "skill(s) do GitHub")}`);
     } catch (e) { setImportMsg(`✗ ${String(e)}`); }
     finally { setImporting(false); }
   }
@@ -79,19 +81,19 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
       <div className="w-[560px] max-w-[92vw] max-h-[90vh] rounded-lg border border-border bg-surface1 shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <span className="text-sm font-medium text-text flex-1">
-            {role.builtin ? `Editar role · ${role.name}` : role.name ? "Editar role" : "Novo role"}
+            {role.builtin ? `${t("roleEdit.editRole", "Editar role")} · ${role.name}` : role.name ? t("roleEdit.editRole", "Editar role") : t("roleEdit.newRole", "Novo role")}
           </span>
-          <button onClick={onClose} className="text-textMuted hover:text-text" title="Fechar">
+          <button onClick={onClose} className="text-textMuted hover:text-text" title={t("common.close", "Fechar")}>
             <X size={16} />
           </button>
         </header>
         <div className="p-4 space-y-3 overflow-auto">
           <div>
-            <label className="text-[11px] uppercase tracking-wider text-textMuted">Nome</label>
+            <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("roleEdit.name", "Nome")}</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="ex: DevOps"
+              placeholder={t("roleEdit.namePlaceholder", "ex: DevOps")}
               className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text focus:outline-none focus:border-brand"
             />
           </div>
@@ -110,62 +112,62 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
             </select>
           </div>
           <div>
-            <label className="text-[11px] uppercase tracking-wider text-textMuted">Compressor de token</label>
+            <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("roleEdit.tokenCompressor", "Compressor de token")}</label>
             <select
               value={compressor}
               onChange={(e) => setCompressor(e.target.value)}
               className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text focus:outline-none focus:border-brand"
             >
-              <option value="none">Nenhum</option>
-              <option value="rtk">RTK · Rust Token Killer (saída de comando)</option>
-              <option value="headroom">Headroom (chamada ao LLM)</option>
+              <option value="none">{t("roleEdit.none", "Nenhum")}</option>
+              <option value="rtk">{t("roleEdit.rtkOption", "RTK · Rust Token Killer (saída de comando)")}</option>
+              <option value="headroom">{t("roleEdit.headroomOption", "Headroom (chamada ao LLM)")}</option>
             </select>
             <p className="mt-1 text-[10px] text-textMuted opacity-60">
-              Aplicado só via env no spawn (não toca command/args). Instale-o em Ferramentas → Compressores.
+              {t("roleEdit.compressorHint", "Aplicado só via env no spawn (não toca command/args). Instale-o em Ferramentas → Compressores.")}
             </p>
           </div>
           {isShell && (
             <div>
-              <label className="text-[11px] uppercase tracking-wider text-textMuted">Comando ao abrir (opcional)</label>
+              <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("roleEdit.startupCmd", "Comando ao abrir (opcional)")}</label>
               <input
                 value={startupCmd}
                 onChange={(e) => setStartupCmd(e.target.value)}
-                placeholder="ex: npm run dev"
+                placeholder={t("roleEdit.startupCmdPlaceholder", "ex: npm run dev")}
                 className="mt-1 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono"
               />
               <p className="mt-1 text-[10px] text-textMuted opacity-60">
-                Roda ao abrir. Se for um CLI Claude (ex.: claude-ollama), a persona abaixo entra nativa via --append-system-prompt.
+                {t("roleEdit.startupCmdHint", "Roda ao abrir. Se for um CLI Claude (ex.: claude-ollama), a persona abaixo entra nativa via --append-system-prompt.")}
               </p>
             </div>
           )}
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">
-              {isShell ? "Persona (injetada no CLI que o comando abrir)" : "Prompt (persona / instruções)"}
+              {isShell ? t("roleEdit.personaLabel", "Persona (injetada no CLI que o comando abrir)") : t("roleEdit.promptLabel", "Prompt (persona / instruções)")}
             </label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={7}
-              placeholder="Você é um especialista em… Foque em…"
+              placeholder={t("roleEdit.promptPlaceholder", "Você é um especialista em… Foque em…")}
               className="mt-1 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono"
             />
             <p className="mt-1 text-[10px] text-textMuted opacity-60">
               {isShell
-                ? "CLI Claude (claude-ollama): vai nativa via --append-system-prompt. Sem comando de início, é ignorada."
-                : "Injetado como --append-system-prompt num Claude Code."}
+                ? t("roleEdit.personaHint", "CLI Claude (claude-ollama): vai nativa via --append-system-prompt. Sem comando de início, é ignorada.")
+                : t("roleEdit.promptHint", "Injetado como --append-system-prompt num Claude Code.")}
             </p>
           </div>
           {/* Skills curadas → injetadas na persona no spawn (#13/#14). */}
           <div>
             <div className="flex items-center gap-1.5">
               <Sparkles size={12} className="text-brand" />
-              <label className="text-[11px] uppercase tracking-wider text-textMuted">Skills do agente</label>
-              {skills.length > 0 && <span className="text-[10px] text-brand">{skills.length} selecionada(s)</span>}
+              <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("roleEdit.agentSkills", "Skills do agente")}</label>
+              {skills.length > 0 && <span className="text-[10px] text-brand">{skills.length} {t("roleEdit.selectedCount", "selecionada(s)")}</span>}
               <div className="flex-1" />
               <button
                 onClick={() => void importMd()}
                 disabled={!cwd || importing}
-                title="Importar uma skill de um arquivo .md"
+                title={t("roleEdit.importMdTitle", "Importar uma skill de um arquivo .md")}
                 className="flex items-center gap-1 text-[10px] text-textMuted hover:text-brand disabled:opacity-40"
               >
                 <FileUp size={12} /> .md
@@ -173,7 +175,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
               <button
                 onClick={() => void importGithub()}
                 disabled={!cwd || importing}
-                title="Importar skills de um repositório GitHub"
+                title={t("roleEdit.importGithubTitle", "Importar skills de um repositório GitHub")}
                 className="flex items-center gap-1 text-[10px] text-textMuted hover:text-brand disabled:opacity-40"
               >
                 <Download size={12} /> GitHub
@@ -185,8 +187,8 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
             {available.length === 0 ? (
               <p className="mt-1 text-[10px] text-textMuted opacity-60">
                 {cwd
-                  ? "Nenhuma skill em .claude/skills (projeto) nem em ~/.claude/skills."
-                  : "Abra um projeto pra listar as skills de .claude/skills."}
+                  ? t("roleEdit.noSkills", "Nenhuma skill em .claude/skills (projeto) nem em ~/.claude/skills.")
+                  : t("roleEdit.openProjectToList", "Abra um projeto pra listar as skills de .claude/skills.")}
               </p>
             ) : (
               <div className="mt-1 max-h-36 overflow-auto rounded-md border border-border divide-y divide-border/40">
@@ -196,7 +198,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
                         <span className="text-[12px] text-text font-medium">{s.name}</span>
-                        <span className="text-[8px] uppercase px-1 rounded bg-surface2 text-textMuted">{s.source === "project" ? "projeto" : "global"}</span>
+                        <span className="text-[8px] uppercase px-1 rounded bg-surface2 text-textMuted">{s.source === "project" ? t("roleEdit.sourceProject", "projeto") : t("roleEdit.sourceGlobal", "global")}</span>
                       </span>
                       {s.description && <span className="block text-[10px] text-textMuted opacity-70 truncate">{s.description}</span>}
                     </span>
@@ -204,7 +206,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
                 ))}
               </div>
             )}
-            <p className="mt-1 text-[10px] text-textMuted opacity-60">As marcadas entram na persona do agente no spawn (ele prioriza usá-las).</p>
+            <p className="mt-1 text-[10px] text-textMuted opacity-60">{t("roleEdit.skillsFooter", "As marcadas entram na persona do agente no spawn (ele prioriza usá-las).")}</p>
           </div>
         </div>
         <footer className="flex justify-end gap-2 px-4 py-3 border-t border-border shrink-0">
@@ -212,14 +214,14 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
             onClick={onClose}
             className="px-3 py-1.5 rounded-md text-xs text-textMuted hover:bg-surface2 transition-colors"
           >
-            Cancelar
+            {t("common.cancel", "Cancelar")}
           </button>
           <button
             onClick={() => onSave(name.trim() || "Role", prompt, cli, startupCmd, skills, compressor)}
             disabled={!isShell && !prompt.trim()}
             className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Salvar
+            {t("common.save", "Salvar")}
           </button>
         </footer>
       </div>

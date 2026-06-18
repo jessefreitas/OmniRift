@@ -10,6 +10,7 @@ import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { FileCode2, Maximize2, Minimize2, Save, Send, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { useT } from "@/lib/i18n";
 import { NodeHelp } from "@/components/NodeHelp";
 import { NodeComment } from "@/components/NodeComment";
 import { codeOpen, codeSave, codeUnwatch, codeWatch, onCodeChanged } from "@/lib/code-client";
@@ -21,6 +22,7 @@ const CodeMonaco = lazy(() => import("@/components/nodes/CodeMonaco"));
 type CodeRfNode = Node<CodeNodeData & Record<string, unknown>, "code">;
 
 export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
+  const t = useT();
   const removeNode = useCanvasStore((s) => s.removeNode);
   const patchNode = useCanvasStore((s) => s.patchNode);
   const setFileDirty = useCanvasStore((s) => s.setFileDirty);
@@ -144,14 +146,14 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
         <FileCode2 size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1" title={filePath}>
           {fileName}
-          {dirty && <span className="text-yellow-400" title="não salvo"> ●</span>}
+          {dirty && <span className="text-yellow-400" title={t("code.unsaved", "não salvo")}> ●</span>}
         </span>
-        <NodeHelp text="Editor de código (Monaco). Edite e salve com 💾 ou Ctrl/Cmd+S. Recarrega sozinho se o arquivo mudar no disco (sem edição pendente). O ✈ envia o caminho deste arquivo pro input de um agente aberto (Claude usa @, anexa o arquivo). Métricas chegam na próxima fase." />
+        <NodeHelp text={t("code.help", "Editor de código (Monaco). Edite e salve com 💾 ou Ctrl/Cmd+S. Recarrega sozinho se o arquivo mudar no disco (sem edição pendente). O ✈ envia o caminho deste arquivo pro input de um agente aberto (Claude usa @, anexa o arquivo). Métricas chegam na próxima fase.")} />
         <div className="relative shrink-0">
           <button
             onClick={(e) => { e.stopPropagation(); setPendingSelection(null); setShowSend((s) => !s); }}
             onPointerDown={(e) => e.stopPropagation()}
-            title="Enviar este arquivo para um agente"
+            title={t("code.sendFileToAgent", "Enviar este arquivo para um agente")}
             className="hover:text-brand"
           >
             <Send size={12} />
@@ -165,11 +167,11 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
               >
                 <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-textMuted">
                   {pendingSelection != null
-                    ? `Enviar seleção (${pendingSelection.split("\n").length} linha${pendingSelection.split("\n").length > 1 ? "s" : ""}) p/`
-                    : "Enviar p/ agente"}
+                    ? `${t("code.sendSelection", "Enviar seleção")} (${pendingSelection.split("\n").length} ${pendingSelection.split("\n").length > 1 ? t("code.lines", "linhas") : t("code.line", "linha")}) ${t("code.toShort", "p/")}`
+                    : t("code.sendToAgent", "Enviar p/ agente")}
                 </div>
                 {agentTerminals.length === 0 ? (
-                  <div className="px-2 py-1.5 text-[11px] text-textMuted opacity-60">Nenhum agente aberto — abra um em "Novo agente".</div>
+                  <div className="px-2 py-1.5 text-[11px] text-textMuted opacity-60">{t("code.noAgentOpen", "Nenhum agente aberto — abra um em \"Novo agente\".")}</div>
                 ) : (
                   agentTerminals.map((t) => (
                     <button
@@ -190,15 +192,15 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
         <button
           onClick={(e) => { e.stopPropagation(); onSave(); }}
           disabled={!dirty || saving}
-          title="Salvar (Ctrl/Cmd+S)"
+          title={t("code.save", "Salvar (Ctrl/Cmd+S)")}
           className="hover:text-brand shrink-0 disabled:opacity-30"
         >
           <Save size={12} />
         </button>
-        <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? "Restaurar" : "Maximizar"} className="hover:text-brand shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? t("common.restore", "Restaurar") : t("common.maximize", "Maximizar")} className="hover:text-brand shrink-0">
           {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
         </button>
-        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title={t("common.close", "Fechar")} className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
       </header>
@@ -207,9 +209,9 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
         {error ? (
           <p className="px-3 py-2 text-[11px] text-danger font-mono whitespace-pre-wrap">{error}</p>
         ) : loading ? (
-          <p className="px-3 py-2 text-[11px] text-textMuted">abrindo {fileName}…</p>
+          <p className="px-3 py-2 text-[11px] text-textMuted">{t("code.opening", "abrindo")} {fileName}…</p>
         ) : (
-          <Suspense fallback={<p className="px-3 py-2 text-[11px] text-textMuted">carregando editor…</p>}>
+          <Suspense fallback={<p className="px-3 py-2 text-[11px] text-textMuted">{t("code.loadingEditor", "carregando editor…")}</p>}>
             <CodeMonaco value={source} language={language} onChange={onEdit} onSave={onSave} onSendSelection={onSendSelection} />
           </Suspense>
         )}

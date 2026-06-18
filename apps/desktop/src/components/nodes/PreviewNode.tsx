@@ -5,6 +5,7 @@ import { Check, FileText, FolderOpen, Pencil, RefreshCw, Save, X } from "lucide-
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { useNodeMaximize } from "@/hooks/useNodeMaximize";
+import { useT } from "@/lib/i18n";
 import { NodeHelp } from "@/components/NodeHelp";
 import { NodeComment } from "@/components/NodeComment";
 import { NodeResizeGrip } from "@/components/NodeResizeGrip";
@@ -19,6 +20,7 @@ function baseName(p: string): string {
 }
 
 export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
+  const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [path, setPath] = useState(data.path);
@@ -65,7 +67,7 @@ export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
     const sel = await open({
       directory: false,
       multiple: false,
-      title: "Abrir arquivo pra preview",
+      title: t("preview.pickTitle", "Abrir arquivo pra preview"),
       filters: [{ name: "MD / HTML", extensions: ["md", "markdown", "mdx", "html", "htm"] }],
     });
     if (typeof sel === "string") {
@@ -78,21 +80,21 @@ export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
     <>
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <FileText size={12} className="text-brand shrink-0" />
-        <span className="text-xs font-medium truncate flex-1">{path ? baseName(path) : "Preview"}</span>
-        <button onClick={(e) => { e.stopPropagation(); void pickFile(); }} title="Abrir arquivo" className="hover:text-brand shrink-0"><FolderOpen size={12} /></button>
-        <button onClick={(e) => { e.stopPropagation(); void load(); }} title="Recarregar" className="hover:text-text shrink-0"><RefreshCw size={11} className={loading ? "animate-spin" : ""} /></button>
+        <span className="text-xs font-medium truncate flex-1">{path ? baseName(path) : t("preview.title", "Preview")}</span>
+        <button onClick={(e) => { e.stopPropagation(); void pickFile(); }} title={t("preview.openFile", "Abrir arquivo")} className="hover:text-brand shrink-0"><FolderOpen size={12} /></button>
+        <button onClick={(e) => { e.stopPropagation(); void load(); }} title={t("preview.reload", "Recarregar")} className="hover:text-text shrink-0"><RefreshCw size={11} className={loading ? "animate-spin" : ""} /></button>
         {path && !editing && (
-          <button onClick={(e) => { e.stopPropagation(); startEdit(); }} title="Editar" className="hover:text-brand shrink-0">{saved ? <Check size={12} className="text-emerald-400" /> : <Pencil size={12} />}</button>
+          <button onClick={(e) => { e.stopPropagation(); startEdit(); }} title={t("preview.edit", "Editar")} className="hover:text-brand shrink-0">{saved ? <Check size={12} className="text-emerald-400" /> : <Pencil size={12} />}</button>
         )}
         {editing && (
           <>
-            <button onClick={(e) => { e.stopPropagation(); void save(); }} title="Salvar (grava no disco)" className="hover:text-emerald-400 shrink-0"><Save size={12} /></button>
-            <button onClick={(e) => { e.stopPropagation(); setEditing(false); }} title="Cancelar edição" className="hover:text-danger shrink-0"><X size={12} /></button>
+            <button onClick={(e) => { e.stopPropagation(); void save(); }} title={t("preview.save", "Salvar (grava no disco)")} className="hover:text-emerald-400 shrink-0"><Save size={12} /></button>
+            <button onClick={(e) => { e.stopPropagation(); setEditing(false); }} title={t("preview.cancelEdit", "Cancelar edição")} className="hover:text-danger shrink-0"><X size={12} /></button>
           </>
         )}
-        <NodeHelp text="Preview de .md/.html: a pasta abre um arquivo; ✎ edita e 💾 grava no disco; ⟳ recarrega. Renderiza Markdown e HTML (sem rodar scripts)." />
+        <NodeHelp text={t("preview.help", "Preview de .md/.html: a pasta abre um arquivo; ✎ edita e 💾 grava no disco; ⟳ recarrega. Renderiza Markdown e HTML (sem rodar scripts).")} />
         {maxBtn}
-        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0"><X size={12} /></button>
+        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title={t("common.close", "Fechar")} className="hover:text-danger shrink-0"><X size={12} /></button>
       </header>
 
       <div className="flex-1 overflow-auto bg-bg nodrag" onPointerDown={(e) => e.stopPropagation()}>
@@ -106,16 +108,16 @@ export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
           />
         ) : !path ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 p-4 text-center">
-            <p className="text-[11px] text-textMuted opacity-60">Abra um arquivo <code>.md</code> ou <code>.html</code> pra visualizar.</p>
-            <button onClick={() => void pickFile()} className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover"><FolderOpen size={12} /> Abrir</button>
+            <p className="text-[11px] text-textMuted opacity-60">{t("preview.emptyPre", "Abra um arquivo")} <code>.md</code> {t("preview.emptyOr", "ou")} <code>.html</code> {t("preview.emptyPost", "pra visualizar.")}</p>
+            <button onClick={() => void pickFile()} className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover"><FolderOpen size={12} /> {t("common.open", "Abrir")}</button>
           </div>
         ) : error ? (
           <p className="px-3 py-2 text-[11px] text-danger font-mono whitespace-pre-wrap break-words">{error}</p>
         ) : loading ? (
-          <p className="px-3 py-2 text-[11px] text-textMuted">Carregando…</p>
+          <p className="px-3 py-2 text-[11px] text-textMuted">{t("common.loading", "Carregando…")}</p>
         ) : isHtml(path) ? (
           // HTML self-contained no iframe (sandbox sem scripts — só renderiza HTML+CSS).
-          <iframe srcDoc={content} sandbox="" title="preview" className="w-full h-full border-0 bg-white" />
+          <iframe srcDoc={content} sandbox="" title={t("preview.iframeTitle", "preview")} className="w-full h-full border-0 bg-white" />
         ) : isMarkdown(path) ? (
           <div className="md-preview px-3 py-2 text-text text-[13px]" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
         ) : (

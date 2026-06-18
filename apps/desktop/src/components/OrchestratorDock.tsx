@@ -11,8 +11,10 @@ import { Crown, ChevronDown, ChevronUp, CornerUpRight } from "lucide-react";
 import { useCanvasStore } from "@/store/canvas-store";
 import { setOrchestratorMount } from "@/lib/orchestrator-dock-mount";
 import { StatusDot } from "@/components/StatusDot";
+import { useT } from "@/lib/i18n";
 
 export function OrchestratorDock() {
+  const t = useT();
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
   const floors = useCanvasStore((s) => s.floors);
   const activeFloorId = useCanvasStore((s) => s.activeFloorId);
@@ -96,19 +98,19 @@ export function OrchestratorDock() {
       >
         <Crown size={13} className="text-yellow-500 shrink-0" />
         <span className="text-xs font-medium text-yellow-400 truncate">{orch.label}</span>
-        <span className="text-[9px] text-yellow-500/80 font-normal shrink-0">orq</span>
+        <span className="text-[9px] text-yellow-500/80 font-normal shrink-0">{t("orchestrator.orqBadge", "orq")}</span>
         <StatusDot status={status} size={5} />
         <span className="flex-1" />
         <span
           className="text-[9px] text-textMuted opacity-70 truncate max-w-[110px]"
-          title={`Floor: ${orch.floor.name}`}
+          title={`${t("orchestrator.floor", "Floor")}: ${orch.floor.name}`}
         >
           {orch.floor.name}
         </span>
         {!onOrchFloor && (
           <button
             onClick={() => switchFloor(orch.floor.id)}
-            title="Ir pro paralelo do Orquestrador"
+            title={t("orchestrator.goToFloor", "Ir pro paralelo do Orquestrador")}
             className="p-0.5 rounded hover:bg-bg hover:text-text transition-colors shrink-0"
           >
             <CornerUpRight size={13} />
@@ -116,7 +118,7 @@ export function OrchestratorDock() {
         )}
         <button
           onClick={() => setCollapsed((c) => !c)}
-          title={collapsed ? "Expandir" : "Minimizar"}
+          title={collapsed ? t("orchestrator.expand", "Expandir") : t("orchestrator.minimize", "Minimizar")}
           className="p-0.5 rounded hover:bg-bg hover:text-text transition-colors shrink-0"
         >
           {collapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />}

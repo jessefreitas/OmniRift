@@ -8,8 +8,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { KeyRound, Copy, Check } from "lucide-react";
 
 import { licenseStatus, licenseActivate, type LicenseStatus } from "@/lib/license-client";
+import { useT } from "@/lib/i18n";
 
 export function LicenseGate({ children }: { children: ReactNode }) {
+  const t = useT();
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [key, setKey] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -46,12 +48,11 @@ export function LicenseGate({ children }: { children: ReactNode }) {
           <h1 className="text-lg font-semibold text-text">OmniRift — Beta</h1>
         </div>
         <p className="text-[12px] text-textMuted mb-4">
-          Acesso por chave durante o beta. Envie o seu <b>ID da máquina</b> abaixo pra receber uma
-          chave e cole-a aqui.
+          {t("license.intro1", "Acesso por chave durante o beta. Envie o seu")} <b>{t("license.machineId", "ID da máquina")}</b> {t("license.intro2", "abaixo pra receber uma chave e cole-a aqui.")}
         </p>
 
         <label className="text-[10px] uppercase tracking-wider text-textMuted">
-          ID da máquina (fingerprint)
+          {t("license.machineIdLabel", "ID da máquina (fingerprint)")}
         </label>
         <div className="flex items-center gap-2 mt-1 mb-3">
           <code className="flex-1 px-2 py-1.5 rounded bg-bg border border-border text-[12px] text-brand font-mono select-all">
@@ -64,17 +65,17 @@ export function LicenseGate({ children }: { children: ReactNode }) {
               setTimeout(() => setCopied(false), 1200);
             }}
             className="p-1.5 rounded border border-border text-textMuted hover:text-brand"
-            title="Copiar"
+            title={t("license.copy", "Copiar")}
           >
             {copied ? <Check size={14} /> : <Copy size={14} />}
           </button>
         </div>
 
-        <label className="text-[10px] uppercase tracking-wider text-textMuted">Chave de licença</label>
+        <label className="text-[10px] uppercase tracking-wider text-textMuted">{t("license.keyLabel", "Chave de licença")}</label>
         <textarea
           value={key}
           onChange={(e) => setKey(e.target.value)}
-          placeholder="cole a chave aqui…"
+          placeholder={t("license.keyPh", "cole a chave aqui…")}
           rows={3}
           className="w-full mt-1 px-2 py-1.5 rounded bg-bg border border-border text-[11px] text-text font-mono resize-none focus:outline-none focus:border-brand"
         />
@@ -86,10 +87,10 @@ export function LicenseGate({ children }: { children: ReactNode }) {
           disabled={busy || !key.trim()}
           className="w-full mt-3 py-2 rounded-lg text-[13px] font-medium bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 transition-colors"
         >
-          {busy ? "Ativando…" : "Ativar"}
+          {busy ? t("license.activating", "Ativando…") : t("license.activate", "Ativar")}
         </button>
         <p className="mt-3 text-[10px] text-textMuted opacity-60 text-center">
-          Free durante o beta · 1 chave por máquina · verificação offline.
+          {t("license.footer", "Free durante o beta · 1 chave por máquina · verificação offline.")}
         </p>
       </div>
     </div>

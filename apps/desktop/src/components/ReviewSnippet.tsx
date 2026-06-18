@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 
 import { readFile } from "@/lib/preview-client";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export function ReviewSnippet({ worktree, file, line, context = 3 }: Props) {
+  const t = useT();
   const [lines, setLines] = useState<string[] | null>(null);
   const [start, setStart] = useState(1);
   const [err, setErr] = useState<string | null>(null);
@@ -43,8 +45,8 @@ export function ReviewSnippet({ worktree, file, line, context = 3 }: Props) {
     };
   }, [worktree, file, line, context]);
 
-  if (err) return <p className="px-4 py-1.5 text-[10px] text-danger font-mono">não consegui ler {file}: {err}</p>;
-  if (!lines) return <p className="px-4 py-1.5 text-[10px] text-textMuted opacity-60">carregando trecho…</p>;
+  if (err) return <p className="px-4 py-1.5 text-[10px] text-danger font-mono">{t("reviewSnippet.readError", "não consegui ler")} {file}: {err}</p>;
+  if (!lines) return <p className="px-4 py-1.5 text-[10px] text-textMuted opacity-60">{t("reviewSnippet.loading", "carregando trecho…")}</p>;
 
   return (
     <pre className="mx-4 my-1 rounded bg-bg/60 border border-border/50 overflow-x-auto text-[11px] leading-[1.5] font-mono">

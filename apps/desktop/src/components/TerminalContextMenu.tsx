@@ -8,6 +8,7 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Copy, Clipboard, BookmarkPlus, Maximize2, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 export interface TerminalContextMenuProps {
   x: number;
@@ -65,6 +66,7 @@ export function TerminalContextMenu({
   onFullscreen,
   onCloseTerminal,
 }: TerminalContextMenuProps) {
+  const t = useT();
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Fechar ao clicar fora
@@ -107,31 +109,31 @@ export function TerminalContextMenu({
     >
       <MenuItem
         icon={<Copy size={12} />}
-        label="Copiar"
+        label={t("terminalMenu.copy", "Copiar")}
         shortcut="Ctrl+C"
         onClick={() => { onCopy(); onClose(); }}
       />
       <MenuItem
         icon={<Clipboard size={12} />}
-        label="Colar"
+        label={t("terminalMenu.paste", "Colar")}
         shortcut="Ctrl+V"
         onClick={() => { onPaste(); onClose(); }}
       />
       <MenuItem
         icon={<BookmarkPlus size={12} />}
-        label="Copiar e Guardar"
+        label={t("terminalMenu.copyAndSave", "Copiar e Guardar")}
         onClick={() => { onCopyAndSave(); onClose(); }}
       />
       <Separator />
       <MenuItem
         icon={<Maximize2 size={12} />}
-        label="Tela cheia"
+        label={t("terminalMenu.fullscreen", "Tela cheia")}
         onClick={() => { onFullscreen(); onClose(); }}
       />
       <Separator />
       <MenuItem
         icon={<X size={12} />}
-        label="Fechar Terminal"
+        label={t("terminalMenu.closeTerminal", "Fechar Terminal")}
         onClick={() => { onCloseTerminal(); onClose(); }}
         danger
       />

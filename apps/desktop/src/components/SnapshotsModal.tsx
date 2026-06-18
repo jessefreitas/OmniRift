@@ -12,6 +12,7 @@ import { loadAutoSnapSettings, saveAutoSnapSettings, snapshotNow, type AutoSnapS
 import { dbSaveWorkspace } from "@/lib/db-client";
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 interface Props {
   onClose: () => void;
@@ -27,6 +28,7 @@ function kb(bytes: number): string {
 }
 
 export function SnapshotsModal({ onClose }: Props) {
+  const t = useT();
   const [items, setItems] = useState<SnapshotMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,14 +55,14 @@ export function SnapshotsModal({ onClose }: Props) {
   useEffect(() => { void load(); }, []);
 
   async function create() {
-    const label = prompt("Rótulo do snapshot (opcional):") ?? undefined;
+    const label = prompt(t("snapshots.labelPrompt", "Rótulo do snapshot (opcional):")) ?? undefined;
     const doc = JSON.stringify(useCanvasStore.getState().getWorkspaceSnapshot());
     await snapshotCreate(label?.trim() || undefined, doc);
     void load();
   }
 
   async function restore(id: number) {
-    if (!confirm("Restaurar este snapshot? O canvas atual será substituído (salve um snapshot antes se quiser).")) return;
+    if (!confirm(t("snapshots.restoreConfirm", "Restaurar este snapshot? O canvas atual será substituído (salve um snapshot antes se quiser)."))) return;
     const doc = await snapshotGet(id);
     if (!doc) return;
     try {
@@ -68,7 +70,7 @@ export function SnapshotsModal({ onClose }: Props) {
       await dbSaveWorkspace(doc);
       onClose();
     } catch (e) {
-      alert("Falha ao restaurar:\n" + String(e));
+      alert(t("snapshots.restoreFailed", "Falha ao restaurar:") + "\n" + String(e));
     }
   }
 
@@ -85,14 +87,14 @@ export function SnapshotsModal({ onClose }: Props) {
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <Archive size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text flex-1">Snapshots do canvas</span>
+          <span className="text-sm font-medium text-text flex-1">{t("snapshots.title", "Snapshots do canvas")}</span>
           <button
             onClick={() => void create()}
             className="flex items-center gap-1 px-2.5 py-1 rounded text-[12px] bg-brand text-bg hover:bg-brand-hover transition-colors"
           >
-            <Camera size={13} /> Criar snapshot
+            <Camera size={13} /> {t("snapshots.create", "Criar snapshot")}
           </button>
-          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar">
+          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("common.close", "Fechar")}>
             <X size={16} />
           </button>
         </header>
@@ -106,10 +108,10 @@ export function SnapshotsModal({ onClose }: Props) {
               onChange={(e) => patchSettings({ enabled: e.target.checked })}
               className="accent-brand"
             />
-            <Clock size={12} /> Auto-backup
+            <Clock size={12} /> {t("snapshots.autoBackup", "Auto-backup")}
           </label>
           <label className={cn("flex items-center gap-1", !settings.enabled && "opacity-40")}>
-            a cada
+            {t("snapshots.every", "a cada")}
             <input
               type="number"
               min={1}
@@ -119,10 +121,10 @@ export function SnapshotsModal({ onClose }: Props) {
               onChange={(e) => patchSettings({ intervalMin: Number(e.target.value) || 1 })}
               className="w-12 px-1 py-0.5 rounded bg-bg border border-border text-text text-center"
             />
-            min
+            {t("snapshots.min", "min")}
           </label>
           <label className={cn("flex items-center gap-1", !settings.enabled && "opacity-40")}>
-            manter
+            {t("snapshots.keep", "manter")}
             <input
               type="number"
               min={1}
@@ -132,15 +134,15 @@ export function SnapshotsModal({ onClose }: Props) {
               onChange={(e) => patchSettings({ maxAuto: Number(e.target.value) || 1 })}
               className="w-14 px-1 py-0.5 rounded bg-bg border border-border text-text text-center"
             />
-            backups
+            {t("snapshots.backups", "backups")}
           </label>
           <span className="flex-1" />
           <button
             onClick={async () => { await snapshotNow(); void load(); }}
-            title="Fazer um backup automático agora"
+            title={t("snapshots.backupNowTitle", "Fazer um backup automático agora")}
             className="flex items-center gap-1 px-2 py-0.5 rounded text-textMuted hover:text-brand border border-border hover:border-brand transition-colors"
           >
-            <Zap size={12} /> Backup agora
+            <Zap size={12} /> {t("snapshots.backupNow", "Backup agora")}
           </button>
         </div>
 
@@ -149,32 +151,32 @@ export function SnapshotsModal({ onClose }: Props) {
             <p className="px-4 py-3 text-[12px] text-danger font-mono whitespace-pre-wrap">{error}</p>
           ) : items.length === 0 ? (
             <p className="px-4 py-3 text-[12px] text-textMuted opacity-60">
-              {loading ? "Carregando…" : "Nenhum snapshot. Crie um pra ter um ponto de restauração do canvas."}
+              {loading ? t("common.loading", "Carregando…") : t("snapshots.empty", "Nenhum snapshot. Crie um pra ter um ponto de restauração do canvas.")}
             </p>
           ) : (
             items.map((s) => (
               <div key={s.id} className="group flex items-center gap-2 px-4 py-2 border-b border-border/40">
                 <div className="min-w-0 flex-1">
                   <span className="text-[12px] text-text flex items-center gap-1.5">
-                    {s.label || `Snapshot #${s.id}`}
+                    {s.label || `${t("snapshots.snapshotLabel", "Snapshot")} #${s.id}`}
                     {s.auto ? (
-                      <span className="px-1 py-px rounded text-[9px] bg-surface2 text-textMuted border border-border/60">auto</span>
+                      <span className="px-1 py-px rounded text-[9px] bg-surface2 text-textMuted border border-border/60">{t("snapshots.auto", "auto")}</span>
                     ) : (
-                      <span className="px-1 py-px rounded text-[9px] bg-brand/15 text-brand border border-brand/30">manual</span>
+                      <span className="px-1 py-px rounded text-[9px] bg-brand/15 text-brand border border-brand/30">{t("snapshots.manual", "manual")}</span>
                     )}
                   </span>
                   <div className="text-[10px] text-textMuted opacity-60">{fmt(s.createdAt)} · {kb(s.bytes)}</div>
                 </div>
                 <button
                   onClick={() => void restore(s.id)}
-                  title="Restaurar"
+                  title={t("snapshots.restore", "Restaurar")}
                   className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-textMuted hover:text-brand border border-border hover:border-brand transition-colors"
                 >
-                  <RotateCcw size={12} /> Restaurar
+                  <RotateCcw size={12} /> {t("snapshots.restore", "Restaurar")}
                 </button>
                 <button
                   onClick={() => void del(s.id)}
-                  title="Apagar"
+                  title={t("common.delete", "Apagar")}
                   className="opacity-0 group-hover:opacity-100 text-textMuted hover:text-danger p-1 shrink-0"
                 >
                   <Trash2 size={13} />

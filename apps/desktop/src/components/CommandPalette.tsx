@@ -10,6 +10,7 @@ import { Command } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 interface Cmd {
   id: string;
@@ -20,6 +21,7 @@ interface Cmd {
 }
 
 export function CommandPalette() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
@@ -50,48 +52,48 @@ export function CommandPalette() {
     const s = useCanvasStore.getState();
     const act = (fn: () => void): (() => void) => () => { fn(); setOpen(false); };
     const create: Cmd[] = [
-      { id: "t", label: "Novo Terminal (shell)", category: "Criar", run: act(() => s.addTerminal({ command: "bash", role: "shell", label: "shell" })) },
-      { id: "note", label: "Nova Nota", category: "Criar", run: act(() => s.addNote()) },
-      { id: "group", label: "Novo Grupo (frame)", category: "Criar", run: act(() => s.addGroup()) },
-      { id: "ft", label: "Árvore de arquivos", category: "Criar", disabled: !s.currentCwd, run: act(() => { if (s.currentCwd) s.addFileTree({ rootPath: s.currentCwd }); }) },
-      { id: "sk", label: "Sketch (tldraw)", category: "Criar", run: act(() => s.addSketch()) },
-      { id: "portal", label: "Portal (browser)", category: "Criar", run: act(() => s.addPortal()) },
-      { id: "api", label: "API (cliente HTTP)", category: "Criar", run: act(() => s.addApiNode()) },
-      { id: "db", label: "DB (SQLite)", category: "Criar", run: act(() => s.addDbNode()) },
-      { id: "dev", label: "DevTools (base64/JWT/hash…)", category: "Criar", run: act(() => s.addDevToolsNode()) },
-      { id: "json", label: "JSON (formatar + árvore)", category: "Criar", run: act(() => s.addJsonNode()) },
-      { id: "explain", label: "explainshell", category: "Criar", run: act(() => s.addExplainNode()) },
+      { id: "t", label: t("palette.newTerminal", "Novo Terminal (shell)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addTerminal({ command: "bash", role: "shell", label: "shell" })) },
+      { id: "note", label: t("palette.newNote", "Nova Nota"), category: t("palette.catCreate", "Criar"), run: act(() => s.addNote()) },
+      { id: "group", label: t("palette.newGroup", "Novo Grupo (frame)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addGroup()) },
+      { id: "ft", label: t("palette.fileTree", "Árvore de arquivos"), category: t("palette.catCreate", "Criar"), disabled: !s.currentCwd, run: act(() => { if (s.currentCwd) s.addFileTree({ rootPath: s.currentCwd }); }) },
+      { id: "sk", label: t("palette.sketch", "Sketch (tldraw)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addSketch()) },
+      { id: "portal", label: t("palette.portal", "Portal (browser)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addPortal()) },
+      { id: "api", label: t("palette.api", "API (cliente HTTP)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addApiNode()) },
+      { id: "db", label: t("palette.db", "DB (SQLite)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addDbNode()) },
+      { id: "dev", label: t("palette.devtools", "DevTools (base64/JWT/hash…)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addDevToolsNode()) },
+      { id: "json", label: t("palette.json", "JSON (formatar + árvore)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addJsonNode()) },
+      { id: "explain", label: "explainshell", category: t("palette.catCreate", "Criar"), run: act(() => s.addExplainNode()) },
     ];
     const projFloors = s.floors.filter((f) => f.projectId === s.activeProjectId);
     const floorCmds: Cmd[] = [
-      { id: "newfloor", label: "Novo paralelo", category: "Paralelo", run: act(() => s.createFloor(undefined, { focus: true })) },
+      { id: "newfloor", label: t("palette.newParallel", "Novo paralelo"), category: t("palette.catParallel", "Paralelo"), run: act(() => s.createFloor(undefined, { focus: true })) },
       ...projFloors.map((f, i) => ({
         id: `floor-${f.id}`,
-        label: `Ir para: ${f.name}${i < 9 ? `  ·  Alt+${i + 1}` : ""}`,
-        category: "Paralelo",
+        label: `${t("palette.goTo", "Ir para:")} ${f.name}${i < 9 ? `  ·  Alt+${i + 1}` : ""}`,
+        category: t("palette.catParallel", "Paralelo"),
         run: act(() => s.switchFloor(f.id)),
       })),
       ...s.projects.map((p) => ({
         id: `project-${p.id}`,
-        label: `Ir para projeto: ${p.name}`,
-        category: "Projeto",
+        label: `${t("palette.goToProject", "Ir para projeto:")} ${p.name}`,
+        category: t("palette.catProject", "Projeto"),
         run: act(() => s.setActiveProject(p.id)),
       })),
     ];
     const openTool = (tool: string) =>
       act(() => window.dispatchEvent(new CustomEvent("maestri:open-tool", { detail: tool })));
     const openCmds: Cmd[] = [
-      { id: "open-routines", label: "Abrir: Routines", category: "Abrir", run: openTool("routines") },
-      { id: "open-snapshots", label: "Abrir: Snapshots do canvas", category: "Abrir", run: openTool("snapshots") },
-      { id: "open-hooks", label: "Abrir: Hooks do paralelo", category: "Abrir", run: openTool("hooks") },
-      { id: "open-memory", label: "Abrir: Memória dos agentes", category: "Abrir", run: openTool("memory") },
-      { id: "open-history", label: "Abrir: Histórico de sessões", category: "Abrir", run: openTool("history") },
-      { id: "open-connections", label: "Abrir: Conexões de memória", category: "Abrir", run: openTool("connections") },
-      { id: "open-review-ai", label: "Abrir: Code Review IA", category: "Abrir", run: openTool("review-ai") },
-      { id: "open-git", label: "Abrir: Repositórios Git", category: "Abrir", run: openTool("git") },
+      { id: "open-routines", label: t("palette.openRoutines", "Abrir: Routines"), category: t("palette.catOpen", "Abrir"), run: openTool("routines") },
+      { id: "open-snapshots", label: t("palette.openSnapshots", "Abrir: Snapshots do canvas"), category: t("palette.catOpen", "Abrir"), run: openTool("snapshots") },
+      { id: "open-hooks", label: t("palette.openHooks", "Abrir: Hooks do paralelo"), category: t("palette.catOpen", "Abrir"), run: openTool("hooks") },
+      { id: "open-memory", label: t("palette.openMemory", "Abrir: Memória dos agentes"), category: t("palette.catOpen", "Abrir"), run: openTool("memory") },
+      { id: "open-history", label: t("palette.openHistory", "Abrir: Histórico de sessões"), category: t("palette.catOpen", "Abrir"), run: openTool("history") },
+      { id: "open-connections", label: t("palette.openConnections", "Abrir: Conexões de memória"), category: t("palette.catOpen", "Abrir"), run: openTool("connections") },
+      { id: "open-review-ai", label: t("palette.openReviewAi", "Abrir: Code Review IA"), category: t("palette.catOpen", "Abrir"), run: openTool("review-ai") },
+      { id: "open-git", label: t("palette.openGit", "Abrir: Repositórios Git"), category: t("palette.catOpen", "Abrir"), run: openTool("git") },
     ];
     return [...create, ...floorCmds, ...openCmds];
-  }, [open]);
+  }, [open, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -128,14 +130,14 @@ export function CommandPalette() {
             value={query}
             onChange={(e) => { setQuery(e.target.value); setSel(0); }}
             onKeyDown={onKey}
-            placeholder="Buscar comando… (criar node, ir pra paralelo)"
+            placeholder={t("palette.searchPh", "Buscar comando… (criar node, ir pra paralelo)")}
             className="flex-1 bg-transparent text-sm text-text placeholder:text-textMuted focus:outline-none"
           />
           <kbd className="text-[10px] text-textMuted opacity-60 border border-border rounded px-1">esc</kbd>
         </div>
         <div className="max-h-[50vh] overflow-auto py-1">
           {filtered.length === 0 ? (
-            <p className="px-3 py-3 text-[12px] text-textMuted opacity-60">Nenhum comando.</p>
+            <p className="px-3 py-3 text-[12px] text-textMuted opacity-60">{t("palette.empty", "Nenhum comando.")}</p>
           ) : (
             filtered.map((c, i) => (
               <button

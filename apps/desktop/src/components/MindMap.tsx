@@ -8,6 +8,7 @@ import { ReactFlow, ReactFlowProvider, Background, Controls, Panel, Handle, Posi
 import { Search, X } from "lucide-react";
 
 import { buildTree, layoutTree, type MindKind } from "@/lib/mindmap";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
 interface PillData {
@@ -65,6 +66,7 @@ export function MindMap(props: { text: string }) {
 }
 
 function MindMapInner({ text }: { text: string }) {
+  const t = useT();
   const tree = useMemo(() => buildTree(text), [text]);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [search, setSearch] = useState("");
@@ -134,11 +136,11 @@ function MindMapInner({ text }: { text: string }) {
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") focusMatches(); e.stopPropagation(); }}
             onPointerDown={(e) => e.stopPropagation()}
-            placeholder="buscar nó… (Enter foca)"
+            placeholder={t("mindmap.searchPlaceholder", "buscar nó… (Enter foca)")}
             className="w-40 bg-transparent text-[11px] text-text focus:outline-none placeholder:text-textMuted"
           />
           {q && <span className="text-[10px] text-textMuted shrink-0">{matchIds.length}</span>}
-          {q && <button onClick={() => setSearch("")} title="limpar" className="text-textMuted hover:text-text shrink-0"><X size={10} /></button>}
+          {q && <button onClick={() => setSearch("")} title={t("mindmap.clear", "limpar")} className="text-textMuted hover:text-text shrink-0"><X size={10} /></button>}
         </div>
       </Panel>
       <Background gap={22} color="rgba(255,255,255,0.04)" />

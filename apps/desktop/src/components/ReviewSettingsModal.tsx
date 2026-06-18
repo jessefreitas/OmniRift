@@ -10,6 +10,7 @@ import { Cpu, ScanSearch, Sliders, X } from "lucide-react";
 
 import { LlmConfigModal } from "@/components/LlmConfigModal";
 import { ReviewPolicyModal } from "@/components/ReviewPolicyModal";
+import { useT } from "@/lib/i18n";
 
 type Tab = "llm" | "policy";
 
@@ -19,12 +20,13 @@ interface Props {
   onClose: () => void;
 }
 
-const TABS: { id: Tab; label: string; icon: typeof Cpu }[] = [
-  { id: "llm", label: "LLM (BYOK)", icon: Cpu },
-  { id: "policy", label: "Política", icon: Sliders },
+const TABS: { id: Tab; labelKey: string; labelPt: string; icon: typeof Cpu }[] = [
+  { id: "llm", labelKey: "reviewSettings.tabLlm", labelPt: "LLM (BYOK)", icon: Cpu },
+  { id: "policy", labelKey: "reviewSettings.tabPolicy", labelPt: "Política", icon: Sliders },
 ];
 
 export function ReviewSettingsModal({ cwd, onClose }: Props) {
+  const t = useT();
   const [tab, setTab] = useState<Tab>("llm");
 
   return createPortal(
@@ -35,12 +37,12 @@ export function ReviewSettingsModal({ cwd, onClose }: Props) {
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <ScanSearch size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text flex-1">Code Review IA</span>
-          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar"><X size={16} /></button>
+          <span className="text-sm font-medium text-text flex-1">{t("reviewSettings.title", "Code Review IA")}</span>
+          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("reviewSettings.close", "Fechar")}><X size={16} /></button>
         </header>
 
         <div className="flex gap-1 px-3 pt-2 border-b border-border shrink-0">
-          {TABS.map(({ id, label, icon: Icon }) => (
+          {TABS.map(({ id, labelKey, labelPt, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
@@ -51,7 +53,7 @@ export function ReviewSettingsModal({ cwd, onClose }: Props) {
                   : "border-transparent text-textMuted hover:text-text")
               }
             >
-              <Icon size={13} /> {label}
+              <Icon size={13} /> {t(labelKey, labelPt)}
             </button>
           ))}
         </div>

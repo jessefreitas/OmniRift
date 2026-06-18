@@ -6,6 +6,7 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useNodeMaximize } from "@/hooks/useNodeMaximize";
 import { NodeHelp } from "@/components/NodeHelp";
+import { useT } from "@/lib/i18n";
 import { normalizeUrl, browserShot } from "@/lib/portal-client";
 import type { PortalNode as PortalNodeData } from "@/types/canvas";
 
@@ -18,6 +19,7 @@ type PortalRfNode = Node<PortalNodeData & Record<string, unknown>, "portal">;
 // Tauri no Linux amadurecer. Limitação do iframe: sites com X-Frame-Options recusam
 // embed (use "abrir no navegador").
 function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
+  const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [urlInput, setUrlInput] = useState(data.url);
@@ -56,24 +58,24 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
           onChange={(e) => setUrlInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") go(); e.stopPropagation(); }}
           onPointerDown={(e) => e.stopPropagation()}
-          placeholder="localhost:3000 ou uma URL…"
+          placeholder={t("portal.placeholder", "localhost:3000 ou uma URL…")}
           className="flex-1 min-w-0 bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] text-text placeholder:text-textMuted focus:outline-none focus:border-brand cursor-text"
         />
-        <NodeHelp text="Portal: digite uma URL (ex.: localhost:3000) e Enter pra embutir a página. Sites com X-Frame-Options recusam embed — use abrir no navegador (↗) ou Snapshot (📷) pra renderizar HTTPS externo." />
-        <button onClick={(e) => { e.stopPropagation(); if (shot) { setShot(null); } else { setReloadKey((k) => k + 1); } }} title={shot ? "Voltar pro iframe" : "Recarregar"} className="hover:text-text shrink-0">
+        <NodeHelp text={t("portal.help", "Portal: digite uma URL (ex.: localhost:3000) e Enter pra embutir a página. Sites com X-Frame-Options recusam embed — use abrir no navegador (↗) ou Snapshot (📷) pra renderizar HTTPS externo.")} />
+        <button onClick={(e) => { e.stopPropagation(); if (shot) { setShot(null); } else { setReloadKey((k) => k + 1); } }} title={shot ? t("portal.backToIframe", "Voltar pro iframe") : t("portal.reload", "Recarregar")} className="hover:text-text shrink-0">
           <RotateCw size={11} />
         </button>
-        <button onClick={(e) => { e.stopPropagation(); void snapshot(); }} title="Snapshot (renderiza HTTPS externo via Playwright)" className={shooting ? "text-brand shrink-0" : "hover:text-text shrink-0"}>
+        <button onClick={(e) => { e.stopPropagation(); void snapshot(); }} title={t("portal.snapshot", "Snapshot (renderiza HTTPS externo via Playwright)")} className={shooting ? "text-brand shrink-0" : "hover:text-text shrink-0"}>
           <Camera size={11} className={shooting ? "animate-pulse" : ""} />
         </button>
-        <button onClick={(e) => { e.stopPropagation(); if (url) openExternal(url).catch(() => {}); }} title="Abrir no navegador" className="hover:text-text shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); if (url) openExternal(url).catch(() => {}); }} title={t("portal.openInBrowser", "Abrir no navegador")} className="hover:text-text shrink-0">
           <ExternalLink size={11} />
         </button>
-        <button onClick={(e) => { e.stopPropagation(); if (url) navigator.clipboard.writeText(url).catch(() => {}); }} title="Copiar URL" className="hover:text-text shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); if (url) navigator.clipboard.writeText(url).catch(() => {}); }} title={t("portal.copyUrl", "Copiar URL")} className="hover:text-text shrink-0">
           <Copy size={11} />
         </button>
         {maxBtn}
-        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar portal" className="hover:text-danger shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title={t("portal.close", "Fechar portal")} className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
       </header>
@@ -83,7 +85,7 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
           <img src={shot} alt="snapshot" className="absolute inset-0 h-full w-full object-contain object-top bg-white" />
         ) : shotErr ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-bg text-danger text-[11px] p-3 text-center">
-            <Camera size={14} /> snapshot falhou
+            <Camera size={14} /> {t("portal.snapshotFailed", "snapshot falhou")}
             <span className="text-textMuted opacity-70 break-words">{shotErr}</span>
           </div>
         ) : url ? (
@@ -96,12 +98,12 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-bg text-textMuted text-xs">
-            <Globe size={14} /> digite uma URL no topo
+            <Globe size={14} /> {t("portal.typeUrl", "digite uma URL no topo")}
           </div>
         )}
         {url && !shot && isExternal && (
           <div className="absolute bottom-1.5 left-1.5 right-1.5 pointer-events-none text-center text-[10px] text-white bg-black/55 rounded px-2 py-1">
-            Em branco? Sites externos costumam bloquear embed (X-Frame). Use 📷 Snapshot ou ↗ abrir no navegador.
+            {t("portal.blankWarning", "Em branco? Sites externos costumam bloquear embed (X-Frame). Use 📷 Snapshot ou ↗ abrir no navegador.")}
           </div>
         )}
       </div>

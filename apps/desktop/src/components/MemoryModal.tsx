@@ -9,6 +9,7 @@ import { Brain, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
 import { memoryQuery, memoryDelete, memoryAdd, type Memory } from "@/lib/memory-client";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 interface Props {
   onClose: () => void;
@@ -35,6 +36,7 @@ function fmt(s: string): string {
 }
 
 export function MemoryModal({ onClose }: Props) {
+  const t = useT();
   const [items, setItems] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,20 +80,20 @@ export function MemoryModal({ onClose }: Props) {
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <Brain size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text">Memória dos agentes</span>
+          <span className="text-sm font-medium text-text">{t("memory.title", "Memória dos agentes")}</span>
           <span className="text-[11px] text-textMuted opacity-60">{items.length}</span>
           <div className="flex-1" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void load(); }}
-            placeholder="buscar… (Enter)"
+            placeholder={t("memory.searchPh", "buscar… (Enter)")}
             className="w-48 px-2 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand"
           />
-          <button onClick={() => void load()} title="Recarregar" className="text-textMuted hover:text-brand p-1">
+          <button onClick={() => void load()} title={t("common.reload", "Recarregar")} className="text-textMuted hover:text-brand p-1">
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
-          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar">
+          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("common.close", "Fechar")}>
             <X size={16} />
           </button>
         </header>
@@ -118,7 +120,7 @@ export function MemoryModal({ onClose }: Props) {
             <p className="px-4 py-3 text-[12px] text-danger font-mono whitespace-pre-wrap">{error}</p>
           ) : items.length === 0 ? (
             <p className="px-4 py-3 text-[12px] text-textMuted opacity-60">
-              {loading ? "Carregando…" : "Nada na memória. Os agentes gravam aqui via memory_remember / memory_remember_error."}
+              {loading ? t("common.loading", "Carregando…") : t("memory.empty", "Nada na memória. Os agentes gravam aqui via memory_remember / memory_remember_error.")}
             </p>
           ) : (
             items.map((m) => (
@@ -138,7 +140,7 @@ export function MemoryModal({ onClose }: Props) {
                 </div>
                 <button
                   onClick={() => void del(m.id)}
-                  title="Apagar"
+                  title={t("common.delete", "Apagar")}
                   className="opacity-0 group-hover:opacity-100 text-textMuted hover:text-danger p-1 shrink-0"
                 >
                   <Trash2 size={13} />
@@ -154,7 +156,7 @@ export function MemoryModal({ onClose }: Props) {
             value={newFact}
             onChange={(e) => setNewFact(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void addFact(); }}
-            placeholder="adicionar um fato ao blackboard…"
+            placeholder={t("memory.addFactPh", "adicionar um fato ao blackboard…")}
             className="flex-1 px-2 py-1.5 rounded text-[12px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand"
           />
           <button
@@ -162,7 +164,7 @@ export function MemoryModal({ onClose }: Props) {
             disabled={!newFact.trim()}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded text-[12px] bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 transition-colors"
           >
-            <Plus size={13} /> Add
+            <Plus size={13} /> {t("memory.add", "Add")}
           </button>
         </div>
       </div>

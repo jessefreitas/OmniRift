@@ -15,6 +15,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { agentMcpConfig, agentSettingsConfig, getMaxAgents, mcpListAgents } from "@/lib/mcp-client";
 import { workerClaudeArgs } from "@/lib/agent-contract";
 import { ROLE_CLIS } from "@/lib/agent-roles";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
 interface Props {
@@ -43,6 +44,7 @@ export function fixerPrompt(f: Finding): string {
 }
 
 export function ReviewFixConfirm({ finding, floor, onClose, onDispatched }: Props) {
+  const t = useT();
   const [max, setMax] = useState<number | null>(null);
   const [active, setActive] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -74,7 +76,7 @@ export function ReviewFixConfirm({ finding, floor, onClose, onDispatched }: Prop
         role: "claude-code",
         label: `fix: ${finding.file.split("/").pop()}`,
       });
-      onDispatched(node.id, `Agente de correção despachado no paralelo "${floor.name}". O review re-roda sozinho quando ele terminar.`);
+      onDispatched(node.id, `${t("reviewFixConfirm.dispatchedPrefix", "Agente de correção despachado no paralelo")} "${floor.name}". ${t("reviewFixConfirm.dispatchedSuffix", "O review re-roda sozinho quando ele terminar.")}`);
       onClose();
     } catch (e) {
       setErr(String(e));
@@ -87,7 +89,7 @@ export function ReviewFixConfirm({ finding, floor, onClose, onDispatched }: Prop
       <div className="w-[560px] max-w-[92vw] rounded-lg border border-border bg-surface1 shadow-2xl flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
           <Wand2 size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text">Corrigir via agente</span>
+          <span className="text-sm font-medium text-text">{t("reviewFixConfirm.title", "Corrigir via agente")}</span>
           <div className="flex-1" />
           <button onClick={onClose} className="text-textMuted hover:text-text p-1"><X size={16} /></button>
         </header>
@@ -96,38 +98,37 @@ export function ReviewFixConfirm({ finding, floor, onClose, onDispatched }: Prop
           <div className="flex items-start gap-2 rounded-md border border-yellow-400/40 bg-yellow-400/10 px-3 py-2">
             <AlertTriangle size={15} className="text-yellow-300 mt-0.5 shrink-0" />
             <p className="text-[12px] text-yellow-100 leading-snug">
-              Um agente <b>Claude Code</b> vai abrir no paralelo <b>{floor.branch ?? floor.name}</b> e <b>editar arquivos da branch</b> pra corrigir este achado.
-              Ele aplica só a correção mínima e re-roda o review. Nada é alterado sem este OK.
+              {t("reviewFixConfirm.warnPart1", "Um agente")} <b>Claude Code</b> {t("reviewFixConfirm.warnPart2", "vai abrir no paralelo")} <b>{floor.branch ?? floor.name}</b> {t("reviewFixConfirm.warnPart3", "e")} <b>{t("reviewFixConfirm.warnEditFiles", "editar arquivos da branch")}</b> {t("reviewFixConfirm.warnPart4", "pra corrigir este achado. Ele aplica só a correção mínima e re-roda o review. Nada é alterado sem este OK.")}
             </p>
           </div>
 
           <div className="text-[12px] text-text">
-            <div className="text-textMuted text-[11px] uppercase tracking-wide mb-1">Achado</div>
+            <div className="text-textMuted text-[11px] uppercase tracking-wide mb-1">{t("reviewFixConfirm.finding", "Achado")}</div>
             <div className="font-mono text-brand text-[11px]">{finding.file}{finding.line ? `:${finding.line}` : ""}</div>
             <div>{finding.title}</div>
           </div>
 
           <details className="text-[11px] text-textMuted">
-            <summary className="cursor-pointer hover:text-text">Ver o prompt que o agente vai receber</summary>
+            <summary className="cursor-pointer hover:text-text">{t("reviewFixConfirm.viewPrompt", "Ver o prompt que o agente vai receber")}</summary>
             <pre className="mt-1 rounded bg-bg/60 border border-border/50 p-2 whitespace-pre-wrap text-[10px] leading-snug">{prompt}</pre>
           </details>
 
           <div className="text-[11px] text-textMuted">
-            Agentes ativos: <b className={cn(atCeiling && "text-danger")}>{active ?? "?"}</b> / teto {max ?? "?"}
-            {atCeiling && <span className="text-danger"> — teto atingido, aguarde um encerrar.</span>}
+            {t("reviewFixConfirm.activeAgents", "Agentes ativos:")} <b className={cn(atCeiling && "text-danger")}>{active ?? "?"}</b> / {t("reviewFixConfirm.ceiling", "teto")} {max ?? "?"}
+            {atCeiling && <span className="text-danger"> {t("reviewFixConfirm.ceilingReached", "— teto atingido, aguarde um encerrar.")}</span>}
           </div>
 
           {err && <p className="text-[11px] text-danger font-mono whitespace-pre-wrap">{err}</p>}
         </div>
 
         <footer className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-border">
-          <button onClick={onClose} className="px-3 py-1.5 rounded-md text-xs text-textMuted hover:text-text">Cancelar</button>
+          <button onClick={onClose} className="px-3 py-1.5 rounded-md text-xs text-textMuted hover:text-text">{t("reviewFixConfirm.cancel", "Cancelar")}</button>
           <button
             onClick={() => void dispatch()}
             disabled={busy || atCeiling}
             className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 flex items-center gap-1.5"
           >
-            <Wand2 size={13} /> {busy ? "Despachando…" : "Despachar agente"}
+            <Wand2 size={13} /> {busy ? t("reviewFixConfirm.dispatching", "Despachando…") : t("reviewFixConfirm.dispatch", "Despachar agente")}
           </button>
         </footer>
       </div>

@@ -9,6 +9,7 @@ import { History, RefreshCw, X } from "lucide-react";
 
 import { sessionsList, sessionEventsList, type SessionRow, type SessionEvent } from "@/lib/session-client";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 interface Props {
   onClose: () => void;
@@ -48,6 +49,7 @@ function statusStyle(s: string): string {
 }
 
 export function SessionHistoryModal({ onClose }: Props) {
+  const t = useT();
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,19 +97,19 @@ export function SessionHistoryModal({ onClose }: Props) {
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <History size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text">Histórico de sessões</span>
-          <span className="text-[11px] text-textMuted opacity-60">{sessions.length} registradas</span>
+          <span className="text-sm font-medium text-text">{t("sessionHistory.title", "Histórico de sessões")}</span>
+          <span className="text-[11px] text-textMuted opacity-60">{sessions.length} {t("sessionHistory.recorded", "registradas")}</span>
           <div className="flex-1" />
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="filtrar (role, paralelo, branch…)"
+            placeholder={t("sessionHistory.filterPh", "filtrar (role, paralelo, branch…)")}
             className="w-56 px-2 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand"
           />
-          <button onClick={() => void load()} title="Recarregar" className="text-textMuted hover:text-brand p-1">
+          <button onClick={() => void load()} title={t("common.reload", "Recarregar")} className="text-textMuted hover:text-brand p-1">
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
-          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar">
+          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("common.close", "Fechar")}>
             <X size={16} />
           </button>
         </header>
@@ -121,9 +123,9 @@ export function SessionHistoryModal({ onClose }: Props) {
             {/* Lista de sessões */}
             <div className="w-80 shrink-0 border-r border-border overflow-auto bg-bg/40">
               {loading && sessions.length === 0 ? (
-                <p className="px-3 py-3 text-[11px] text-textMuted opacity-60">Carregando…</p>
+                <p className="px-3 py-3 text-[11px] text-textMuted opacity-60">{t("common.loading", "Carregando…")}</p>
               ) : filtered.length === 0 ? (
-                <p className="px-3 py-3 text-[11px] text-textMuted opacity-60">Nenhuma sessão ainda. Suba um agente.</p>
+                <p className="px-3 py-3 text-[11px] text-textMuted opacity-60">{t("sessionHistory.empty", "Nenhuma sessão ainda. Suba um agente.")}</p>
               ) : (
                 filtered.map((s) => (
                   <button
@@ -155,25 +157,25 @@ export function SessionHistoryModal({ onClose }: Props) {
                 <div className="p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <span className={cn("text-xs font-medium", statusStyle(current.status))}>{current.status}</span>
-                    <span className="text-sm text-text">{current.label || current.role || "agente"}</span>
+                    <span className="text-sm text-text">{current.label || current.role || t("sessionHistory.agent", "agente")}</span>
                   </div>
                   <dl className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-1 text-[11px] mb-4">
-                    {current.role && (<><dt className="text-textMuted">Role</dt><dd className="text-text">{current.role}</dd></>)}
-                    {current.floorName && (<><dt className="text-textMuted">Floor</dt><dd className="text-text">{current.floorName}</dd></>)}
-                    {current.branch && (<><dt className="text-textMuted">Branch</dt><dd className="text-brand font-mono">{current.branch}</dd></>)}
-                    {current.command && (<><dt className="text-textMuted">Comando</dt><dd className="text-text font-mono break-all">{current.command}</dd></>)}
+                    {current.role && (<><dt className="text-textMuted">{t("sessionHistory.role", "Role")}</dt><dd className="text-text">{current.role}</dd></>)}
+                    {current.floorName && (<><dt className="text-textMuted">{t("sessionHistory.floor", "Floor")}</dt><dd className="text-text">{current.floorName}</dd></>)}
+                    {current.branch && (<><dt className="text-textMuted">{t("sessionHistory.branch", "Branch")}</dt><dd className="text-brand font-mono">{current.branch}</dd></>)}
+                    {current.command && (<><dt className="text-textMuted">{t("sessionHistory.command", "Comando")}</dt><dd className="text-text font-mono break-all">{current.command}</dd></>)}
                     {current.cwd && (<><dt className="text-textMuted">cwd</dt><dd className="text-text font-mono break-all opacity-80">{current.cwd}</dd></>)}
-                    <dt className="text-textMuted">Início</dt><dd className="text-text">{fmtTime(current.startedAt)}</dd>
-                    <dt className="text-textMuted">Fim</dt><dd className="text-text">{current.endedAt ? fmtTime(current.endedAt) : "em andamento"}</dd>
-                    <dt className="text-textMuted">Duração</dt><dd className="text-text">{fmtDuration(current.startedAt, current.endedAt)}</dd>
+                    <dt className="text-textMuted">{t("sessionHistory.start", "Início")}</dt><dd className="text-text">{fmtTime(current.startedAt)}</dd>
+                    <dt className="text-textMuted">{t("sessionHistory.end", "Fim")}</dt><dd className="text-text">{current.endedAt ? fmtTime(current.endedAt) : t("sessionHistory.inProgress", "em andamento")}</dd>
+                    <dt className="text-textMuted">{t("sessionHistory.duration", "Duração")}</dt><dd className="text-text">{fmtDuration(current.startedAt, current.endedAt)}</dd>
                   </dl>
                   {current.summary && (
                     <p className="text-[11px] text-textMuted mb-4 italic">{current.summary}</p>
                   )}
-                  <p className="text-[10px] uppercase tracking-wide text-textMuted opacity-50 mb-1">Timeline ({events.length})</p>
+                  <p className="text-[10px] uppercase tracking-wide text-textMuted opacity-50 mb-1">{t("sessionHistory.timeline", "Timeline")} ({events.length})</p>
                   <div className="space-y-1">
                     {events.length === 0 ? (
-                      <p className="text-[11px] text-textMuted opacity-50">Sem eventos.</p>
+                      <p className="text-[11px] text-textMuted opacity-50">{t("sessionHistory.noEvents", "Sem eventos.")}</p>
                     ) : (
                       events.map((e, i) => (
                         <div key={i} className="flex items-start gap-2 text-[11px]">
@@ -186,7 +188,7 @@ export function SessionHistoryModal({ onClose }: Props) {
                   </div>
                 </div>
               ) : (
-                <p className="px-3 py-3 text-[11px] text-textMuted opacity-50">Selecione uma sessão.</p>
+                <p className="px-3 py-3 text-[11px] text-textMuted opacity-50">{t("sessionHistory.selectOne", "Selecione uma sessão.")}</p>
               )}
             </div>
           </div>

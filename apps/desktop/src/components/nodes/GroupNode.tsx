@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { NodeHelp } from "@/components/NodeHelp";
+import { useT } from "@/lib/i18n";
 import type { GroupNode as GroupNodeData } from "@/types/canvas";
 
 type GroupRfNode = Node<GroupNodeData & Record<string, unknown>, "group">;
@@ -11,6 +12,7 @@ type GroupRfNode = Node<GroupNodeData & Record<string, unknown>, "group">;
 const GROUP_COLORS = ["#29a2a7", "#9a6dd7", "#46a758", "#f5a623", "#e5484d", "#3b8bd4"];
 
 export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
+  const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const empty = useCanvasStore((s) => !s.floors.some((f) => f.nodes.some((n) => n.parentId === id)));
@@ -59,7 +61,7 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
           <span
             className="flex-1 text-xs font-medium truncate cursor-text"
             onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}
-            title="Duplo-clique pra renomear"
+            title={t("group.renameHint", "Duplo-clique pra renomear")}
           >
             {label}
           </span>
@@ -67,17 +69,17 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
         <NodeHelp
           side="bottom"
           className="opacity-70 hover:opacity-100"
-          text="Grupo: arraste pelo título pra mover tudo junto. Solte outros nodes por cima pra agrupar. Duplo-clique no nome pra renomear; o círculo troca a cor; a alça do canto redimensiona."
+          text={t("group.help", "Grupo: arraste pelo título pra mover tudo junto. Solte outros nodes por cima pra agrupar. Duplo-clique no nome pra renomear; o círculo troca a cor; a alça do canto redimensiona.")}
         />
         <button
           onClick={(e) => { e.stopPropagation(); patchNode(id, { color: nextColor }); }}
-          title="Trocar cor"
+          title={t("group.changeColor", "Trocar cor")}
           className="w-3 h-3 rounded-full border border-black/20 shrink-0"
           style={{ background: nextColor }}
         />
         <button
           onClick={(e) => { e.stopPropagation(); removeNode(id); }}
-          title="Excluir grupo"
+          title={t("group.delete", "Excluir grupo")}
           className="opacity-60 hover:opacity-100 shrink-0"
         >
           <X size={12} />
@@ -88,7 +90,7 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
       <div className="flex-1 flex items-center justify-center pointer-events-none select-none">
         {empty && (
           <span className="text-[11px] opacity-50" style={{ color }}>
-            arraste nodes pra cá pra agrupar
+            {t("group.emptyHint", "arraste nodes pra cá pra agrupar")}
           </span>
         )}
       </div>

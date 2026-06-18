@@ -4,6 +4,7 @@ import { Globe, Send, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { useNodeMaximize } from "@/hooks/useNodeMaximize";
+import { useT } from "@/lib/i18n";
 import { NodeHelp } from "@/components/NodeHelp";
 import { httpRequest, type HttpResponse } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
@@ -31,6 +32,7 @@ function pretty(body: string): string {
 }
 
 export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
+  const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [method, setMethod] = useState(data.method || "GET");
@@ -66,9 +68,9 @@ export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <Globe size={12} className="text-brand shrink-0" />
         <span className="text-xs font-medium truncate flex-1">API</span>
-        <NodeHelp text="Cliente HTTP: escolha o método, digite a URL e tecle Enter (ou Send). Em POST/PUT/PATCH preencha o corpo JSON. A resposta e o status aparecem abaixo." />
+        <NodeHelp text={t("api.help", "Cliente HTTP: escolha o método, digite a URL e tecle Enter (ou Send). Em POST/PUT/PATCH preencha o corpo JSON. A resposta e o status aparecem abaixo.")} />
         {maxBtn}
-        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title={t("common.close", "Fechar")} className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
       </header>
@@ -90,16 +92,16 @@ export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void send(); e.stopPropagation(); }}
           onPointerDown={(e) => e.stopPropagation()}
-          placeholder="api.exemplo.com/v1/users ou localhost:3000/..."
+          placeholder={t("api.urlPlaceholder", "api.exemplo.com/v1/users ou localhost:3000/...")}
           className="flex-1 min-w-0 px-1.5 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand"
         />
         <button
           onClick={() => void send()}
           disabled={loading || !url.trim()}
-          title="Enviar"
+          title={t("api.send", "Enviar")}
           className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
-          <Send size={11} /> {loading ? "…" : "Send"}
+          <Send size={11} /> {loading ? "…" : t("api.sendLabel", "Send")}
         </button>
       </div>
 
@@ -109,7 +111,7 @@ export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
           value={body}
           onChange={(e) => setBody(e.target.value)}
           onPointerDown={(e) => e.stopPropagation()}
-          placeholder='{ "json": "do corpo" }'
+          placeholder={t("api.bodyPlaceholder", '{ "json": "do corpo" }')}
           className="nodrag h-20 shrink-0 px-2 py-1.5 text-[11px] bg-bg border-b border-border text-text resize-none focus:outline-none font-mono placeholder:text-textMuted"
         />
       )}
@@ -133,7 +135,7 @@ export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
           </>
         ) : (
           <p className="px-2 py-2 text-[10px] text-textMuted opacity-50">
-            A resposta aparece aqui. Enter ou Send pra disparar.
+            {t("api.emptyHint", "A resposta aparece aqui. Enter ou Send pra disparar.")}
           </p>
         )}
       </div>

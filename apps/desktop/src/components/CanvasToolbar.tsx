@@ -9,6 +9,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { Tooltip } from "@/components/Tooltip";
+import { useT } from "@/lib/i18n";
 
 function ToolBtn({
   label,
@@ -35,6 +36,7 @@ function ToolBtn({
 }
 
 export function CanvasToolbar() {
+  const t = useT();
   const addTerminal = useCanvasStore((s) => s.addTerminal);
   const addNote = useCanvasStore((s) => s.addNote);
   const addGroup = useCanvasStore((s) => s.addGroup);
@@ -58,27 +60,27 @@ export function CanvasToolbar() {
   return (
     <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-0.5 px-1.5 py-1 rounded-xl bg-surface2/90 backdrop-blur border border-border shadow-lg">
       <ToolBtn
-        label="Terminal (shell)"
+        label={t("toolbar.terminal", "Terminal (shell)")}
         icon={TerminalSquare}
         onClick={() => addTerminal({ command: "bash", role: "shell", label: "shell" })}
       />
-      <ToolBtn label="Nota" icon={StickyNote} onClick={() => addNote()} />
-      <ToolBtn label="Grupo (frame)" icon={Frame} onClick={() => addGroup()} />
+      <ToolBtn label={t("toolbar.note", "Nota")} icon={StickyNote} onClick={() => addNote()} />
+      <ToolBtn label={t("toolbar.group", "Grupo (frame)")} icon={Frame} onClick={() => addGroup()} />
       <ToolBtn
-        label={currentCwd ? "Árvore de arquivos do projeto" : "Abra um projeto primeiro"}
+        label={currentCwd ? t("toolbar.fileTree", "Árvore de arquivos do projeto") : t("toolbar.openProjectFirst", "Abra um projeto primeiro")}
         icon={FolderTree}
         disabled={!currentCwd}
         onClick={() => currentCwd && addFileTree({ rootPath: currentCwd })}
       />
-      <ToolBtn label="Sketch (tldraw)" icon={Pencil} onClick={() => addSketch()} />
-      <ToolBtn label="Portal (browser)" icon={Globe} onClick={() => addPortal()} />
-      <ToolBtn label="API (cliente HTTP)" icon={Webhook} onClick={() => addApiNode()} />
-      <ToolBtn label="DB (SQLite)" icon={Database} onClick={() => addDbNode()} />
-      <ToolBtn label="DevTools (base64/JWT/hash/JSON⇄YAML…)" icon={Wrench} onClick={() => addDevToolsNode()} />
-      <ToolBtn label="JSON (formatar + árvore)" icon={Braces} onClick={() => addJsonNode()} />
-      <ToolBtn label="explainshell (explica comandos)" icon={ScrollText} onClick={() => addExplainNode()} />
-      <ToolBtn label="Preview (.md / .html)" icon={FileText} onClick={() => addPreviewNode()} />
-      <ToolBtn label="Código (editor Monaco)" icon={FileCode2} onClick={() => void pickAndAddCode()} />
+      <ToolBtn label={t("toolbar.sketch", "Sketch (tldraw)")} icon={Pencil} onClick={() => addSketch()} />
+      <ToolBtn label={t("toolbar.portal", "Portal (browser)")} icon={Globe} onClick={() => addPortal()} />
+      <ToolBtn label={t("toolbar.api", "API (cliente HTTP)")} icon={Webhook} onClick={() => addApiNode()} />
+      <ToolBtn label={t("toolbar.db", "DB (SQLite)")} icon={Database} onClick={() => addDbNode()} />
+      <ToolBtn label={t("toolbar.devtools", "DevTools (base64/JWT/hash/JSON⇄YAML…)")} icon={Wrench} onClick={() => addDevToolsNode()} />
+      <ToolBtn label={t("toolbar.json", "JSON (formatar + árvore)")} icon={Braces} onClick={() => addJsonNode()} />
+      <ToolBtn label={t("toolbar.explain", "explainshell (explica comandos)")} icon={ScrollText} onClick={() => addExplainNode()} />
+      <ToolBtn label={t("toolbar.preview", "Preview (.md / .html)")} icon={FileText} onClick={() => addPreviewNode()} />
+      <ToolBtn label={t("toolbar.code", "Código (editor Monaco)")} icon={FileCode2} onClick={() => void pickAndAddCode()} />
     </div>
   );
 }

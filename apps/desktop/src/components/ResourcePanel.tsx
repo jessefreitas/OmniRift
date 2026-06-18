@@ -9,6 +9,7 @@ import { useResourceStore } from "@/store/resource-store";
 import { useCanvasStore } from "@/store/canvas-store";
 import type { AgentStat, ResourceSample } from "@/types/metrics";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { X } from "lucide-react";
 
 function gb(bytes: number): string {
@@ -75,6 +76,7 @@ function Metric({
 }
 
 export function ResourcePanel() {
+  const t = useT();
   const expanded = useResourceStore((s) => s.expanded);
   const setExpanded = useResourceStore((s) => s.setExpanded);
   const last = useResourceStore((s) => s.last);
@@ -111,29 +113,29 @@ export function ResourcePanel() {
   return (
     <div className="fixed bottom-12 right-3 z-[56] w-[340px] max-h-[72vh] rounded-lg border border-border bg-surface1/95 backdrop-blur shadow-2xl flex flex-col overflow-hidden">
       <header className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
-        <span className="text-xs font-medium text-text">Recursos</span>
-        <span className="text-[10px] text-textMuted font-mono">tempo real · 1s</span>
+        <span className="text-xs font-medium text-text">{t("resources.title", "Recursos")}</span>
+        <span className="text-[10px] text-textMuted font-mono">{t("resources.realtime", "tempo real · 1s")}</span>
         <div className="flex-1" />
-        <button onClick={() => setExpanded(false)} className="text-textMuted hover:text-text" title="Fechar">
+        <button onClick={() => setExpanded(false)} className="text-textMuted hover:text-text" title={t("resources.close", "Fechar")}>
           <X size={14} />
         </button>
       </header>
 
       {/* Abas: Geral + 1 por agente */}
       <div className="flex gap-1 px-2 pt-1.5 border-b border-border shrink-0 overflow-x-auto">
-        {[{ id: "geral", label: "Geral" }, ...agents.map((a) => ({ id: a.sessionId, label: labelOf(a.sessionId) }))].map((t) => (
+        {[{ id: "geral", label: t("resources.general", "Geral") }, ...agents.map((a) => ({ id: a.sessionId, label: labelOf(a.sessionId) }))].map((tab_) => (
           <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            title={t.label}
+            key={tab_.id}
+            onClick={() => setTab(tab_.id)}
+            title={tab_.label}
             className={
               "px-2.5 py-1 text-[11px] rounded-t-md border-b-2 -mb-px whitespace-nowrap max-w-[110px] truncate transition-colors " +
-              ((tab === t.id || (tab !== "geral" && !active && t.id === "geral"))
+              ((tab === tab_.id || (tab !== "geral" && !active && tab_.id === "geral"))
                 ? "border-brand text-text"
                 : "border-transparent text-textMuted hover:text-text")
             }
           >
-            {t.label}
+            {tab_.label}
           </button>
         ))}
       </div>
@@ -143,16 +145,16 @@ export function ResourcePanel() {
           <>
             <Metric label="CPU" value={`${g.cpuPct.toFixed(0)}%`} pct={g.cpuPct} spark={{ values: series((s) => s.global.cpuPct), max: 100 }} />
             <Metric label="RAM" value={`${gb(g.memUsed)} / ${gb(g.memTotal)} GB`} pct={memPct} spark={{ values: series((s) => (s.global.memTotal > 0 ? (s.global.memUsed / s.global.memTotal) * 100 : 0)), max: 100 }} />
-            {g.swapTotal > 0 && <Metric label="Swap" value={`${gb(g.swapUsed)} / ${gb(g.swapTotal)} GB`} pct={swapPct} />}
-            <Metric label="Disco" value={`${gb(g.disk.used)} / ${gb(g.disk.total)} GB`} pct={diskPct} />
-            <Metric label="Rede ↓" value={rate(g.net.rxBytesPerSec)} spark={{ values: series((s) => s.global.net.rxBytesPerSec), max: netMax }} />
-            <Metric label="Rede ↑" value={rate(g.net.txBytesPerSec)} spark={{ values: series((s) => s.global.net.txBytesPerSec), max: netMax }} />
+            {g.swapTotal > 0 && <Metric label={t("resources.swap", "Swap")} value={`${gb(g.swapUsed)} / ${gb(g.swapTotal)} GB`} pct={swapPct} />}
+            <Metric label={t("resources.disk", "Disco")} value={`${gb(g.disk.used)} / ${gb(g.disk.total)} GB`} pct={diskPct} />
+            <Metric label={t("resources.netDown", "Rede ↓")} value={rate(g.net.rxBytesPerSec)} spark={{ values: series((s) => s.global.net.rxBytesPerSec), max: netMax }} />
+            <Metric label={t("resources.netUp", "Rede ↑")} value={rate(g.net.txBytesPerSec)} spark={{ values: series((s) => s.global.net.txBytesPerSec), max: netMax }} />
             {last.gpus.map((gpu, i) => (
               <Metric key={i} label={`GPU · ${gpu.vendor}`} value={`${gpu.utilPct.toFixed(0)}% · ${gb(gpu.vramUsed)}/${gb(gpu.vramTotal)}GB${gpu.tempC != null ? ` · ${gpu.tempC.toFixed(0)}°C` : ""}`} pct={gpu.utilPct} spark={{ values: series((s) => s.gpus[i]?.utilPct ?? 0), max: 100 }} />
             ))}
             {agents.length > 0 && (
               <div className="px-3 py-2 text-[10px] text-textMuted opacity-60">
-                {agents.length} agente(s) ativos — abra a aba de cada um pra ver o consumo.
+                {agents.length} {t("resources.agentsActive", "agente(s) ativos — abra a aba de cada um pra ver o consumo.")}
               </div>
             )}
           </>
@@ -163,12 +165,12 @@ export function ResourcePanel() {
               <span className="text-[10px] text-textMuted font-mono">PID {active.pid}</span>
             </div>
             <Metric label="CPU" value={`${active.cpuPct.toFixed(0)}%`} pct={active.cpuPct} spark={{ values: agentSeries(active.sessionId, (a) => a.cpuPct), max: Math.max(100, ...agentSeries(active.sessionId, (a) => a.cpuPct)) }} />
-            <Metric label="RAM (RSS)" value={mem(active.rssBytes)} pct={g.memTotal > 0 ? (active.rssBytes / g.memTotal) * 100 : undefined} spark={{ values: agentSeries(active.sessionId, (a) => a.rssBytes) }} />
+            <Metric label={t("resources.ramRss", "RAM (RSS)")} value={mem(active.rssBytes)} pct={g.memTotal > 0 ? (active.rssBytes / g.memTotal) * 100 : undefined} spark={{ values: agentSeries(active.sessionId, (a) => a.rssBytes) }} />
             {active.vramBytes != null && (
               <Metric label="VRAM" value={mem(active.vramBytes)} spark={{ values: agentSeries(active.sessionId, (a) => a.vramBytes ?? 0) }} />
             )}
             <div className="px-3 py-2 text-[10px] text-textMuted opacity-60">
-              Soma do processo-raiz do agente + descendentes. CPU% pode passar de 100% (vários núcleos).
+              {t("resources.agentSumNote", "Soma do processo-raiz do agente + descendentes. CPU% pode passar de 100% (vários núcleos).")}
             </div>
           </>
         )}

@@ -10,6 +10,7 @@ import { useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { HelpCircle } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 const W = 240; // largura do balão
 
@@ -23,6 +24,7 @@ export function NodeHelp({
   /** Aceito por compat (ignorado: a posição é calculada). */
   side?: "right" | "top" | "bottom";
 }) {
+  const t = useT();
   const ref = useRef<HTMLSpanElement | null>(null);
   const [box, setBox] = useState<CSSProperties | null>(null);
 
@@ -48,7 +50,7 @@ export function NodeHelp({
         onMouseEnter={show}
         onMouseLeave={() => setBox(null)}
         className={cn("flex items-center cursor-help", className ?? "text-textMuted hover:text-brand")}
-        aria-label="Como usar"
+        aria-label={t("nodeHelp.ariaLabel", "Como usar")}
       >
         <HelpCircle size={12} />
       </span>

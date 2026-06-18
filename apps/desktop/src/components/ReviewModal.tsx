@@ -16,6 +16,7 @@ import { detectEditors, loadPreferredEditor, openInEditor } from "@/lib/editor-c
 import { ReviewSnippet } from "@/components/ReviewSnippet";
 import { ReviewFixConfirm } from "@/components/ReviewFixConfirm";
 import { useCanvasStore } from "@/store/canvas-store";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import type { Floor } from "@/types/workspace";
 
@@ -41,6 +42,7 @@ function sevStyle(s: Severity): string {
 }
 
 export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props) {
+  const t = useT();
   const [result, setResult] = useState<ReviewResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,13 +78,13 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
   }
 
   async function ignore(f: Finding) {
-    const reason = window.prompt(`Ignorar "${f.title}"?\nMotivo (grava em .forgejo/review-suppress.json):`, "falso-positivo reconhecido");
+    const reason = window.prompt(`${t("review.ignorePromptPrefix", "Ignorar")} "${f.title}"?\n${t("review.ignorePromptReason", "Motivo (grava em .forgejo/review-suppress.json):")}`, t("review.ignoreDefaultReason", "falso-positivo reconhecido"));
     if (reason === null) return;
     const kws = Array.from(new Set((f.title.toLowerCase().match(/[\p{L}0-9]{4,}/gu) ?? []))).slice(0, 4);
     const dir = floor.worktreePath || floor.repoRoot || ".";
     try {
       const cur = await reviewSuppressRead(dir);
-      await reviewSuppressWrite(dir, [...cur, { file: f.file, keywords: kws.length ? kws : [f.title.toLowerCase()], reason: reason || "ignorado pela UI" }]);
+      await reviewSuppressWrite(dir, [...cur, { file: f.file, keywords: kws.length ? kws : [f.title.toLowerCase()], reason: reason || t("review.ignoreFallbackReason", "ignorado pela UI") }]);
       setDismissed((d) => new Set(d).add(fkey(f)));
     } catch (e) {
       setError(String(e));
@@ -119,7 +121,7 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
     else if (fixBusyRef.current && (fixAgentStatus === "done" || fixAgentStatus === "idle")) {
       fixBusyRef.current = false;
       setFixingAgentId(null);
-      setDispatchNote("Agente de correção terminou — re-revisando…");
+      setDispatchNote(t("review.fixerDone", "Agente de correção terminou — re-revisando…"));
       void run();
     }
   }, [fixAgentStatus, fixingAgentId]);
@@ -137,7 +139,7 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <ScanLine size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text">Code Review</span>
+          <span className="text-sm font-medium text-text">{t("review.title", "Code Review")}</span>
           <span className="text-xs text-textMuted font-mono">{floor.branch ?? floor.name} <span className="opacity-50">vs</span> {base}</span>
           {result && (
             <span className={cn("text-[11px] font-bold px-1.5 py-0.5 rounded", result.verdict === "GO" ? "text-green-400 bg-green-500/15" : "text-danger bg-danger/15")}>
@@ -145,28 +147,28 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
             </span>
           )}
           <div className="flex-1" />
-          <button onClick={() => setShowHistory((h) => !h)} title="Histórico de reviews" className={cn("p-1", showHistory ? "text-brand" : "text-textMuted hover:text-brand")}><History size={14} /></button>
-          <button onClick={onEditPolicy} title="Editar política de review" className="text-textMuted hover:text-brand p-1"><Sliders size={14} /></button>
-          <button onClick={onConfigure} title="Configurar LLM (BYOK)" className="text-textMuted hover:text-brand p-1"><Settings2 size={14} /></button>
-          <button onClick={() => void run()} disabled={!config} title="Rodar de novo" className="text-textMuted hover:text-brand p-1 disabled:opacity-40">
+          <button onClick={() => setShowHistory((h) => !h)} title={t("review.historyTitle", "Histórico de reviews")} className={cn("p-1", showHistory ? "text-brand" : "text-textMuted hover:text-brand")}><History size={14} /></button>
+          <button onClick={onEditPolicy} title={t("review.editPolicy", "Editar política de review")} className="text-textMuted hover:text-brand p-1"><Sliders size={14} /></button>
+          <button onClick={onConfigure} title={t("review.configureLlm", "Configurar LLM (BYOK)")} className="text-textMuted hover:text-brand p-1"><Settings2 size={14} /></button>
+          <button onClick={() => void run()} disabled={!config} title={t("review.runAgain", "Rodar de novo")} className="text-textMuted hover:text-brand p-1 disabled:opacity-40">
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
-          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar"><X size={16} /></button>
+          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("review.close", "Fechar")}><X size={16} /></button>
         </header>
 
         <div className="flex-1 overflow-auto">
           {showHistory && (
             <div className="border-b border-border bg-bg/30">
-              <div className="px-4 py-1 text-[10px] uppercase tracking-wide text-textMuted">Histórico · {trend.length} run(s)</div>
+              <div className="px-4 py-1 text-[10px] uppercase tracking-wide text-textMuted">{t("review.history", "Histórico")} · {trend.length} run(s)</div>
               {trend.length === 0 ? (
-                <p className="px-4 py-2 text-[11px] text-textMuted opacity-60">Sem histórico ainda — rode um review.</p>
+                <p className="px-4 py-2 text-[11px] text-textMuted opacity-60">{t("review.noHistory", "Sem histórico ainda — rode um review.")}</p>
               ) : (
-                trend.slice(0, 12).map((t) => (
-                  <div key={t.runTs} className="flex items-center gap-2 px-4 py-1 text-[11px] border-b border-border/30">
-                    <span className={cn("font-bold w-12", t.verdict === "GO" ? "text-green-400" : "text-danger")}>{t.verdict ?? "?"}</span>
-                    <span className="text-textMuted">{t.count} achado(s)</span>
+                trend.slice(0, 12).map((tr) => (
+                  <div key={tr.runTs} className="flex items-center gap-2 px-4 py-1 text-[11px] border-b border-border/30">
+                    <span className={cn("font-bold w-12", tr.verdict === "GO" ? "text-green-400" : "text-danger")}>{tr.verdict ?? "?"}</span>
+                    <span className="text-textMuted">{tr.count} {t("review.findings", "achado(s)")}</span>
                     <span className="flex-1" />
-                    <span className="text-textMuted opacity-60 font-mono text-[10px]">{t.runTs}</span>
+                    <span className="text-textMuted opacity-60 font-mono text-[10px]">{tr.runTs}</span>
                   </div>
                 ))
               )}
@@ -180,18 +182,18 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
           )}
           {!config ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center">
-              <p className="text-[13px] text-textMuted">Nenhum LLM configurado pro review.</p>
-              <button onClick={onConfigure} className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover">Configurar LLM (BYOK)</button>
+              <p className="text-[13px] text-textMuted">{t("review.noLlm", "Nenhum LLM configurado pro review.")}</p>
+              <button onClick={onConfigure} className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover">{t("review.configureLlmBtn", "Configurar LLM (BYOK)")}</button>
             </div>
           ) : loading && !result ? (
-            <p className="px-4 py-4 text-[12px] text-textMuted">Revisando o diff com o LLM… (pode levar alguns segundos)</p>
+            <p className="px-4 py-4 text-[12px] text-textMuted">{t("review.reviewing", "Revisando o diff com o LLM… (pode levar alguns segundos)")}</p>
           ) : error ? (
             <p className="px-4 py-4 text-[12px] text-danger font-mono whitespace-pre-wrap">{error}</p>
           ) : result ? (
             <>
               <p className="px-4 py-2 text-[11px] text-textMuted border-b border-border/50">{result.summary}</p>
               {grouped.length === 0 ? (
-                <p className="px-4 py-4 text-[12px] text-green-400">✓ Nenhum problema encontrado.</p>
+                <p className="px-4 py-4 text-[12px] text-green-400">✓ {t("review.noProblems", "Nenhum problema encontrado.")}</p>
               ) : (
                 grouped.map((g) => (
                   <div key={g.sev}>
@@ -205,8 +207,8 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
                           <span className="text-[11px] text-brand font-mono">{f.file}{f.line ? `:${f.line}` : ""}</span>
                           <span className="text-[12px] text-text">{f.title}</span>
                           {(recur.get(`${f.file}|${f.title}`) ?? 0) > 0 && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/15 text-yellow-300 border border-yellow-400/30" title="apareceu em runs anteriores deste escopo">
-                              voltou {recur.get(`${f.file}|${f.title}`)}×
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/15 text-yellow-300 border border-yellow-400/30" title={t("review.recurredTitle", "apareceu em runs anteriores deste escopo")}>
+                              {t("review.recurred", "voltou")} {recur.get(`${f.file}|${f.title}`)}×
                             </span>
                           )}
                         </div>
@@ -214,21 +216,21 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
                         <div className="flex items-center gap-3 mt-1.5 pl-1 text-[10px]">
                           {isReal(f.file) && (
                             <button onClick={() => toggleExpand(fkey(f))} className="flex items-center gap-0.5 text-textMuted hover:text-brand">
-                              {expanded.has(fkey(f)) ? <ChevronDown size={11} /> : <ChevronRight size={11} />} trecho
+                              {expanded.has(fkey(f)) ? <ChevronDown size={11} /> : <ChevronRight size={11} />} {t("review.snippet", "trecho")}
                             </button>
                           )}
                           {isReal(f.file) && editorCmd && floor.worktreePath && (
                             <button onClick={() => void openInEditor(editorCmd, `${floor.worktreePath}/${f.file}`, f.line)} className="flex items-center gap-0.5 text-textMuted hover:text-brand">
-                              <ExternalLink size={11} /> abrir
+                              <ExternalLink size={11} /> {t("review.open", "abrir")}
                             </button>
                           )}
                           {isReal(f.file) && (
-                            <button onClick={() => setFixing(f)} className="flex items-center gap-0.5 text-textMuted hover:text-brand" title="Despachar um agente pra corrigir (avisa e pede permissão antes de editar)">
-                              <Wand2 size={11} /> corrigir
+                            <button onClick={() => setFixing(f)} className="flex items-center gap-0.5 text-textMuted hover:text-brand" title={t("review.fixTitle", "Despachar um agente pra corrigir (avisa e pede permissão antes de editar)")}>
+                              <Wand2 size={11} /> {t("review.fix", "corrigir")}
                             </button>
                           )}
-                          <button onClick={() => void ignore(f)} className="flex items-center gap-0.5 text-textMuted hover:text-danger" title="Suprimir esse achado (com motivo) nas próximas runs">
-                            <EyeOff size={11} /> ignorar
+                          <button onClick={() => void ignore(f)} className="flex items-center gap-0.5 text-textMuted hover:text-danger" title={t("review.ignoreTitle", "Suprimir esse achado (com motivo) nas próximas runs")}>
+                            <EyeOff size={11} /> {t("review.ignore", "ignorar")}
                           </button>
                         </div>
                         {expanded.has(fkey(f)) && isReal(f.file) && floor.worktreePath && (
@@ -244,7 +246,7 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
         </div>
 
         <footer className="px-4 py-1.5 border-t border-border text-[10px] text-textMuted opacity-60 shrink-0">
-          Gate: <b>{policy.gate}</b> · thresholds {policy.thresholds.maxCritical} CRITICAL / {policy.thresholds.maxWarning} WARNING · LLM do usuário (BYOK).
+          {t("review.gate", "Gate:")} <b>{policy.gate}</b> · {t("review.thresholds", "thresholds")} {policy.thresholds.maxCritical} CRITICAL / {policy.thresholds.maxWarning} WARNING · {t("review.userLlm", "LLM do usuário (BYOK).")}
         </footer>
         {fixing && (
           <ReviewFixConfirm

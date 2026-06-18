@@ -7,8 +7,10 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
 
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 export function NodeComment({ value, onChange }: { value?: string; onChange: (v: string) => void }) {
+  const t = useT();
   const [open, setOpen] = useState(!!value);
   const has = !!value?.trim();
 
@@ -23,7 +25,7 @@ export function NodeComment({ value, onChange }: { value?: string; onChange: (v:
         )}
       >
         <MessageSquare size={11} className="shrink-0" />
-        Comentário
+        {t("comment.label", "Comentário")}
         {has && !open && <span className="opacity-60 truncate font-normal">— {value}</span>}
         <span className="flex-1" />
         {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
@@ -33,7 +35,7 @@ export function NodeComment({ value, onChange }: { value?: string; onChange: (v:
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
           onPointerDown={(e) => e.stopPropagation()}
-          placeholder="anotação sobre este nó…"
+          placeholder={t("comment.placeholder", "anotação sobre este nó…")}
           rows={3}
           className="nowheel w-full px-2 py-1.5 text-[11px] bg-bg text-text resize-none focus:outline-none border-t border-border placeholder:text-textMuted"
         />

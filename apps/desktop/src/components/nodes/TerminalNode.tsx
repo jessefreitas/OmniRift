@@ -10,6 +10,7 @@ import {
 import { Terminal as TerminalIcon, X, Maximize2, Minimize2, RefreshCw, Crown } from "lucide-react";
 
 import { useTerminalSession } from "@/hooks/useTerminalSession";
+import { useT } from "@/lib/i18n";
 import { useCanvasStore } from "@/store/canvas-store";
 import { NodeHelp } from "@/components/NodeHelp";
 import { getOrchestratorMount, subscribeOrchestratorMount } from "@/lib/orchestrator-dock-mount";
@@ -30,6 +31,7 @@ type TerminalRfNode = Node<TerminalNodeData & Record<string, unknown>, "terminal
 type TerminalNodeProps = NodeProps<TerminalRfNode>;
 
 function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
+  const t = useT();
   const removeNode = useCanvasStore((s) => s.removeNode);
   const renameNode = useCanvasStore((s) => s.renameNode);
   const addToClipboard = useCanvasStore((s) => s.addToClipboard);
@@ -217,7 +219,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             <button
               onClick={() => setIsFullscreen(false)}
               className="p-1 rounded hover:bg-bg hover:text-text transition-colors"
-              aria-label="Sair da tela cheia"
+              aria-label={t("terminal.exitFullscreen", "Sair da tela cheia")}
             >
               <Minimize2 size={14} />
             </button>
@@ -305,7 +307,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
                 e.stopPropagation();
                 setEditing(true);
               }}
-              title="Duplo-clique para renomear"
+              title={t("terminal.doubleClickRename", "Duplo-clique para renomear")}
             >
               {data.label ?? data.command}
             </span>
@@ -342,14 +344,14 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
                 reconnect();
               }}
               className="p-1 rounded hover:bg-bg hover:text-green-400 transition-colors"
-              aria-label="Reconectar terminal"
-              title="Reconectar"
+              aria-label={t("terminal.reconnectTerminal", "Reconectar terminal")}
+              title={t("terminal.reconnect", "Reconectar")}
             >
               <RefreshCw size={12} />
             </button>
           )}
 
-          <NodeHelp text="Terminal/agente: digite normalmente. Duplo-clique no nome pra renomear. Ligue a saída deste node na entrada de outro pelas alças laterais (pipe A→B). ⤢ abre em tela cheia; ⟳ reconecta se o processo morrer." />
+          <NodeHelp text={t("terminal.help", "Terminal/agente: digite normalmente. Duplo-clique no nome pra renomear. Ligue a saída deste node na entrada de outro pelas alças laterais (pipe A→B). ⤢ abre em tela cheia; ⟳ reconecta se o processo morrer.")} />
           {/* Botão maximizar */}
           <button
             onClick={(e) => {
@@ -357,7 +359,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
               setIsFullscreen(true);
             }}
             className="p-1 rounded hover:bg-bg hover:text-text transition-colors"
-            aria-label="Tela cheia"
+            aria-label={t("terminal.fullscreen", "Tela cheia")}
           >
             <Maximize2 size={12} />
           </button>
@@ -369,7 +371,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
               removeNode(id);
             }}
             className="p-1 rounded hover:bg-bg hover:text-danger transition-colors"
-            aria-label="Fechar terminal"
+            aria-label={t("terminal.closeTerminal", "Fechar terminal")}
           >
             <X size={12} />
           </button>
@@ -393,25 +395,25 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
 
           {!ready && !error && (
             <div className="absolute inset-0 flex items-center justify-center text-textMuted text-xs pointer-events-none">
-              iniciando {data.command}...
+              {t("terminal.starting", "iniciando")} {data.command}...
             </div>
           )}
           {error && (
             <div className="absolute inset-0 flex items-center justify-center text-danger text-xs px-4 text-center pointer-events-none">
-              falha ao iniciar: {error}
+              {t("terminal.startFailed", "falha ao iniciar")}: {error}
             </div>
           )}
           {/* Orquestrador num OUTRO floor: o xterm está no dock — aqui mostra o aviso.
               No floor dele, o terminal vive aqui no node (sem dock). */}
           {isOrch && !isFullscreen && !orchOnActiveFloor && (
             <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-bg text-textMuted text-xs pointer-events-none">
-              <Crown size={13} className="text-yellow-500" /> rodando no dock (você está em outro paralelo) ↗
+              <Crown size={13} className="text-yellow-500" /> {t("terminal.runningInDock", "rodando no dock (você está em outro paralelo) ↗")}
             </div>
           )}
           {/* Feedback ao arrastar um arquivo da árvore por cima. */}
           {dragOver && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-brand/10 text-brand text-xs font-medium pointer-events-none">
-              soltar para inserir o caminho
+              {t("terminal.dropToInsertPath", "soltar para inserir o caminho")}
             </div>
           )}
         </div>

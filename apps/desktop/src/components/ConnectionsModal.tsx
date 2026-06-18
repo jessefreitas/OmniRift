@@ -19,12 +19,14 @@ import {
   type ProviderKind,
 } from "@/lib/providers-client";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 interface Props {
   onClose: () => void;
 }
 
 export function ConnectionsModal({ onClose }: Props) {
+  const t = useT();
   const [conns, setConns] = useState<ConnectionConfig[]>([]);
   const [active, setActive] = useState<ProviderKind | null>(null);
   const [omniEndpoint, setOmniEndpoint] = useState("");
@@ -110,7 +112,7 @@ export function ConnectionsModal({ onClose }: Props) {
 
   function HealthLine({ kind }: { kind: ProviderKind }) {
     const h = health[kind];
-    if (busy === `test:${kind}`) return <span className="text-[11px] text-textMuted">testando…</span>;
+    if (busy === `test:${kind}`) return <span className="text-[11px] text-textMuted">{t("connections.testing", "testando…")}</span>;
     if (!h) return null;
     return (
       <span className={cn("text-[11px]", h.ok ? "text-green-400" : "text-danger")}>
@@ -123,7 +125,7 @@ export function ConnectionsModal({ onClose }: Props) {
     if (active !== kind) return null;
     return (
       <span className="flex items-center gap-1 text-[10px] text-brand bg-brand/15 px-1.5 py-0.5 rounded">
-        <BadgeCheck size={11} /> ativo
+        <BadgeCheck size={11} /> {t("connections.active", "ativo")}
       </span>
     );
   }
@@ -136,11 +138,11 @@ export function ConnectionsModal({ onClose }: Props) {
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <Plug size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text flex-1">Memória — Conexões</span>
-          <button onClick={() => void load()} title="Recarregar" className="text-textMuted hover:text-brand p-1">
+          <span className="text-sm font-medium text-text flex-1">{t("connections.title", "Memória — Conexões")}</span>
+          <button onClick={() => void load()} title={t("common.reload", "Recarregar")} className="text-textMuted hover:text-brand p-1">
             <RefreshCw size={14} />
           </button>
-          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar">
+          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("common.close", "Fechar")}>
             <X size={16} />
           </button>
         </header>
@@ -154,13 +156,13 @@ export function ConnectionsModal({ onClose }: Props) {
           <div className="rounded-md border border-border bg-bg/40 p-3">
             <div className="flex items-center gap-2 mb-1">
               <Database size={14} className="text-brand" />
-              <span className="text-sm text-text font-medium flex-1">Local (SQLite)</span>
+              <span className="text-sm text-text font-medium flex-1">{t("connections.localTitle", "Local (SQLite)")}</span>
               <ActiveBadge kind="local" />
             </div>
-            <p className="text-[11px] text-textMuted mb-2">Blackboard offline, zero-config — o default. Sempre disponível.</p>
+            <p className="text-[11px] text-textMuted mb-2">{t("connections.localDesc", "Blackboard offline, zero-config — o default. Sempre disponível.")}</p>
             <div className="flex items-center gap-2">
-              <button onClick={() => void activate("local")} disabled={active === "local"} className="px-2.5 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 transition-colors">Usar</button>
-              <button onClick={() => void test("local")} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border">Testar</button>
+              <button onClick={() => void activate("local")} disabled={active === "local"} className="px-2.5 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 transition-colors">{t("connections.use", "Usar")}</button>
+              <button onClick={() => void test("local")} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border">{t("common.test", "Testar")}</button>
               <HealthLine kind="local" />
             </div>
           </div>
@@ -170,10 +172,10 @@ export function ConnectionsModal({ onClose }: Props) {
             <div className="flex items-center gap-2 mb-1">
               <Brain size={14} className="text-brand" />
               <span className="text-sm text-text font-medium flex-1">OmniMemory</span>
-              {configured("omnimemory") && <span className="text-[10px] text-green-400/70">configurado</span>}
+              {configured("omnimemory") && <span className="text-[10px] text-green-400/70">{t("connections.configured", "configurado")}</span>}
               <ActiveBadge kind="omnimemory" />
             </div>
-            <p className="text-[11px] text-textMuted mb-2">Cérebro remoto (entidades + relações tipadas). Token escopado, ofuscado em repouso.</p>
+            <p className="text-[11px] text-textMuted mb-2">{t("connections.omniDesc", "Cérebro remoto (entidades + relações tipadas). Token escopado, ofuscado em repouso.")}</p>
             <div className="space-y-1.5">
               <input
                 value={omniEndpoint}
@@ -185,7 +187,7 @@ export function ConnectionsModal({ onClose }: Props) {
                 value={omniToken}
                 onChange={(e) => setOmniToken(e.target.value)}
                 type="password"
-                placeholder={configured("omnimemory") ? "token (re-digite p/ atualizar)" : "token escopado"}
+                placeholder={configured("omnimemory") ? t("connections.tokenUpdatePh", "token (re-digite p/ atualizar)") : t("connections.tokenScopedPh", "token escopado")}
                 className="w-full px-2 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand font-mono"
               />
             </div>
@@ -195,10 +197,10 @@ export function ConnectionsModal({ onClose }: Props) {
                 disabled={busy === "connect:omnimemory" || !omniEndpoint.trim() || !omniToken.trim()}
                 className="px-2.5 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 transition-colors"
               >
-                {busy === "connect:omnimemory" ? "salvando…" : "Conectar"}
+                {busy === "connect:omnimemory" ? t("connections.saving", "salvando…") : t("connections.connect", "Conectar")}
               </button>
-              <button onClick={() => void test("omnimemory")} disabled={!configured("omnimemory")} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">Testar</button>
-              <button onClick={() => void activate("omnimemory")} disabled={!configured("omnimemory") || active === "omnimemory"} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">Usar</button>
+              <button onClick={() => void test("omnimemory")} disabled={!configured("omnimemory")} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">{t("common.test", "Testar")}</button>
+              <button onClick={() => void activate("omnimemory")} disabled={!configured("omnimemory") || active === "omnimemory"} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">{t("connections.use", "Usar")}</button>
               <HealthLine kind="omnimemory" />
             </div>
           </div>
@@ -208,11 +210,11 @@ export function ConnectionsModal({ onClose }: Props) {
             <div className="flex items-center gap-2 mb-1">
               <FileText size={14} className="text-brand" />
               <span className="text-sm text-text font-medium flex-1">Obsidian</span>
-              {configured("obsidian") && <span className="text-[10px] text-green-400/70">configurado</span>}
+              {configured("obsidian") && <span className="text-[10px] text-green-400/70">{t("connections.configured", "configurado")}</span>}
               <ActiveBadge kind="obsidian" />
             </div>
             <p className="text-[11px] text-textMuted mb-2">
-              Vault local via plugin <b>Local REST API</b> (notas + <code>[[links]]</code>). Ative o plugin no Obsidian, copie a API key e use a URL HTTPS de <code>127.0.0.1</code>.
+              {t("connections.obsDesc1", "Vault local via plugin")} <b>Local REST API</b> {t("connections.obsDesc2", "(notas +")} <code>[[links]]</code>{t("connections.obsDesc3", "). Ative o plugin no Obsidian, copie a API key e use a URL HTTPS de")} <code>127.0.0.1</code>.
             </p>
             <div className="space-y-1.5">
               <input
@@ -225,7 +227,7 @@ export function ConnectionsModal({ onClose }: Props) {
                 value={obsToken}
                 onChange={(e) => setObsToken(e.target.value)}
                 type="password"
-                placeholder={configured("obsidian") ? "API key (re-digite p/ atualizar)" : "API key do Local REST API"}
+                placeholder={configured("obsidian") ? t("connections.apiKeyUpdatePh", "API key (re-digite p/ atualizar)") : t("connections.apiKeyPh", "API key do Local REST API")}
                 className="w-full px-2 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand font-mono"
               />
             </div>
@@ -235,17 +237,17 @@ export function ConnectionsModal({ onClose }: Props) {
                 disabled={busy === "connect:obsidian" || !obsEndpoint.trim() || !obsToken.trim()}
                 className="px-2.5 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 transition-colors"
               >
-                {busy === "connect:obsidian" ? "salvando…" : "Conectar"}
+                {busy === "connect:obsidian" ? t("connections.saving", "salvando…") : t("connections.connect", "Conectar")}
               </button>
-              <button onClick={() => void test("obsidian")} disabled={!configured("obsidian")} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">Testar</button>
-              <button onClick={() => void activate("obsidian")} disabled={!configured("obsidian") || active === "obsidian"} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">Usar</button>
+              <button onClick={() => void test("obsidian")} disabled={!configured("obsidian")} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">{t("common.test", "Testar")}</button>
+              <button onClick={() => void activate("obsidian")} disabled={!configured("obsidian") || active === "obsidian"} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">{t("connections.use", "Usar")}</button>
               <HealthLine kind="obsidian" />
             </div>
           </div>
         </div>
 
         <footer className="px-4 py-2 border-t border-border text-[10px] text-textMuted opacity-60 shrink-0">
-          O provider <b>ativo</b> é injetado nos agentes claude (Brain Connect) e consultado pelas tools de memória.
+          {t("connections.footer1", "O provider")} <b>{t("connections.active", "ativo")}</b> {t("connections.footer2", "é injetado nos agentes claude (Brain Connect) e consultado pelas tools de memória.")}
         </footer>
       </div>
     </div>,

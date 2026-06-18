@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import { FileDiff as FileDiffIcon, RefreshCw, X } from "lucide-react";
 
 import { floorGitDiff, type FileDiff, type FloorDiff } from "@/lib/git-client";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import type { Floor } from "@/types/workspace";
 
@@ -50,6 +51,7 @@ function DiffLines({ patch }: { patch: string }) {
 }
 
 export function DiffViewerModal({ floor, onClose }: Props) {
+  const t = useT();
   const [diff, setDiff] = useState<FloorDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,7 +97,7 @@ export function DiffViewerModal({ floor, onClose }: Props) {
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <FileDiffIcon size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text">Diff do paralelo</span>
+          <span className="text-sm font-medium text-text">{t("diffViewer.title", "Diff do paralelo")}</span>
           <span className="text-xs text-textMuted font-mono">
             {floor.branch ?? floor.name} <span className="opacity-50">vs</span> {base}
           </span>
@@ -106,10 +108,10 @@ export function DiffViewerModal({ floor, onClose }: Props) {
             </span>
           )}
           <div className="flex-1" />
-          <button onClick={() => void load()} title="Recarregar" className="text-textMuted hover:text-brand p-1">
+          <button onClick={() => void load()} title={t("diffViewer.reload", "Recarregar")} className="text-textMuted hover:text-brand p-1">
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
-          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar">
+          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("diffViewer.close", "Fechar")}>
             <X size={16} />
           </button>
         </header>
@@ -123,7 +125,7 @@ export function DiffViewerModal({ floor, onClose }: Props) {
             {/* Lista de arquivos */}
             <div className="w-72 shrink-0 border-r border-border overflow-auto bg-bg/40">
               {loading && !diff ? (
-                <p className="px-3 py-3 text-[11px] text-textMuted opacity-60">Carregando diff…</p>
+                <p className="px-3 py-3 text-[11px] text-textMuted opacity-60">{t("diffViewer.loading", "Carregando diff…")}</p>
               ) : diff && (diff.files.length > 0 || diff.untracked.length > 0) ? (
                 <>
                   {diff.files.map((f) => {
@@ -149,7 +151,7 @@ export function DiffViewerModal({ floor, onClose }: Props) {
                   })}
                   {diff.untracked.length > 0 && (
                     <div className="px-2.5 py-1.5">
-                      <p className="text-[9px] uppercase tracking-wide text-textMuted opacity-50 mb-1">Não rastreados ({diff.untracked.length})</p>
+                      <p className="text-[9px] uppercase tracking-wide text-textMuted opacity-50 mb-1">{t("diffViewer.untracked", "Não rastreados")} ({diff.untracked.length})</p>
                       {diff.untracked.map((u) => (
                         <p key={u} className="text-[11px] text-green-400/80 truncate font-mono" title={u}>+ {u}</p>
                       ))}
@@ -157,7 +159,7 @@ export function DiffViewerModal({ floor, onClose }: Props) {
                   )}
                 </>
               ) : (
-                <p className="px-3 py-3 text-[11px] text-textMuted opacity-60">Sem mudanças vs {base}.</p>
+                <p className="px-3 py-3 text-[11px] text-textMuted opacity-60">{t("diffViewer.noChanges", "Sem mudanças vs")} {base}.</p>
               )}
             </div>
 
@@ -166,7 +168,7 @@ export function DiffViewerModal({ floor, onClose }: Props) {
               {current ? (
                 <DiffLines patch={current.patch} />
               ) : (
-                <p className="px-3 py-3 text-[11px] text-textMuted opacity-50">Selecione um arquivo à esquerda.</p>
+                <p className="px-3 py-3 text-[11px] text-textMuted opacity-50">{t("diffViewer.selectFile", "Selecione um arquivo à esquerda.")}</p>
               )}
             </div>
           </div>

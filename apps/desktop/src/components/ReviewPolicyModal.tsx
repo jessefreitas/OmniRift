@@ -11,6 +11,7 @@ import { Plus, Sliders, Trash2, X } from "lucide-react";
 import { loadPolicy, savePolicy, type ReviewPolicy, type ReviewCategory } from "@/lib/review-policy";
 import { persistReviewConfig } from "@/lib/review-config-sync";
 import { reviewContextRead, reviewContextWrite, reviewSuppressRead, reviewSuppressWrite, reviewPathrulesRead, reviewPathrulesWrite, type SuppressRule, type PathRule } from "@/lib/review-meta-client";
+import { useT } from "@/lib/i18n";
 
 interface Props {
   scope?: string;
@@ -24,13 +25,14 @@ interface Props {
 
 // Presets de rigor: aplicam thresholds + quais categorias bloqueiam + coverage
 // (template inicial — tudo editável depois).
-const PRESETS: { id: string; label: string; block: string[]; maxCritical: number; maxWarning: number; coverage: number }[] = [
-  { id: "frouxo", label: "Frouxo", block: ["security"], maxCritical: 0, maxWarning: 5, coverage: 60 },
-  { id: "padrao", label: "Padrão", block: ["security"], maxCritical: 0, maxWarning: 1, coverage: 80 },
-  { id: "rigido", label: "Rígido", block: ["security", "quality"], maxCritical: 0, maxWarning: 0, coverage: 90 },
+const PRESETS: { id: string; label: string; labelKey: string; block: string[]; maxCritical: number; maxWarning: number; coverage: number }[] = [
+  { id: "frouxo", label: "Frouxo", labelKey: "reviewPolicy.presetLoose", block: ["security"], maxCritical: 0, maxWarning: 5, coverage: 60 },
+  { id: "padrao", label: "Padrão", labelKey: "reviewPolicy.presetDefault", block: ["security"], maxCritical: 0, maxWarning: 1, coverage: 80 },
+  { id: "rigido", label: "Rígido", labelKey: "reviewPolicy.presetStrict", block: ["security", "quality"], maxCritical: 0, maxWarning: 0, coverage: 90 },
 ];
 
 export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }: Props) {
+  const t = useT();
   const [p, setP] = useState<ReviewPolicy>(() => loadPolicy(scope));
   const [ctx, setCtx] = useState("");
   const [suppress, setSuppress] = useState<SuppressRule[]>([]);
@@ -47,7 +49,7 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }:
   const patchCat = (i: number, u: Partial<ReviewCategory>) =>
     setP((cur) => ({ ...cur, categories: cur.categories.map((c, j) => (j === i ? { ...c, ...u } : c)) }));
   const addCat = () =>
-    setP((cur) => ({ ...cur, categories: [...cur.categories, { key: `cat${cur.categories.length}`, label: "Nova", weight: 3, blocking: false }] }));
+    setP((cur) => ({ ...cur, categories: [...cur.categories, { key: `cat${cur.categories.length}`, label: t("reviewPolicy.newCategory", "Nova"), weight: 3, blocking: false }] }));
   const delCat = (i: number) => setP((cur) => ({ ...cur, categories: cur.categories.filter((_, j) => j !== i) }));
 
   function applyPreset(id: string) {
@@ -80,46 +82,46 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }:
       <div className={embedded ? "flex flex-col max-h-[76vh] overflow-hidden" : "w-[680px] max-w-[94vw] max-h-[90vh] rounded-lg border border-border bg-surface1 shadow-2xl flex flex-col overflow-hidden"} onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <Sliders size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text flex-1">Política de Review {scopeLabel && <span className="text-[11px] text-textMuted">· {scopeLabel}</span>}</span>
-          {!embedded && <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar"><X size={16} /></button>}
+          <span className="text-sm font-medium text-text flex-1">{t("reviewPolicy.title", "Política de Review")} {scopeLabel && <span className="text-[11px] text-textMuted">· {scopeLabel}</span>}</span>
+          {!embedded && <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("reviewPolicy.close", "Fechar")}><X size={16} /></button>}
         </header>
 
         <div className="flex-1 overflow-auto p-4 space-y-4 text-[12px]">
           {/* Liga/gate */}
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-1.5 text-text">
-              <input type="checkbox" checked={p.enabled} onChange={(e) => patch({ enabled: e.target.checked })} /> Review ativo
+              <input type="checkbox" checked={p.enabled} onChange={(e) => patch({ enabled: e.target.checked })} /> {t("reviewPolicy.reviewActive", "Review ativo")}
             </label>
             <label className="flex items-center gap-1.5 text-text">
-              Gate no Land:
+              {t("reviewPolicy.gateOnLand", "Gate no Land:")}
               <select value={p.gate} onChange={(e) => patch({ gate: e.target.value as ReviewPolicy["gate"] })} className={inp}>
-                <option value="block">bloqueia</option>
-                <option value="warn">só avisa</option>
-                <option value="off">desligado</option>
+                <option value="block">{t("reviewPolicy.gateBlock", "bloqueia")}</option>
+                <option value="warn">{t("reviewPolicy.gateWarn", "só avisa")}</option>
+                <option value="off">{t("reviewPolicy.gateOff", "desligado")}</option>
               </select>
             </label>
           </div>
 
           {/* Presets de rigor */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] uppercase tracking-wider text-textMuted">Preset</span>
+            <span className="text-[11px] uppercase tracking-wider text-textMuted">{t("reviewPolicy.preset", "Preset")}</span>
             {PRESETS.map((pr) => (
               <button key={pr.id} onClick={() => applyPreset(pr.id)} className="px-2 py-0.5 rounded text-[11px] border border-border text-textMuted hover:text-brand hover:border-brand transition-colors">
-                {pr.label}
+                {t(pr.labelKey, pr.label)}
               </button>
             ))}
-            <span className="text-[10px] text-textMuted opacity-50">aplica thresholds + o que bloqueia (editável depois)</span>
+            <span className="text-[10px] text-textMuted opacity-50">{t("reviewPolicy.presetHint", "aplica thresholds + o que bloqueia (editável depois)")}</span>
           </div>
 
           {/* Categorias (métricas) */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] uppercase tracking-wider text-textMuted">Métricas (categorias)</span>
-              <button onClick={addCat} className="flex items-center gap-1 text-[11px] text-textMuted hover:text-brand"><Plus size={12} /> categoria</button>
+              <span className="text-[11px] uppercase tracking-wider text-textMuted">{t("reviewPolicy.metrics", "Métricas (categorias)")}</span>
+              <button onClick={addCat} className="flex items-center gap-1 text-[11px] text-textMuted hover:text-brand"><Plus size={12} /> {t("reviewPolicy.category", "categoria")}</button>
             </div>
             <div className="space-y-1">
               <div className="grid grid-cols-[1fr_70px_60px_60px_28px] gap-2 text-[10px] text-textMuted opacity-60 px-1">
-                <span>label</span><span>key</span><span>peso</span><span>bloqueia</span><span></span>
+                <span>{t("reviewPolicy.colLabel", "label")}</span><span>{t("reviewPolicy.colKey", "key")}</span><span>{t("reviewPolicy.colWeight", "peso")}</span><span>{t("reviewPolicy.colBlocking", "bloqueia")}</span><span></span>
               </div>
               {p.categories.map((c, i) => (
                 <div key={i} className="grid grid-cols-[1fr_70px_60px_60px_28px] gap-2 items-center">
@@ -135,31 +137,31 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }:
 
           {/* Thresholds + coverage */}
           <div className="flex flex-wrap items-center gap-4">
-            <label className="flex items-center gap-1.5 text-text">máx CRITICAL <input type="number" value={p.thresholds.maxCritical} onChange={(e) => patch({ thresholds: { ...p.thresholds, maxCritical: Number(e.target.value) } })} className={`${inp} w-16`} /></label>
-            <label className="flex items-center gap-1.5 text-text">máx WARNING <input type="number" value={p.thresholds.maxWarning} onChange={(e) => patch({ thresholds: { ...p.thresholds, maxWarning: Number(e.target.value) } })} className={`${inp} w-16`} /></label>
-            <label className="flex items-center gap-1.5 text-text">coverage % <input type="number" min={0} max={100} value={p.coverage} onChange={(e) => patch({ coverage: Number(e.target.value) })} className={`${inp} w-16`} /></label>
+            <label className="flex items-center gap-1.5 text-text">{t("reviewPolicy.maxCritical", "máx CRITICAL")} <input type="number" value={p.thresholds.maxCritical} onChange={(e) => patch({ thresholds: { ...p.thresholds, maxCritical: Number(e.target.value) } })} className={`${inp} w-16`} /></label>
+            <label className="flex items-center gap-1.5 text-text">{t("reviewPolicy.maxWarning", "máx WARNING")} <input type="number" value={p.thresholds.maxWarning} onChange={(e) => patch({ thresholds: { ...p.thresholds, maxWarning: Number(e.target.value) } })} className={`${inp} w-16`} /></label>
+            <label className="flex items-center gap-1.5 text-text">{t("reviewPolicy.coverage", "coverage %")} <input type="number" min={0} max={100} value={p.coverage} onChange={(e) => patch({ coverage: Number(e.target.value) })} className={`${inp} w-16`} /></label>
           </div>
 
           {/* Limites de PR */}
           <div className="flex flex-wrap items-center gap-4">
-            <span className="text-[11px] uppercase tracking-wider text-textMuted">Limites de PR</span>
-            <label className="flex items-center gap-1.5 text-text">máx arquivos <input type="number" value={p.prLimits.maxFiles ?? ""} onChange={(e) => patch({ prLimits: { ...p.prLimits, maxFiles: num(e.target.value) } })} className={`${inp} w-16`} /></label>
-            <label className="flex items-center gap-1.5 text-text">máx linhas <input type="number" value={p.prLimits.maxLines ?? ""} onChange={(e) => patch({ prLimits: { ...p.prLimits, maxLines: num(e.target.value) } })} className={`${inp} w-20`} /></label>
-            <label className="flex items-center gap-1.5 text-text">máx linhas/arquivo <input type="number" value={p.prLimits.maxFileLines ?? ""} onChange={(e) => patch({ prLimits: { ...p.prLimits, maxFileLines: num(e.target.value) } })} className={`${inp} w-20`} /></label>
+            <span className="text-[11px] uppercase tracking-wider text-textMuted">{t("reviewPolicy.prLimits", "Limites de PR")}</span>
+            <label className="flex items-center gap-1.5 text-text">{t("reviewPolicy.maxFiles", "máx arquivos")} <input type="number" value={p.prLimits.maxFiles ?? ""} onChange={(e) => patch({ prLimits: { ...p.prLimits, maxFiles: num(e.target.value) } })} className={`${inp} w-16`} /></label>
+            <label className="flex items-center gap-1.5 text-text">{t("reviewPolicy.maxLines", "máx linhas")} <input type="number" value={p.prLimits.maxLines ?? ""} onChange={(e) => patch({ prLimits: { ...p.prLimits, maxLines: num(e.target.value) } })} className={`${inp} w-20`} /></label>
+            <label className="flex items-center gap-1.5 text-text">{t("reviewPolicy.maxFileLines", "máx linhas/arquivo")} <input type="number" value={p.prLimits.maxFileLines ?? ""} onChange={(e) => patch({ prLimits: { ...p.prLimits, maxFileLines: num(e.target.value) } })} className={`${inp} w-20`} /></label>
           </div>
 
           {/* Contratos */}
           <div>
-            <label className="text-[11px] uppercase tracking-wider text-textMuted">Contratos / regras extras (vão no prompt)</label>
-            <textarea value={p.contracts} onChange={(e) => patch({ contracts: e.target.value })} rows={4} placeholder="ex: nenhum console.log; toda função pública documentada; sem any em TS…" className="mt-1 w-full px-2 py-1.5 rounded-md text-[11px] bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono" />
+            <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("reviewPolicy.contracts", "Contratos / regras extras (vão no prompt)")}</label>
+            <textarea value={p.contracts} onChange={(e) => patch({ contracts: e.target.value })} rows={4} placeholder={t("reviewPolicy.contractsPlaceholder", "ex: nenhum console.log; toda função pública documentada; sem any em TS…")} className="mt-1 w-full px-2 py-1.5 rounded-md text-[11px] bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono" />
           </div>
 
           {/* Contexto de design (committed em .forgejo/review-context.md) */}
           {cwd && (
             <div>
-              <label className="text-[11px] uppercase tracking-wider text-textMuted">Contexto de design (o reviewer respeita)</label>
-              <textarea value={ctx} onChange={(e) => setCtx(e.target.value)} rows={5} placeholder="Decisões INTENCIONAIS que o reviewer NÃO deve flagar (threat model, chave pública embutida, ofuscação documentada…)" className="mt-1 w-full px-2 py-1.5 rounded-md text-[11px] bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono" />
-              <p className="mt-0.5 text-[10px] text-textMuted opacity-50">Salvo em <code>.forgejo/review-context.md</code> — usado pelo review do CI e local.</p>
+              <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("reviewPolicy.designContext", "Contexto de design (o reviewer respeita)")}</label>
+              <textarea value={ctx} onChange={(e) => setCtx(e.target.value)} rows={5} placeholder={t("reviewPolicy.designContextPlaceholder", "Decisões INTENCIONAIS que o reviewer NÃO deve flagar (threat model, chave pública embutida, ofuscação documentada…)")} className="mt-1 w-full px-2 py-1.5 rounded-md text-[11px] bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono" />
+              <p className="mt-0.5 text-[10px] text-textMuted opacity-50">{t("reviewPolicy.savedInPrefix", "Salvo em")} <code>.forgejo/review-context.md</code> {t("reviewPolicy.designContextNote", "— usado pelo review do CI e local.")}</p>
             </div>
           )}
 
@@ -167,21 +169,21 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }:
           {cwd && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] uppercase tracking-wider text-textMuted">Achados aceitos (supressão)</span>
-                <button onClick={() => setSuppress((s) => [...s, { file: "", keywords: [], reason: "" }])} className="flex items-center gap-1 text-[11px] text-textMuted hover:text-brand"><Plus size={12} /> regra</button>
+                <span className="text-[11px] uppercase tracking-wider text-textMuted">{t("reviewPolicy.acceptedFindings", "Achados aceitos (supressão)")}</span>
+                <button onClick={() => setSuppress((s) => [...s, { file: "", keywords: [], reason: "" }])} className="flex items-center gap-1 text-[11px] text-textMuted hover:text-brand"><Plus size={12} /> {t("reviewPolicy.rule", "regra")}</button>
               </div>
               <div className="space-y-1">
-                {suppress.length === 0 && <p className="text-[10px] text-textMuted opacity-50">Nenhuma. Adicione pra silenciar um falso-positivo reconhecido (exige motivo).</p>}
+                {suppress.length === 0 && <p className="text-[10px] text-textMuted opacity-50">{t("reviewPolicy.noSuppress", "Nenhuma. Adicione pra silenciar um falso-positivo reconhecido (exige motivo).")}</p>}
                 {suppress.map((s, i) => (
                   <div key={i} className="grid grid-cols-[110px_1fr_1fr_28px] gap-2 items-center">
-                    <input value={s.file} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, file: e.target.value } : x)))} placeholder="arquivo.rs" className={`${inp} font-mono`} />
-                    <input value={s.keywords.join(", ")} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, keywords: e.target.value.split(",").map((k) => k.trim()).filter(Boolean) } : x)))} placeholder="palavras (vírgula)" className={inp} />
-                    <input value={s.reason} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, reason: e.target.value } : x)))} placeholder="motivo" className={inp} />
+                    <input value={s.file} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, file: e.target.value } : x)))} placeholder={t("reviewPolicy.filePlaceholder", "arquivo.rs")} className={`${inp} font-mono`} />
+                    <input value={s.keywords.join(", ")} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, keywords: e.target.value.split(",").map((k) => k.trim()).filter(Boolean) } : x)))} placeholder={t("reviewPolicy.keywordsPlaceholder", "palavras (vírgula)")} className={inp} />
+                    <input value={s.reason} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, reason: e.target.value } : x)))} placeholder={t("reviewPolicy.reasonPlaceholder", "motivo")} className={inp} />
                     <button onClick={() => setSuppress((arr) => arr.filter((_, j) => j !== i))} className="text-textMuted hover:text-danger justify-self-center"><Trash2 size={12} /></button>
                   </div>
                 ))}
               </div>
-              <p className="mt-0.5 text-[10px] text-textMuted opacity-50">Casa por arquivo + palavra no título do achado. Salvo em <code>.forgejo/review-suppress.json</code>.</p>
+              <p className="mt-0.5 text-[10px] text-textMuted opacity-50">{t("reviewPolicy.suppressNotePrefix", "Casa por arquivo + palavra no título do achado.")} {t("reviewPolicy.savedInPrefix", "Salvo em")} <code>.forgejo/review-suppress.json</code>.</p>
             </div>
           )}
 
@@ -189,29 +191,29 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }:
           {cwd && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] uppercase tracking-wider text-textMuted">Regras por path</span>
-                <button onClick={() => setPathrules((r) => [...r, { glob: "", requireTest: true, severity: "WARNING", message: "" }])} className="flex items-center gap-1 text-[11px] text-textMuted hover:text-brand"><Plus size={12} /> regra</button>
+                <span className="text-[11px] uppercase tracking-wider text-textMuted">{t("reviewPolicy.pathRules", "Regras por path")}</span>
+                <button onClick={() => setPathrules((r) => [...r, { glob: "", requireTest: true, severity: "WARNING", message: "" }])} className="flex items-center gap-1 text-[11px] text-textMuted hover:text-brand"><Plus size={12} /> {t("reviewPolicy.rule", "regra")}</button>
               </div>
               <div className="space-y-1">
-                {pathrules.length === 0 && <p className="text-[10px] text-textMuted opacity-50">Ex.: "src/api/** exige teste"; "**/migrations/** → aviso de DBA".</p>}
+                {pathrules.length === 0 && <p className="text-[10px] text-textMuted opacity-50">{t("reviewPolicy.pathRulesExample", 'Ex.: "src/api/** exige teste"; "**/migrations/** → aviso de DBA".')}</p>}
                 {pathrules.map((r, i) => (
                   <div key={i} className="grid grid-cols-[1fr_64px_64px_1fr_28px] gap-2 items-center">
                     <input value={r.glob} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, glob: e.target.value } : x)))} placeholder="src/api/**" className={`${inp} font-mono`} />
-                    <label className="flex items-center gap-1 text-[10px] text-textMuted"><input type="checkbox" checked={r.requireTest} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, requireTest: e.target.checked } : x)))} /> teste</label>
+                    <label className="flex items-center gap-1 text-[10px] text-textMuted"><input type="checkbox" checked={r.requireTest} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, requireTest: e.target.checked } : x)))} /> {t("reviewPolicy.test", "teste")}</label>
                     <select value={r.severity} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, severity: e.target.value } : x)))} className={inp}><option value="WARNING">WARN</option><option value="INFO">INFO</option></select>
-                    <input value={r.message} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, message: e.target.value } : x)))} placeholder="mensagem" className={inp} />
+                    <input value={r.message} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, message: e.target.value } : x)))} placeholder={t("reviewPolicy.messagePlaceholder", "mensagem")} className={inp} />
                     <button onClick={() => setPathrules((arr) => arr.filter((_, j) => j !== i))} className="text-textMuted hover:text-danger justify-self-center"><Trash2 size={12} /></button>
                   </div>
                 ))}
               </div>
-              <p className="mt-0.5 text-[10px] text-textMuted opacity-50">"teste" = arquivos que casam exigem um teste no diff. Salvo em <code>.forgejo/review-pathrules.json</code> (advisory).</p>
+              <p className="mt-0.5 text-[10px] text-textMuted opacity-50">{t("reviewPolicy.pathRulesNotePrefix", '"teste" = arquivos que casam exigem um teste no diff.')} {t("reviewPolicy.savedInPrefix", "Salvo em")} <code>.forgejo/review-pathrules.json</code> (advisory).</p>
             </div>
           )}
         </div>
 
         <footer className="flex justify-end gap-2 px-4 py-3 border-t border-border shrink-0">
-          <button onClick={onClose} className="px-3 py-1.5 rounded-md text-xs text-textMuted hover:bg-surface2">Cancelar</button>
-          <button onClick={save} className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover">Salvar</button>
+          <button onClick={onClose} className="px-3 py-1.5 rounded-md text-xs text-textMuted hover:bg-surface2">{t("reviewPolicy.cancel", "Cancelar")}</button>
+          <button onClick={save} className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover">{t("reviewPolicy.save", "Salvar")}</button>
         </footer>
       </div>
   );

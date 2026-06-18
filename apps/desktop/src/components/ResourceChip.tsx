@@ -6,6 +6,7 @@
 
 import { useResourceStore } from "@/store/resource-store";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 function gb(bytes: number): string {
   return (bytes / 1e9).toFixed(1);
@@ -18,6 +19,7 @@ function tone(pct: number): string {
 }
 
 export function ResourceChip() {
+  const t = useT();
   const last = useResourceStore((s) => s.last);
   const setExpanded = useResourceStore((s) => s.setExpanded);
   if (!last) return null;
@@ -30,7 +32,7 @@ export function ResourceChip() {
   return (
     <button
       onClick={() => setExpanded(true)}
-      title="Uso de recursos (CPU / RAM / GPU) — clique pra detalhes"
+      title={t("resources.chipTitle", "Uso de recursos (CPU / RAM / GPU) — clique pra detalhes")}
       className={cn(
         "fixed bottom-3 right-3 z-[55] flex items-center gap-1.5 px-2.5 py-1 rounded-full",
         "border bg-surface2/90 backdrop-blur shadow-lg text-[11px] font-mono select-none",

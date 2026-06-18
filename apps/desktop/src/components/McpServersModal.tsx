@@ -19,6 +19,7 @@ import {
   type McpPreset,
 } from "@/lib/mcp-servers-client";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 interface Props {
   onClose: () => void;
@@ -27,6 +28,7 @@ interface Props {
 const DEFAULTS = "Serena · Context7 · Playwright + memória ativa";
 
 export function McpServersModal({ onClose }: Props) {
+  const t = useT();
   const [servers, setServers] = useState<McpServerEntry[]>([]);
   const [picked, setPicked] = useState<McpPreset | "custom" | null>(null);
   const [param, setParam] = useState("");
@@ -45,7 +47,7 @@ export function McpServersModal({ onClose }: Props) {
 
   async function addPreset(p: McpPreset) {
     setErr(null);
-    if (p.paramLabel && !param.trim()) { setErr(`Preencha: ${p.paramLabel}`); return; }
+    if (p.paramLabel && !param.trim()) { setErr(`${t("mcpServers.fillIn", "Preencha")}: ${p.paramLabel}`); return; }
     try {
       await mcpServerUpsert(p.name, p.build(param.trim()), true);
       await load(); reset();
@@ -55,10 +57,10 @@ export function McpServersModal({ onClose }: Props) {
   async function addCustom() {
     setErr(null);
     const name = customName.trim();
-    if (!name) { setErr("Nome obrigatório."); return; }
+    if (!name) { setErr(t("mcpServers.nameRequired", "Nome obrigatório.")); return; }
     let spec: Record<string, unknown>;
-    try { spec = JSON.parse(customJson); } catch { setErr("JSON inválido."); return; }
-    if (typeof spec !== "object" || spec === null || Array.isArray(spec)) { setErr("O spec deve ser um objeto JSON."); return; }
+    try { spec = JSON.parse(customJson); } catch { setErr(t("mcpServers.invalidJson", "JSON inválido.")); return; }
+    if (typeof spec !== "object" || spec === null || Array.isArray(spec)) { setErr(t("mcpServers.specMustBeObject", "O spec deve ser um objeto JSON.")); return; }
     try {
       await mcpServerUpsert(name, spec, true);
       await load(); reset();
@@ -80,39 +82,38 @@ export function McpServersModal({ onClose }: Props) {
       >
         <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
           <Server size={15} className="text-brand" />
-          <span className="text-sm font-medium text-text flex-1">MCP Servers (tools dos agentes)</span>
-          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title="Fechar"><X size={16} /></button>
+          <span className="text-sm font-medium text-text flex-1">{t("mcpServers.title", "MCP Servers (tools dos agentes)")}</span>
+          <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("common.close", "Fechar")}><X size={16} /></button>
         </header>
 
         {err && <p className="px-4 py-1.5 text-[11px] text-danger border-b border-border break-words shrink-0">{err}</p>}
 
         <div className="flex-1 overflow-auto p-3 space-y-3">
           <p className="text-[11px] text-textMuted">
-            Todo agente Claude já nasce com <b>{DEFAULTS}</b>. Aqui você adiciona MCPs extras —
-            ligados ou desligados por servidor. <span className="opacity-70">Quanto mais MCP, mais processos por agente e mais tools pro modelo: mantenha enxuto.</span>
+            {t("mcpServers.introBefore", "Todo agente Claude já nasce com")} <b>{DEFAULTS}</b>. {t("mcpServers.introAfter", "Aqui você adiciona MCPs extras — ligados ou desligados por servidor.")} <span className="opacity-70">{t("mcpServers.introNote", "Quanto mais MCP, mais processos por agente e mais tools pro modelo: mantenha enxuto.")}</span>
           </p>
 
           {/* Lista */}
           {servers.length === 0 ? (
-            <p className="px-1 py-2 text-[12px] text-textMuted opacity-60">Nenhum MCP custom ainda.</p>
+            <p className="px-1 py-2 text-[12px] text-textMuted opacity-60">{t("mcpServers.emptyCustom", "Nenhum MCP custom ainda.")}</p>
           ) : (
             servers.map((s) => (
               <div key={s.name} className="flex items-center gap-2 rounded-md border border-border bg-bg/40 p-2.5">
-                <label className="flex items-center gap-1.5 shrink-0" title={s.enabled ? "Ligado" : "Desligado"}>
+                <label className="flex items-center gap-1.5 shrink-0" title={s.enabled ? t("mcpServers.enabled", "Ligado") : t("mcpServers.disabled", "Desligado")}>
                   <input type="checkbox" checked={s.enabled} onChange={() => void toggle(s)} />
                 </label>
                 <div className="min-w-0 flex-1">
                   <div className={cn("text-[12px] font-medium truncate", s.enabled ? "text-text" : "text-textMuted")}>{s.name}</div>
                   <div className="text-[10px] text-textMuted opacity-70 truncate font-mono">{specSummary(s.spec)}</div>
                 </div>
-                <button onClick={() => void remove(s.name)} title="Remover" className="text-textMuted hover:text-danger p-1 shrink-0"><Trash2 size={13} /></button>
+                <button onClick={() => void remove(s.name)} title={t("common.remove", "Remover")} className="text-textMuted hover:text-danger p-1 shrink-0"><Trash2 size={13} /></button>
               </div>
             ))
           )}
 
           {/* Adicionar */}
           <div className="rounded-md border border-brand/40 bg-brand/5 p-2.5 space-y-2">
-            <span className="text-[12px] font-medium text-text">Adicionar</span>
+            <span className="text-[12px] font-medium text-text">{t("common.add", "Adicionar")}</span>
             <div className="flex flex-wrap gap-1.5">
               {MCP_PRESETS.map((p) => (
                 <button
@@ -130,7 +131,7 @@ export function McpServersModal({ onClose }: Props) {
                 className={cn("px-2 py-1 rounded text-[11px] border transition-colors",
                   picked === "custom" ? "border-brand text-brand bg-brand/10" : "border-border text-textMuted hover:text-text")}
               >
-                Custom
+                {t("mcpServers.custom", "Custom")}
               </button>
             </div>
 
@@ -147,7 +148,7 @@ export function McpServersModal({ onClose }: Props) {
                   />
                 )}
                 <button onClick={() => void addPreset(picked)} className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover">
-                  <Plus size={12} /> Adicionar {picked.label}
+                  <Plus size={12} /> {t("common.add", "Adicionar")} {picked.label}
                 </button>
               </div>
             )}
@@ -157,18 +158,18 @@ export function McpServersModal({ onClose }: Props) {
                 <input
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
-                  placeholder="nome (chave do mcpServers, ex: meu-mcp)"
+                  placeholder={t("mcpServers.customNamePlaceholder", "nome (chave do mcpServers, ex: meu-mcp)")}
                   className="w-full px-2 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand font-mono"
                 />
                 <textarea
                   value={customJson}
                   onChange={(e) => setCustomJson(e.target.value)}
-                  placeholder={'{ "command": "npx", "args": ["-y", "pacote"], "env": { "TOKEN": "..." } }\nou { "type": "http", "url": "https://...", "headers": { "Authorization": "Bearer ..." } }'}
+                  placeholder={t("mcpServers.customJsonPlaceholder", '{ "command": "npx", "args": ["-y", "pacote"], "env": { "TOKEN": "..." } }\nou { "type": "http", "url": "https://...", "headers": { "Authorization": "Bearer ..." } }')}
                   rows={4}
                   className="w-full px-2 py-1.5 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand font-mono resize-none"
                 />
                 <button onClick={() => void addCustom()} className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover">
-                  <Plus size={12} /> Adicionar custom
+                  <Plus size={12} /> {t("mcpServers.addCustom", "Adicionar custom")}
                 </button>
               </div>
             )}
@@ -176,7 +177,7 @@ export function McpServersModal({ onClose }: Props) {
         </div>
 
         <footer className="px-4 py-2 border-t border-border text-[10px] text-textMuted opacity-60 shrink-0">
-          Os MCPs <b>ligados</b> são injetados em todo agente Claude (merge no agent-mcp.json). Tokens são ofuscados em repouso.
+          {t("mcpServers.footerBefore", "Os MCPs")} <b>{t("mcpServers.footerEnabled", "ligados")}</b> {t("mcpServers.footerAfter", "são injetados em todo agente Claude (merge no agent-mcp.json). Tokens são ofuscados em repouso.")}
         </footer>
       </div>
     </div>,

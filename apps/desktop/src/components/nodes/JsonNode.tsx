@@ -6,6 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { useT } from "@/lib/i18n";
 import { NodeHelp } from "@/components/NodeHelp";
 import { NodeComment } from "@/components/NodeComment";
 import { MindMap } from "@/components/MindMap";
@@ -124,6 +125,7 @@ function GraphNode({ k, value }: { k: string | null; value: unknown }) {
 }
 
 export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
+  const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [text, setText] = useState(data.text || "");
@@ -191,14 +193,14 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
         <span className="text-xs font-medium truncate flex-1">JSON</span>
         {parsed && (
           <span className={cn("text-[10px] shrink-0", parsed.ok ? "text-green-400" : "text-danger")}>
-            {parsed.ok ? "válido" : "inválido"}
+            {parsed.ok ? t("json.valid", "válido") : t("json.invalid", "inválido")}
           </span>
         )}
-        <NodeHelp text="JSON/código: cole o conteúdo ou Suba (↑) um arquivo. Alterne Texto / Árvore / Grafo. Maximize (⤡) abre o mapa mental navegável — vale pra JSON, XML e HTML. Comente no rodapé." />
-        <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? "Restaurar" : "Maximizar"} className="hover:text-brand shrink-0">
+        <NodeHelp text={t("json.help", "JSON/código: cole o conteúdo ou Suba (↑) um arquivo. Alterne Texto / Árvore / Grafo. Maximize (⤡) abre o mapa mental navegável — vale pra JSON, XML e HTML. Comente no rodapé.")} />
+        <button onClick={(e) => { e.stopPropagation(); setMaximized((m) => !m); }} title={maximized ? t("common.restore", "Restaurar") : t("common.maximize", "Maximizar")} className="hover:text-brand shrink-0">
           {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
         </button>
-        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title="Fechar" className="hover:text-danger shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); removeNode(id); }} title={t("common.close", "Fechar")} className="hover:text-danger shrink-0">
           <X size={12} />
         </button>
       </header>
@@ -211,7 +213,7 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
             onPointerDown={(e) => e.stopPropagation()}
             className={cn("flex items-center gap-1 px-2 py-1 text-[11px]", view === "text" ? "bg-brand text-bg" : "bg-bg text-textMuted hover:text-text")}
           >
-            <Code2 size={11} /> Texto
+            <Code2 size={11} /> {t("json.text", "Texto")}
           </button>
           <button
             onClick={() => setView("tree")}
@@ -219,26 +221,26 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
             disabled={!parsed?.ok}
             className={cn("flex items-center gap-1 px-2 py-1 text-[11px] disabled:opacity-40", view === "tree" ? "bg-brand text-bg" : "bg-bg text-textMuted hover:text-text")}
           >
-            <ListTree size={11} /> Árvore
+            <ListTree size={11} /> {t("json.tree", "Árvore")}
           </button>
           <button
             onClick={() => setView("graph")}
             onPointerDown={(e) => e.stopPropagation()}
             disabled={!text.trim()}
-            title="Mapa mental (JSON/XML/HTML) — maximize pra navegar"
+            title={t("json.graphTitle", "Mapa mental (JSON/XML/HTML) — maximize pra navegar")}
             className={cn("flex items-center gap-1 px-2 py-1 text-[11px] disabled:opacity-40", view === "graph" ? "bg-brand text-bg" : "bg-bg text-textMuted hover:text-text")}
           >
-            <Network size={11} /> Grafo
+            <Network size={11} /> {t("json.graph", "Grafo")}
           </button>
         </div>
         <div className="flex-1" />
         <button
           onClick={uploadJson}
           onPointerDown={(e) => e.stopPropagation()}
-          title="Subir um arquivo .json"
+          title={t("json.uploadTitle", "Subir um arquivo .json")}
           className="flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-surface2 text-text hover:bg-bg border border-border"
         >
-          <Upload size={11} /> Subir
+          <Upload size={11} /> {t("json.upload", "Subir")}
         </button>
         <button
           onClick={format}
@@ -246,7 +248,7 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
           disabled={!parsed?.ok}
           className="px-2 py-1 rounded text-[11px] bg-surface2 text-text hover:bg-bg border border-border disabled:opacity-40"
         >
-          Format
+          {t("json.format", "Format")}
         </button>
         <button
           onClick={minify}
@@ -254,7 +256,7 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
           disabled={!parsed?.ok}
           className="px-2 py-1 rounded text-[11px] bg-surface2 text-text hover:bg-bg border border-border disabled:opacity-40"
         >
-          Minify
+          {t("json.minify", "Minify")}
         </button>
       </div>
 
@@ -264,7 +266,7 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
           value={text}
           onChange={(e) => { setText(e.target.value); patchNode(id, { text: e.target.value }); }}
           onPointerDown={(e) => e.stopPropagation()}
-          placeholder='{ "cole": "seu json aqui" }'
+          placeholder={t("json.placeholder", '{ "cole": "seu json aqui" }')}
           className="nodrag flex-1 px-2 py-1.5 text-[11px] bg-bg text-text resize-none focus:outline-none font-mono placeholder:text-textMuted"
         />
       ) : maximized && view === "graph" ? (
@@ -282,11 +284,11 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
               <div className="inline-block min-w-full py-2"><GraphNode k={null} value={parsed.value} /></div>
             ) : (
               <div className="flex items-center justify-center h-full text-center text-textMuted opacity-60 text-[11px] px-6">
-                Maximize (⤡) pra ver o mapa mental — funciona com JSON, XML e HTML.
+                {t("json.maximizeHint", "Maximize (⤡) pra ver o mapa mental — funciona com JSON, XML e HTML.")}
               </div>
             )
           ) : !parsed?.ok ? (
-            <p className="text-textMuted opacity-50">JSON inválido — corrija no modo Texto.</p>
+            <p className="text-textMuted opacity-50">{t("json.invalidFix", "JSON inválido — corrija no modo Texto.")}</p>
           ) : (
             <TreeNode k={null} value={parsed.value} depth={0} />
           )}
