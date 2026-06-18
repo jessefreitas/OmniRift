@@ -98,6 +98,29 @@ CREATE TABLE IF NOT EXISTS review_history (
     severity  TEXT,
     title     TEXT
 );
+
+-- Ledger ao-vivo das chamadas LLM NATIVAS do OmniRift (review/companion/test).
+-- `at` é ISO8601 UTC com 'T' (comparável aos timestamps das sessões dos CLIs).
+CREATE TABLE IF NOT EXISTS llm_ledger (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    at            TEXT NOT NULL,
+    provider      TEXT,
+    model         TEXT NOT NULL,
+    project       TEXT,
+    kind          TEXT,
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd      REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_ledger_at ON llm_ledger(at DESC);
+
+-- Orçamento mensal (USD) por projeto + limiar de alerta (%). project = cwd ou nome.
+CREATE TABLE IF NOT EXISTS project_budgets (
+    project     TEXT PRIMARY KEY,
+    monthly_usd REAL NOT NULL,
+    alert_pct   INTEGER NOT NULL DEFAULT 80,
+    updated_at  TEXT NOT NULL
+);
 ";
 
 /// Metadados de um snapshot do canvas (sem o doc, pra listagem leve).
@@ -234,6 +257,25 @@ pub struct EventRow {
     pub at: String,
     pub kind: String,
     pub detail: Option<String>,
+}
+
+/// Uma linha do ledger nativo (consumida pelo usage_scan pra fundir com os CLIs).
+pub struct LedgerRow {
+    pub at: String,
+    pub model: String,
+    pub project: Option<String>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+}
+
+/// Orçamento mensal de um projeto (USD) + limiar de alerta (%).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BudgetRow {
+    pub project: String,
+    pub monthly_usd: f64,
+    pub alert_pct: i64,
+    pub updated_at: String,
 }
 
 /// Migrações idempotentes para DBs criados antes de uma coluna existir.
@@ -710,6 +752,100 @@ impl Db {
                     category: r.get(4)?,
                     severity: r.get(5)?,
                     title: r.get(6)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    // ---- Ledger nativo (LLM do próprio OmniRift) ----
+
+    /// Grava uma chamada LLM nativa. `at` = ISO8601 UTC com 'T'.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ledger_add(
+        &self,
+        at: &str,
+        provider: &str,
+        model: &str,
+        project: Option<&str>,
+        kind: Option<&str>,
+        input: i64,
+        output: i64,
+        cost: f64,
+    ) -> Result<()> {
+        self.0.lock().execute(
+            "INSERT INTO llm_ledger (at, provider, model, project, kind, input_tokens, output_tokens, cost_usd)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![at, provider, model, project, kind, input, output, cost],
+        )?;
+        Ok(())
+    }
+
+    /// Linhas do ledger desde `since` (ISO; None = tudo) — pro merge no usage_scan.
+    pub fn ledger_rows(&self, since: Option<&str>) -> Result<Vec<LedgerRow>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT at, model, project, input_tokens, output_tokens FROM llm_ledger
+             WHERE (?1 IS NULL OR at >= ?1) ORDER BY id DESC",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![since], |r| {
+                Ok(LedgerRow {
+                    at: r.get(0)?,
+                    model: r.get(1)?,
+                    project: r.get(2)?,
+                    input_tokens: r.get(3)?,
+                    output_tokens: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Custo nativo (USD) de um projeto desde `since` (ISO) — gate de orçamento.
+    pub fn ledger_cost_since(&self, project: &str, since: &str) -> Result<f64> {
+        let conn = self.0.lock();
+        let v: f64 = conn.query_row(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM llm_ledger WHERE project = ?1 AND at >= ?2",
+            rusqlite::params![project, since],
+            |r| r.get(0),
+        )?;
+        Ok(v)
+    }
+
+    // ---- Orçamentos por projeto ----
+
+    /// Cria/atualiza o orçamento de um projeto.
+    pub fn budget_set(&self, project: &str, monthly_usd: f64, alert_pct: i64) -> Result<()> {
+        self.0.lock().execute(
+            "INSERT INTO project_budgets (project, monthly_usd, alert_pct, updated_at)
+             VALUES (?1, ?2, ?3, datetime('now'))
+             ON CONFLICT(project) DO UPDATE SET monthly_usd = ?2, alert_pct = ?3, updated_at = datetime('now')",
+            rusqlite::params![project, monthly_usd, alert_pct],
+        )?;
+        Ok(())
+    }
+
+    /// Remove o orçamento de um projeto (ação do próprio usuário via UI).
+    pub fn budget_remove(&self, project: &str) -> Result<()> {
+        self.0
+            .lock()
+            .execute("DELETE FROM project_budgets WHERE project = ?1", rusqlite::params![project])?;
+        Ok(())
+    }
+
+    pub fn budgets_list(&self) -> Result<Vec<BudgetRow>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT project, monthly_usd, alert_pct, updated_at FROM project_budgets ORDER BY project",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(BudgetRow {
+                    project: r.get(0)?,
+                    monthly_usd: r.get(1)?,
+                    alert_pct: r.get(2)?,
+                    updated_at: r.get(3)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;

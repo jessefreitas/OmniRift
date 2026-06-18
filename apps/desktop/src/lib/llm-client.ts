@@ -14,9 +14,22 @@ export interface LlmConfig {
   model: string;
 }
 
-/** Manda system+prompt pro LLM configurado; devolve o texto. */
-export async function llmChat(config: LlmConfig, system: string, prompt: string): Promise<string> {
-  return invoke<string>("llm_chat", { config, system, prompt });
+/** Atribuição da chamada nativa pro ledger de tokens (projeto + tipo de uso). */
+export interface LlmMeta {
+  /** cwd do projeto ativo (funde com o by_project do painel de uso) ou nome. */
+  project?: string;
+  /** "review" | "companion" | "test" | … */
+  kind?: string;
+}
+
+/** Manda system+prompt pro LLM configurado; devolve o texto. `meta` alimenta o ledger. */
+export async function llmChat(
+  config: LlmConfig,
+  system: string,
+  prompt: string,
+  meta?: LlmMeta,
+): Promise<string> {
+  return invoke<string>("llm_chat", { config, system, prompt, meta: meta ?? null });
 }
 
 /** Lista os modelos do provider (pra escolher na UI em vez de digitar). */

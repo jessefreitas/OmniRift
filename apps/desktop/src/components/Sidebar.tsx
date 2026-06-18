@@ -77,6 +77,7 @@ import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { CompanionModal } from "@/components/CompanionModal";
 import { AppearanceModal } from "@/components/AppearanceModal";
 import { UsageModal } from "@/components/UsageModal";
+import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { HelpModal } from "@/components/HelpModal";
@@ -362,6 +363,16 @@ export function Sidebar() {
   const [showCompanion, setShowCompanion] = useState(false);
   const [showSectionOrder, setShowSectionOrder] = useState(false);
   const [cow, setCow] = useState<CowInfo | null>(null);
+  // Chip de custo no rodapé: custo estimado de HOJE (CLI + nativo). Refaz o scan
+  // quando o painel de uso abre/fecha (pode ter rodado review/companion no meio).
+  const [todayCost, setTodayCost] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    usageScan(0)
+      .then((r) => { if (live) setTodayCost(r.total.costUsd); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [showUsage]);
 
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
   // v2: nova ordem-base alfabética (reset do drag antigo do usuário).
@@ -1806,6 +1817,16 @@ export function Sidebar() {
       </div>
 
       <footer className="px-4 py-3 border-t border-border text-[10px] text-textMuted">
+        {todayCost !== null && (
+          <button
+            onClick={() => setShowUsage(true)}
+            title={tr("sidebar.todayCostTip", "Custo estimado de hoje (Claude Code + Codex + nativo) — abrir painel de uso")}
+            className="flex items-center gap-1 mb-1 text-textMuted hover:text-brand"
+          >
+            <Coins size={11} className="text-brand" />
+            <span className="tabular-nums">{tr("sidebar.todayCost", "Hoje")}: {fmtUsd(todayCost)}</span>
+          </button>
+        )}
         {tr("sidebar.footerPhase", "Fase 2 — PTY + canvas + workspaces + MCP")}
         <div className="opacity-70 mt-0.5">v0.1.0 · {tr("sidebar.localBuild", "build local")}</div>
       </footer>

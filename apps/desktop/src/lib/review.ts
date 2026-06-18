@@ -6,6 +6,7 @@
 
 import { floorGitDiff, type FloorDiff } from "@/lib/git-client";
 import { llmChat, type LlmConfig } from "@/lib/llm-client";
+import { assertBudgetOk } from "@/lib/usage-client";
 import type { ReviewPolicy } from "@/lib/review-policy";
 
 export type Severity = "CRITICAL" | "WARNING" | "INFO";
@@ -120,8 +121,9 @@ export async function runReview(
   let findings: Finding[] = [];
   let summary = "";
   try {
+    await assertBudgetOk(worktree); // gate: bloqueia se o projeto estourou o orçamento
     const { system, prompt } = buildPrompt(diff, policy);
-    const text = await llmChat(config, system, prompt);
+    const text = await llmChat(config, system, prompt, { project: worktree, kind: "review" });
     findings = parseFindings(text);
     summary = `${findings.length} achado(s) do LLM + ${pre.length} do pré-flight.`;
   } catch (e) {

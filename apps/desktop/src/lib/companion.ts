@@ -9,6 +9,7 @@
 import { useCanvasStore } from "@/store/canvas-store";
 import { llmChat, loadLlmConfig } from "@/lib/llm-client";
 import { memoryQuery } from "@/lib/memory-client";
+import { assertBudgetOk } from "@/lib/usage-client";
 
 export async function analyzeCanvas(): Promise<string> {
   const cfg = loadLlmConfig();
@@ -45,5 +46,7 @@ export async function analyzeCanvas(): Promise<string> {
     "1) RESUMO — o que está acontecendo agora (1-2 frases).\n" +
     "2) PRÓXIMOS PASSOS — 3 ações concretas que o humano (ou os agentes) deveriam tomar a seguir.";
 
-  return llmChat(cfg, system, prompt);
+  const projectKey = s.currentCwd ?? undefined;
+  await assertBudgetOk(projectKey); // gate: bloqueia se o projeto estourou o orçamento
+  return llmChat(cfg, system, prompt, { project: projectKey, kind: "companion" });
 }
