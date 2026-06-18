@@ -48,9 +48,17 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Assinatura do updater (minisign). Secrets do repo no GitHub:
+          #   TAURI_SIGNING_PRIVATE_KEY          = conteúdo de tools/.omnirift-updater.key
+          #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD = vazio (chave gerada sem senha)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
           releaseName: "OmniRift ${{ github.ref_name }}"
           releaseDraft: true # sai como rascunho — você revisa e publica
+          # Gera latest.json (feed do updater) + .sig de cada bundle e anexa ao Release.
+          # O updater só acha quando você PUBLICA o rascunho (latest = release publicado).
+          includeUpdaterJson: true
           args: --bundles ${{ matrix.bundles }}

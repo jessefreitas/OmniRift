@@ -33,3 +33,8 @@ __pycache__/
 
 # Licença OmniRift — chave PRIVADA do keygen (NUNCA comitar)
 tools/.omnirift-license.key
+
+# Updater OmniRift — chave PRIVADA de assinatura dos updates (NUNCA comitar).
+# A pública vai no tauri.conf.json; a privada assina o build (TAURI_SIGNING_PRIVATE_KEY).
+tools/.omnirift-updater.key
+tools/.omnirift-updater.key.pub

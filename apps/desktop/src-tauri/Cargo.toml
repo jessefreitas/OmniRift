@@ -22,6 +22,10 @@ log = "0.4"
 tauri = { version = "2.11.1", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
+# Auto-update: baixa/verifica releases assinados (minisign) via reqwest nativo —
+# fora do WebKitGTK (TLS quebrado). process = relaunch após instalar o update.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 # PTY — the heart of the agent terminals
 portable-pty = "0.9"
 # Emulador de tela VT100 — renderiza a tela visível de TUIs (Claude Code/Codex)

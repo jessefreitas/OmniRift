@@ -66,6 +66,7 @@ import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } f
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
+import { UpdaterButton } from "@/components/UpdaterButton";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { clisList, type CliInfo } from "@/lib/clis-client";
@@ -1843,6 +1844,7 @@ export function Sidebar() {
         )}
         {tr("sidebar.footerPhase", "Fase 2 — PTY + canvas + workspaces + MCP")}
         <div className="opacity-70 mt-0.5">v0.1.0 · {tr("sidebar.localBuild", "build local")}</div>
+        <div className="mt-1"><UpdaterButton /></div>
       </footer>
 
       <Suspense fallback={null}>
