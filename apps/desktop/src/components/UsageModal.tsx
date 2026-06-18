@@ -44,10 +44,10 @@ export function UsageModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  const load = useCallback((p: Period) => {
+  const load = useCallback((p: Period, force = false) => {
     setLoading(true);
     setErr(null);
-    Promise.all([usageScan(p), usageBudgetStatus()])
+    Promise.all([usageScan(p, force), usageBudgetStatus()])
       .then(([r, b]) => {
         setReport(r);
         setBudgets(b);
@@ -88,7 +88,7 @@ export function UsageModal({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
-          <button onClick={() => load(period)} title={t("common.reload", "Recarregar")} className="text-textMuted hover:text-brand p-1">
+          <button onClick={() => load(period, true)} title={t("common.reload", "Recarregar")} className="text-textMuted hover:text-brand p-1">
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
           <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("common.close", "Fechar")}><X size={16} /></button>

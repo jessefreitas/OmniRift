@@ -101,6 +101,11 @@ pub fn run() {
                 Err(e) => log::error!("app_data_dir indisponível: {e}"),
             }
 
+            // Cache do painel de Uso de Tokens — varre os arquivos de sessão UMA
+            // vez (TTL 30s) e agrega em memória; sem isso cada abertura/troca de
+            // período re-varria todo o disco (lento).
+            app.manage(crate::commands::usage::UsageCache::default());
+
             // Registry de memória (provider plugável) — criada UMA vez; usada
             // pelo MCP server (roteamento das tools memory_*) e pelos comandos.
             // Conexão própria com o mesmo SQLite; fallback in-memory se o disco
