@@ -33,7 +33,8 @@ const DARK: Record<string, string> = {
 };
 const LIGHT: Record<string, string> = {
   bg: "247 248 250", surface1: "255 255 255", surface2: "241 243 245", surface3: "233 236 239",
-  border: "214 219 224", textMuted: "100 108 118", text: "24 28 33",
+  // textMuted escurecido (de #646c76 p/ #475569) → rótulos legíveis no fundo claro.
+  border: "209 214 220", textMuted: "71 85 105", text: "17 22 28",
   brand: "23 140 145", "brand-hover": "18 120 125", danger: "200 50 55",
 };
 
