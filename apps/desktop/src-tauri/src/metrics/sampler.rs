@@ -56,14 +56,18 @@ impl Sampler {
         let ring = Arc::clone(&self.ring);
         std::thread::spawn(move || {
             let mut probe = SystemProbe::new();
+            // nvidia-smi disponível? decidido 1× pra não spawnar comando em vão.
+            let gpu_on = super::gpu::nvidia_available();
             // CPU% exige 2 leituras separadas por ≥ MINIMUM_CPU_UPDATE_INTERVAL.
             std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL.max(Duration::from_millis(200)));
             loop {
-                let agents = probe.sample_agents(&manager.session_pids());
+                let vram = if gpu_on { super::gpu::vram_by_pid() } else { std::collections::HashMap::new() };
+                let agents = probe.sample_agents(&manager.session_pids(), &vram);
+                let gpus = if gpu_on { super::gpu::probe_gpus() } else { Vec::new() };
                 let sample = ResourceSample {
                     ts: now_ms(),
                     global: probe.sample(),
-                    gpus: Vec::new(), // fase C (GPU)
+                    gpus,
                     agents,
                 };
                 push_capped(&mut ring.lock(), sample.clone(), RING_CAP);

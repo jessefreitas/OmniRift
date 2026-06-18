@@ -77,7 +77,11 @@ impl SystemProbe {
 
     /// Consumo por agente: refresh dos processos e soma CPU%/RSS do processo-raiz
     /// de cada sessão + descendentes. `label` fica vazio (o frontend resolve via id).
-    pub fn sample_agents(&mut self, sessions: &[(String, u32)]) -> Vec<AgentStat> {
+    pub fn sample_agents(
+        &mut self,
+        sessions: &[(String, u32)],
+        vram_by_pid: &HashMap<u32, u64>,
+    ) -> Vec<AgentStat> {
         if sessions.is_empty() {
             return Vec::new();
         }
@@ -94,7 +98,7 @@ impl SystemProbe {
         sessions
             .iter()
             .map(|(sid, root)| {
-                let (mut cpu, mut rss) = (0.0f32, 0u64);
+                let (mut cpu, mut rss, mut vram) = (0.0f32, 0u64, 0u64);
                 let mut seen = HashSet::new();
                 let mut stack = vec![*root];
                 while let Some(pid) = stack.pop() {
@@ -105,6 +109,7 @@ impl SystemProbe {
                         cpu += *c;
                         rss += *m;
                     }
+                    vram += vram_by_pid.get(&pid).copied().unwrap_or(0);
                     if let Some(kids) = children.get(&pid) {
                         stack.extend(kids);
                     }
@@ -115,7 +120,7 @@ impl SystemProbe {
                     pid: *root,
                     cpu_pct: cpu,
                     rss_bytes: rss,
-                    vram_bytes: None,
+                    vram_bytes: if vram > 0 { Some(vram) } else { None },
                 }
             })
             .collect()

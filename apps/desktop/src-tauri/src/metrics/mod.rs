@@ -2,6 +2,7 @@
 //! GPU (probes) entra na fase C; atribuição por-agente na fase D — por isso o
 //! sample já carrega `gpus`/`agents` (vazios aqui).
 
+pub mod gpu;
 pub mod sampler;
 pub mod system;
 
