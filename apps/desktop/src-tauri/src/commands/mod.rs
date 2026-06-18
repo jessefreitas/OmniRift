@@ -25,4 +25,5 @@ pub mod scheduler;
 pub mod serena;
 pub mod skills;
 pub mod spec;
+pub mod usage;
 pub mod workspace;

@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Code2,
+  Coins,
   Crown,
   Download,
   Folder,
@@ -75,6 +76,7 @@ import { RemindersModal } from "@/components/RemindersModal";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { CompanionModal } from "@/components/CompanionModal";
 import { AppearanceModal } from "@/components/AppearanceModal";
+import { UsageModal } from "@/components/UsageModal";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { HelpModal } from "@/components/HelpModal";
@@ -120,6 +122,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
   { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos paralelos" },
   { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
+  { id: "usage", icon: Coins, label: "Uso de Tokens", desc: "Quanto de token os agentes gastaram — total geral, por projeto e por modelo/LLM" },
 ];
 const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
 
@@ -353,6 +356,7 @@ export function Sidebar() {
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showReviewAi, setShowReviewAi] = useState(false);
   const [showAppearance, setShowAppearance] = useState(false);
+  const [showUsage, setShowUsage] = useState(false);
   const [showGitRepos, setShowGitRepos] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
   const [showCompanion, setShowCompanion] = useState(false);
@@ -361,7 +365,7 @@ export function Sidebar() {
 
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
   // v2: nova ordem-base alfabética (reset do drag antigo do usuário).
-  const tools = useReorderable("omnirift-tools-order-v4", TOOL_IDS);
+  const tools = useReorderable("omnirift-tools-order-v5", TOOL_IDS);
   // Seções da sidebar reordenáveis (CSS order + popover). v2: Projeto/Workspace no topo.
   const secReorder = useReorderable("omnirift-sections-order-v2", SECTION_IDS);
   const secStyle = (id: string) => ({ order: secReorder.order.indexOf(id) });
@@ -371,6 +375,7 @@ export function Sidebar() {
     connections: () => setShowConnections(true),
     "review-ai": () => setShowReviewAi(true),
     appearance: () => setShowAppearance(true),
+    usage: () => setShowUsage(true),
     reminders: () => setShowReminders(true),
     memory: () => setShowMemory(true),
     history: () => setShowHistory(true),
@@ -399,6 +404,7 @@ export function Sidebar() {
         case "connections": setShowConnections(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "appearance": setShowAppearance(true); break;
+        case "usage": setShowUsage(true); break;
         case "git": setShowGitRepos(true); break;
         case "reminders": setShowReminders(true); break;
         case "companion": setShowCompanion(true); break;
@@ -1877,6 +1883,7 @@ export function Sidebar() {
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
       {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
       {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}
+      {showUsage && <UsageModal onClose={() => setShowUsage(false)} />}
     </aside>
   );
 }
