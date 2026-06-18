@@ -12,6 +12,8 @@ import {
   gitListRepos, gitClone, loadGitProviders, saveGitProvider, loadCloneDir, saveCloneDir,
   GIT_PRESETS, type GitProviderConfig, type GitProviderKind, type RemoteRepo,
 } from "@/lib/git-providers";
+import { githubDeviceStart, githubDevicePoll, loadGithubClientId, saveGithubClientId } from "@/lib/github-auth-client";
+import { open as openUrl } from "@tauri-apps/plugin-shell";
 import { serenaEnsureProject } from "@/lib/serena-client";
 import { useCanvasStore } from "@/store/canvas-store";
 
@@ -31,6 +33,9 @@ export function GitReposModal({ onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [clientId, setClientId] = useState(loadGithubClientId());
+  const [device, setDevice] = useState<{ userCode: string; verificationUri: string } | null>(null);
+  const [authMsg, setAuthMsg] = useState<string | null>(null);
 
   function applyPreset(id: string) {
     const p = GIT_PRESETS.find((x) => x.id === id);
@@ -58,6 +63,34 @@ export function GitReposModal({ onClose }: Props) {
 
   // Lista automático se já tem um provider salvo com token.
   useEffect(() => { if (first?.token) void list(); /* eslint-disable-next-line */ }, []);
+
+  // OAuth Device Flow: pede o code, abre o navegador, faz poll até o token.
+  async function loginGithub() {
+    const cid = clientId.trim();
+    if (!cid) { setError("Informe o Client ID do seu OAuth App do GitHub (Device Flow habilitado)."); return; }
+    saveGithubClientId(cid);
+    setError(null); setAuthMsg(null);
+    try {
+      const d = await githubDeviceStart(cid);
+      setDevice({ userCode: d.userCode, verificationUri: d.verificationUri });
+      void openUrl(d.verificationUri).catch(() => {});
+      const until = Date.now() + d.expiresIn * 1000;
+      let interval = Math.max(d.interval, 3);
+      while (Date.now() < until) {
+        await new Promise((r) => setTimeout(r, interval * 1000));
+        const p = await githubDevicePoll(cid, d.deviceCode);
+        if (p.status === "ok" && p.token) {
+          setToken(p.token); setDevice(null); setAuthMsg("✓ conectado ao GitHub");
+          const cfg: GitProviderConfig = { kind: "github", baseUrl: baseUrl.trim(), token: p.token };
+          try { setRepos(await gitListRepos(cfg)); saveGitProvider(cfg); } catch (e) { setError(String(e)); }
+          return;
+        }
+        if (p.status === "slow_down") { interval += 5; continue; }
+        if (p.status === "error") { setError(p.error ?? "autorização negada"); setDevice(null); return; }
+      }
+      setError("o código expirou — tente entrar de novo."); setDevice(null);
+    } catch (e) { setError(String(e)); setDevice(null); }
+  }
 
   async function openRepo(repo: RemoteRepo) {
     let dest = loadCloneDir();
@@ -118,8 +151,25 @@ export function GitReposModal({ onClose }: Props) {
               <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> Listar repos
             </button>
           </div>
+          {kind === "github" && (
+            <div className="flex items-center gap-2">
+              <input value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="Client ID do OAuth App (Device Flow)" className={`${inp} flex-1 font-mono`} />
+              <button onClick={() => void loginGithub()} disabled={!!device} className="px-3 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">
+                Entrar com GitHub
+              </button>
+            </div>
+          )}
+          {device && (
+            <div className="rounded border border-brand/40 bg-brand/10 px-3 py-2 text-[11px] text-text">
+              Abra{" "}
+              <button onClick={() => void openUrl(device.verificationUri)} className="underline text-brand">{device.verificationUri}</button>{" "}
+              e cole o código: <span className="font-mono font-bold tracking-widest">{device.userCode}</span>
+              <span className="block opacity-60 mt-0.5">aguardando autorização…</span>
+            </div>
+          )}
+          {authMsg && <p className="text-[11px] text-green-400">{authMsg}</p>}
           {error && <p className="text-[11px] text-danger break-words">{error}</p>}
-          <p className="text-[10px] text-textMuted opacity-60">🔑 {tokenHint}</p>
+          <p className="text-[10px] text-textMuted opacity-60">🔑 {tokenHint}{kind === "github" ? " · ou use o Device Flow (precisa de um OAuth App com client_id)" : ""}</p>
         </div>
 
         {/* Lista de repos */}
