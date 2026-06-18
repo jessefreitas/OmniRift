@@ -1269,7 +1269,7 @@ export function Sidebar() {
                     {...tools.dnd(id)}
                     onClick={runTool[id]}
                     className={cn(
-                      "group w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-textMuted",
+                      "group w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-text",
                       "hover:text-brand hover:bg-surface2 transition-colors cursor-grab active:cursor-grabbing",
                       tools.overId === id && "border-t-2 border-brand",
                     )}
