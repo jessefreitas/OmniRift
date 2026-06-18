@@ -4,22 +4,25 @@ export default {
   darkMode: "class",
   theme: {
     extend: {
+      // Tokens via CSS variables (canais "R G B") → tema editável em runtime pelo
+      // painel Aparência. `<alpha-value>` mantém os modificadores de opacidade (bg-brand/10).
       colors: {
-        bg: "rgb(10 16 20)",
-        surface1: "rgb(20 21 23)",
-        surface2: "rgb(28 30 34)",
-        border: "rgb(46 45 50)",
-        textMuted: "rgb(176 180 186)",
-        text: "rgb(237 238 240)",
+        bg: "rgb(var(--bg) / <alpha-value>)",
+        surface1: "rgb(var(--surface1) / <alpha-value>)",
+        surface2: "rgb(var(--surface2) / <alpha-value>)",
+        surface3: "rgb(var(--surface3) / <alpha-value>)",
+        border: "rgb(var(--border) / <alpha-value>)",
+        textMuted: "rgb(var(--textMuted) / <alpha-value>)",
+        text: "rgb(var(--text) / <alpha-value>)",
         brand: {
-          DEFAULT: "rgb(41 162 167)",
-          hover: "rgb(51 178 184)",
+          DEFAULT: "rgb(var(--brand) / <alpha-value>)",
+          hover: "rgb(var(--brand-hover) / <alpha-value>)",
         },
-        danger: "rgb(229 72 77)",
+        danger: "rgb(var(--danger) / <alpha-value>)",
       },
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
-        mono: ["JetBrains Mono", "Fira Code", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        sans: ["var(--font-sans)"],
+        mono: ["var(--font-mono)"],
       },
     },
   },

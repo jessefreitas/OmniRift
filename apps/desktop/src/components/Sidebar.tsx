@@ -27,6 +27,7 @@ import {
   History,
   Link2,
   Orbit,
+  Palette,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -73,6 +74,7 @@ import { RoutinesModal } from "@/components/RoutinesModal";
 import { RemindersModal } from "@/components/RemindersModal";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { CompanionModal } from "@/components/CompanionModal";
+import { AppearanceModal } from "@/components/AppearanceModal";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { ConnectionsModal } from "@/components/ConnectionsModal";
 import { HelpModal } from "@/components/HelpModal";
@@ -103,6 +105,7 @@ import type { AgentRole } from "@/types/pty";
 // Ordem alfabética por label (o usuário ainda pode reordenar por drag).
 const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[] = [
   { id: "help", icon: BookOpen, label: "Ajuda / Manual", desc: "Manual do OmniRift — como usar tudo (tópicos + busca)" },
+  { id: "appearance", icon: Palette, label: "Aparência", desc: "Cores, fontes e temas do app (claro/escuro + personalizado)" },
   { id: "clis", icon: Download, label: "CLIs de IA", desc: "Instalar e gerenciar CLIs de agentes (Claude Code, Codex, Gemini, Aider, …)" },
   { id: "review-ai", icon: ScanSearch, label: "Code Review IA", desc: "LLM (BYOK) + Política de GO/NO-GO num painel só (abas)" },
   { id: "compressors", icon: Gauge, label: "Compressores de token", desc: "Instalar/gerenciar compressores (RTK, Headroom) que cortam tokens dos agentes" },
@@ -347,6 +350,7 @@ export function Sidebar() {
   const [showLlmConfig, setShowLlmConfig] = useState(false);
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showReviewAi, setShowReviewAi] = useState(false);
+  const [showAppearance, setShowAppearance] = useState(false);
   const [showGitRepos, setShowGitRepos] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
   const [showCompanion, setShowCompanion] = useState(false);
@@ -355,7 +359,7 @@ export function Sidebar() {
 
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
   // v2: nova ordem-base alfabética (reset do drag antigo do usuário).
-  const tools = useReorderable("omnirift-tools-order-v3", TOOL_IDS);
+  const tools = useReorderable("omnirift-tools-order-v4", TOOL_IDS);
   // Seções da sidebar reordenáveis (CSS order + popover). v2: Projeto/Workspace no topo.
   const secReorder = useReorderable("omnirift-sections-order-v2", SECTION_IDS);
   const secStyle = (id: string) => ({ order: secReorder.order.indexOf(id) });
@@ -364,6 +368,7 @@ export function Sidebar() {
     git: () => setShowGitRepos(true),
     connections: () => setShowConnections(true),
     "review-ai": () => setShowReviewAi(true),
+    appearance: () => setShowAppearance(true),
     reminders: () => setShowReminders(true),
     memory: () => setShowMemory(true),
     history: () => setShowHistory(true),
@@ -391,6 +396,7 @@ export function Sidebar() {
         case "history": setShowHistory(true); break;
         case "connections": setShowConnections(true); break;
         case "review-ai": setShowReviewAi(true); break;
+        case "appearance": setShowAppearance(true); break;
         case "git": setShowGitRepos(true); break;
         case "reminders": setShowReminders(true); break;
         case "companion": setShowCompanion(true); break;
@@ -1865,6 +1871,7 @@ export function Sidebar() {
       {showGitRepos && <GitReposModal onClose={() => setShowGitRepos(false)} />}
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
       {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
+      {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}
     </aside>
   );
 }
