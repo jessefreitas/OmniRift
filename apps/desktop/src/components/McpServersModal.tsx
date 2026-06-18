@@ -90,7 +90,7 @@ export function McpServersModal({ onClose }: Props) {
 
         <div className="flex-1 overflow-auto p-3 space-y-3">
           <p className="text-[11px] text-textMuted">
-            {t("mcpServers.introBefore", "Todo agente Claude já nasce com")} <b>{DEFAULTS}</b>. {t("mcpServers.introAfter", "Aqui você adiciona MCPs extras — ligados ou desligados por servidor.")} <span className="opacity-70">{t("mcpServers.introNote", "Quanto mais MCP, mais processos por agente e mais tools pro modelo: mantenha enxuto.")}</span>
+            {t("mcpServers.introBefore", "Todo agente Claude já nasce com")} <b>{t("mcpServers.defaults", DEFAULTS)}</b>. {t("mcpServers.introAfter", "Aqui você adiciona MCPs extras — ligados ou desligados por servidor.")} <span className="opacity-70">{t("mcpServers.introNote", "Quanto mais MCP, mais processos por agente e mais tools pro modelo: mantenha enxuto.")}</span>
           </p>
 
           {/* Lista */}

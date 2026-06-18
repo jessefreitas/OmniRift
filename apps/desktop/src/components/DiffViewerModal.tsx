@@ -130,6 +130,7 @@ export function DiffViewerModal({ floor, onClose }: Props) {
                 <>
                   {diff.files.map((f) => {
                     const b = statusBadge(f.status);
+                    const label = t("diffStatus." + b.label, b.label);
                     return (
                       <button
                         key={f.path}
@@ -140,7 +141,7 @@ export function DiffViewerModal({ floor, onClose }: Props) {
                           selected === f.path ? "bg-surface2" : "hover:bg-surface2/50",
                         )}
                       >
-                        <span className={cn("text-[10px] font-bold w-3 shrink-0", b.cls)} title={b.label}>{f.status[0]}</span>
+                        <span className={cn("text-[10px] font-bold w-3 shrink-0", b.cls)} title={label}>{f.status[0]}</span>
                         <span className="text-[11px] text-text truncate flex-1 font-mono">{f.path}</span>
                         <span className="text-[10px] font-mono shrink-0">
                           <span className="text-green-400">+{f.additions}</span>

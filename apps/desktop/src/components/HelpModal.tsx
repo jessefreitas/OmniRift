@@ -10,7 +10,7 @@ import { BookOpen, Search, X } from "lucide-react";
 import { HELP_TOPICS } from "@/lib/help-content";
 import { renderMarkdown } from "@/lib/preview-client";
 import { cn } from "@/lib/cn";
-import { useT } from "@/lib/i18n";
+import { useT, useI18n } from "@/lib/i18n";
 
 interface Props {
   onClose: () => void;
@@ -18,8 +18,15 @@ interface Props {
 
 export function HelpModal({ onClose }: Props) {
   const t = useT();
+  const locale = useI18n((s) => s.locale);
+  const en = locale === "en";
   const [activeId, setActiveId] = useState(HELP_TOPICS[0]?.id ?? "");
   const [query, setQuery] = useState("");
+
+  const topicTitle = (topic: (typeof HELP_TOPICS)[number]) =>
+    en ? (topic.titleEn ?? topic.title) : topic.title;
+  const topicBody = (topic: (typeof HELP_TOPICS)[number]) =>
+    en ? (topic.bodyEn ?? topic.body) : topic.body;
 
   const q = query.trim().toLowerCase();
   const filtered = useMemo(
@@ -27,13 +34,15 @@ export function HelpModal({ onClose }: Props) {
       !q
         ? HELP_TOPICS
         : HELP_TOPICS.filter(
-            (t) => t.title.toLowerCase().includes(q) || t.body.toLowerCase().includes(q),
+            (topic) =>
+              topicTitle(topic).toLowerCase().includes(q) ||
+              topicBody(topic).toLowerCase().includes(q),
           ),
-    [q],
+    [q, en],
   );
 
-  const active = HELP_TOPICS.find((t) => t.id === activeId) ?? filtered[0] ?? HELP_TOPICS[0];
-  const html = useMemo(() => (active ? renderMarkdown(active.body) : ""), [active]);
+  const active = HELP_TOPICS.find((topic) => topic.id === activeId) ?? filtered[0] ?? HELP_TOPICS[0];
+  const html = useMemo(() => (active ? renderMarkdown(topicBody(active)) : ""), [active, en]);
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -65,18 +74,18 @@ export function HelpModal({ onClose }: Props) {
             {filtered.length === 0 ? (
               <p className="px-3 py-2 text-[11px] text-textMuted opacity-60">{t("help.notFound", "nada encontrado")}</p>
             ) : (
-              filtered.map((t) => (
+              filtered.map((topic) => (
                 <button
-                  key={t.id}
-                  onClick={() => setActiveId(t.id)}
+                  key={topic.id}
+                  onClick={() => setActiveId(topic.id)}
                   className={cn(
                     "w-full text-left px-3 py-1.5 text-[12px] truncate transition-colors",
-                    active?.id === t.id
+                    active?.id === topic.id
                       ? "text-brand bg-brand/10 border-l-2 border-brand"
                       : "text-textMuted hover:text-text hover:bg-surface2 border-l-2 border-transparent",
                   )}
                 >
-                  {t.title}
+                  {topicTitle(topic)}
                 </button>
               ))
             )}

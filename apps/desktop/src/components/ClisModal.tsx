@@ -163,7 +163,7 @@ export function ClisModal({ onClose }: ClisModalProps) {
                       </span>
                       {catalog && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface1 border border-border text-textMuted">
-                          {catalog.vendor} · {tierLabels[catalog.tier]}
+                          {catalog.vendor} · {t("cliTier." + catalog.tier, tierLabels[catalog.tier])}
                         </span>
                       )}
                     </div>

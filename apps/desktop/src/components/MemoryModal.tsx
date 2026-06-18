@@ -109,7 +109,7 @@ export function MemoryModal({ onClose }: Props) {
                 kind === k.id ? "bg-brand text-bg" : "bg-bg text-textMuted hover:text-text border border-border",
               )}
             >
-              {k.label}
+              {t("memoryKind." + (k.id || "all"), k.label)}
             </button>
           ))}
         </div>

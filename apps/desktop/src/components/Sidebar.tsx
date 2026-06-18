@@ -487,13 +487,16 @@ export function Sidebar() {
   }
 
   async function importSpecRoot() {
-    const sel = await open({ directory: true, multiple: false, title: "Adicionar pasta de specs/planos" });
+    const sel = await open({ directory: true, multiple: false, title: tr("sidebar.addSpecsFolderTitle", "Adicionar pasta de specs/planos") });
     if (typeof sel === "string" && !specRoots.includes(sel)) setSpecRoots((r) => [...r, sel]);
   }
 
   async function newDoc(kind: "spec" | "plan") {
     if (!currentCwd) return;
-    const raw = window.prompt(`Nome ${kind === "plan" ? "do plano" : "da spec"}:`, kind === "plan" ? "novo-plano" : "nova-spec");
+    const raw = window.prompt(
+      kind === "plan" ? tr("sidebar.newDocPlanPrompt", "Nome do plano:") : tr("sidebar.newDocSpecPrompt", "Nome da spec:"),
+      kind === "plan" ? tr("sidebar.newDocPlanDefault", "novo-plano") : tr("sidebar.newDocSpecDefault", "nova-spec"),
+    );
     if (!raw) return;
     const slug = raw.trim().replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "") || kind;
     const today = new Date().toISOString().slice(0, 10);
@@ -521,21 +524,21 @@ export function Sidebar() {
     return (
       <div key={s.path} className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2">
         <span className={cn("text-[8px] px-1 rounded shrink-0 uppercase", s.kind === "plan" ? "bg-brand/20 text-brand" : "bg-surface2 text-textMuted")}>{s.kind}</span>
-        <button onClick={() => addPreviewNode({ path: s.path })} title={`Abrir ${s.path}`} className={cn("text-[11px] flex-1 truncate text-left hover:text-brand", dead && "line-through opacity-60")}>{s.title}</button>
+        <button onClick={() => addPreviewNode({ path: s.path })} title={tr("common.open", "Abrir") + " " + s.path} className={cn("text-[11px] flex-1 truncate text-left hover:text-brand", dead && "line-through opacity-60")}>{s.title}</button>
         {s.tasks > 0
-          ? <span className="text-[9px] text-textMuted opacity-60 shrink-0 tabular-nums" title={`${s.doneTasks} de ${s.tasks} tasks`}>{s.doneTasks}/{s.tasks}</span>
+          ? <span className="text-[9px] text-textMuted opacity-60 shrink-0 tabular-nums" title={tr("sidebar.tasksDoneOf", "{done} de {total} tasks").replace("{done}", String(s.doneTasks)).replace("{total}", String(s.tasks))}>{s.doneTasks}/{s.tasks}</span>
           : <span className="text-[8px] uppercase px-1 rounded shrink-0 bg-surface2 text-textMuted">{s.status}</span>}
         {overlapWarnings.has(s.path) && (
-          <Tooltip label="Sobreposição: outra spec ativa toca os mesmos paths — serialize ou redesenhe o escopo" side="top" className="shrink-0">
+          <Tooltip label={tr("sidebar.specOverlap", "Sobreposição: outra spec ativa toca os mesmos paths — serialize ou redesenhe o escopo")} side="top" className="shrink-0">
             <AlertTriangle size={11} className="text-yellow-400 shrink-0" />
           </Tooltip>
         )}
-        <Tooltip label={s.status === "archived" ? "Desarquivar" : "Arquivar (move pra archive/)"} side="top" className="shrink-0">
+        <Tooltip label={s.status === "archived" ? tr("sidebar.unarchive", "Desarquivar") : tr("sidebar.archiveMove", "Arquivar (move pra archive/)")} side="top" className="shrink-0">
           <button onClick={() => void toggleArchiveSpec(s)} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all">
             {s.status === "archived" ? <ArchiveRestore size={11} /> : <Archive size={11} />}
           </button>
         </Tooltip>
-        <Tooltip label={dead ? "Spec concluída/arquivada — não despacha" : orchestratorSid ? "Enviar ao Orquestrador (dispatch paralelo)" : "Defina um Orquestrador primeiro"} side="top" className="shrink-0">
+        <Tooltip label={dead ? tr("sidebar.specDoneNoDispatch", "Spec concluída/arquivada — não despacha") : orchestratorSid ? tr("sidebar.sendToOrch", "Enviar ao Orquestrador (dispatch paralelo)") : tr("sidebar.setOrchFirst", "Defina um Orquestrador primeiro")} side="top" className="shrink-0">
           <button onClick={() => dispatchSpec(s)} disabled={!orchestratorSid || dead} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all disabled:opacity-30 disabled:cursor-not-allowed">
             <Rocket size={11} />
           </button>
@@ -719,10 +722,10 @@ export function Sidebar() {
   // editam sem conflito). Parte da branch atual do repo do floor ativo.
   async function createGitFloor() {
     if (!currentCwd) {
-      alert("Abra um projeto (pasta) primeiro — um paralelo-branch precisa de um repo git.");
+      alert(tr("sidebar.openProjectForBranch", "Abra um projeto (pasta) primeiro — um paralelo-branch precisa de um repo git."));
       return;
     }
-    const branch = prompt("Branch do novo paralelo (ex: feature/auth):");
+    const branch = prompt(tr("sidebar.newBranchPrompt", "Branch do novo paralelo (ex: feature/auth):"));
     if (!branch?.trim()) return;
     try {
       const g = await floorGitCreate(currentCwd, branch.trim());
@@ -738,7 +741,7 @@ export function Sidebar() {
         });
       }
     } catch (e) {
-      alert("Falha ao criar paralelo git:\n" + String(e));
+      alert(tr("sidebar.createGitFloorFailed", "Falha ao criar paralelo git:") + "\n" + String(e));
     }
   }
 
@@ -746,7 +749,7 @@ export function Sidebar() {
   // Destrutivo → confirma explicitamente. Em conflito, o merge falha e o floor fica.
   async function landFloor(f: Floor) {
     if (!f.repoRoot || !f.branch || !f.worktreePath || !f.baseBranch) return;
-    if (!confirm(`Land "${f.branch}" → "${f.baseBranch}"?\nFaz merge e remove o worktree.`)) return;
+    if (!confirm(tr("sidebar.landConfirm", "Land \"{branch}\" → \"{base}\"?\nFaz merge e remove o worktree.").replace("{branch}", f.branch).replace("{base}", f.baseBranch))) return;
     // Review gate: se a política liga o gate, roda o code review antes do merge.
     const policy = loadPolicy(f.repoRoot);
     if (policy.enabled && policy.gate !== "off") {
@@ -756,10 +759,10 @@ export function Sidebar() {
           const r = await runReview(f.worktreePath, f.baseBranch, llm, policy);
           if (r.verdict === "NO-GO") {
             if (policy.gate === "block") {
-              alert(`🚫 Review reprovou (NO-GO · score ${r.score}). Land bloqueado.\nAbra o Review (⊟ no paralelo) pra ver os findings e corrija.`);
+              alert(tr("sidebar.reviewBlockedLand", "🚫 Review reprovou (NO-GO · score {score}). Land bloqueado.\nAbra o Review (⊟ no paralelo) pra ver os findings e corrija.").replace("{score}", String(r.score)));
               return;
             }
-            if (!confirm(`⚠️ Review reprovou (NO-GO · score ${r.score}).\n${r.summary}\nLand mesmo assim?`)) return;
+            if (!confirm(tr("sidebar.reviewNoGoConfirm", "⚠️ Review reprovou (NO-GO · score {score}).\n{summary}\nLand mesmo assim?").replace("{score}", String(r.score)).replace("{summary}", r.summary))) return;
           }
         } catch (e) {
           console.warn("[review gate] falhou, não bloqueia o Land:", e);
@@ -772,7 +775,7 @@ export function Sidebar() {
       try {
         await runFloorHook(f.worktreePath, hooks.onLand);
       } catch (e) {
-        alert("Hook onLand falhou — Land abortado:\n" + String(e));
+        alert(tr("sidebar.hookOnLandFailed", "Hook onLand falhou — Land abortado:") + "\n" + String(e));
         return;
       }
     }
@@ -780,7 +783,7 @@ export function Sidebar() {
       await floorGitLand(f.repoRoot, f.branch, f.baseBranch, f.worktreePath);
       deleteFloor(f.id);
     } catch (e) {
-      alert("Land falhou (resolva conflitos no paralelo e tente de novo):\n" + String(e));
+      alert(tr("sidebar.landFailed", "Land falhou (resolva conflitos no paralelo e tente de novo):") + "\n" + String(e));
     }
   }
 
@@ -796,7 +799,7 @@ export function Sidebar() {
   // Tasks independentes e spawnar 1 agente por branch (terminal_spawn_on_floor).
   function dispatchSpec(s: SpecFile) {
     if (!orchestratorSid) {
-      alert("Defina um Orquestrador (botão 'O') e conecte-o ao MCP antes do dispatch.");
+      alert(tr("sidebar.setOrchBeforeDispatch", "Defina um Orquestrador (botão 'O') e conecte-o ao MCP antes do dispatch."));
       return;
     }
     const prompt =
@@ -819,12 +822,12 @@ export function Sidebar() {
     const from: "claude" | "agents" = docsStatus.claude ? "claude" : "agents";
     const src = from === "claude" ? "CLAUDE.md" : "AGENTS.md";
     const dst = from === "claude" ? "AGENTS.md" : "CLAUDE.md";
-    if (!confirm(`Sincronizar ${src} → ${dst}?\nSobrescreve o conteúdo do ${dst} (não apaga mais nada).`)) return;
+    if (!confirm(tr("sidebar.syncDocsConfirm", "Sincronizar {src} → {dst}?\nSobrescreve o conteúdo do {dst} (não apaga mais nada).").replace("{src}", src).replace(/\{dst\}/g, dst))) return;
     try {
       await agentDocsSync(currentCwd, from);
       setDocsStatus(await agentDocsStatus(currentCwd));
     } catch (e) {
-      alert("Sync falhou:\n" + String(e));
+      alert(tr("sidebar.syncFailed", "Sync falhou:") + "\n" + String(e));
     }
   }
 
@@ -935,11 +938,11 @@ export function Sidebar() {
     try {
       found = await discoverRoles(currentCwd);
     } catch (e) {
-      alert("Falha ao descobrir roles:\n" + String(e));
+      alert(tr("sidebar.discoverRolesFailed", "Falha ao descobrir roles:") + "\n" + String(e));
       return;
     }
     if (found.length === 0) {
-      alert("Nenhum role em .claude/agents/ deste projeto.");
+      alert(tr("sidebar.noRolesInProject", "Nenhum role em .claude/agents/ deste projeto."));
       return;
     }
     setRoles((prev) => {
@@ -948,12 +951,12 @@ export function Sidebar() {
         .filter((f) => !have.has(f.name.toLowerCase()))
         .map((f) => ({ id: nanoid(), name: f.name, prompt: f.prompt || f.description, cli: "claude" }));
       if (fresh.length === 0) {
-        alert("Todos os roles do projeto já estão na biblioteca.");
+        alert(tr("sidebar.allRolesAlreadyInLibrary", "Todos os roles do projeto já estão na biblioteca."));
         return prev;
       }
       const next = [...prev, ...fresh];
       saveRoles(next);
-      alert(`${fresh.length} role(s) importado(s) de .claude/agents/.`);
+      alert(tr("sidebar.rolesImported", "{n} role(s) importado(s) de .claude/agents/.").replace("{n}", String(fresh.length)));
       return next;
     });
   }
@@ -986,15 +989,15 @@ export function Sidebar() {
       command: "bash",
       args: [
         "-lc",
-        `${preset.installCmd}; rc=$?; echo; echo "--- instalação concluída (código $rc) — feche este terminal ---"`,
+        `${preset.installCmd}; rc=$?; echo; echo "--- ${tr("sidebar.installDoneEcho", "instalação concluída (código $rc) — feche este terminal")} ---"`,
       ],
       role: "shell",
-      label: `instalar ${preset.label}`,
+      label: `${tr("common.install", "Instalar").toLowerCase()} ${tr("preset." + preset.id, preset.label)}`,
     });
   }
 
   async function pickFolder() {
-    const selected = await open({ directory: true, multiple: false, title: "Selecionar pasta do projeto" });
+    const selected = await open({ directory: true, multiple: false, title: tr("sidebar.pickProjectFolderTitle", "Selecionar pasta do projeto") });
     if (typeof selected === "string") setCurrentCwd(selected);
   }
 
@@ -1019,7 +1022,7 @@ export function Sidebar() {
   }
   async function snapshotAndCloseFolder() {
     const ws = getWorkspaceSnapshot();
-    const label = `Encerramento — ${cwdLabel ?? "projeto"}`;
+    const label = `${tr("sidebar.closeoutLabel", "Encerramento")} — ${cwdLabel ?? tr("sidebar.projectFallback", "projeto")}`;
     await snapshotCreate(label, JSON.stringify(ws), false).catch(() => {});
     closeFolder();
     setClosingFolder(false);
@@ -1038,7 +1041,7 @@ export function Sidebar() {
     return (
       <button
         onClick={toggleSidebar}
-        title="Mostrar barra lateral"
+        title={tr("sidebar.showSidebar", "Mostrar barra lateral")}
         className="fixed top-3 left-3 z-50 p-1.5 rounded-md bg-surface2/90 backdrop-blur border border-border text-textMuted hover:text-brand shadow-lg transition-colors"
       >
         <PanelLeftOpen size={16} />
@@ -1060,19 +1063,19 @@ export function Sidebar() {
               <span className="inline-block w-2 h-2 rounded-full bg-brand" />
               OmniRift
             </h1>
-            <p className="text-[11px] text-textMuted mt-0.5">Canvas infinito · OmniForge</p>
+            <p className="text-[11px] text-textMuted mt-0.5">{tr("sidebar.tagline", "Canvas infinito")} · OmniForge</p>
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
             <button
               onClick={() => setShowSectionOrder((v) => !v)}
-              title="Organizar as seções da barra (arraste)"
+              title={tr("sidebar.organizeSections", "Organizar as seções da barra (arraste)")}
               className={cn("p-1 rounded hover:bg-surface2 transition-colors", showSectionOrder ? "text-brand" : "text-textMuted hover:text-brand")}
             >
               <GripVertical size={15} />
             </button>
             <button
               onClick={toggleSidebar}
-              title="Esconder barra lateral"
+              title={tr("sidebar.hideSidebar", "Esconder barra lateral")}
               className="p-1 rounded text-textMuted hover:text-text hover:bg-surface2 transition-colors"
             >
               <PanelLeftClose size={15} />
@@ -1083,7 +1086,7 @@ export function Sidebar() {
 
       {showSectionOrder && (
         <div className="px-2 py-2 border-b border-border bg-surface2/40">
-          <p className="px-1 text-[10px] uppercase tracking-wider text-textMuted mb-1">Organizar seções · arraste</p>
+          <p className="px-1 text-[10px] uppercase tracking-wider text-textMuted mb-1">{tr("sidebar.organizeSectionsDrag", "Organizar seções · arraste")}</p>
           {secReorder.order.map((sid) => {
             const def = SECTION_DEFS.find((s) => s.id === sid);
             if (!def) return null;
@@ -1110,7 +1113,7 @@ export function Sidebar() {
           <div className="flex items-center gap-1.5">
             <p className="text-[11px] uppercase tracking-wider text-textMuted">{tr("section.parallels")}</p>
             <Tooltip
-              label={`Paralelos = branches git (worktree): objetos compartilhados (~zero disco), git-native, cross-platform.${cow ? ` FS ${cow.fs}${cow.reflink ? " · CoW/instantâneo ⚡" : ""}` : ""}`}
+              label={`${tr("sidebar.parallelsGitTip", "Paralelos = branches git (worktree): objetos compartilhados (~zero disco), git-native, cross-platform.")}${cow ? ` FS ${cow.fs}${cow.reflink ? ` · ${tr("sidebar.cowInstant", "CoW/instantâneo ⚡")}` : ""}` : ""}`}
               side="bottom"
             >
               <span className="flex items-center gap-0.5 text-[9px] text-brand/70 bg-brand/10 px-1 rounded">
@@ -1119,7 +1122,7 @@ export function Sidebar() {
             </Tooltip>
             {floors.filter(isReadyToLand).length > 0 && (
               <Tooltip
-                label={`${floors.filter(isReadyToLand).length} floor(s) com agente pronto pra Land`}
+                label={tr("sidebar.floorsReadyToLand", "{n} floor(s) com agente pronto pra Land").replace("{n}", String(floors.filter(isReadyToLand).length))}
                 side="bottom"
               >
                 <span className="flex items-center gap-0.5 text-[9px] text-green-400 bg-green-500/15 px-1 rounded">
@@ -1129,7 +1132,7 @@ export function Sidebar() {
             )}
           </div>
           <div className="flex items-center gap-0.5">
-            <Tooltip label="Novo paralelo como branch git (worktree isolado)" side="bottom">
+            <Tooltip label={tr("sidebar.newParallelBranch", "Novo paralelo como branch git (worktree isolado)")} side="bottom">
               <button
                 onClick={createGitFloor}
                 className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
@@ -1137,7 +1140,7 @@ export function Sidebar() {
                 <GitBranch size={12} />
               </button>
             </Tooltip>
-            <Tooltip label="Novo paralelo vazio" side="bottom">
+            <Tooltip label={tr("sidebar.newParallelEmpty", "Novo paralelo vazio")} side="bottom">
               <button
                 onClick={() => createFloor(undefined, { focus: true })}
                 className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
@@ -1160,29 +1163,29 @@ export function Sidebar() {
               )}
               onClick={() => switchFloor(f.id)}
               onDoubleClick={() => {
-                const name = prompt("Renomear paralelo", f.name);
+                const name = prompt(tr("sidebar.renameParallel", "Renomear paralelo"), f.name);
                 if (name) renameFloor(f.id, name.trim());
               }}
             >
               {i < 9 && (
                 <span
                   className="text-[8px] text-textMuted opacity-40 font-mono shrink-0 w-3 text-center"
-                  title={`Quick Jump: Alt+${i + 1}`}
+                  title={tr("sidebar.quickJump", "Quick Jump: Alt+{n}").replace("{n}", String(i + 1))}
                 >
                   {i + 1}
                 </span>
               )}
               {f.branch && (
-                <Tooltip label={`Paralelo é a branch git "${f.branch}"`} side="top">
+                <Tooltip label={tr("sidebar.parallelIsBranch", "Paralelo é a branch git \"{branch}\"").replace("{branch}", f.branch)} side="top">
                   <GitBranch size={9} className="text-brand opacity-70 shrink-0" />
                 </Tooltip>
               )}
               <span className="text-xs flex-1 truncate">{f.name}</span>
-              <Tooltip label={`${f.nodes.length} nó(s) neste paralelo`} side="top">
+              <Tooltip label={tr("sidebar.nodesInParallel", "{n} nó(s) neste paralelo").replace("{n}", String(f.nodes.length))} side="top">
                 <span className="text-[9px] text-textMuted opacity-60">{f.nodes.length}</span>
               </Tooltip>
               {f.branch && f.worktreePath && (
-                <Tooltip label={`Ver o diff de "${f.branch}" vs "${f.baseBranch}"`} side="top">
+                <Tooltip label={tr("sidebar.viewDiff", "Ver o diff de \"{branch}\" vs \"{base}\"").replace("{branch}", f.branch).replace("{base}", String(f.baseBranch))} side="top">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1195,7 +1198,7 @@ export function Sidebar() {
                 </Tooltip>
               )}
               {f.branch && f.worktreePath && (
-                <Tooltip label={`Code review IA de "${f.branch}" vs "${f.baseBranch}"`} side="top">
+                <Tooltip label={tr("sidebar.codeReviewOf", "Code review IA de \"{branch}\" vs \"{base}\"").replace("{branch}", f.branch).replace("{base}", String(f.baseBranch))} side="top">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1211,8 +1214,8 @@ export function Sidebar() {
                 <Tooltip
                   label={
                     ready
-                      ? `Agente pronto! Land: merge de "${f.branch}" em "${f.baseBranch}"`
-                      : `Land: faz merge de "${f.branch}" em "${f.baseBranch}" e remove o worktree`
+                      ? tr("sidebar.landReady", "Agente pronto! Land: merge de \"{branch}\" em \"{base}\"").replace("{branch}", f.branch).replace("{base}", String(f.baseBranch))
+                      : tr("sidebar.landTip", "Land: faz merge de \"{branch}\" em \"{base}\" e remove o worktree").replace("{branch}", f.branch).replace("{base}", String(f.baseBranch))
                   }
                   side="top"
                 >
@@ -1234,7 +1237,7 @@ export function Sidebar() {
               )}
               {floors.length > 1 && (
                 <Tooltip
-                  label={f.branch ? "Tira do canvas (o worktree fica no disco)" : "Excluir paralelo"}
+                  label={f.branch ? tr("sidebar.removeFromCanvas", "Tira do canvas (o worktree fica no disco)") : tr("sidebar.deleteParallel", "Excluir paralelo")}
                   side="top"
                 >
                   <button
@@ -1264,7 +1267,7 @@ export function Sidebar() {
               if (!def) return null;
               const Icon = def.icon;
               return (
-                <Tooltip key={id} label={def.desc} side="right" className="w-full">
+                <Tooltip key={id} label={tr("toolDesc." + def.id, def.desc)} side="right" className="w-full">
                   <button
                     {...tools.dnd(id)}
                     onClick={runTool[id]}
@@ -1275,7 +1278,7 @@ export function Sidebar() {
                     )}
                   >
                     <GripVertical size={11} className="shrink-0 opacity-0 group-hover:opacity-40 -ml-1" />
-                    <Icon size={13} className="shrink-0 opacity-80" /> {def.label}
+                    <Icon size={13} className="shrink-0 opacity-80" /> {tr("tool." + def.id, def.label)}
                   </button>
                 </Tooltip>
               );
@@ -1292,7 +1295,7 @@ export function Sidebar() {
         <input
           ref={nameRef}
           defaultValue={workspaceName}
-          placeholder="nome do workspace"
+          placeholder={tr("sidebar.workspaceNamePh", "nome do workspace")}
           className={cn(
             "w-full px-2 py-1 rounded-md text-xs bg-bg border border-border",
             "placeholder:text-textMuted focus:outline-none focus:border-brand",
@@ -1301,25 +1304,25 @@ export function Sidebar() {
         <div className="flex gap-1">
           <button
             onClick={handleSave}
-            title="Salvar workspace"
+            title={tr("sidebar.saveWorkspace", "Salvar workspace")}
             className={cn(
               "flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md",
               "text-xs hover:bg-surface2 transition-colors text-textMuted hover:text-text",
             )}
           >
             <Download size={12} />
-            Salvar
+            {tr("common.save", "Salvar")}
           </button>
           <button
             onClick={handleLoad}
-            title="Abrir workspace"
+            title={tr("sidebar.openWorkspace", "Abrir workspace")}
             className={cn(
               "flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md",
               "text-xs hover:bg-surface2 transition-colors text-textMuted hover:text-text",
             )}
           >
             <Upload size={12} />
-            Abrir
+            {tr("common.open", "Abrir")}
           </button>
         </div>
       </div>
@@ -1346,10 +1349,10 @@ export function Sidebar() {
             <Folder size={14} className="shrink-0" />
           )}
           <span className="text-xs truncate flex-1">
-            {cwdLabel ?? "Selecionar pasta…"}
+            {cwdLabel ?? tr("sidebar.pickFolder", "Selecionar pasta…")}
           </span>
           {currentCwd && (
-            <Tooltip label="Encerrar o projeto (fecha pasta + agentes)" side="top" className="shrink-0">
+            <Tooltip label={tr("sidebar.closeProjectTip", "Encerrar o projeto (fecha pasta + agentes)")} side="top" className="shrink-0">
               <button
                 onClick={(e) => { e.stopPropagation(); setClosingFolder(true); }}
                 className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
@@ -1379,7 +1382,7 @@ export function Sidebar() {
               <span className="text-green-500/70">✓ sync</span>
             ) : (
               <Tooltip
-                label={`Copia ${docsStatus.claude ? "CLAUDE.md → AGENTS.md" : "AGENTS.md → CLAUDE.md"} — mesmas regras pra claude e codex`}
+                label={tr("sidebar.syncDocsTip", "Copia {dir} — mesmas regras pra claude e codex").replace("{dir}", docsStatus.claude ? "CLAUDE.md → AGENTS.md" : "AGENTS.md → CLAUDE.md")}
                 side="top"
                 className="shrink-0"
               >
@@ -1402,7 +1405,7 @@ export function Sidebar() {
         <div className="px-2 mb-1 sticky -top-3 z-10 bg-surface1 pt-3 pb-1 flex items-center justify-between">
           {sectionTitle("agents", tr("section.agents"))}
           {isOpen("agents") && (
-            <Tooltip label="Adicionar um CLI personalizado" side="bottom">
+            <Tooltip label={tr("sidebar.addCustomCli", "Adicionar um CLI personalizado")} side="bottom">
               <button
                 onClick={() => setAddingCli((a) => !a)}
                 className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
@@ -1415,23 +1418,23 @@ export function Sidebar() {
 
         {isOpen("agents") && addingCli && (
           <div className="mx-2 mb-1 p-2 rounded-md border border-border bg-surface2 space-y-1.5">
-            <div className="text-[10px] uppercase tracking-wide text-textMuted px-0.5">CLI personalizado</div>
+            <div className="text-[10px] uppercase tracking-wide text-textMuted px-0.5">{tr("sidebar.customCli", "CLI personalizado")}</div>
             <input
               value={newCli.label}
               onChange={(e) => setNewCli((s) => ({ ...s, label: e.target.value }))}
-              placeholder="Nome (ex: MeuCLI)"
+              placeholder={tr("sidebar.cliNamePh", "Nome (ex: MeuCLI)")}
               className="w-full px-2 py-1 text-xs rounded bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none"
             />
             <input
               value={newCli.command}
               onChange={(e) => setNewCli((s) => ({ ...s, command: e.target.value }))}
-              placeholder="Comando (ex: mycli)"
+              placeholder={tr("sidebar.cliCommandPh", "Comando (ex: mycli)")}
               className="w-full px-2 py-1 text-xs rounded bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none font-mono"
             />
             <input
               value={newCli.installCmd}
               onChange={(e) => setNewCli((s) => ({ ...s, installCmd: e.target.value }))}
-              placeholder="Instalação (opcional, ex: npm i -g mycli)"
+              placeholder={tr("sidebar.cliInstallPh", "Instalação (opcional, ex: npm i -g mycli)")}
               className="w-full px-2 py-1 text-xs rounded bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none font-mono"
             />
             <div className="flex items-center justify-end gap-1.5 pt-0.5">
@@ -1439,14 +1442,14 @@ export function Sidebar() {
                 onClick={() => { setAddingCli(false); setNewCli({ label: "", command: "", installCmd: "" }); }}
                 className="px-2 py-1 text-[11px] text-textMuted hover:text-text"
               >
-                Cancelar
+                {tr("common.cancel", "Cancelar")}
               </button>
               <button
                 onClick={saveNewCli}
                 disabled={!newCli.label.trim() || !newCli.command.trim()}
                 className="px-2 py-1 text-[11px] rounded bg-brand text-bg hover:bg-brand-hover disabled:opacity-40"
               >
-                Adicionar
+                {tr("common.add", "Adicionar")}
               </button>
             </div>
           </div>
@@ -1474,7 +1477,7 @@ export function Sidebar() {
                         compressor: loadDefaultCompressor(),
                       })
                 }
-                title={isOrch ? `Orquestrador rodando em ${orchLabel} — só decompõe e delega` : preset.description}
+                title={isOrch ? tr("sidebar.orchRunningIn", "Orquestrador rodando em {cli} — só decompõe e delega").replace("{cli}", orchLabel) : tr("presetDesc." + preset.id, preset.description)}
                 className="flex-1 min-w-0 text-left flex items-start gap-3 px-2 py-2"
               >
                 <Icon
@@ -1482,9 +1485,9 @@ export function Sidebar() {
                   className="mt-0.5 text-textMuted group-hover:text-brand transition-colors"
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-medium truncate">{preset.label}</div>
+                  <div className="text-xs font-medium truncate">{tr("preset." + preset.id, preset.label)}</div>
                   <div className="text-[10px] text-textMuted truncate">
-                    {isOrch ? `${orchLabel} · só decompõe e delega` : preset.description}
+                    {isOrch ? `${orchLabel} · ${tr("sidebar.orchDecomposesDelegates", "só decompõe e delega")}` : tr("presetDesc." + preset.id, preset.description)}
                   </div>
                 </div>
                 <Plus
@@ -1494,7 +1497,7 @@ export function Sidebar() {
               </button>
               {isOrch && (
                 <div className="relative shrink-0">
-                  <Tooltip label="Escolher o CLI do Orquestrador" side="top">
+                  <Tooltip label={tr("sidebar.chooseOrchCli", "Escolher o CLI do Orquestrador")} side="top">
                     <button
                       onClick={(e) => { e.stopPropagation(); setOrchMenu((m) => !m); }}
                       className="px-2 py-2 text-textMuted hover:text-brand"
@@ -1506,7 +1509,7 @@ export function Sidebar() {
                     <>
                       <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOrchMenu(false); }} />
                       <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-md border border-border bg-surface1 shadow-xl py-1">
-                        <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-textMuted">Rodar Orquestrador em</div>
+                        <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-textMuted">{tr("sidebar.runOrchIn", "Rodar Orquestrador em")}</div>
                         {ROLE_CLIS.filter((c) => c.id !== "shell").map((c) => (
                           <button
                             key={c.id}
@@ -1522,7 +1525,7 @@ export function Sidebar() {
                 </div>
               )}
               {preset.installCmd && (
-                <Tooltip label={`Instalar a CLI do ${preset.label}`} side="top" className="shrink-0">
+                <Tooltip label={tr("sidebar.installCliOf", "Instalar a CLI do {name}").replace("{name}", tr("preset." + preset.id, preset.label))} side="top" className="shrink-0">
                   <button
                     onClick={() => installPreset(preset)}
                     className="px-2 py-2 text-textMuted hover:text-brand opacity-0 group-hover:opacity-100 transition-all"
@@ -1532,7 +1535,7 @@ export function Sidebar() {
                 </Tooltip>
               )}
               {preset.custom && (
-                <Tooltip label="Remover este CLI personalizado" side="top" className="shrink-0">
+                <Tooltip label={tr("sidebar.removeCustomCli", "Remover este CLI personalizado")} side="top" className="shrink-0">
                   <button
                     onClick={() => removeCustomCli(preset.id)}
                     className="px-2 py-2 text-textMuted hover:text-danger opacity-0 group-hover:opacity-100 transition-all"
@@ -1552,7 +1555,7 @@ export function Sidebar() {
           {sectionTitle("roles", tr("section.roles"))}
           <div className="flex items-center gap-0.5">
             {currentCwd && (
-              <Tooltip label="Descobrir roles do projeto (.claude/agents)" side="bottom">
+              <Tooltip label={tr("sidebar.discoverProjectRoles", "Descobrir roles do projeto (.claude/agents)")} side="bottom">
                 <button
                   onClick={() => void discoverProjectRoles()}
                   className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
@@ -1561,7 +1564,7 @@ export function Sidebar() {
                 </button>
               </Tooltip>
             )}
-            <Tooltip label="Novo role custom" side="bottom">
+            <Tooltip label={tr("sidebar.newCustomRole", "Novo role custom")} side="bottom">
               <button
                 onClick={() => setEditingRole({ id: nanoid(), name: "", prompt: "" })}
                 className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
@@ -1601,7 +1604,7 @@ export function Sidebar() {
                     {r.cli ?? "claude"}
                   </span>
                 )}
-                <Tooltip label="Editar prompt" side="top" className="shrink-0">
+                <Tooltip label={tr("sidebar.editPrompt", "Editar prompt")} side="top" className="shrink-0">
                   <button
                     onClick={() => setEditingRole(r)}
                     className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-text transition-all"
@@ -1610,7 +1613,7 @@ export function Sidebar() {
                   </button>
                 </Tooltip>
                 {!r.builtin && (
-                  <Tooltip label="Excluir role" side="top" className="shrink-0">
+                  <Tooltip label={tr("sidebar.deleteRole", "Excluir role")} side="top" className="shrink-0">
                     <button
                       onClick={() => deleteRole(r.id)}
                       className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
@@ -1630,9 +1633,9 @@ export function Sidebar() {
         <div className="flex items-center justify-between px-2 mb-1.5 gap-2">
           {sectionTitle("mcp", tr("section.mcp"))}
           <div className="flex items-center gap-2 shrink-0">
-            <Tooltip label="Teto de agentes simultâneos do Orquestrador (ele pergunta antes de abrir; o resto roda em ondas)" side="bottom">
+            <Tooltip label={tr("sidebar.maxAgentsTip", "Teto de agentes simultâneos do Orquestrador (ele pergunta antes de abrir; o resto roda em ondas)")} side="bottom">
               <label className="flex items-center gap-1 text-[10px] text-textMuted">
-                máx
+                {tr("sidebar.max", "máx")}
                 <input
                   type="number"
                   min={1}
@@ -1643,12 +1646,12 @@ export function Sidebar() {
                 />
               </label>
             </Tooltip>
-            <Tooltip label="Copia o comando /mcp add pra conectar o Orquestrador ao MCP" side="bottom">
+            <Tooltip label={tr("sidebar.copyMcpCmdTip", "Copia o comando /mcp add pra conectar o Orquestrador ao MCP")} side="bottom">
               <button
                 onClick={copyMcpCmd}
                 className="text-[10px] text-textMuted hover:text-brand transition-colors px-1.5 py-0.5 rounded hover:bg-surface2"
               >
-                {copiedCmd ? "✓ copiado" : "copiar cmd"}
+                {copiedCmd ? tr("sidebar.copied", "✓ copiado") : tr("sidebar.copyCmd", "copiar cmd")}
               </button>
             </Tooltip>
           </div>
@@ -1670,7 +1673,7 @@ export function Sidebar() {
                 <div className="flex items-center gap-1.5 px-2 py-1">
                   {/* Botão Orquestrador */}
                   <Tooltip
-                    label={isOrch ? "É o Orquestrador — clique pra remover" : "Definir como Orquestrador (coordena os outros agentes)"}
+                    label={isOrch ? tr("sidebar.isOrchClickRemove", "É o Orquestrador — clique pra remover") : tr("sidebar.setAsOrch", "Definir como Orquestrador (coordena os outros agentes)")}
                     side="top"
                     className="shrink-0"
                   >
@@ -1692,7 +1695,7 @@ export function Sidebar() {
                   </Tooltip>
                   {/* Checkbox agente MCP */}
                   <Tooltip
-                    label={isRegistered ? "Registrado no MCP — clique pra remover" : "Registrar como tool MCP (o Orquestrador passa a poder chamá-lo)"}
+                    label={isRegistered ? tr("sidebar.registeredClickRemove", "Registrado no MCP — clique pra remover") : tr("sidebar.registerAsMcpTool", "Registrar como tool MCP (o Orquestrador passa a poder chamá-lo)")}
                     side="top"
                     className="shrink-0"
                   >
@@ -1708,22 +1711,22 @@ export function Sidebar() {
                       {isRegistered && <span className="text-[8px] leading-none">✓</span>}
                     </button>
                   </Tooltip>
-                  <Tooltip label={`Estado: ${agentStatus}`} side="top" className="shrink-0">
+                  <Tooltip label={tr("sidebar.state", "Estado:") + " " + agentStatus} side="top" className="shrink-0">
                     <StatusDot status={agentStatus} size={5} />
                   </Tooltip>
                   <span className={cn(
                     "text-[11px] flex-1 truncate font-medium",
                     isOrch && "text-yellow-400",
-                  )}>{label}{isOrch && <span className="ml-1 text-[9px] text-yellow-500 font-normal">orq</span>}</span>
+                  )}>{label}{isOrch && <span className="ml-1 text-[9px] text-yellow-500 font-normal">{tr("orchestrator.orqBadge", "orq")}</span>}</span>
                   {floorName && (
-                    <Tooltip label={`Vive no paralelo "${floorName}"`} side="top" className="shrink-0">
+                    <Tooltip label={tr("sidebar.livesInParallel", "Vive no paralelo \"{floor}\"").replace("{floor}", floorName)} side="top" className="shrink-0">
                       <span className="flex items-center gap-0.5 text-[8px] text-textMuted opacity-70 px-1 py-0.5 rounded bg-surface2 max-w-[64px]">
                         <GitBranch size={7} className="shrink-0" />
                         <span className="truncate">{floorName}</span>
                       </span>
                     </Tooltip>
                   )}
-                  <Tooltip label="Injeta /mcp add neste terminal (conecta-o ao MCP do maestri)" side="top" className="shrink-0">
+                  <Tooltip label={tr("sidebar.injectMcpAdd", "Injeta /mcp add neste terminal (conecta-o ao MCP do maestri)")} side="top" className="shrink-0">
                     <button
                       onClick={() => injectMcpToTerminal(sid)}
                       className="opacity-0 group-hover:opacity-100 transition-opacity"
@@ -1743,7 +1746,7 @@ export function Sidebar() {
                     onChange={(e) =>
                       setAgentDescriptions((prev) => ({ ...prev, [sid]: e.target.value }))
                     }
-                    placeholder={`Papel de ${label}… ex: "especialista em frontend"`}
+                    placeholder={tr("sidebar.rolePlaceholder", "Papel de {label}… ex: \"especialista em frontend\"").replace("{label}", label)}
                     className={cn(
                       "w-full px-1.5 py-0.5 rounded text-[10px] bg-bg border border-border",
                       "placeholder:text-textMuted focus:outline-none focus:border-brand",
@@ -1756,7 +1759,7 @@ export function Sidebar() {
           })}
           {terminals.length === 0 && (
             <p className="px-2 text-[10px] text-textMuted opacity-60">
-              Adicione terminais para registrar agentes
+              {tr("sidebar.addTerminalsToRegister", "Adicione terminais para registrar agentes")}
             </p>
           )}
         </div>
@@ -1767,15 +1770,15 @@ export function Sidebar() {
       <div className="px-2 py-2 border-t border-border" style={secStyle("specs")}>
         <div className="px-2 mb-1.5 flex items-center gap-1">
           <div className="flex-1">{sectionTitle("specs", tr("section.specs"))}</div>
-          <button onClick={() => void newDoc("spec")} disabled={!currentCwd} title="Nova spec (design)" className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FileText size={12} /></button>
-          <button onClick={() => void newDoc("plan")} disabled={!currentCwd} title="Novo plano (tasks)" className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FilePlus size={12} /></button>
-          <button onClick={() => void importSpecRoot()} title="Adicionar pasta de specs/planos" className="text-textMuted hover:text-brand p-0.5"><FolderPlus size={12} /></button>
+          <button onClick={() => void newDoc("spec")} disabled={!currentCwd} title={tr("sidebar.newSpecDesign", "Nova spec (design)")} className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FileText size={12} /></button>
+          <button onClick={() => void newDoc("plan")} disabled={!currentCwd} title={tr("sidebar.newPlanTasks", "Novo plano (tasks)")} className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FilePlus size={12} /></button>
+          <button onClick={() => void importSpecRoot()} title={tr("sidebar.addSpecsFolderTitle", "Adicionar pasta de specs/planos")} className="text-textMuted hover:text-brand p-0.5"><FolderPlus size={12} /></button>
         </div>
         {isOpen("specs") && (
           !currentCwd ? (
-            <p className="px-2 text-[10px] text-textMuted opacity-60">Abra um projeto pra listar specs.</p>
+            <p className="px-2 text-[10px] text-textMuted opacity-60">{tr("sidebar.openProjectToListSpecs", "Abra um projeto pra listar specs.")}</p>
           ) : specs.length === 0 ? (
-            <p className="px-2 text-[10px] text-textMuted opacity-60">Nenhuma spec. Crie com + ou adicione uma pasta.</p>
+            <p className="px-2 text-[10px] text-textMuted opacity-60">{tr("sidebar.noSpecs", "Nenhuma spec. Crie com + ou adicione uma pasta.")}</p>
           ) : (
             <div className="space-y-0.5">
               {activeSpecs.map(renderSpecRow)}
@@ -1785,7 +1788,7 @@ export function Sidebar() {
                     onClick={() => setShowDeadSpecs((v) => !v)}
                     className="w-full text-left px-2 py-1 text-[9px] uppercase tracking-wider text-textMuted opacity-60 hover:opacity-100"
                   >
-                    {showDeadSpecs ? "▾" : "▸"} Concluídos / arquivados ({deadSpecs.length})
+                    {showDeadSpecs ? "▾" : "▸"} {tr("sidebar.doneArchived", "Concluídos / arquivados")} ({deadSpecs.length})
                   </button>
                   {showDeadSpecs && deadSpecs.map(renderSpecRow)}
                 </>
@@ -1797,8 +1800,8 @@ export function Sidebar() {
       </div>
 
       <footer className="px-4 py-3 border-t border-border text-[10px] text-textMuted">
-        Fase 2 — PTY + canvas + workspaces + MCP
-        <div className="opacity-70 mt-0.5">v0.1.0 · build local</div>
+        {tr("sidebar.footerPhase", "Fase 2 — PTY + canvas + workspaces + MCP")}
+        <div className="opacity-70 mt-0.5">v0.1.0 · {tr("sidebar.localBuild", "build local")}</div>
       </footer>
 
       {editingRole && (
@@ -1829,32 +1832,32 @@ export function Sidebar() {
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={() => setClosingFolder(false)}>
           <div className="w-[440px] max-w-[92vw] rounded-lg border border-border bg-surface1 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-border">
-              <div className="text-sm font-medium text-text">Encerrar o projeto?</div>
-              <div className="text-[11px] text-textMuted mt-0.5 truncate" title={currentCwd ?? ""}>{cwdLabel ?? "projeto"}</div>
+              <div className="text-sm font-medium text-text">{tr("sidebar.closeProjectQ", "Encerrar o projeto?")}</div>
+              <div className="text-[11px] text-textMuted mt-0.5 truncate" title={currentCwd ?? ""}>{cwdLabel ?? tr("sidebar.projectFallback", "projeto")}</div>
             </div>
             <p className="px-4 py-3 text-[12px] text-textMuted leading-snug">
-              Os <b className="text-text">agentes/terminais</b> abertos serão fechados e o canvas deste projeto será limpo. Quer salvar antes?
+              {tr("sidebar.closeWarnPre", "Os ")}<b className="text-text">{tr("sidebar.closeWarnBold", "agentes/terminais")}</b>{tr("sidebar.closeWarnPost", " abertos serão fechados e o canvas deste projeto será limpo. Quer salvar antes?")}
             </p>
             {dirtyFiles.size > 0 && (
               <div className="mx-4 mb-1 px-3 py-2 rounded-md border border-yellow-400/40 bg-yellow-400/10 text-[11px] text-yellow-200 flex items-start gap-2">
                 <span className="shrink-0">⚠️</span>
                 <span>
-                  <b>{dirtyFiles.size}</b> arquivo(s) com edições <b>não salvas</b> no editor. Salvar/snapshot do canvas <b>não</b> grava esses arquivos — salve com Ctrl/Cmd+S no CodeNode antes de encerrar, ou eles serão perdidos.
+                  <b>{dirtyFiles.size}</b>{tr("sidebar.dirtyWarnPre", " arquivo(s) com edições ")}<b>{tr("sidebar.dirtyWarnUnsaved", "não salvas")}</b>{tr("sidebar.dirtyWarnMid", " no editor. Salvar/snapshot do canvas ")}<b>{tr("sidebar.dirtyWarnNot", "não")}</b>{tr("sidebar.dirtyWarnPost", " grava esses arquivos — salve com Ctrl/Cmd+S no CodeNode antes de encerrar, ou eles serão perdidos.")}
                 </span>
               </div>
             )}
             <div className="px-4 pb-3 flex flex-col gap-1.5">
               <button onClick={() => void saveAndCloseFolder()} className="w-full px-3 py-2 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover text-left flex items-center gap-2">
-                <Save size={13} /> Salvar e encerrar
+                <Save size={13} /> {tr("sidebar.saveAndClose", "Salvar e encerrar")}
               </button>
               <button onClick={() => void snapshotAndCloseFolder()} className="w-full px-3 py-2 rounded-md text-xs bg-surface2 text-text hover:bg-bg border border-border text-left flex items-center gap-2">
-                <Archive size={13} /> Snapshot da sessão e encerrar
+                <Archive size={13} /> {tr("sidebar.snapshotAndClose", "Snapshot da sessão e encerrar")}
               </button>
               <button onClick={discardAndCloseFolder} className="w-full px-3 py-2 rounded-md text-xs text-danger hover:bg-danger/10 text-left flex items-center gap-2">
-                <Trash2 size={13} /> Encerrar sem salvar
+                <Trash2 size={13} /> {tr("sidebar.closeWithoutSaving", "Encerrar sem salvar")}
               </button>
               <button onClick={() => setClosingFolder(false)} className="w-full px-3 py-1.5 rounded-md text-xs text-textMuted hover:text-text text-center mt-0.5">
-                Cancelar
+                {tr("common.cancel", "Cancelar")}
               </button>
             </div>
           </div>

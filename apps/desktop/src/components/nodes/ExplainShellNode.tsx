@@ -98,7 +98,7 @@ export function ExplainShellNode({ id, data, selected }: NodeProps<ExplainRfNode
                 {s.text}
               </span>
               <div className="min-w-0 flex-1">
-                <span className="text-[9px] uppercase tracking-wide text-textMuted opacity-50">{KIND_LABEL[s.kind]}</span>
+                <span className="text-[9px] uppercase tracking-wide text-textMuted opacity-50">{t("explainKind." + s.kind, KIND_LABEL[s.kind])}</span>
                 <p className="text-[11px] text-text break-words leading-snug">{desc}</p>
               </div>
             </div>
