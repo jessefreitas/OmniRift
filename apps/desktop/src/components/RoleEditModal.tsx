@@ -4,12 +4,14 @@
 // pela biblioteca de Roles na sidebar. As skills marcadas são curadas de
 // .claude/skills e injetadas na persona do agente no spawn. Renderiza em portal.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Sparkles, X } from "lucide-react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { Download, FileUp, Sparkles, X } from "lucide-react";
 
 import { ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
-import { skillsList, type SkillInfo } from "@/lib/skills-client";
+import { skillsList, skillsImportMd, skillsImportGithub, type SkillInfo } from "@/lib/skills-client";
+import { loadGitProviders } from "@/lib/git-providers";
 
 interface Props {
   role: AgentRoleDef;
@@ -27,15 +29,49 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
   const [skills, setSkills] = useState<string[]>(role.skills ?? []);
   const [available, setAvailable] = useState<SkillInfo[]>([]);
   const [compressor, setCompressor] = useState(role.compressor ?? "none");
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const isShell = cli === "shell";
 
-  useEffect(() => {
+  const loadSkills = useCallback(async () => {
     if (!cwd) { setAvailable([]); return; }
-    skillsList(cwd).then(setAvailable).catch(() => setAvailable([]));
+    try { setAvailable(await skillsList(cwd)); } catch { setAvailable([]); }
   }, [cwd]);
+  useEffect(() => { void loadSkills(); }, [loadSkills]);
 
   function toggleSkill(n: string) {
     setSkills((cur) => (cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n]));
+  }
+
+  // Importa um .md avulso → vira skill do projeto e já entra marcada.
+  async function importMd() {
+    if (!cwd) { setImportMsg("abra um projeto primeiro"); return; }
+    const sel = await openDialog({ multiple: false, filters: [{ name: "Skill (.md)", extensions: ["md"] }] });
+    if (typeof sel !== "string") return;
+    setImporting(true); setImportMsg(null);
+    try {
+      const info = await skillsImportMd(cwd, sel);
+      await loadSkills();
+      setSkills((s) => [...new Set([...s, info.name])]);
+      setImportMsg(`✓ + ${info.name}`);
+    } catch (e) { setImportMsg(`✗ ${String(e)}`); }
+    finally { setImporting(false); }
+  }
+
+  // Importa todos os SKILL.md de um repo GitHub (público dispensa token).
+  async function importGithub() {
+    if (!cwd) { setImportMsg("abra um projeto primeiro"); return; }
+    const url = window.prompt("URL do repo GitHub com SKILL.md (ex.: github.com/owner/repo):");
+    if (!url?.trim()) return;
+    setImporting(true); setImportMsg(null);
+    try {
+      const token = loadGitProviders().find((p) => p.kind === "github")?.token;
+      const infos = await skillsImportGithub(cwd, url.trim(), token);
+      await loadSkills();
+      setSkills((s) => [...new Set([...s, ...infos.map((i) => i.name)])]);
+      setImportMsg(`✓ + ${infos.length} skill(s) do GitHub`);
+    } catch (e) { setImportMsg(`✗ ${String(e)}`); }
+    finally { setImporting(false); }
   }
 
   return createPortal(
@@ -125,7 +161,27 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
               <Sparkles size={12} className="text-brand" />
               <label className="text-[11px] uppercase tracking-wider text-textMuted">Skills do agente</label>
               {skills.length > 0 && <span className="text-[10px] text-brand">{skills.length} selecionada(s)</span>}
+              <div className="flex-1" />
+              <button
+                onClick={() => void importMd()}
+                disabled={!cwd || importing}
+                title="Importar uma skill de um arquivo .md"
+                className="flex items-center gap-1 text-[10px] text-textMuted hover:text-brand disabled:opacity-40"
+              >
+                <FileUp size={12} /> .md
+              </button>
+              <button
+                onClick={() => void importGithub()}
+                disabled={!cwd || importing}
+                title="Importar skills de um repositório GitHub"
+                className="flex items-center gap-1 text-[10px] text-textMuted hover:text-brand disabled:opacity-40"
+              >
+                <Download size={12} /> GitHub
+              </button>
             </div>
+            {importMsg && (
+              <p className={`text-[10px] ${importMsg.startsWith("✓") ? "text-green-400" : "text-danger"}`}>{importMsg}</p>
+            )}
             {available.length === 0 ? (
               <p className="mt-1 text-[10px] text-textMuted opacity-60">
                 {cwd

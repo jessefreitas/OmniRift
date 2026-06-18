@@ -10,7 +10,7 @@ pub mod pty;
 pub mod spec;
 
 use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles};
-use commands::skills::skills_list;
+use commands::skills::{skills_import_github, skills_import_md, skills_list};
 use commands::browser::browser_shot;
 use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
 use commands::code::{code_open, code_save, code_unwatch, code_watch, CodeWatchers};
@@ -197,6 +197,8 @@ pub fn run() {
             agent_docs_sync,
             discover_roles,
             skills_list,
+            skills_import_md,
+            skills_import_github,
             list_dir,
             read_file,
             write_file,
