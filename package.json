@@ -12,6 +12,7 @@
     "tauri:dev": "npm run tauri:dev --workspace=apps/desktop",
     "tauri:build": "npm run tauri:build --workspace=apps/desktop",
     "lint": "npm run lint --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "version:set": "node scripts/set-version.mjs"
   }
 }
