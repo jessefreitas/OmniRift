@@ -16,7 +16,7 @@ export const ACCENT = ACCENTS[ACCENT_NAME];
 
 export const PRODUCT_NAME = "OmniRift";
 export const TAGLINE =
-  "Terminais, notas e navegadores convivem num espaço infinito. Conecte agentes, delegue tarefas e acompanhe tudo de um lugar só.";
+  "O canvas open-source pra orquestrar agentes de IA — git-native (cada paralelo é um worktree de verdade), com o LLM que você quiser, rodando no seu Linux ou Windows. Você orquestra; eles trabalham.";
 
-// Repository / download targets. Adjust to the real release URLs when shipping.
-export const REPO_URL = "https://git.omnimemory.com.br/jesse_freitas/maestri_linux";
+// Repositório público (GitHub). A fonte da verdade é o Forgejo; o GitHub é a réplica.
+export const REPO_URL = "https://github.com/jessefreitas/OmniRift";

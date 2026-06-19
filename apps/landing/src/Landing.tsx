@@ -53,31 +53,8 @@ const ICON_PROPS = {
 const FEATURES: Feature[] = [
   {
     num: "01",
-    title: "Canvas infinito",
-    desc: "Espaço 2D ilimitado com grade, minimapa e snapping magnético, acelerado por GPU (Pixi.js). Navegue, amplie e agrupe sem perder o panorama.",
-    icon: (
-      <svg {...ICON_PROPS}>
-        <rect x="3" y="3" width="20" height="20" rx="3" />
-        <path d="M3 10h20M10 3v20" />
-      </svg>
-    ),
-  },
-  {
-    num: "02",
-    title: "Agentes que conversam",
-    desc: "Conecte dois terminais com um cabo e eles passam a delegar tarefas entre si — mesmo agentes de CLIs diferentes, via uma skill/MCP injetada.",
-    icon: (
-      <svg {...ICON_PROPS}>
-        <circle cx="6" cy="6" r="3" />
-        <circle cx="20" cy="20" r="3" />
-        <path d="M8.3 8.3 17.7 17.7" />
-      </svg>
-    ),
-  },
-  {
-    num: "03",
-    title: "Andares",
-    desc: "Branches git isolados como worktrees: cada andar tem terminal, branch e working tree próprios, com hooks de setup, run e teardown.",
+    title: "Paralelos = worktrees git",
+    desc: "Cada paralelo é um worktree git de verdade — branch, working tree e terminal próprios. Toque várias frentes ao mesmo tempo, sem stash e sem trocar de branch. É git-native, não uma metáfora.",
     icon: (
       <svg {...ICON_PROPS}>
         <rect x="3" y="4" width="20" height="4" rx="1.5" />
@@ -87,35 +64,58 @@ const FEATURES: Feature[] = [
     ),
   },
   {
-    num: "04",
-    title: "Portais",
-    desc: "Navegadores embutidos no canvas. Conectados a um agente, viram automação: clicar, ler o DOM, tirar screenshots e executar JS.",
+    num: "02",
+    title: "OmniPartner",
+    desc: "Um copiloto que enxerga o canvas inteiro e a memória do projeto — com QUALQUER LLM: Claude, GPT, Ollama local, o que você trouxer (BYOK). Sem ficar preso a um modelo de um fabricante só.",
     icon: (
       <svg {...ICON_PROPS}>
-        <rect x="3" y="4" width="20" height="16" rx="2.5" />
-        <path d="M3 9h20" />
+        <circle cx="13" cy="13" r="9.5" />
+        <circle cx="13" cy="13" r="3.2" fill="var(--ac)" stroke="none" />
+      </svg>
+    ),
+  },
+  {
+    num: "03",
+    title: "Agentes que conversam",
+    desc: "Ligue dois terminais com um cabo e eles delegam tarefas entre si — mesmo agentes de CLIs diferentes (Claude Code, Codex…), via MCP injetado. O orquestrador despacha; os workers executam.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <circle cx="6" cy="6" r="3" />
+        <circle cx="20" cy="20" r="3" />
+        <path d="M8.3 8.3 17.7 17.7" />
+      </svg>
+    ),
+  },
+  {
+    num: "04",
+    title: "OmniCompress nativo",
+    desc: "Já vem ligado, cuidando dos seus tokens — comprime o contexto antes de chegar no modelo: menos custo, mesmo resultado. Pode desligar quando quiser, e somar RTK/Headroom por cima. Com painel de gasto por projeto.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M4 19a9 9 0 0 1 18 0" />
+        <path d="M13 19l5.5-5.5" />
       </svg>
     ),
   },
   {
     num: "05",
-    title: "Rotinas",
-    desc: "Prompts agendados que rodam em intervalos: testes contínuos, monitoramento, scraping. Configure e esqueça.",
+    title: "Code Workspace",
+    desc: "Editor Monaco direto no canvas, ao lado dos agentes. Abra, edite e salve arquivos sem sair do fluxo — o código e quem o escreve no mesmo lugar.",
     icon: (
       <svg {...ICON_PROPS}>
-        <circle cx="13" cy="13" r="9.5" />
-        <path d="M13 7.5V13l3.5 2" />
+        <path d="M9 8l-5 5 5 5" />
+        <path d="M17 8l5 5-5 5" />
       </svg>
     ),
   },
   {
     num: "06",
-    title: "Privado por padrão",
-    desc: "Zero telemetria, sem conta, tudo local. Config em JSON, notas em Markdown — seus arquivos continuam seus.",
+    title: "Open-source, no seu sistema",
+    desc: "Roda em Linux e Windows (Tauri 2 + Rust), código aberto, zero telemetria e sem conta. Config em JSON, notas em Markdown — seus arquivos continuam seus.",
     icon: (
       <svg {...ICON_PROPS}>
-        <circle cx="13" cy="13" r="9.5" />
-        <circle cx="13" cy="13" r="3.2" fill="var(--ac)" stroke="none" />
+        <rect x="3" y="3" width="20" height="20" rx="3" />
+        <path d="M3 10h20M10 3v20" />
       </svg>
     ),
   },
@@ -129,27 +129,27 @@ interface Faq {
 const FAQS: Faq[] = [
   {
     q: "Preciso criar uma conta?",
-    a: "Não. Funciona 100% local, sem login e sem telemetria. Nada do seu trabalho sai da sua máquina.",
+    a: "Não pra usar local. A edição community roda sem login e sem telemetria — nada do seu trabalho sai da sua máquina. Conta só entra se você ativar o Pro (uma licença).",
   },
   {
     q: "Com quais agentes de código funciona?",
-    a: "Com qualquer CLI de agente — Claude Code, Codex, OpenCode e outros. O canvas é agnóstico: cada terminal é um shell completo rodando o agente que você quiser.",
+    a: "Com qualquer CLI de agente — Claude Code, Codex, OpenCode e outros. O canvas é agnóstico: cada terminal é um shell completo rodando o agente que você quiser. E o OmniPartner usa o LLM que você trouxer (BYOK).",
   },
   {
     q: "Os agentes realmente conversam entre si?",
-    a: "Sim. Conectar dois terminais com um cabo habilita comunicação real via uma skill/MCP injetada na CLI — mesmo entre agentes de fornecedores diferentes.",
+    a: "Sim. Ligar dois terminais com um cabo habilita comunicação real via MCP injetado na CLI — mesmo entre agentes de fornecedores diferentes. Um vira orquestrador e despacha tarefas pros outros.",
   },
   {
-    q: "O que são os Andares?",
-    a: "Branches git isolados, criados como worktrees: cada andar tem terminal, branch e working tree próprios, com hooks de setup, run e teardown. Troque de contexto sem perder o contexto.",
+    q: "O que são os Paralelos?",
+    a: "Worktrees git de verdade: cada paralelo tem branch, working tree e terminal próprios, com hooks de setup, run e teardown. Toque várias frentes ao mesmo tempo — sem stash, sem trocar de branch.",
   },
   {
     q: "Funciona no Windows e no Linux?",
-    a: "Sim. OmniRift é multiplataforma — Linux, Windows e macOS — construído com Tauri 2 e um backend em Rust. É o equivalente open-source do conceito que nasceu no macOS.",
+    a: "Sim — OmniRift é feito pra Linux e Windows (Tauri 2 + Rust), open-source. É o canvas de orquestração pra quem desenvolve nesses sistemas; não é port de nada de outra plataforma.",
   },
   {
-    q: "OmniRift é pago?",
-    a: "OmniRift é open-source e gratuito para usar localmente. O plano Pro é um pagamento único (vitalício, sem assinatura) que apoia o desenvolvimento e libera recursos avançados em até 2 máquinas.",
+    q: "Quanto custa?",
+    a: "A edição community é grátis e open-source (1 workspace; agentes e canvas ilimitados). O Pro libera workspaces ilimitados e uso em até 3 computadores — R$14,90/mês ou R$109,90/ano, com 7 dias grátis. No lançamento: beta com 50 vagas, tudo liberado por 60 dias.",
   },
 ];
 
@@ -291,7 +291,7 @@ export function Landing() {
             Orquestração visual de agentes
           </div>
           <h1 style={{ fontSize: "clamp(40px,6.4vw,74px)", fontWeight: 600, letterSpacing: "-2.4px", lineHeight: 1.02, margin: "0 0 24px", textWrap: "balance" }}>
-            Um canvas para reger
+            Um canvas para orquestrar
             <br />
             seus agentes de IA.
           </h1>
@@ -367,7 +367,7 @@ export function Landing() {
           Pare de gerenciar pilhas de abas. Disponha agentes, notas e navegadores num espaço só — e deixe de ser o gargalo.
         </p>
 
-        {/* Modo Maestro highlight */}
+        {/* Modo Piloto highlight */}
         <div
           style={{
             display: "flex",
@@ -396,9 +396,9 @@ export function Landing() {
                 marginBottom: 18,
               }}
             >
-              MODO MAESTRO
+              MODO PILOTO
             </div>
-            <h3 style={{ fontSize: 27, fontWeight: 600, letterSpacing: "-.8px", margin: "0 0 12px", lineHeight: 1.15 }}>Promova um agente a gerente.</h3>
+            <h3 style={{ fontSize: 27, fontWeight: 600, letterSpacing: "-.8px", margin: "0 0 12px", lineHeight: 1.15 }}>Promova um agente a orquestrador.</h3>
             <p style={{ color: MUTED, fontSize: 16, lineHeight: 1.6, margin: 0, maxWidth: 440, textWrap: "pretty" }}>
               Ele recruta, conecta e reatribui papéis sozinho — montando equipes de dev, revisor e testador sob demanda. Você só dá a direção.
             </p>
@@ -472,10 +472,10 @@ export function Landing() {
               </a>
               <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 14.5, color: "#C9C9CF" }}>
                 <div>1 workspace</div>
-                <div>Agentes ilimitados</div>
-                <div>Canvas infinito</div>
+                <div>Agentes ilimitados · canvas infinito</div>
+                <div>1 paralelo (worktree git)</div>
                 <div>Notas, sketches e conexões</div>
-                <div>Temas de terminal</div>
+                <div>OmniPartner (BYO LLM) incluído</div>
               </div>
             </div>
             {/* pro */}
@@ -503,13 +503,14 @@ export function Landing() {
                   fontWeight: 700,
                 }}
               >
-                VITALÍCIO
+                7 DIAS GRÁTIS
               </div>
               <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ac)" }}>Pro</div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 4px" }}>
-                <span style={{ fontSize: 46, fontWeight: 600, letterSpacing: "-1.5px" }}>R$95</span>
-                <span style={{ color: DIM, fontSize: 15 }}>pagamento único</span>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 2px" }}>
+                <span style={{ fontSize: 46, fontWeight: 600, letterSpacing: "-1.5px" }}>R$14,90</span>
+                <span style={{ color: DIM, fontSize: 15 }}>/mês</span>
               </div>
+              <div style={{ color: DIM, fontSize: 13.5 }}>ou R$109,90/ano (economize ~38%)</div>
               <a
                 href="#"
                 style={{
@@ -530,10 +531,8 @@ export function Landing() {
               <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 14.5, color: "#C9C9CF" }}>
                 <div style={{ color: MUTED }}>Tudo do Grátis, e mais:</div>
                 <div>Workspaces ilimitados</div>
-                <div>Andares (worktrees git)</div>
-                <div>Rotinas agendadas</div>
-                <div>SSH remoto</div>
-                <div>Use em até 2 máquinas</div>
+                <div>Troca rápida entre workspaces</div>
+                <div>Use em até 3 computadores</div>
               </div>
             </div>
           </div>
