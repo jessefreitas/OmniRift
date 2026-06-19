@@ -17,10 +17,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Limites da edição community (0 = ilimitado).
+/// Limites da edição community (0 = ilimitado). Gate SÓ no nº de workspaces
+/// (canvas/projetos) = 1; agentes e paralelos são ilimitados no free.
 const COMMUNITY_CANVAS: i64 = 1;
-const COMMUNITY_AGENTS: i64 = 5;
-const COMMUNITY_FLOORS: i64 = 1;
+const COMMUNITY_AGENTS: i64 = 0;
+const COMMUNITY_FLOORS: i64 = 0;
 
 /// Limites efetivos aplicados pela UI (0 = ilimitado).
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -266,9 +267,10 @@ mod tests {
     }
 
     #[test]
-    fn community_limits_are_1_5_1() {
+    fn community_gates_only_workspace() {
         let l = Limits::community();
-        assert_eq!((l.canvas, l.agents, l.floors), (1, 5, 1));
+        // 1 workspace (canvas); agentes e paralelos ilimitados (0).
+        assert_eq!((l.canvas, l.agents, l.floors), (1, 0, 0));
     }
 
     #[test]

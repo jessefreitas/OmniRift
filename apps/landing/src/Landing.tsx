@@ -9,6 +9,11 @@ import { ACCENT, PRODUCT_NAME, TAGLINE, REPO_URL } from "./theme";
 const MUTED = "#9A9AA2";
 const DIM = "#6A6A72";
 
+// Beta de lançamento: enquanto não há build público, os CTAs de ação levam pro
+// WhatsApp (inbox 196 → funil). Depois do 1º release, "Baixar" → GitHub Releases.
+const BETA_WA =
+  "https://wa.me/5553999034520?text=Quero%20uma%20vaga%20no%20beta%20de%20lan%C3%A7amento%20do%20OmniRift";
+
 const LogoBars = ({ size = 18 }: { size?: number }) => (
   <svg width={size} height={(size * 18) / 18} viewBox="0 0 18 18" fill="none">
     <rect x="1" y="8" width="3" height="9" rx="1.5" fill="var(--ac)" />
@@ -111,7 +116,7 @@ const FEATURES: Feature[] = [
   {
     num: "06",
     title: "Open-source, no seu sistema",
-    desc: "Roda em Linux e Windows (Tauri 2 + Rust), código aberto, zero telemetria e sem conta. Config em JSON, notas em Markdown — seus arquivos continuam seus.",
+    desc: "Roda em Linux e Windows (Tauri 2 + Rust), código aberto e 100% offline: sem login, sem analytics, sem nuvem. Config e notas ficam em arquivos de texto no seu disco, abríveis em qualquer editor.",
     icon: (
       <svg {...ICON_PROPS}>
         <rect x="3" y="3" width="20" height="20" rx="3" />
@@ -129,7 +134,7 @@ interface Faq {
 const FAQS: Faq[] = [
   {
     q: "Preciso criar uma conta?",
-    a: "Não pra usar local. A edição community roda sem login e sem telemetria — nada do seu trabalho sai da sua máquina. Conta só entra se você ativar o Pro (uma licença).",
+    a: "Não pra usar local. A edição community roda sem login e sem rastreio — nada do seu trabalho sai da sua máquina. Conta só entra se você ativar o Pro (uma licença).",
   },
   {
     q: "Com quais agentes de código funciona?",
@@ -252,7 +257,9 @@ export function Landing() {
           <NavLink href="#precos">Preços</NavLink>
           <NavLink href="#faq">FAQ</NavLink>
           <a
-            href="#precos"
+            href={BETA_WA}
+            target="_blank"
+            rel="noreferrer"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -298,7 +305,9 @@ export function Landing() {
           <p style={{ maxWidth: 560, margin: "0 auto 36px", fontSize: 19, lineHeight: 1.55, color: MUTED, textWrap: "pretty" }}>{TAGLINE}</p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
             <a
-              href="#precos"
+              href={BETA_WA}
+              target="_blank"
+              rel="noreferrer"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -335,7 +344,7 @@ export function Landing() {
             </button>
           </div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12.5, color: DIM, marginTop: 20, letterSpacing: ".3px" }}>
-            Grátis para sempre · sem conta · 100% local
+            Open-source · sem conta · 100% local
           </div>
         </div>
 
@@ -359,12 +368,12 @@ export function Landing() {
       <section id="recursos" style={{ maxWidth: 1120, margin: "0 auto", padding: "96px 24px" }}>
         <div style={eyebrow}>Tudo no mesmo canvas</div>
         <h2 style={{ ...h2, margin: "14px auto 14px", maxWidth: 680, textWrap: "balance" }}>
-          Você ama o terminal.
+          Monte seu ambiente.
           <br />
-          Mude tudo ao redor dele.
+          Não gerencie abas.
         </h2>
         <p style={{ textAlign: "center", color: MUTED, fontSize: 17, maxWidth: 540, margin: "0 auto 56px", textWrap: "pretty" }}>
-          Pare de gerenciar pilhas de abas. Disponha agentes, notas e navegadores num espaço só — e deixe de ser o gargalo.
+          Disponha terminais, paralelos, notas e navegadores num mesmo plano e enxergue todo o trabalho de uma vez — sem caçar janela.
         </p>
 
         {/* Modo Piloto highlight */}
@@ -450,10 +459,12 @@ export function Landing() {
               <div style={{ fontSize: 16, fontWeight: 600, color: MUTED }}>Grátis</div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 4px" }}>
                 <span style={{ fontSize: 46, fontWeight: 600, letterSpacing: "-1.5px" }}>R$0</span>
-                <span style={{ color: DIM, fontSize: 15 }}>para sempre</span>
+                <span style={{ color: DIM, fontSize: 15 }}>open-source</span>
               </div>
               <a
-                href="#"
+                href={BETA_WA}
+                target="_blank"
+                rel="noreferrer"
                 style={{
                   display: "flex",
                   justifyContent: "center",
@@ -473,7 +484,7 @@ export function Landing() {
               <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 14.5, color: "#C9C9CF" }}>
                 <div>1 workspace</div>
                 <div>Agentes ilimitados · canvas infinito</div>
-                <div>1 paralelo (worktree git)</div>
+                <div>Paralelos ilimitados (worktrees git)</div>
                 <div>Notas, sketches e conexões</div>
                 <div>OmniPartner (BYO LLM) incluído</div>
               </div>
@@ -512,7 +523,9 @@ export function Landing() {
               </div>
               <div style={{ color: DIM, fontSize: 13.5 }}>ou R$109,90/ano (economize ~38%)</div>
               <a
-                href="#"
+                href={BETA_WA}
+                target="_blank"
+                rel="noreferrer"
                 style={{
                   display: "flex",
                   justifyContent: "center",
@@ -600,13 +613,15 @@ export function Landing() {
         />
         <div style={{ position: "relative", maxWidth: 760, margin: "0 auto", padding: "104px 24px", textAlign: "center" }}>
           <h2 style={{ fontSize: "clamp(34px,5vw,56px)", fontWeight: 600, letterSpacing: "-1.8px", lineHeight: 1.04, margin: "0 0 20px", textWrap: "balance" }}>
-            Pegue a batuta.
+            Abra seu canvas.
           </h2>
           <p style={{ color: MUTED, fontSize: 18, margin: "0 auto 34px", maxWidth: 480, textWrap: "pretty" }}>
-            Seu novo runtime — não para o código, mas para você. Grátis para começar, em segundos.
+            Open-source, multiplataforma e 100% local. Baixe pronto ou clone o repositório e rode você mesmo — em segundos.
           </p>
           <a
-            href="#"
+            href={BETA_WA}
+            target="_blank"
+            rel="noreferrer"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -671,7 +686,7 @@ export function Landing() {
               paddingTop: 24,
             }}
           >
-            © 2026 {PRODUCT_NAME} · Open-source · Sem telemetria
+            © 2026 {PRODUCT_NAME} · Open-source · multiplataforma
           </div>
         </div>
       </footer>

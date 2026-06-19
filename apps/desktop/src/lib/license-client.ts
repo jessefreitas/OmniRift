@@ -24,8 +24,9 @@ export interface LicenseStatus {
   detail: string | null;
 }
 
-/** Limites da edição community (espelha COMMUNITY_* do license.rs). */
-export const COMMUNITY_LIMITS: Limits = { canvas: 1, agents: 5, floors: 1 };
+/** Limites da edição community (espelha COMMUNITY_* do license.rs). Gate só no
+ *  nº de workspaces (canvas) = 1; agentes e paralelos ilimitados (0). */
+export const COMMUNITY_LIMITS: Limits = { canvas: 1, agents: 0, floors: 0 };
 
 export async function licenseStatus(): Promise<LicenseStatus> {
   return invoke<LicenseStatus>("license_status");

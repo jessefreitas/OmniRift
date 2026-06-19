@@ -122,9 +122,8 @@ function LicenseModal() {
                 <div className="grid grid-cols-3 gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wide text-textMuted bg-surface2/40">
                   <span></span><span>{t("license.tierCommunity", "Community")}</span><span>{t("license.tierFull", "Full")}</span>
                 </div>
-                <Row label={t("license.canvas", "Canvas")} community="1" full={t("license.unlimited", "ilimitado")} />
-                <Row label={t("license.agents", "Agentes")} community="5" full={t("license.unlimited", "ilimitado")} />
-                <Row label={t("license.floors", "Paralelos")} community="1" full={t("license.unlimited", "ilimitado")} />
+                <Row label={t("license.workspaces", "Workspaces")} community="1" full={t("license.unlimited", "ilimitado")} />
+                <Row label={t("license.devices", "Computadores")} community="1" full="3" />
               </div>
             </>
           )}
