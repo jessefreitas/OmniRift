@@ -33,7 +33,9 @@ const priv = crypto.createPrivateKey({
   type: "pkcs8",
 });
 
-const payload = { fp, holder };
+// tier:"full" explícito = tudo liberado (o license.rs já assume full por default,
+// mas explicitar evita depender do default). Beta de lançamento: days=60.
+const payload = { fp, holder, tier: "full" };
 if (days) payload.exp = Math.floor(Date.now() / 1000) + Number(days) * 86400;
 
 const payloadB64 = b64url(JSON.stringify(payload));

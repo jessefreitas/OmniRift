@@ -1,0 +1,28 @@
+# Cloudflare Worker — License Worker do OmniRift.
+# Deploy: wrangler deploy | DB: npm run db:init
+name = "omnirift-license-worker"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "omnirift-licenses"
+database_id = "PREENCHER_APOS_wrangler_d1_create"
+
+# Secrets (NUNCA aqui — usar `wrangler secret put <NOME>`):
+#   ASAAS_API_KEY · ED25519_PRIVATE_KEY · OMNICHAT_TOKEN · RESEND_API_KEY · ASAAS_WEBHOOK_TOKEN
+
+[vars]
+# Assinatura (Asaas Subscriptions), cartão de crédito, trial 7d (1ª cobrança em +7d).
+BILLING_TYPE = "CREDIT_CARD"
+PRICE_MONTHLY_CENTS = "1490"   # R$ 14,90 / mês (ciclo MONTHLY)
+PRICE_YEARLY_CENTS = "10990"   # R$ 109,90 / ano (ciclo YEARLY)
+TRIAL_DAYS = "7"
+SEAT_CAP = "3"
+OMNICHAT_BASE = "https://chat.omniforge.com.br"
+OMNICHAT_ACCOUNT = "2"
+OMNICHAT_INBOX = "196"
+OMNICHAT_FUNNEL = "59"
+GITHUB_REPO = "jessefreitas/OmniRift"
+FROM_EMAIL = "licenca@omnirift.app"

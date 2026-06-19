@@ -1,0 +1,117 @@
+/* OmniRift landing — global resets, fonts and canvas helpers.
+   The page is dark, terminal/editorial and minimalist; almost all styling lives
+   inline in the components for 1:1 fidelity with the source design. This file
+   only holds resets, keyframes and the few things inline styles can't express
+   (pseudo-elements, custom <select> arrow, scrollbars). */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  min-height: 100%;
+  /* paint the dark canvas on html too, so the scrollbar gutter / any rounding
+     gap never reveals the browser's default white background */
+  background: #0a0a0c;
+}
+
+html,
+body {
+  overflow-x: hidden;
+}
+
+body {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(110, 231, 168, 0.22);
+}
+
+a {
+  color: inherit;
+}
+
+/* ---- keyframes (carried over from the source design) ---- */
+@keyframes blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes pulseDot {
+  0% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes flow {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+/* animated "cable" flowing along each connection */
+.edge-flow {
+  animation: flow 1.1s linear infinite;
+}
+/* pulsing ring behind a node's connection port */
+.port-pulse {
+  animation: pulseDot 2.4s ease-out infinite;
+}
+/* terminal cursor */
+.blink {
+  animation: blink 1.1s step-end infinite;
+}
+
+/* custom arrow for the CLI / LLM selects inside the canvas */
+.cv-sel {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'><path d='M1 2.5L4 5.5L7 2.5' stroke='%237a7a82' fill='none' stroke-width='1.2'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 18px !important;
+}
+.cv-sel option {
+  background: #1a1a1e;
+  color: #c9c9cf;
+}
+
+/* thin dark scrollbars inside terminal bodies */
+.cv-body::-webkit-scrollbar {
+  width: 7px;
+}
+.cv-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+}
+.cv-body::-webkit-scrollbar-track {
+  background: transparent;
+}
