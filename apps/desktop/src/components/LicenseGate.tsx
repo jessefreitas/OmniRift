@@ -1,35 +1,86 @@
 // src/components/LicenseGate.tsx
 //
-// Tela de ativação do beta: mostra o fingerprint da máquina (o usuário manda pro
-// emissor) e recebe a chave. Bloqueia o app até ativar. Em debug o backend
-// devolve activated:true → o gate nem aparece pra quem desenvolve.
+// LicenseHost: carrega o status da licença no boot e renderiza, sob demanda, o
+// modal de Licença/Upgrade + um toast quando um limite community é atingido.
+// O app NÃO é mais bloqueado — sempre roda como community (limitado); a licença
+// full desbloqueia o ilimitado. Em debug o backend devolve full.
 
-import { useEffect, useState, type ReactNode } from "react";
-import { KeyRound, Copy, Check } from "lucide-react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { Check, Copy, KeyRound, Lock, Sparkles, X } from "lucide-react";
 
-import { licenseStatus, licenseActivate, type LicenseStatus } from "@/lib/license-client";
+import { useLicenseStore, type LimitKind } from "@/store/license-store";
 import { useT } from "@/lib/i18n";
 
-export function LicenseGate({ children }: { children: ReactNode }) {
+export function LicenseHost() {
+  const refresh = useLicenseStore((s) => s.refresh);
+  const showLicense = useLicenseStore((s) => s.showLicense);
+  const limitNotice = useLicenseStore((s) => s.limitNotice);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+  return (
+    <>
+      {limitNotice && <LimitNotice kind={limitNotice} />}
+      {showLicense && <LicenseModal />}
+    </>
+  );
+}
+
+/** Toast quando um limite da edição community é atingido. */
+function LimitNotice({ kind }: { kind: LimitKind }) {
   const t = useT();
-  const [status, setStatus] = useState<LicenseStatus | null>(null);
+  const openLicense = useLicenseStore((s) => s.openLicense);
+  const clearLimit = useLicenseStore((s) => s.clearLimit);
+  const msg: Record<LimitKind, string> = {
+    canvas: t("license.limit.canvas", "Limite da edição community: 1 canvas. Faça upgrade para ilimitado."),
+    agents: t("license.limit.agents", "Limite da edição community: 5 agentes. Faça upgrade para ilimitado."),
+    floors: t("license.limit.floors", "Limite da edição community: 1 paralelo. Faça upgrade para ilimitado."),
+  };
+  return createPortal(
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[10000] flex items-center gap-3 px-4 py-2.5 rounded-lg border border-border bg-surface1 shadow-2xl">
+      <Lock size={14} className="text-brand shrink-0" />
+      <span className="text-[12px] text-text">{msg[kind]}</span>
+      <button onClick={openLicense} className="text-[12px] font-medium text-brand hover:underline shrink-0">
+        {t("license.seePlans", "Ver planos")}
+      </button>
+      <button onClick={clearLimit} className="text-textMuted hover:text-text shrink-0" title={t("common.close", "Fechar")}>
+        <X size={14} />
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
+function Row({ label, community, full }: { label: string; community: string; full: string }) {
+  return (
+    <div className="grid grid-cols-3 gap-2 px-3 py-1.5 text-[12px] border-t border-border/40">
+      <span className="text-textMuted">{label}</span>
+      <span className="text-text tabular-nums">{community}</span>
+      <span className="text-brand tabular-nums">{full}</span>
+    </div>
+  );
+}
+
+function LicenseModal() {
+  const t = useT();
+  const status = useLicenseStore((s) => s.status);
+  const activate = useLicenseStore((s) => s.activate);
+  const close = useLicenseStore((s) => s.closeLicense);
   const [key, setKey] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    // Se o comando falhar (ex.: backend antigo), NÃO trava — libera o app.
-    licenseStatus()
-      .then(setStatus)
-      .catch(() => setStatus({ activated: true, fingerprint: "", holder: null, detail: null }));
-  }, []);
+  const isFull = status?.tier === "full";
+  const fp = status?.fingerprint ?? "";
 
-  async function activate() {
+  async function doActivate() {
     setBusy(true);
     setErr(null);
     try {
-      setStatus(await licenseActivate(key.trim()));
+      await activate(key.trim());
+      setKey("");
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -37,62 +88,80 @@ export function LicenseGate({ children }: { children: ReactNode }) {
     }
   }
 
-  if (!status) return null; // carregando status
-  if (status.activated) return <>{children}</>;
+  function copyFp() {
+    navigator.clipboard?.writeText(fp);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  }
 
-  return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-bg p-6">
-      <div className="w-[460px] max-w-[94vw] rounded-xl border border-border bg-surface1 shadow-2xl p-6">
-        <div className="flex items-center gap-2 mb-1">
-          <KeyRound size={18} className="text-brand" />
-          <h1 className="text-lg font-semibold text-text">OmniRift — Beta</h1>
+  return createPortal(
+    <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 p-4" onClick={close}>
+      <div className="w-[480px] max-w-[94vw] rounded-xl border border-border bg-surface1 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <header className="flex items-center gap-2 px-5 py-3 border-b border-border">
+          <KeyRound size={16} className="text-brand" />
+          <span className="text-sm font-semibold text-text flex-1">{t("license.title", "Licença OmniRift")}</span>
+          <span className={"text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded " + (isFull ? "bg-brand/20 text-brand" : "bg-surface2 text-textMuted")}>
+            {isFull ? t("license.tierFull", "Full") : t("license.tierCommunity", "Community")}
+          </span>
+          <button onClick={close} className="text-textMuted hover:text-text" title={t("common.close", "Fechar")}><X size={16} /></button>
+        </header>
+
+        <div className="p-5 space-y-4">
+          {isFull ? (
+            <div className="flex items-center gap-2 text-[13px] text-text">
+              <Sparkles size={15} className="text-brand" />
+              {t("license.fullActive", "Tudo liberado")}
+              {status?.holder ? <span className="text-textMuted">· {status.holder}</span> : null}
+            </div>
+          ) : (
+            <>
+              <p className="text-[12px] text-textMuted">
+                {t("license.communityIntro", "Você está na edição community (grátis). Com uma licença, tudo fica ilimitado.")}
+              </p>
+              <div className="rounded-md border border-border overflow-hidden">
+                <div className="grid grid-cols-3 gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wide text-textMuted bg-surface2/40">
+                  <span></span><span>{t("license.tierCommunity", "Community")}</span><span>{t("license.tierFull", "Full")}</span>
+                </div>
+                <Row label={t("license.canvas", "Canvas")} community="1" full={t("license.unlimited", "ilimitado")} />
+                <Row label={t("license.agents", "Agentes")} community="5" full={t("license.unlimited", "ilimitado")} />
+                <Row label={t("license.floors", "Paralelos")} community="1" full={t("license.unlimited", "ilimitado")} />
+              </div>
+            </>
+          )}
+
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-textMuted">{t("license.machineIdLabel", "ID da máquina (fingerprint)")}</label>
+            <div className="flex items-center gap-2 mt-1">
+              <code className="flex-1 px-2 py-1.5 rounded bg-bg border border-border text-[12px] text-brand font-mono select-all truncate">{fp || "—"}</code>
+              <button onClick={copyFp} className="text-textMuted hover:text-brand p-1.5" title={t("common.copy", "Copiar")}>
+                {copied ? <Check size={14} className="text-brand" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-textMuted">{t("license.keyLabel", "Chave de licença")}</label>
+            <div className="flex items-center gap-2 mt-1">
+              <input
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                placeholder={t("license.keyPlaceholder", "cole a chave aqui…")}
+                className="flex-1 px-2 py-1.5 rounded bg-bg border border-border text-[12px] text-text font-mono placeholder:text-textMuted focus:outline-none focus:border-brand"
+              />
+              <button onClick={doActivate} disabled={busy || !key.trim()} className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover disabled:opacity-40">
+                {busy ? t("license.activating", "Ativando…") : t("license.activate", "Ativar")}
+              </button>
+            </div>
+            {err && <p className="text-[11px] text-danger mt-1">{err}</p>}
+            {status?.detail && !err && <p className="text-[11px] text-textMuted mt-1">{status.detail}</p>}
+          </div>
         </div>
-        <p className="text-[12px] text-textMuted mb-4">
-          {t("license.intro1", "Acesso por chave durante o beta. Envie o seu")} <b>{t("license.machineId", "ID da máquina")}</b> {t("license.intro2", "abaixo pra receber uma chave e cole-a aqui.")}
-        </p>
 
-        <label className="text-[10px] uppercase tracking-wider text-textMuted">
-          {t("license.machineIdLabel", "ID da máquina (fingerprint)")}
-        </label>
-        <div className="flex items-center gap-2 mt-1 mb-3">
-          <code className="flex-1 px-2 py-1.5 rounded bg-bg border border-border text-[12px] text-brand font-mono select-all">
-            {status.fingerprint || "—"}
-          </code>
-          <button
-            onClick={() => {
-              void navigator.clipboard.writeText(status.fingerprint);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1200);
-            }}
-            className="p-1.5 rounded border border-border text-textMuted hover:text-brand"
-            title={t("license.copy", "Copiar")}
-          >
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-          </button>
-        </div>
-
-        <label className="text-[10px] uppercase tracking-wider text-textMuted">{t("license.keyLabel", "Chave de licença")}</label>
-        <textarea
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          placeholder={t("license.keyPh", "cole a chave aqui…")}
-          rows={3}
-          className="w-full mt-1 px-2 py-1.5 rounded bg-bg border border-border text-[11px] text-text font-mono resize-none focus:outline-none focus:border-brand"
-        />
-        {(err || status.detail) && (
-          <p className="mt-2 text-[11px] text-danger break-words">{err || status.detail}</p>
-        )}
-        <button
-          onClick={() => void activate()}
-          disabled={busy || !key.trim()}
-          className="w-full mt-3 py-2 rounded-lg text-[13px] font-medium bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 transition-colors"
-        >
-          {busy ? t("license.activating", "Ativando…") : t("license.activate", "Ativar")}
-        </button>
-        <p className="mt-3 text-[10px] text-textMuted opacity-60 text-center">
-          {t("license.footer", "Free durante o beta · 1 chave por máquina · verificação offline.")}
-        </p>
+        <footer className="px-5 py-2.5 border-t border-border text-[10px] text-textMuted opacity-70">
+          {t("license.footer", "Verificação offline (Ed25519). Mande seu ID da máquina pra receber a chave vinculada a ela.")}
+        </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

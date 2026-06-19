@@ -68,6 +68,7 @@ import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib
 import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { UpdaterButton } from "@/components/UpdaterButton";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
+import { useLicenseStore } from "@/store/license-store";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { clisList, type CliInfo } from "@/lib/clis-client";
 import { loadCustomClis, saveCustomClis, type CustomCli } from "@/lib/custom-clis";
@@ -888,6 +889,7 @@ export function Sidebar() {
     // CLI sem flag (codex/gemini/opencode/antigravity): persona como 1ª mensagem
     // quando o terminal fica pronto (robusto a tempo de boot/seleção de modelo).
     const node = addTerminal({ command: cli.command, role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
+    if (!node) return; // bloqueado pelo limite community de agentes
     const sid = node.session_id;
     let ready = false, done = false;
     const send = () => {
@@ -914,6 +916,7 @@ export function Sidebar() {
       return;
     }
     const node = addTerminal({ command: cli.command, role: cli.role, label: r.name, compressor: r.compressor ?? loadDefaultCompressor() });
+    if (!node) return; // bloqueado pelo limite community de agentes
     // Envia uma linha (texto + Enter à parte) após `delay` ms.
     const sendLine = (text: string, delay: number) => {
       if (!text.trim()) return;
@@ -1844,7 +1847,13 @@ export function Sidebar() {
         )}
         {tr("sidebar.footerPhase", "Fase 2 — PTY + canvas + workspaces + MCP")}
         <div className="opacity-70 mt-0.5">v0.1.0 · {tr("sidebar.localBuild", "build local")}</div>
-        <div className="mt-1"><UpdaterButton /></div>
+        <div className="mt-1 flex items-center gap-2">
+          <UpdaterButton />
+          <span className="opacity-40">·</span>
+          <button onClick={() => useLicenseStore.getState().openLicense()} className="text-textMuted hover:text-brand">
+            {tr("sidebar.license", "Licença")}
+          </button>
+        </div>
       </footer>
 
       <Suspense fallback={null}>

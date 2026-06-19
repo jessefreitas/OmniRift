@@ -1,15 +1,57 @@
-//! Licença OmniRift — gate de acesso ao beta, **secret-free** e **offline**.
+//! Licença OmniRift — entitlement de TIER (community/full), **secret-free** e
+//! verificado **offline** com a chave pública embutida.
 //!
-//! A chave é um token assinado Ed25519 (`payload.sig`, base64url) vinculado ao
-//! FINGERPRINT da máquina. O app embute SÓ a chave PÚBLICA (segura) e verifica
-//! offline. 1 chave = 1 máquina (o fingerprint vai dentro do payload assinado).
-//! Em build de desenvolvimento (debug) o gate é desligado (não trava o dev).
+//! O app SEMPRE roda. Sem entitlement válido → tier **community** com limites
+//! (1 canvas · 5 agentes · 1 paralelo). Um entitlement **full** assinado (Ed25519,
+//! emitido pelo license server — Fase 2) DESBLOQUEIA o ilimitado. O token é
+//! `payload.sig` (base64url), vinculado ao FINGERPRINT da máquina + `exp`.
+//! Em build de desenvolvimento (debug) = full (não limita o dev).
+//!
+//! A força anti-pirataria real vem da Fase 2 (servidor: seat cap + revogação +
+//! refresh) — aqui é a fundação do cliente. Ver
+//! docs/superpowers/specs/2026-06-18-licensing-strong-entitlement-design.md.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Limites da edição community (0 = ilimitado).
+const COMMUNITY_CANVAS: i64 = 1;
+const COMMUNITY_AGENTS: i64 = 5;
+const COMMUNITY_FLOORS: i64 = 1;
+
+/// Limites efetivos aplicados pela UI (0 = ilimitado).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Limits {
+    pub canvas: i64,
+    pub agents: i64,
+    pub floors: i64,
+}
+
+impl Limits {
+    fn community() -> Self {
+        Self { canvas: COMMUNITY_CANVAS, agents: COMMUNITY_AGENTS, floors: COMMUNITY_FLOORS }
+    }
+    fn unlimited() -> Self {
+        Self { canvas: 0, agents: 0, floors: 0 }
+    }
+}
+
+/// Mapeia (tier, lim opcional do token) → limites efetivos. full = ilimitado
+/// (ou o `lim` explícito do token, p/ planos futuros); qualquer outro = community.
+fn limits_for(tier: &str, lim: Option<&LimPayload>) -> Limits {
+    if tier == "full" {
+        match lim {
+            Some(l) => Limits { canvas: l.canvas, agents: l.agents, floors: l.floors },
+            None => Limits::unlimited(),
+        }
+    } else {
+        Limits::community()
+    }
+}
 
 /// Chave PÚBLICA Ed25519 do emissor. Segura pra embutir — a privada fica fora do
 /// binário (tools/.omnirift-license.key, gitignored).
@@ -18,6 +60,17 @@ const PUBKEY: [u8; 32] = [
     0x64, 0x1d, 0x2d, 0x32, 0x4f, 0x6c, 0x4f, 0x53, 0x77, 0x0b, 0x13, 0xfc, 0x88, 0xc9, 0x64, 0x7b,
 ];
 
+/// Limites explícitos do token (planos futuros). Ausente = full ⇒ ilimitado.
+#[derive(Deserialize, Default)]
+struct LimPayload {
+    #[serde(default)]
+    canvas: i64,
+    #[serde(default)]
+    agents: i64,
+    #[serde(default)]
+    floors: i64,
+}
+
 #[derive(Deserialize)]
 struct Payload {
     fp: String,
@@ -25,14 +78,44 @@ struct Payload {
     holder: String,
     #[serde(default)]
     exp: Option<u64>,
+    /// "full" | "community". Ausente (chave antiga só-beta) = full.
+    #[serde(default = "default_tier")]
+    tier: String,
+    #[serde(default)]
+    lim: Option<LimPayload>,
+}
+
+fn default_tier() -> String {
+    "full".to_string()
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LicenseStatus {
+    /// true = entitlement full válido (ilimitado).
     pub activated: bool,
+    /// "community" | "full".
+    pub tier: String,
     pub fingerprint: String,
     pub holder: Option<String>,
+    /// Limites EFETIVOS (community default ou do entitlement).
+    pub limits: Limits,
+    pub exp: Option<u64>,
     pub detail: Option<String>,
+}
+
+impl LicenseStatus {
+    fn community(fp: String, detail: Option<String>) -> Self {
+        Self {
+            activated: false,
+            tier: "community".into(),
+            fingerprint: fp,
+            holder: None,
+            limits: Limits::community(),
+            exp: None,
+            detail,
+        }
+    }
 }
 
 /// machine-id da máquina (não é segredo; vira fingerprint via sha256).
@@ -76,8 +159,16 @@ pub fn fingerprint() -> String {
     d[..8].iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Verifica: assinatura confere com a pubkey + fp casa + não expirou. Devolve o holder.
-fn verify_key(key: &str, fp: &str) -> Result<String, String> {
+/// Entitlement verificado (assinatura ✓ + fp casa + não expirou).
+struct Verified {
+    holder: String,
+    tier: String,
+    limits: Limits,
+    exp: Option<u64>,
+}
+
+/// Verifica: assinatura confere com a pubkey + fp casa + não expirou.
+fn verify_key(key: &str, fp: &str) -> Result<Verified, String> {
     let (payload_b64, sig_b64) = key.trim().split_once('.').ok_or("formato inválido (esperado payload.sig)")?;
     let sig_bytes = URL_SAFE_NO_PAD.decode(sig_b64).map_err(|_| "assinatura inválida")?;
     let sig = Signature::from_slice(&sig_bytes).map_err(|_| "assinatura inválida")?;
@@ -94,7 +185,8 @@ fn verify_key(key: &str, fp: &str) -> Result<String, String> {
             return Err("chave expirada".into());
         }
     }
-    Ok(p.holder)
+    let limits = limits_for(&p.tier, p.lim.as_ref());
+    Ok(Verified { holder: p.holder, tier: p.tier, limits, exp: p.exp })
 }
 
 fn license_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
@@ -104,32 +196,58 @@ fn license_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     Some(dir.join("license.key"))
 }
 
+/// Monta o status a partir de um entitlement verificado.
+fn status_from(fp: String, v: Verified) -> LicenseStatus {
+    LicenseStatus {
+        activated: v.tier == "full",
+        tier: v.tier,
+        fingerprint: fp,
+        holder: Some(v.holder).filter(|h| !h.is_empty()),
+        limits: v.limits,
+        exp: v.exp,
+        detail: None,
+    }
+}
+
 #[tauri::command]
 pub fn license_status(app: tauri::AppHandle) -> LicenseStatus {
     let fp = fingerprint();
-    // Dev (debug): gate desligado — não trava quem desenvolve.
+    // Override de teste: força community mesmo em dev (pra validar os limites).
+    if std::env::var("OMNIRIFT_FORCE_COMMUNITY").is_ok() {
+        return LicenseStatus::community(fp, None);
+    }
+    // Dev (debug): full — não limita quem desenvolve.
     if cfg!(debug_assertions) {
-        return LicenseStatus { activated: true, fingerprint: fp, holder: Some("dev".into()), detail: None };
+        return LicenseStatus {
+            activated: true,
+            tier: "full".into(),
+            fingerprint: fp,
+            holder: Some("dev".into()),
+            limits: Limits::unlimited(),
+            exp: None,
+            detail: None,
+        };
     }
     if let Some(path) = license_path(&app) {
         if let Ok(key) = std::fs::read_to_string(&path) {
             return match verify_key(&key, &fp) {
-                Ok(holder) => LicenseStatus { activated: true, fingerprint: fp, holder: Some(holder), detail: None },
-                Err(e) => LicenseStatus { activated: false, fingerprint: fp, holder: None, detail: Some(e) },
+                Ok(v) => status_from(fp, v),
+                // Entitlement inválido/expirado → degrada pra community (NÃO bloqueia o app).
+                Err(e) => LicenseStatus::community(fp, Some(e)),
             };
         }
     }
-    LicenseStatus { activated: false, fingerprint: fp, holder: None, detail: None }
+    LicenseStatus::community(fp, None)
 }
 
 #[tauri::command]
 pub fn license_activate(app: tauri::AppHandle, key: String) -> Result<LicenseStatus, String> {
     let fp = fingerprint();
-    let holder = verify_key(&key, &fp)?;
+    let v = verify_key(&key, &fp)?;
     if let Some(path) = license_path(&app) {
         std::fs::write(&path, key.trim()).map_err(|e| e.to_string())?;
     }
-    Ok(LicenseStatus { activated: true, fingerprint: fp, holder: Some(holder), detail: None })
+    Ok(status_from(fp, v))
 }
 
 #[cfg(test)]
@@ -145,5 +263,21 @@ mod tests {
     fn bad_key_rejected() {
         assert!(verify_key("garbage", "abc").is_err());
         assert!(verify_key("a.b", "abc").is_err());
+    }
+
+    #[test]
+    fn community_limits_are_1_5_1() {
+        let l = Limits::community();
+        assert_eq!((l.canvas, l.agents, l.floors), (1, 5, 1));
+    }
+
+    #[test]
+    fn limits_for_full_is_unlimited_else_community() {
+        assert_eq!(limits_for("full", None), Limits::unlimited());
+        assert_eq!(limits_for("community", None), Limits::community());
+        assert_eq!(limits_for("qualquer", None), Limits::community());
+        // token full com lim explícito (plano futuro) é respeitado
+        let l = LimPayload { canvas: 3, agents: 0, floors: 2 };
+        assert_eq!(limits_for("full", Some(&l)), Limits { canvas: 3, agents: 0, floors: 2 });
     }
 }

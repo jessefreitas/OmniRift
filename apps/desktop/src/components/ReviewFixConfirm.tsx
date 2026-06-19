@@ -76,6 +76,11 @@ export function ReviewFixConfirm({ finding, floor, onClose, onDispatched }: Prop
         role: "claude-code",
         label: `fix: ${finding.file.split("/").pop()}`,
       });
+      if (!node) {
+        setErr(t("reviewFixConfirm.limitBlocked", "Limite de agentes da edição community atingido."));
+        setBusy(false);
+        return;
+      }
       onDispatched(node.id, `${t("reviewFixConfirm.dispatchedPrefix", "Agente de correção despachado no paralelo")} "${floor.name}". ${t("reviewFixConfirm.dispatchedSuffix", "O review re-roda sozinho quando ele terminar.")}`);
       onClose();
     } catch (e) {

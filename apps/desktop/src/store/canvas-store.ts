@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
 import { compressorEnv } from "@/lib/compress-client";
+import { withinLimit } from "@/lib/license-client";
+import { useLicenseStore } from "@/store/license-store";
 import type {
   ApiNode,
   CanvasEdge,
@@ -35,7 +37,8 @@ interface CanvasState {
   currentCwd: string | null; // espelho do cwd do floor ativo
 
   // project management (canvas isolado por projeto)
-  addProject: (params?: { name?: string; cwd?: string | null }) => ProjectMeta;
+  /** null = bloqueado pelo limite community (canvas). */
+  addProject: (params?: { name?: string; cwd?: string | null }) => ProjectMeta | null;
   closeProject: (id: string) => void;
   setActiveProject: (id: string) => void;
   renameProject: (id: string, name: string) => void;
@@ -47,7 +50,7 @@ interface CanvasState {
       focus?: boolean;
       git?: { worktreePath: string; branch: string; baseBranch: string; repoRoot: string };
     },
-  ) => Floor;
+  ) => Floor | null;
   switchFloor: (id: string) => void;
   renameFloor: (id: string, name: string) => void;
   deleteFloor: (id: string) => void;
@@ -71,7 +74,7 @@ interface CanvasState {
     id?: string;
     /** Compressor de token deste agente ("rtk"|"headroom"|"none"). Decora só env. */
     compressor?: string;
-  }) => TerminalNode;
+  }) => TerminalNode | null;
   addNote: (params?: { position?: { x: number; y: number }; content?: string; color?: string }) => NoteNode;
   addGroup: (params?: { position?: { x: number; y: number }; label?: string }) => GroupNode;
   addFileTree: (params: { rootPath: string; position?: { x: number; y: number } }) => FileTreeNode;
@@ -145,6 +148,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
 
   // ---- project management (canvas isolado por projeto; floors flat) ----
   addProject: ({ name, cwd = null } = {}) => {
+    // Gate de licença: community = 1 canvas (projeto). 0 = ilimitado (full).
+    const lic = useLicenseStore.getState();
+    if (!withinLimit(lic.limits.canvas, get().projects.length)) {
+      lic.noteLimit("canvas");
+      return null;
+    }
     const projId = nanoid();
     const floor: Floor = { id: nanoid(), name: "Principal", cwd, projectId: projId, nodes: [], edges: [] };
     const proj: ProjectMeta = {
@@ -187,6 +196,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
 
   // ---- floor management ----
   createFloor: (name, opts) => {
+    // Gate de licença: community = 1 paralelo (floor) por canvas. 0 = ilimitado.
+    const lic = useLicenseStore.getState();
+    const floorsHere = get().floors.filter((f) => f.projectId === get().activeProjectId).length;
+    if (!withinLimit(lic.limits.floors, floorsHere)) {
+      lic.noteLimit("floors");
+      return null;
+    }
     const g = opts?.git;
     const s0 = get();
     const floor: Floor = {
@@ -257,6 +273,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     }),
 
   addTerminal: ({ command, args, role = "shell", position, label, id, compressor }) => {
+    // Gate de licença: community = máx 5 agentes (terminais). 0 = ilimitado.
+    const lic = useLicenseStore.getState();
+    if (!withinLimit(lic.limits.agents, get().allTerminalNodes().length)) {
+      lic.noteLimit("agents");
+      return null;
+    }
     const nodeId = id ?? nanoid();
     const cwd = get().currentCwd ?? undefined;
     const env = compressor && compressor !== "none" ? compressorEnv(compressor, nodeId) : undefined;
