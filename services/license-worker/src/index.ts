@@ -7,14 +7,7 @@ import { cors } from "hono/cors";
 
 import { signEntitlement, randomId, type EntitlementPayload } from "./sign";
 import * as db from "./db";
-import {
-  asaasCreateCustomer,
-  asaasCreateSubscription,
-  omnichatNotifyLead,
-  omnichatMoveCard,
-  sendEmail,
-  type CardInput,
-} from "./integrations";
+import { asaasCreateCheckout, omnichatNotifyLead, omnichatMoveCard, sendEmail } from "./integrations";
 
 export interface Env {
   DB: D1Database;
@@ -23,13 +16,21 @@ export interface Env {
   ASAAS_API_KEY: string;
   ASAAS_WEBHOOK_TOKEN: string;
   OMNICHAT_TOKEN: string;
-  RESEND_API_KEY: string;
+  // Email: webhook n8n que manda via SMTP no-reply (opcional; sem ele, /signup não envia email).
+  N8N_EMAIL_WEBHOOK?: string;
+  N8N_EMAIL_TOKEN?: string;
   // vars
   ASAAS_BASE: string; // https://api.asaas.com/v3 | https://sandbox.asaas.com/api/v3
   PRICE_MONTHLY_CENTS: string;
   PRICE_YEARLY_CENTS: string;
   TRIAL_DAYS: string;
   SEAT_CAP: string;
+  // checkout hospedado (cartão, expira em CHECKOUT_MINUTES)
+  CHECKOUT_MINUTES: string;
+  CHECKOUT_SUCCESS_URL: string;
+  CHECKOUT_CANCEL_URL: string;
+  CHECKOUT_EXPIRED_URL: string;
+  CHECKOUT_ITEM_IMAGE_B64?: string;
   OMNICHAT_BASE: string;
   OMNICHAT_ACCOUNT: string;
   OMNICHAT_INBOX: string;
@@ -49,18 +50,22 @@ app.use("/*", cors());
 
 app.get("/", (c) => c.json({ ok: true, service: "omnirift-license-worker" }));
 
-// ── Contratação (assinatura + trial 7d) ──────────────────────────────────────
+// ── Contratação (licença trial 7d + link de checkout cartão) ─────────────────
 app.post("/signup", async (c) => {
-  const body = await c.req.json<{ email: string; name?: string; plan: "monthly" | "yearly"; card: CardInput }>();
+  const body = await c.req.json<{ email: string; name?: string; plan: "monthly" | "yearly" }>();
   if (!body?.email || !body?.plan) return c.json({ error: "email + plan obrigatórios" }, 400);
   const env = c.env;
-  const customerId = await asaasCreateCustomer(env, body.name ?? body.email, body.email, body.card?.holderCpfCnpj);
-  const subId = await asaasCreateSubscription(env, customerId, body.plan, body.card);
 
   const id = randomId("lic");
   const trialEnds = now() + Number(env.TRIAL_DAYS) * 86400;
-  // Cria o lead no funil ANTES (pra guardar o card_id na licença e mover no webhook).
-  const note = `🛒 Lead OmniRift Pro (${body.plan}) — trial 7d. Licença: ${id}. Asaas sub: ${subId}.`;
+  const minutes = Number(env.CHECKOUT_MINUTES) || 30;
+
+  // Checkout hospedado (cartão, recorrente, expira em N min). Cliente/assinatura
+  // são criados pelo Asaas quando o cartão é inserido — chegam de volta no webhook.
+  const checkout = await asaasCreateCheckout(env, body.plan, id);
+
+  // Lead no funil ANTES (guarda o card_id na licença pra mover no webhook).
+  const note = `🛒 Lead OmniRift Pro (${body.plan}) — trial 7d. Licença: ${id}. Checkout: ${checkout.checkoutId}.`;
   const card = await omnichatNotifyLead(env, body.name ?? body.email, body.email, note);
   await db.createLicense(env.DB, {
     id,
@@ -68,24 +73,40 @@ app.post("/signup", async (c) => {
     name: body.name ?? null,
     plan: body.plan,
     status: "trial",
-    asaas_customer_id: customerId,
-    asaas_subscription_id: subId,
+    asaas_customer_id: null,
+    asaas_subscription_id: null,
+    asaas_checkout_id: checkout.checkoutId,
     omnichat_card_id: card,
     trial_ends_at: trialEnds,
     seat_cap: Number(env.SEAT_CAP),
   });
-  await db.logEvent(env.DB, id, "signup", { plan: body.plan, subId });
+  await db.logEvent(env.DB, id, "signup", { plan: body.plan, checkoutId: checkout.checkoutId });
 
   await sendEmail(
     env,
     body.email,
     "Sua licença OmniRift Pro",
     `<p>Bem-vindo ao OmniRift Pro!</p><p>Sua chave de licença:</p><pre>${id}</pre>` +
-      `<p>Cole no app em <b>Licença → Chave de licença</b>. Você tem 7 dias grátis; a 1ª cobrança é em ${env.TRIAL_DAYS} dias.</p>` +
+      `<p>Cole no app em <b>Licença → Chave de licença</b> — você já tem 7 dias grátis.</p>` +
+      `<p>Pra manter o acesso após o trial, cadastre o cartão: <a href="${checkout.link}">${checkout.link}</a> ` +
+      `(esse link expira em ${minutes} min).</p>` +
       `<p>Baixe o app: https://github.com/${env.GITHUB_REPO}/releases/latest</p>`,
   );
 
-  return c.json({ licenseKey: id, trialEndsAt: trialEnds, card });
+  return c.json({ licenseKey: id, checkoutLink: checkout.link, checkoutExpiresInMin: minutes, trialEndsAt: trialEnds });
+});
+
+// ── Reemite o link de checkout (o de 30min expira) ───────────────────────────
+app.post("/checkout", async (c) => {
+  const { key } = await c.req.json<{ key: string }>();
+  const env = c.env;
+  const lic = await db.getLicense(env.DB, (key ?? "").trim());
+  if (!lic) return c.json({ error: "licença inválida" }, 404);
+  if (!lic.plan || (lic.plan !== "monthly" && lic.plan !== "yearly")) return c.json({ error: "plano inválido" }, 400);
+  const checkout = await asaasCreateCheckout(env, lic.plan, lic.id);
+  await db.setCheckoutId(env.DB, lic.id, checkout.checkoutId);
+  await db.logEvent(env.DB, lic.id, "checkout_reissue", { checkoutId: checkout.checkoutId });
+  return c.json({ checkoutLink: checkout.link, checkoutExpiresInMin: Number(env.CHECKOUT_MINUTES) || 30 });
 });
 
 // ── Ativação (device-bound) ──────────────────────────────────────────────────
@@ -136,12 +157,23 @@ app.post("/revoke", async (c) => {
 app.post("/webhooks/asaas", async (c) => {
   const env = c.env;
   if (c.req.header("asaas-access-token") !== env.ASAAS_WEBHOOK_TOKEN) return c.json({ error: "unauthorized" }, 401);
-  const evt = await c.req.json<{ event: string; payment?: { subscription?: string } }>();
-  const subId = evt.payment?.subscription;
+  const evt = await c.req.json<{
+    event: string;
+    payment?: { subscription?: string; customer?: string; externalReference?: string };
+    checkout?: { id?: string; externalReference?: string };
+  }>();
   await db.logEvent(env.DB, null, `asaas:${evt.event}`, evt);
-  if (!subId) return c.json({ ok: true });
-  const lic = await db.getLicenseBySubscription(env.DB, subId);
+
+  // Correlação: externalReference = license id (setado no checkout); fallback = subscription.
+  const extRef = evt.payment?.externalReference || evt.checkout?.externalReference;
+  const subId = evt.payment?.subscription;
+  let lic = extRef ? await db.getLicense(env.DB, extRef) : null;
+  if (!lic && subId) lic = await db.getLicenseBySubscription(env.DB, subId);
   if (!lic) return c.json({ ok: true });
+
+  // Captura os IDs do Asaas assim que aparecem (correlação futura por subscription).
+  const custId = evt.payment?.customer;
+  if (subId || custId) await db.linkAsaasIds(env.DB, lic.id, custId ?? null, subId ?? null);
 
   if (evt.event === "PAYMENT_CONFIRMED" || evt.event === "PAYMENT_RECEIVED") {
     await db.setLicenseStatus(env.DB, lic.id, "active");

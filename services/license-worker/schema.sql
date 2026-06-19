@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS licenses (
   seat_cap              INTEGER NOT NULL DEFAULT 3,
   asaas_customer_id     TEXT,
   asaas_subscription_id TEXT,
+  asaas_checkout_id     TEXT,                       -- checkout hospedado atual (signup/reemissão)
   omnichat_card_id      INTEGER,                    -- card no funil (pra mover no webhook)
   trial_ends_at         INTEGER,                    -- epoch s (contratação + 7d)
   created_at            INTEGER NOT NULL,

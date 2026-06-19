@@ -10,6 +10,7 @@ export interface License {
   seat_cap: number;
   asaas_customer_id: string | null;
   asaas_subscription_id: string | null;
+  asaas_checkout_id: string | null;
   omnichat_card_id: number | null;
   trial_ends_at: number | null;
   created_at: number;
@@ -31,23 +32,43 @@ export async function createLicense(
   l: Pick<License, "id" | "email" | "name" | "plan" | "status" | "asaas_customer_id" | "asaas_subscription_id" | "trial_ends_at"> & {
     seat_cap?: number;
     omnichat_card_id?: number | null;
+    asaas_checkout_id?: string | null;
   },
 ): Promise<void> {
   const t = now();
   await db
     .prepare(
-      `INSERT INTO licenses (id, email, name, tier, status, plan, seat_cap, asaas_customer_id, asaas_subscription_id, omnichat_card_id, trial_ends_at, created_at, updated_at)
-       VALUES (?1, ?2, ?3, 'full', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)`,
+      `INSERT INTO licenses (id, email, name, tier, status, plan, seat_cap, asaas_customer_id, asaas_subscription_id, asaas_checkout_id, omnichat_card_id, trial_ends_at, created_at, updated_at)
+       VALUES (?1, ?2, ?3, 'full', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)`,
     )
     .bind(
       l.id, l.email, l.name ?? null, l.status, l.plan ?? null, l.seat_cap ?? 3,
-      l.asaas_customer_id ?? null, l.asaas_subscription_id ?? null, l.omnichat_card_id ?? null, l.trial_ends_at ?? null, t,
+      l.asaas_customer_id ?? null, l.asaas_subscription_id ?? null, l.asaas_checkout_id ?? null, l.omnichat_card_id ?? null, l.trial_ends_at ?? null, t,
     )
     .run();
 }
 
 export async function setLicenseStatus(db: D1Database, id: string, status: string): Promise<void> {
   await db.prepare("UPDATE licenses SET status = ?2, updated_at = ?3 WHERE id = ?1").bind(id, status, now()).run();
+}
+
+/** Guarda o id do checkout atual na licença (signup e reemissão). */
+export async function setCheckoutId(db: D1Database, id: string, checkoutId: string): Promise<void> {
+  await db.prepare("UPDATE licenses SET asaas_checkout_id = ?2, updated_at = ?3 WHERE id = ?1").bind(id, checkoutId, now()).run();
+}
+
+/** Preenche customer/subscription do Asaas quando chegam no webhook (COALESCE = não sobrescreve). */
+export async function linkAsaasIds(db: D1Database, id: string, customerId: string | null, subscriptionId: string | null): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE licenses
+         SET asaas_customer_id = COALESCE(asaas_customer_id, ?2),
+             asaas_subscription_id = COALESCE(asaas_subscription_id, ?3),
+             updated_at = ?4
+       WHERE id = ?1`,
+    )
+    .bind(id, customerId, subscriptionId, now())
+    .run();
 }
 
 /** Dispositivos ATIVOS (não revogados) de uma licença — pro seat cap. */

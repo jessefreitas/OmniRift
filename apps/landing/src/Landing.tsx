@@ -14,6 +14,27 @@ const DIM = "#6A6A72";
 const BETA_WA =
   "https://wa.me/5553999034520?text=Quero%20uma%20vaga%20no%20beta%20de%20lan%C3%A7amento%20do%20OmniRift";
 
+// License worker: /signup cria a licença trial + o link de checkout (cartão, 30min).
+const LICENSE_WORKER = "https://omnirift-license-worker.jesse-vieira-freitas.workers.dev";
+
+/** Pede o email, cria a licença/checkout no worker e redireciona pro pagamento. */
+async function startCheckout(plan: "monthly" | "yearly") {
+  const email = window.prompt("Seu email para a licença OmniRift Pro:");
+  if (!email || !email.includes("@")) return;
+  try {
+    const res = await fetch(`${LICENSE_WORKER}/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), plan }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { checkoutLink?: string; error?: string };
+    if (res.ok && data.checkoutLink) window.location.href = data.checkoutLink;
+    else alert(data.error || "Não foi possível iniciar o checkout. Tente novamente.");
+  } catch {
+    alert("Falha de conexão. Tente novamente.");
+  }
+}
+
 const LogoBars = ({ size = 18 }: { size?: number }) => (
   <svg width={size} height={(size * 18) / 18} viewBox="0 0 18 18" fill="none">
     <rect x="1" y="8" width="3" height="9" rx="1.5" fill="var(--ac)" />
@@ -522,13 +543,14 @@ export function Landing() {
                 <span style={{ color: DIM, fontSize: 15 }}>/mês</span>
               </div>
               <div style={{ color: DIM, fontSize: 13.5 }}>ou R$109,90/ano (economize ~38%)</div>
-              <a
-                href={BETA_WA}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                onClick={() => startCheckout("monthly")}
                 style={{
                   display: "flex",
                   justifyContent: "center",
+                  width: "100%",
+                  border: "none",
+                  cursor: "pointer",
                   background: "#F3F3F4",
                   color: "#0A0A0C",
                   textDecoration: "none",
@@ -536,11 +558,12 @@ export function Landing() {
                   borderRadius: 11,
                   fontWeight: 600,
                   fontSize: 15,
+                  fontFamily: "inherit",
                   margin: "22px 0",
                 }}
               >
                 Quero o Pro
-              </a>
+              </button>
               <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 14.5, color: "#C9C9CF" }}>
                 <div style={{ color: MUTED }}>Tudo do Grátis, e mais:</div>
                 <div>Workspaces ilimitados</div>

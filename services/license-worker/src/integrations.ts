@@ -3,75 +3,58 @@ import type { Env } from "./index";
 
 const json = (r: Response) => r.json() as Promise<any>;
 
-// ── Asaas (assinatura recorrente cartão) ─────────────────────────────────────
+// ── Asaas (Checkout hospedado: SÓ cartão, recorrente, expira em N min) ────────
 function asaasHeaders(env: Env) {
   return { "Content-Type": "application/json", access_token: env.ASAAS_API_KEY };
 }
 
-export async function asaasCreateCustomer(env: Env, name: string, email: string, cpfCnpj?: string): Promise<string> {
-  const r = await fetch(`${env.ASAAS_BASE}/customers`, {
-    method: "POST",
-    headers: asaasHeaders(env),
-    body: JSON.stringify({ name, email, cpfCnpj }),
-  });
-  if (!r.ok) throw new Error(`asaas customer ${r.status}: ${await r.text()}`);
-  return (await json(r)).id as string;
+// 1x1 PNG transparente — o item do checkout exige `imageBase64` (não-nulo).
+const ONE_PX_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+export interface CheckoutResult {
+  checkoutId: string;
+  link: string;
 }
 
-export interface CardInput {
-  holderName: string;
-  number: string;
-  expiryMonth: string;
-  expiryYear: string;
-  ccv: string;
-  holderEmail: string;
-  holderCpfCnpj: string;
-  holderPostalCode: string;
-  holderAddressNumber: string;
-  holderPhone: string;
-  remoteIp: string;
-}
-
-/** Cria a ASSINATURA: ciclo mensal/anual, 1ª cobrança em +7d (trial), cartão. */
-export async function asaasCreateSubscription(
-  env: Env,
-  customerId: string,
-  plan: "monthly" | "yearly",
-  card: CardInput,
-): Promise<string> {
+/**
+ * Cria um Asaas Checkout hospedado: assinatura recorrente, billingType CARTÃO,
+ * expira em `env.CHECKOUT_MINUTES` (regra: link de 30min). O cartão é coletado na
+ * página do Asaas → **zero escopo PCI** pra gente. `externalReference = licenseId`
+ * faz o webhook correlacionar de volta à licença. Trial: 1ª cobrança em +TRIAL_DAYS.
+ */
+export async function asaasCreateCheckout(env: Env, plan: "monthly" | "yearly", licenseId: string): Promise<CheckoutResult> {
   const value = (plan === "yearly" ? Number(env.PRICE_YEARLY_CENTS) : Number(env.PRICE_MONTHLY_CENTS)) / 100;
   const cycle = plan === "yearly" ? "YEARLY" : "MONTHLY";
-  const due = new Date(Date.now() + Number(env.TRIAL_DAYS) * 86400_000).toISOString().slice(0, 10);
-  const r = await fetch(`${env.ASAAS_BASE}/subscriptions`, {
+  const nextDueDate = new Date(Date.now() + Number(env.TRIAL_DAYS) * 86400_000).toISOString().slice(0, 10);
+  const r = await fetch(`${env.ASAAS_BASE}/checkouts`, {
     method: "POST",
     headers: asaasHeaders(env),
     body: JSON.stringify({
-      customer: customerId,
-      billingType: "CREDIT_CARD",
-      cycle,
-      value,
-      nextDueDate: due,
-      description: `OmniRift Pro (${plan})`,
-      creditCard: {
-        holderName: card.holderName,
-        number: card.number,
-        expiryMonth: card.expiryMonth,
-        expiryYear: card.expiryYear,
-        ccv: card.ccv,
+      billingTypes: ["CREDIT_CARD"],
+      chargeTypes: ["RECURRENT"],
+      minutesToExpire: Number(env.CHECKOUT_MINUTES) || 30,
+      externalReference: licenseId,
+      callback: {
+        successUrl: env.CHECKOUT_SUCCESS_URL,
+        cancelUrl: env.CHECKOUT_CANCEL_URL,
+        expiredUrl: env.CHECKOUT_EXPIRED_URL,
       },
-      creditCardHolderInfo: {
-        name: card.holderName,
-        email: card.holderEmail,
-        cpfCnpj: card.holderCpfCnpj,
-        postalCode: card.holderPostalCode,
-        addressNumber: card.holderAddressNumber,
-        phone: card.holderPhone,
-      },
-      remoteIp: card.remoteIp,
+      items: [
+        {
+          name: "OmniRift Pro",
+          description: `OmniRift Pro (${plan})`,
+          quantity: 1,
+          value,
+          imageBase64: env.CHECKOUT_ITEM_IMAGE_B64 || ONE_PX_PNG,
+        },
+      ],
+      subscription: { cycle, nextDueDate },
     }),
   });
-  if (!r.ok) throw new Error(`asaas subscription ${r.status}: ${await r.text()}`);
-  return (await json(r)).id as string;
+  if (!r.ok) throw new Error(`asaas checkout ${r.status}: ${await r.text()}`);
+  const d = await json(r);
+  return { checkoutId: d.id as string, link: d.link as string };
 }
 
 // ── omnichat (cria lead + card no funil; move o card) ────────────────────────
@@ -136,11 +119,22 @@ export async function omnichatMoveCard(env: Env, cardId: number, stage: string):
   }
 }
 
-// ── Resend (email) ───────────────────────────────────────────────────────────
+// ── Email via n8n → SMTP no-reply (Worker não faz SMTP direto) ────────────────
+// O worker POSTa {to, subject, html, from} num webhook n8n; o fluxo n8n manda o
+// email pelo SMTP no-reply@omniforge.com.br (omnimail). Best-effort: sem webhook
+// configurado, ou em erro, não derruba a compra (a key também volta no /signup).
 export async function sendEmail(env: Env, to: string, subject: string, html: string): Promise<void> {
-  await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.RESEND_API_KEY}` },
-    body: JSON.stringify({ from: env.FROM_EMAIL, to, subject, html }),
-  });
+  if (!env.N8N_EMAIL_WEBHOOK) return;
+  try {
+    await fetch(env.N8N_EMAIL_WEBHOOK, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(env.N8N_EMAIL_TOKEN ? { "x-webhook-token": env.N8N_EMAIL_TOKEN } : {}),
+      },
+      body: JSON.stringify({ to, subject, html, from: env.FROM_EMAIL }),
+    });
+  } catch {
+    /* best-effort */
+  }
 }

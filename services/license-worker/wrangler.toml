@@ -8,10 +8,11 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "omnirift-licenses"
-database_id = "PREENCHER_APOS_wrangler_d1_create"
+database_id = "e8f2eb1a-85d9-4a44-8c80-05dca34c63cd"
 
 # Secrets (NUNCA aqui — usar `wrangler secret put <NOME>`):
-#   ASAAS_API_KEY · ED25519_PRIVATE_KEY · OMNICHAT_TOKEN · RESEND_API_KEY · ASAAS_WEBHOOK_TOKEN
+#   ASAAS_API_KEY · ED25519_PRIVATE_KEY · OMNICHAT_TOKEN · ASAAS_WEBHOOK_TOKEN
+#   N8N_EMAIL_WEBHOOK · N8N_EMAIL_TOKEN (email via n8n → SMTP no-reply@omniforge.com.br)
 
 [vars]
 # Assinatura (Asaas Subscriptions), cartão de crédito, trial 7d (1ª cobrança em +7d).
@@ -20,8 +21,13 @@ PRICE_MONTHLY_CENTS = "1490"   # R$ 14,90 / mês (ciclo MONTHLY)
 PRICE_YEARLY_CENTS = "10990"   # R$ 109,90 / ano (ciclo YEARLY)
 TRIAL_DAYS = "7"
 SEAT_CAP = "3"
-# Asaas: sandbox p/ testar, prod = https://api.asaas.com/v3
-ASAAS_BASE = "https://sandbox.asaas.com/api/v3"
+# Checkout hospedado (SÓ cartão, link expira em CHECKOUT_MINUTES; faixa 10..1440).
+CHECKOUT_MINUTES = "30"
+CHECKOUT_SUCCESS_URL = "https://omnirift.app/checkout/success"
+CHECKOUT_CANCEL_URL = "https://omnirift.app/checkout/cancel"
+CHECKOUT_EXPIRED_URL = "https://omnirift.app/checkout/expired"
+# Asaas: PRODUÇÃO (conta OMNIFORGE). Sandbox = https://sandbox.asaas.com/api/v3
+ASAAS_BASE = "https://api.asaas.com/v3"
 OMNICHAT_BASE = "https://chat.omniforge.com.br"
 OMNICHAT_ACCOUNT = "2"
 OMNICHAT_INBOX = "196"
@@ -31,4 +37,4 @@ FUNNEL_STAGE_TRIAL = "trial"
 FUNNEL_STAGE_PAYING = "cliente"
 FUNNEL_STAGE_LOST = "perdido_1781834581"
 GITHUB_REPO = "jessefreitas/OmniRift"
-FROM_EMAIL = "licenca@omnirift.app"
+FROM_EMAIL = "no-reply@omniforge.com.br"
