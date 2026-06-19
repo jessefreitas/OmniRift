@@ -70,32 +70,41 @@ export async function refreshCompressors(): Promise<CompressorInfo[]> {
   return list;
 }
 
-/** Env (só env) de UM compressor. RTK = stats dir; OmniCompress = BASE_URL→proxy. */
-function compressorEnv(kind: string, nodeId: string): Array<[string, string]> | undefined {
+// OmniCompress: 2 proxies (1 upstream fixo por instância — ver compress/proxy.rs).
+const ANTHROPIC_PROXY = "http://127.0.0.1:8787";
+const OPENAI_PROXY = "http://127.0.0.1:8788";
+
+/** Agente Anthropic (claude*) → roteia pro proxy anthropic; demais → openai. */
+function isAnthropicAgent(command?: string): boolean {
+  const base = (command || "").split(/[\\/]/).pop() || "";
+  return base.includes("claude");
+}
+
+/** Env (só env) de UM compressor. RTK = stats dir; OmniCompress = BASE_URL→proxy
+ *  da família (claude→anthropic@8787, codex/openai→openai@8788). */
+function compressorEnv(kind: string, nodeId: string, command?: string): Array<[string, string]> | undefined {
   if (kind === "rtk") return [["RTK_STATS_DIR", `rtk-stats/${nodeId}`]];
   if (kind === "omnicompress") {
-    const base = "http://127.0.0.1:8787"; // espelha DEFAULT_PROXY do omnicompress.rs
-    return [
-      ["ANTHROPIC_BASE_URL", base],
-      ["OPENAI_BASE_URL", base],
-      ["OPENAI_API_BASE", base],
-    ];
+    return isAnthropicAgent(command)
+      ? [["ANTHROPIC_BASE_URL", ANTHROPIC_PROXY]]
+      : [["OPENAI_BASE_URL", OPENAI_PROXY], ["OPENAI_API_BASE", OPENAI_PROXY]];
   }
   return undefined;
 }
 
 /**
- * Env COMPOSTA de todos os compressores ligados (+ um `forced` opcional do role).
+ * Env COMPOSTA de todos os compressores ligados (+ `forced` opcional do role).
  * Proxies llm só entram se detectados de pé (installedKinds) — fail-open: sem
- * proxy, o agente fala direto com o provider, nada quebra.
+ * proxy, o agente fala direto com o provider, nada quebra. `command` define a
+ * família do OmniCompress (claude vs openai).
  */
-export function composedCompressorEnv(nodeId: string, forced?: string): Array<[string, string]> | undefined {
+export function composedCompressorEnv(nodeId: string, forced?: string, command?: string): Array<[string, string]> | undefined {
   const kinds = new Set(loadEnabledCompressors());
   if (forced && forced !== "none") kinds.add(forced);
   const merged = new Map<string, string>();
   for (const k of kinds) {
     if (PROXY_KINDS.includes(k) && !installedKinds.has(k)) continue;
-    const env = compressorEnv(k, nodeId);
+    const env = compressorEnv(k, nodeId, command);
     if (env) for (const [key, val] of env) merged.set(key, val);
   }
   return merged.size ? Array.from(merged.entries()) : undefined;

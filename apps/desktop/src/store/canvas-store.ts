@@ -283,7 +283,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     const cwd = get().currentCwd ?? undefined;
     // Compõe a env de todos os compressores ligados (OmniCompress nativo entra por
     // padrão) + o override do role, se houver. Proxy só injeta se está de pé.
-    const env = composedCompressorEnv(nodeId, compressor);
+    const env = composedCompressorEnv(nodeId, compressor, command);
     const node: TerminalNode = {
       id: nodeId,
       kind: "terminal",
