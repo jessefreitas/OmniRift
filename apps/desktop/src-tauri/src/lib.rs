@@ -106,6 +106,12 @@ pub fn run() {
             // período re-varria todo o disco (lento).
             app.manage(crate::commands::usage::UsageCache::default());
 
+            // OmniCompress nativo: sobe o(s) proxy(ies) local(is) no boot (anthropic
+            // @8787 + openai @8788) e mata no exit (RunEvent::Exit). No-op sem binário.
+            let oc_proxies = crate::compress::OmnicompressProxies::default();
+            oc_proxies.start();
+            app.manage(oc_proxies);
+
             // Registry de memória (provider plugável) — criada UMA vez; usada
             // pelo MCP server (roteamento das tools memory_*) e pelos comandos.
             // Conexão própria com o mesmo SQLite; fallback in-memory se o disco
@@ -265,6 +271,13 @@ pub fn run() {
             cli_uninstall,
             cli_validate,
         ])
-        .run(tauri::generate_context!())
-        .expect("erro fatal rodando OmniRift");
+        .build(tauri::generate_context!())
+        .expect("erro fatal construindo OmniRift")
+        .run(|app_handle, event| {
+            // Mata o(s) omnicompress-proxy ao sair (backstop do Drop).
+            if let tauri::RunEvent::Exit = event {
+                use tauri::Manager;
+                app_handle.state::<crate::compress::OmnicompressProxies>().stop();
+            }
+        });
 }

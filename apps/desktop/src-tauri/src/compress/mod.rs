@@ -6,11 +6,13 @@
 pub mod headroom;
 pub mod omnicompress;
 pub mod provider;
+pub mod proxy;
 pub mod rtk;
 pub mod types;
 
 pub use headroom::HeadroomProvider;
 pub use omnicompress::OmnicompressProvider;
+pub use proxy::OmnicompressProxies;
 pub use provider::{Compressor, NoneCompressor};
 pub use rtk::RtkProvider;
 pub use types::{CliFamily, CompressorKind, DetectStatus, SavingsReport, SpawnDecoration};

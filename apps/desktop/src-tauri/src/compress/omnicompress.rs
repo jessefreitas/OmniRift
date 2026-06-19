@@ -13,14 +13,12 @@ use std::time::Duration;
 use super::provider::Compressor;
 use super::types::{CliFamily, CompressorKind, DetectStatus, SpawnDecoration};
 
-const DEFAULT_PROXY: &str = "http://127.0.0.1:8787";
+// Duas instâncias (o proxy tem 1 upstream fixo por instância) — espelha
+// compress/proxy.rs. Claude → anthropic; demais → openai.
+const ANTHROPIC_PROXY: &str = "http://127.0.0.1:8787";
+const OPENAI_PROXY: &str = "http://127.0.0.1:8788";
 const INSTALL_HINT: &str =
     "cargo install --git https://github.com/jessefreitas/OmniCompress omnicompress-proxy";
-
-/// URL do proxy: override `OMNICOMPRESS_PROXY_URL`, senão 127.0.0.1:8787.
-fn proxy_url() -> String {
-    std::env::var("OMNICOMPRESS_PROXY_URL").unwrap_or_else(|_| DEFAULT_PROXY.to_string())
-}
 
 /// host:port do proxy (tira o esquema) pra checagem de socket.
 fn proxy_host_port(url: &str) -> String {
@@ -46,24 +44,27 @@ impl Compressor for OmnicompressProvider {
     }
 
     fn detect(&self) -> DetectStatus {
-        // "installed" = proxy REACHABLE (não só binário presente). Assim o front só
-        // injeta a env quando o proxy está de pé → ligar por padrão é seguro.
+        // "up" = a instância anthropic responde (o gerenciador sobe as duas juntas).
+        // Reachability (não só binário) → ligar por padrão é seguro: sem proxy o
+        // front não injeta a env e o agente fala direto (fail-open).
         DetectStatus {
-            installed: proxy_reachable(&proxy_url()),
+            installed: proxy_reachable(ANTHROPIC_PROXY),
             version: None,
             install_hint: INSTALL_HINT.to_string(),
         }
     }
 
     fn decorate(&self, cli: CliFamily, _node_id: &str, deco: &mut SpawnDecoration) {
-        // Shell não fala com LLM → sem proxy. Demais famílias: BASE_URL → proxy
-        // local (SÓ env, invariante). O gate de reachability é feito no frontend.
-        if matches!(cli, CliFamily::Shell) {
-            return;
-        }
-        let base = proxy_url();
-        for k in ["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "OPENAI_API_BASE"] {
-            deco.env.push((k.to_string(), base.clone()));
+        // Family-aware (cada upstream tem seu proxy). SÓ env, invariante.
+        match cli {
+            CliFamily::Shell => {} // shell não fala com LLM
+            CliFamily::Claude => {
+                deco.env.push(("ANTHROPIC_BASE_URL".into(), ANTHROPIC_PROXY.into()));
+            }
+            _ => {
+                deco.env.push(("OPENAI_BASE_URL".into(), OPENAI_PROXY.into()));
+                deco.env.push(("OPENAI_API_BASE".into(), OPENAI_PROXY.into()));
+            }
         }
     }
 }
@@ -84,9 +85,16 @@ mod tests {
         OmnicompressProvider.decorate(CliFamily::Shell, "n", &mut shell);
         assert!(shell.env.is_empty(), "Shell não passa pelo proxy");
 
+        // Claude → só Anthropic (proxy 8787).
         let mut claude = SpawnDecoration::default();
         OmnicompressProvider.decorate(CliFamily::Claude, "n", &mut claude);
-        assert!(claude.env.iter().any(|(k, _)| k == "ANTHROPIC_BASE_URL"));
-        assert!(claude.env.iter().any(|(k, _)| k == "OPENAI_BASE_URL"));
+        assert!(claude.env.iter().any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v.contains("8787")));
+        assert!(!claude.env.iter().any(|(k, _)| k == "OPENAI_BASE_URL"));
+
+        // Codex → só OpenAI (proxy 8788).
+        let mut codex = SpawnDecoration::default();
+        OmnicompressProvider.decorate(CliFamily::Codex, "n", &mut codex);
+        assert!(codex.env.iter().any(|(k, v)| k == "OPENAI_BASE_URL" && v.contains("8788")));
+        assert!(!codex.env.iter().any(|(k, _)| k == "ANTHROPIC_BASE_URL"));
     }
 }
