@@ -480,3 +480,92 @@ pub fn budget_set(project: String, monthly_usd: f64, alert_pct: Option<i64>, db:
 pub fn budget_remove(project: String, db: State<'_, Db>) -> Result<(), String> {
     db.budget_remove(&project).map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::LedgerRow;
+
+    #[test]
+    fn price_tiers() {
+        assert_eq!(price("claude-opus-4-8"), (15.0, 75.0));
+        assert_eq!(price("claude-sonnet-4-6"), (3.0, 15.0));
+        assert_eq!(price("claude-fable-5"), (5.0, 25.0));
+        assert_eq!(price("gpt-5.2"), (1.25, 10.0));
+        assert_eq!(price("qwen2.5-coder:7b"), (0.0, 0.0)); // local = grátis
+    }
+
+    #[test]
+    fn cost_uses_cache_multipliers() {
+        // opus: 1M input ($15) + 1M output ($75) = $90.
+        assert!((cost_usd("opus", 1_000_000, 1_000_000, 0, 0) - 90.0).abs() < 1e-9);
+        // cache_read = 0.1×input ($1.5/M); cache_write = 1.25×input ($18.75/M).
+        assert!((cost_usd("opus", 0, 0, 1_000_000, 1_000_000) - 20.25).abs() < 1e-9);
+        // modelo desconhecido (local) = $0.
+        assert_eq!(cost_usd("llama3.3", 1_000_000, 1_000_000, 0, 0), 0.0);
+    }
+
+    #[test]
+    fn within_date_window_is_inclusive() {
+        assert!(within_date("2026-06-18", &None));
+        assert!(within_date("2026-06-18", &Some("2026-06-01".into())));
+        assert!(within_date("2026-06-01", &Some("2026-06-01".into()))); // borda inclusiva
+        assert!(!within_date("2026-05-31", &Some("2026-06-01".into())));
+    }
+
+    #[test]
+    fn cutoff_date_none_today_and_ordering() {
+        assert_eq!(cutoff_date(None), None);
+        let today = cutoff_date(Some(0)).unwrap();
+        let week = cutoff_date(Some(7)).unwrap();
+        assert_eq!(today.len(), 10); // "YYYY-MM-DD"
+        assert!(week < today, "week {week} deve ser < today {today}");
+    }
+
+    fn bucket(date: &str, cwd: &str, model: &str, inp: i64, out: i64) -> Bucket {
+        Bucket { date: date.into(), cwd: cwd.into(), model: model.into(), calls: 1, inp, out, cr: 0, cc: 0 }
+    }
+
+    #[test]
+    fn aggregate_filters_period_and_project() {
+        let c = CacheInner {
+            built: Instant::now(),
+            buckets: vec![
+                bucket("2026-06-18", "/proj/a", "opus", 100, 200),
+                bucket("2026-06-10", "/proj/a", "opus", 10, 20),
+                bucket("2026-06-18", "/proj/b", "sonnet", 1, 2),
+            ],
+            session_last: vec!["2026-06-18".into()],
+        };
+        // tudo
+        let (agg, _) = aggregate(&c, &None, &[], None);
+        assert_eq!(agg.total.input_tokens, 111);
+        assert_eq!(agg.projects.len(), 2);
+        // só /proj/a
+        let (agg_a, _) = aggregate(&c, &None, &[], Some("/proj/a"));
+        assert_eq!(agg_a.total.input_tokens, 110);
+        assert_eq!(agg_a.projects.len(), 1);
+        // período >= 2026-06-15 corta o bucket de 06-10
+        let (agg_p, _) = aggregate(&c, &Some("2026-06-15".into()), &[], None);
+        assert_eq!(agg_p.total.input_tokens, 101);
+    }
+
+    #[test]
+    fn aggregate_merges_native_ledger() {
+        let c = CacheInner { built: Instant::now(), buckets: vec![], session_last: vec![] };
+        let ledger = vec![LedgerRow {
+            at: "2026-06-18T10:00:00".into(),
+            model: "opus".into(),
+            project: Some("/proj/a".into()),
+            input_tokens: 5,
+            output_tokens: 7,
+        }];
+        let (agg, native) = aggregate(&c, &None, &ledger, None);
+        assert_eq!((native.input_tokens, native.output_tokens), (5, 7));
+        assert_eq!(agg.total.total_tokens, 12);
+        // filtro por projeto que não casa zera o ledger
+        let (agg_b, native_b) = aggregate(&c, &None, &ledger, Some("/proj/b"));
+        assert_eq!(native_b.total_tokens, 0);
+        assert_eq!(agg_b.total.total_tokens, 0);
+    }
+}

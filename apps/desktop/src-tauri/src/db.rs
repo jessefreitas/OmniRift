@@ -1030,6 +1030,37 @@ mod tests {
     }
 
     #[test]
+    fn ledger_and_budget_roundtrip() {
+        let db = Db::in_memory().unwrap();
+        db.ledger_add("2026-06-18T10:00:00", "anthropic", "opus", Some("/p/a"), Some("review"), 10, 20, 0.5)
+            .unwrap();
+        db.ledger_add("2026-06-17T10:00:00", "openai", "gpt-5", Some("/p/b"), None, 5, 5, 0.1)
+            .unwrap();
+
+        // Tudo + filtro por `since` (ISO comparável).
+        assert_eq!(db.ledger_rows(None).unwrap().len(), 2);
+        let recent = db.ledger_rows(Some("2026-06-18T00:00:00")).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].model, "opus");
+
+        // Custo nativo de um projeto desde o início do mês.
+        let cost = db.ledger_cost_since("/p/a", "2026-06-01T00:00:00").unwrap();
+        assert!((cost - 0.5).abs() < 1e-9, "cost={cost}");
+        assert_eq!(db.ledger_cost_since("/p/b", "2026-06-18T00:00:00").unwrap(), 0.0);
+
+        // Orçamento: upsert sobrescreve (ON CONFLICT) e remove apaga.
+        db.budget_set("/p/a", 100.0, 80).unwrap();
+        db.budget_set("/p/a", 250.0, 50).unwrap();
+        let budgets = db.budgets_list().unwrap();
+        assert_eq!(budgets.len(), 1);
+        assert_eq!(budgets[0].monthly_usd, 250.0);
+        assert_eq!(budgets[0].alert_pct, 50);
+
+        db.budget_remove("/p/a").unwrap();
+        assert!(db.budgets_list().unwrap().is_empty());
+    }
+
+    #[test]
     fn review_history_roundtrip_and_marker() {
         let db = Db::in_memory().unwrap();
         let item = |f: &str, t: &str| ReviewHistItem {

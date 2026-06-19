@@ -5,7 +5,7 @@
 // e por projeto. Filtro por período (tudo/hoje/7d/30d) e orçamento mensal por
 // projeto com alerta/gate.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Coins, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
@@ -46,17 +46,20 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
   const [err, setErr] = useState<string | null>(null);
 
   const proj = onlyThis && activeProject ? activeProject : null;
+  const loadSeq = useRef(0);
   const load = useCallback(
     (p: Period, projectKey: string | null, force = false) => {
+      const seq = ++loadSeq.current; // só o último load aplica (evita resultado stale)
       setLoading(true);
       setErr(null);
       Promise.all([usageScan(p, force, projectKey), usageBudgetStatus()])
         .then(([r, b]) => {
+          if (seq !== loadSeq.current) return;
           setReport(r);
           setBudgets(b);
         })
-        .catch((e) => setErr(String(e)))
-        .finally(() => setLoading(false));
+        .catch((e) => { if (seq === loadSeq.current) setErr(String(e)); })
+        .finally(() => { if (seq === loadSeq.current) setLoading(false); });
     },
     [],
   );
@@ -171,6 +174,9 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
                       <span className="text-brand tabular-nums w-16 text-right">{fmtUsd(p.costUsd)}</span>
                     </div>
                   ))}
+                  {report!.byProject.length === 0 && (
+                    <div className="px-3 py-2 text-[12px] text-textMuted">{t("usage.empty", "Nada neste período.")}</div>
+                  )}
                 </div>
               </div>
             </>

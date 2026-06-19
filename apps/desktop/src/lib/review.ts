@@ -118,10 +118,12 @@ export async function runReview(
   if (diff.files.length === 0) {
     return { findings: [], preflight: pre, verdict: "GO", score: 100, summary: `Sem mudanças vs ${base}.` };
   }
+  // Gate de orçamento FORA do try: se estourou, a rejeição propaga pro caller
+  // (igual ao companion.ts) em vez de virar "LLM falhou" e o review rodar mesmo assim.
+  await assertBudgetOk(worktree);
   let findings: Finding[] = [];
   let summary = "";
   try {
-    await assertBudgetOk(worktree); // gate: bloqueia se o projeto estourou o orçamento
     const { system, prompt } = buildPrompt(diff, policy);
     const text = await llmChat(config, system, prompt, { project: worktree, kind: "review" });
     findings = parseFindings(text);
