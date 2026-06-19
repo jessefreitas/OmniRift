@@ -16,9 +16,11 @@ export interface Env {
   ASAAS_API_KEY: string;
   ASAAS_WEBHOOK_TOKEN: string;
   OMNICHAT_TOKEN: string;
-  // Email: webhook n8n que manda via SMTP no-reply (opcional; sem ele, /signup não envia email).
-  N8N_EMAIL_WEBHOOK?: string;
-  N8N_EMAIL_TOKEN?: string;
+  // Email: SMTP direto (omnimail no-reply) via cloudflare:sockets. user/pass = secrets.
+  SMTP_HOST?: string;
+  SMTP_PORT?: string;
+  SMTP_USER?: string;
+  SMTP_PASS?: string;
   // vars
   ASAAS_BASE: string; // https://api.asaas.com/v3 | https://sandbox.asaas.com/api/v3
   PRICE_MONTHLY_CENTS: string;

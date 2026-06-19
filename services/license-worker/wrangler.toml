@@ -12,7 +12,7 @@ database_id = "e8f2eb1a-85d9-4a44-8c80-05dca34c63cd"
 
 # Secrets (NUNCA aqui — usar `wrangler secret put <NOME>`):
 #   ASAAS_API_KEY · ED25519_PRIVATE_KEY · OMNICHAT_TOKEN · ASAAS_WEBHOOK_TOKEN
-#   N8N_EMAIL_WEBHOOK · N8N_EMAIL_TOKEN (email via n8n → SMTP no-reply@omniforge.com.br)
+#   SMTP_USER · SMTP_PASS (no-reply@omniforge.com.br — email via SMTP direto/cloudflare:sockets)
 
 [vars]
 # Assinatura (Asaas Subscriptions), cartão de crédito, trial 7d (1ª cobrança em +7d).
@@ -38,3 +38,6 @@ FUNNEL_STAGE_PAYING = "cliente"
 FUNNEL_STAGE_LOST = "perdido_1781834581"
 GITHUB_REPO = "jessefreitas/OmniRift"
 FROM_EMAIL = "no-reply@omniforge.com.br"
+# Email via SMTP direto (omnimail). user/pass = secrets (SMTP_USER/SMTP_PASS).
+SMTP_HOST = "omnimail.omniforge.com.br"
+SMTP_PORT = "465"

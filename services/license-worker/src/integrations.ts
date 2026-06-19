@@ -1,5 +1,6 @@
-// Integrações externas: Asaas (assinatura cartão), omnichat (funil/lead) e Resend (email).
+// Integrações externas: Asaas (checkout cartão), omnichat (funil/lead) e SMTP (email).
 import type { Env } from "./index";
+import { smtpSend } from "./smtp";
 
 const json = (r: Response) => r.json() as Promise<any>;
 
@@ -119,22 +120,22 @@ export async function omnichatMoveCard(env: Env, cardId: number, stage: string):
   }
 }
 
-// ── Email via n8n → SMTP no-reply (Worker não faz SMTP direto) ────────────────
-// O worker POSTa {to, subject, html, from} num webhook n8n; o fluxo n8n manda o
-// email pelo SMTP no-reply@omniforge.com.br (omnimail). Best-effort: sem webhook
-// configurado, ou em erro, não derruba a compra (a key também volta no /signup).
+// ── Email via SMTP direto (omnimail no-reply) ────────────────────────────────
+// Workers fazem TCP (`cloudflare:sockets`) → o worker fala direto no SMTP do
+// omnimail (porta 465/TLS), sem relay/n8n. Best-effort: sem config ou em erro,
+// não derruba a compra (a license key também volta no corpo do /signup).
 export async function sendEmail(env: Env, to: string, subject: string, html: string): Promise<void> {
-  if (!env.N8N_EMAIL_WEBHOOK) return;
+  if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS) return;
   try {
-    await fetch(env.N8N_EMAIL_WEBHOOK, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(env.N8N_EMAIL_TOKEN ? { "x-webhook-token": env.N8N_EMAIL_TOKEN } : {}),
-      },
-      body: JSON.stringify({ to, subject, html, from: env.FROM_EMAIL }),
-    });
-  } catch {
-    /* best-effort */
+    await smtpSend(
+      { host: env.SMTP_HOST, port: Number(env.SMTP_PORT) || 465, user: env.SMTP_USER, pass: env.SMTP_PASS },
+      env.FROM_EMAIL,
+      to,
+      subject,
+      html,
+    );
+    console.log(`email enviado para ${to}`);
+  } catch (e) {
+    console.error(`email falhou para ${to}: ${(e as Error).message}`);
   }
 }
