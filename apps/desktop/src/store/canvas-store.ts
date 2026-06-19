@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
-import { compressorEnv } from "@/lib/compress-client";
+import { composedCompressorEnv } from "@/lib/compress-client";
 import { withinLimit } from "@/lib/license-client";
 import { useLicenseStore } from "@/store/license-store";
 import type {
@@ -281,7 +281,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     }
     const nodeId = id ?? nanoid();
     const cwd = get().currentCwd ?? undefined;
-    const env = compressor && compressor !== "none" ? compressorEnv(compressor, nodeId) : undefined;
+    // Compõe a env de todos os compressores ligados (OmniCompress nativo entra por
+    // padrão) + o override do role, se houver. Proxy só injeta se está de pé.
+    const env = composedCompressorEnv(nodeId, compressor);
     const node: TerminalNode = {
       id: nodeId,
       kind: "terminal",

@@ -1,42 +1,119 @@
 // src/lib/compress-client.ts
 //
-// Cliente da camada de compressores de token (RTK + Headroom + …). BYO: o backend
-// detecta no PATH; a UI instala rodando o installHint num terminal.
+// Camada de compressores de token. OmniCompress é o NATIVO, ligado por padrão —
+// "já vem cuidando dos tokens" e pode ser desligado. Cada compressor tem liga/
+// desliga; no spawn a env de todos os ligados é COMPOSTA (só env, invariante).
+//
+// Segurança: proxies llm (omnicompress/headroom) só injetam BASE_URL quando o
+// proxy está REACHABLE (cache de `refreshCompressors`) — senão o agente quebraria.
 
 import { invoke } from "@tauri-apps/api/core";
 
 export interface CompressorInfo {
   kind: string;
   label: string;
-  /** "shell" (RTK) | "llm" (Headroom). */
+  /** "shell" (RTK) | "llm" (proxy: OmniCompress/Headroom). */
   layer: string;
   installed: boolean;
   version: string | null;
   installHint: string;
+  /** true = nativo do OmniRift (OmniCompress), ligado por padrão. */
+  native: boolean;
 }
 
 export async function compressorList(): Promise<CompressorInfo[]> {
   return invoke<CompressorInfo[]>("compressor_list");
 }
 
-// ── Seleção por agente ───────────────────────────────────────────────────────
-// "none" = sem compressão (default seguro). O kind escolhido por agente/role é
-// aplicado SÓ via env no spawn (invariante: nunca toca command/args, senão o
-// detector de estado do orquestrador regride).
+// ── Liga/desliga por compressor ──────────────────────────────────────────────
+const ENABLED_KEY = "omnirift-compressors-enabled";
+// Proxies llm são mutuamente exclusivos (ambos mexem em BASE_URL).
+const PROXY_KINDS = ["omnicompress", "headroom"];
 
+/** Compressores ligados. Default: OmniCompress (nativo) ligado. */
+export function loadEnabledCompressors(): string[] {
+  try {
+    const s = localStorage.getItem(ENABLED_KEY);
+    return s ? (JSON.parse(s) as string[]) : ["omnicompress"];
+  } catch {
+    return ["omnicompress"];
+  }
+}
+
+export function isCompressorEnabled(kind: string): boolean {
+  return loadEnabledCompressors().includes(kind);
+}
+
+/** Liga/desliga um compressor. Ligar um proxy llm desliga o outro (exclusivos). */
+export function setCompressorEnabled(kind: string, on: boolean): string[] {
+  let set = loadEnabledCompressors().filter((k) => k !== kind);
+  if (on) {
+    if (PROXY_KINDS.includes(kind)) set = set.filter((k) => !PROXY_KINDS.includes(k));
+    set.push(kind);
+  }
+  try {
+    localStorage.setItem(ENABLED_KEY, JSON.stringify(set));
+  } catch {
+    /* localStorage off */
+  }
+  return set;
+}
+
+// Cache do que está "de pé" (proxy reachable) — gate pro spawn não injetar
+// BASE_URL quando o proxy não responde (senão quebraria o agente).
+let installedKinds = new Set<string>();
+
+/** Re-detecta e atualiza o cache de instalados/reachable. Chamar no boot + ↻. */
+export async function refreshCompressors(): Promise<CompressorInfo[]> {
+  const list = await compressorList();
+  installedKinds = new Set(list.filter((c) => c.installed).map((c) => c.kind));
+  return list;
+}
+
+/** Env (só env) de UM compressor. RTK = stats dir; OmniCompress = BASE_URL→proxy. */
+function compressorEnv(kind: string, nodeId: string): Array<[string, string]> | undefined {
+  if (kind === "rtk") return [["RTK_STATS_DIR", `rtk-stats/${nodeId}`]];
+  if (kind === "omnicompress") {
+    const base = "http://127.0.0.1:8787"; // espelha DEFAULT_PROXY do omnicompress.rs
+    return [
+      ["ANTHROPIC_BASE_URL", base],
+      ["OPENAI_BASE_URL", base],
+      ["OPENAI_API_BASE", base],
+    ];
+  }
+  return undefined;
+}
+
+/**
+ * Env COMPOSTA de todos os compressores ligados (+ um `forced` opcional do role).
+ * Proxies llm só entram se detectados de pé (installedKinds) — fail-open: sem
+ * proxy, o agente fala direto com o provider, nada quebra.
+ */
+export function composedCompressorEnv(nodeId: string, forced?: string): Array<[string, string]> | undefined {
+  const kinds = new Set(loadEnabledCompressors());
+  if (forced && forced !== "none") kinds.add(forced);
+  const merged = new Map<string, string>();
+  for (const k of kinds) {
+    if (PROXY_KINDS.includes(k) && !installedKinds.has(k)) continue;
+    const env = compressorEnv(k, nodeId);
+    if (env) for (const [key, val] of env) merged.set(key, val);
+  }
+  return merged.size ? Array.from(merged.entries()) : undefined;
+}
+
+// ── Legado (mantido p/ compat dos call-sites; a UI agora usa liga/desliga) ──
 const DEFAULT_KEY = "omnirift-default-compressor";
-
-/** Compressor padrão aplicado a novos agentes (presets) — "none" se não setado. */
 export function loadDefaultCompressor(): string {
-  try { return localStorage.getItem(DEFAULT_KEY) || "none"; } catch { return "none"; }
+  try {
+    return localStorage.getItem(DEFAULT_KEY) || "none";
+  } catch {
+    return "none";
+  }
 }
 export function saveDefaultCompressor(kind: string): void {
-  try { localStorage.setItem(DEFAULT_KEY, kind); } catch { /* localStorage off */ }
-}
-
-/** Decoração SÓ-env do compressor (espelha compress/*.rs `decorate`). Hoje só o RTK
- *  marca a stats dir por node; Headroom (proxy/BASE_URL) entra quando o proxy existir. */
-export function compressorEnv(kind: string | undefined, nodeId: string): Array<[string, string]> | undefined {
-  if (kind === "rtk") return [["RTK_STATS_DIR", `rtk-stats/${nodeId}`]];
-  return undefined;
+  try {
+    localStorage.setItem(DEFAULT_KEY, kind);
+  } catch {
+    /* localStorage off */
+  }
 }

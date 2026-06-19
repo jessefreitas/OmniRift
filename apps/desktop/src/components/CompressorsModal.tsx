@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
 import { nanoid } from "nanoid";
 import { Gauge, RefreshCw, Download, Plus, Trash2, X } from "lucide-react";
 
-import { compressorList, loadDefaultCompressor, saveDefaultCompressor, type CompressorInfo } from "@/lib/compress-client";
+import { refreshCompressors, loadEnabledCompressors, setCompressorEnabled, type CompressorInfo } from "@/lib/compress-client";
 import {
   loadCustomCompressors,
   saveCustomCompressors,
@@ -26,11 +26,11 @@ export function CompressorsModal({ onClose }: { onClose: () => void }) {
   const [adding, setAdding] = useState(false);
   const [newComp, setNewComp] = useState({ label: "", installCmd: "" });
   const addTerminal = useCanvasStore((s) => s.addTerminal);
-  const [defaultComp, setDefaultComp] = useState<string>(() => loadDefaultCompressor());
+  const [enabled, setEnabled] = useState<string[]>(() => loadEnabledCompressors());
 
   const refresh = () => {
     setLoading(true);
-    compressorList()
+    refreshCompressors() // atualiza o cache de reachability (gate do spawn)
       .then(setList)
       .catch(() => setList([]))
       .finally(() => setLoading(false));
@@ -86,17 +86,8 @@ export function CompressorsModal({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} className="text-textMuted hover:text-text p-1" title={t("common.close", "Fechar")}><X size={16} /></button>
         </header>
 
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-surface2/30 shrink-0">
-          <span className="text-[11px] text-textMuted">{t("compressors.defaultForNew", "Padrão p/ novos agentes:")}</span>
-          <select
-            value={defaultComp}
-            onChange={(e) => { setDefaultComp(e.target.value); saveDefaultCompressor(e.target.value); }}
-            className="px-2 py-1 text-[11px] rounded bg-bg border border-border text-text focus:outline-none focus:border-brand"
-          >
-            <option value="none">{t("compressors.none", "Nenhum")}</option>
-            {list.map((c) => (<option key={c.kind} value={c.kind}>{c.label}</option>))}
-          </select>
-          <span className="text-[10px] text-textMuted opacity-50">{t("compressors.roleCanOverride", "cada role pode sobrescrever no editor")}</span>
+        <div className="px-4 py-2 border-b border-border bg-surface2/30 shrink-0">
+          <span className="text-[11px] text-textMuted">{t("compressors.toggleHint", "Ligue/desligue cada compressor. O OmniCompress já vem ligado, cuidando dos seus tokens — desligue quando quiser.")}</span>
         </div>
 
         {adding && (
@@ -122,30 +113,43 @@ export function CompressorsModal({ onClose }: { onClose: () => void }) {
         )}
 
         <div className="flex-1 overflow-auto">
-          {list.map((c) => (
-            <div key={c.kind} className="flex items-start gap-3 px-4 py-3 border-b border-border/40">
+          {list.map((c) => {
+            const on = enabled.includes(c.kind);
+            return (
+            <div key={c.kind} className="flex items-center gap-3 px-4 py-3 border-b border-border/40">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-text font-medium">{c.label}</span>
+                  {c.native && (
+                    <span className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-brand/20 text-brand">{t("compressors.native", "nativo")}</span>
+                  )}
                   <span className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-surface2 text-textMuted">
                     {c.layer === "shell" ? t("compressors.layerShell", "saída de comando") : t("compressors.layerLlm", "chamada ao LLM")}
                   </span>
                 </div>
                 <div className="text-[11px] mt-0.5">
                   {c.installed ? (
-                    <span className="text-green-400">✓ {t("compressors.installed", "instalado")}{c.version ? ` · ${c.version}` : ""}</span>
+                    <span className="text-green-400">✓ {c.native ? t("compressors.proxyUp", "proxy de pé") : t("compressors.installed", "instalado")}{c.version ? ` · ${c.version}` : ""}</span>
                   ) : (
-                    <span className="text-textMuted">✗ {t("compressors.notFound", "não encontrado")} · <code className="text-[10px]">{c.installHint}</code></span>
+                    <span className="text-textMuted">✗ {c.native ? t("compressors.proxyDown", "proxy fora — instale/rode") : t("compressors.notFound", "não encontrado")} · <code className="text-[10px]">{c.installHint}</code></span>
                   )}
                 </div>
               </div>
               {!c.installed && (
-                <button onClick={() => runInstall(c.label, c.installHint)} className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover">
+                <button onClick={() => runInstall(c.label, c.installHint)} className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs bg-surface2 text-text hover:bg-bg border border-border">
                   <Download size={13} /> {t("common.install", "Instalar")}
                 </button>
               )}
+              <button
+                onClick={() => setEnabled(setCompressorEnabled(c.kind, !on))}
+                title={on ? t("compressors.turnOff", "Desligar") : t("compressors.turnOn", "Ligar")}
+                className={"shrink-0 w-9 h-5 rounded-full relative transition-colors " + (on ? "bg-brand" : "bg-surface3")}
+              >
+                <span className={"absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all " + (on ? "left-[18px]" : "left-0.5")} />
+              </button>
             </div>
-          ))}
+            );
+          })}
 
           {custom.map((c) => (
             <div key={c.id} className="flex items-start gap-3 px-4 py-3 border-b border-border/40">
@@ -173,7 +177,7 @@ export function CompressorsModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <footer className="px-4 py-2 border-t border-border text-[10px] text-textMuted opacity-70 shrink-0">
-          {t("compressors.footer", "BYO: nada embutido. Instale aqui pelo terminal; depois ↻ pra re-detectar. Use o + pra um compressor próprio. Ligar/escolher por agente entra na próxima sub-fase.")}
+          {t("compressors.footer", "OmniCompress é nativo (proxy local, ligado por padrão). RTK/Headroom são BYO — instale aqui pelo terminal e ↻ pra re-detectar. Liga/desliga aplica a env no próximo agente; proxy só injeta quando está de pé.")}
         </footer>
       </div>
     </div>,

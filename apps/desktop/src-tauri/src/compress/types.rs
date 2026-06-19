@@ -8,6 +8,7 @@ pub enum CompressorKind {
     None,
     Rtk,
     Headroom,
+    Omnicompress,
 }
 
 impl CompressorKind {
@@ -16,12 +17,14 @@ impl CompressorKind {
             Self::None => "none",
             Self::Rtk => "rtk",
             Self::Headroom => "headroom",
+            Self::Omnicompress => "omnicompress",
         }
     }
     pub fn parse(s: &str) -> Self {
         match s {
             "rtk" => Self::Rtk,
             "headroom" => Self::Headroom,
+            "omnicompress" => Self::Omnicompress,
             _ => Self::None,
         }
     }
