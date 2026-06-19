@@ -113,6 +113,8 @@ fn find_serena() -> Option<(String, Vec<String>)> {
 ///                --project-from-cwd detecta a linguagem/projeto da pasta do agente.
 ///   - context7   → documentação ao vivo de libs/frameworks (HTTP remoto, sem creds).
 ///   - playwright → o agente dirige um browser real (navega/clica/screenshot), headed.
+///   - omnicompress → tools de compressão agressiva sob demanda (compress/retrieve/stats),
+///                quando o sidecar do MCP existe; o proxy lossless segue transparente.
 /// Sempre devolve Some: o Context7 não exige instalação local. Os MCPs de banco
 /// (Postgres/MS SQL/Firebase/SQLite) entram como add-on configurável à parte.
 #[tauri::command]
@@ -157,6 +159,17 @@ pub fn agent_mcp_config(
             "args": ["-y", "@playwright/mcp@latest", "--headed", "--viewport-size", "1440,900"]
         }),
     );
+
+    // OmniCompress MCP: tools omnicompress_compress/_retrieve/_stats — compressão
+    // AGRESSIVA (lossy + CCR retrievable) sob demanda. Presente em todo agente quando
+    // o sidecar existe (igual ao serena), mas só atua quando o agente decide chamar —
+    // o proxy lossless segue como camada transparente default. stdio JSON-RPC.
+    if let Some(bin) = crate::compress::find_sidecar("omnicompress-mcp") {
+        servers.insert(
+            "omnicompress".into(),
+            serde_json::json!({ "command": bin.to_string_lossy(), "args": [] }),
+        );
+    }
 
     // Merge da wiring do provider de memória ativo (ex.: omnimemory). Local =
     // wiring vazia → mapa inalterado (zero regressão pro default).

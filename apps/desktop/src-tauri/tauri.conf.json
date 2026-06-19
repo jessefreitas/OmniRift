@@ -31,7 +31,9 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "externalBin": [
-      "binaries/omnicompress-proxy"
+      "binaries/omnicompress-proxy",
+      "binaries/omnicompress-mcp",
+      "binaries/omnicompress"
     ],
     "icon": [
       "icons/32x32.png",

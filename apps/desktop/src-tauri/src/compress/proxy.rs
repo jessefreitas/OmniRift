@@ -17,14 +17,16 @@ const INSTANCES: [(&str, &str); 2] = [
     ("127.0.0.1:8788", "https://api.openai.com"),
 ];
 
-/// Acha o binário: 1) sidecar ao lado do app (bundlado no release/dev), 2) ~/.cargo/bin
-/// (cargo install), 3) PATH.
-fn find_binary() -> Option<PathBuf> {
-    let name = if cfg!(windows) { "omnicompress-proxy.exe" } else { "omnicompress-proxy" };
+/// Resolve um binário sidecar do OmniCompress por `stem` (sem extensão — ex.:
+/// "omnicompress-proxy", "omnicompress-mcp", "omnicompress"): 1) ao lado do exe do
+/// app (externalBin bundlado no release/dev), 2) ~/.cargo/bin (cargo install), 3) PATH.
+/// Compartilhado pelo auto-start do proxy e pela injeção do MCP em agentes.
+pub fn find_sidecar(stem: &str) -> Option<PathBuf> {
+    let name = if cfg!(windows) { format!("{stem}.exe") } else { stem.to_string() };
     // 1) Sidecar: o Tauri coloca o externalBin ao lado do executável do app.
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let p = dir.join(name);
+            let p = dir.join(&name);
             if p.exists() {
                 return Some(p);
             }
@@ -32,14 +34,15 @@ fn find_binary() -> Option<PathBuf> {
     }
     // 2) cargo install
     if let Ok(home) = std::env::var("HOME") {
-        let p = PathBuf::from(home).join(".cargo/bin").join(name);
+        let p = PathBuf::from(home).join(".cargo/bin").join(&name);
         if p.exists() {
             return Some(p);
         }
     }
+    // 3) PATH
     let finder = if cfg!(windows) { "where" } else { "which" };
     Command::new(finder)
-        .arg("omnicompress-proxy")
+        .arg(stem)
         .output()
         .ok()
         .filter(|o| o.status.success())
@@ -50,6 +53,11 @@ fn find_binary() -> Option<PathBuf> {
                 .map(|s| PathBuf::from(s.trim()))
                 .filter(|p| !p.as_os_str().is_empty())
         })
+}
+
+/// O binário do proxy (auto-start). Atalho pro [`find_sidecar`] com o stem do proxy.
+fn find_binary() -> Option<PathBuf> {
+    find_sidecar("omnicompress-proxy")
 }
 
 #[derive(Default)]
