@@ -240,17 +240,33 @@ pub fn list_installed_skills() -> Vec<InstalledSkill> {
     all
 }
 
+/// Resolve as chaves de skill (do role/override) → ResolvedSkill. Casa por `id`
+/// (basename do dir, único) e, como fallback, por `name` (frontmatter) — porque o
+/// RoleEditModal guarda a skill pelo `name`, que diverge do dir em skills importadas
+/// com nome não-slug (ex.: "My Cool Skill" vs dir `my-cool-skill`). id tem prioridade
+/// pra evitar ambiguidade quando um name casa com o id de outra skill.
+fn resolve_skills(installed: &[InstalledSkill], keys: &[String]) -> Vec<ResolvedSkill> {
+    keys.iter()
+        .filter_map(|key| {
+            installed
+                .iter()
+                .find(|s| &s.id == key)
+                .or_else(|| installed.iter().find(|s| &s.name == key))
+                .map(|s| ResolvedSkill {
+                    id: s.id.clone(),
+                    name: s.name.clone(),
+                    description: s.description.clone(),
+                    dir: PathBuf::from(&s.path),
+                })
+        })
+        .collect()
+}
+
 #[tauri::command]
 pub fn agent_skills_config(app: tauri::AppHandle, cli: String, skill_ids: Vec<String>) -> Option<SkillWiring> {
     if skill_ids.is_empty() { return None; }
-    let installed = list_installed_skills();
-    let resolved: Vec<ResolvedSkill> = skill_ids.iter().filter_map(|id| {
-        installed.iter().find(|s| &s.id == id).map(|s| ResolvedSkill {
-            id: s.id.clone(), name: s.name.clone(), description: s.description.clone(),
-            dir: PathBuf::from(&s.path),
-        })
-    }).collect();
-    if resolved.is_empty() { return None; } // todos os IDs sumiram → graceful
+    let resolved = resolve_skills(&list_installed_skills(), &skill_ids);
+    if resolved.is_empty() { return None; } // nenhum id/name casou → graceful (fail-open)
     let base = app.path().app_data_dir().ok()?;
     std::fs::create_dir_all(&base).ok()?;
     materialize_wiring(&cli, &resolved, &base)
@@ -277,6 +293,35 @@ mod tests {
     fn sd(id: &str) -> ResolvedSkill {
         ResolvedSkill { id: id.into(), name: id.into(), description: "d".into(),
             dir: std::path::PathBuf::from(format!("/nonexistent/{id}")) }
+    }
+
+    fn inst(id: &str, name: &str) -> InstalledSkill {
+        InstalledSkill { id: id.into(), name: name.into(), description: "d".into(),
+            source: "test".into(), path: format!("/x/{id}") }
+    }
+
+    #[test]
+    fn resolve_matches_by_id_then_name() {
+        let installed = vec![inst("my-cool-skill", "My Cool Skill"), inst("alpha", "alpha")];
+        // casa por id (dir basename)
+        assert_eq!(resolve_skills(&installed, &["my-cool-skill".into()])[0].id, "my-cool-skill");
+        // casa por name (RoleEditModal guarda o name não-slug) — era o bug do Phase-2
+        let by_name = resolve_skills(&installed, &["My Cool Skill".into()]);
+        assert_eq!(by_name.len(), 1, "name != dir deve resolver por name");
+        assert_eq!(by_name[0].id, "my-cool-skill");
+        // chave inexistente é ignorada (fail-open), sem panic
+        let mixed = resolve_skills(&installed, &["sumiu".into(), "alpha".into()]);
+        assert_eq!(mixed.len(), 1);
+        assert_eq!(mixed[0].id, "alpha");
+    }
+
+    #[test]
+    fn resolve_prefers_id_over_name_on_collision() {
+        // "x" é id de uma skill E name de outra → id ganha (sem ambiguidade)
+        let installed = vec![inst("x", "X skill"), inst("other", "x")];
+        let r = resolve_skills(&installed, &["x".into()]);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].id, "x", "match por id tem prioridade");
     }
 
     #[test]
