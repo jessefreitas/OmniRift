@@ -17,22 +17,85 @@ const BETA_WA =
 // License worker: /signup cria a licença trial + o link de checkout (cartão, 30min).
 const LICENSE_WORKER = "https://omnirift-license-worker.jesse-vieira-freitas.workers.dev";
 
-/** Pede o email, cria a licença/checkout no worker e redireciona pro pagamento. */
-async function startCheckout(plan: "monthly" | "yearly") {
-  const email = window.prompt("Seu email para a licença OmniRift Pro:");
-  if (!email || !email.includes("@")) return;
-  try {
-    const res = await fetch(`${LICENSE_WORKER}/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim(), plan }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { checkoutLink?: string; error?: string };
-    if (res.ok && data.checkoutLink) window.location.href = data.checkoutLink;
-    else alert(data.error || "Não foi possível iniciar o checkout. Tente novamente.");
-  } catch {
-    alert("Falha de conexão. Tente novamente.");
-  }
+/** Cria a licença/checkout no worker e devolve o link de pagamento (ou lança). */
+async function startCheckout(email: string, plan: "monthly" | "yearly"): Promise<string> {
+  const res = await fetch(`${LICENSE_WORKER}/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email.trim(), plan }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { checkoutLink?: string; error?: string };
+  if (res.ok && data.checkoutLink) return data.checkoutLink;
+  throw new Error(data.error || "Não foi possível iniciar o checkout.");
+}
+
+/** Form inline do card Pro: email + botões Mensal/Anual → redireciona pro checkout. */
+function ProCheckout() {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState<null | "monthly" | "yearly">(null);
+  const [err, setErr] = useState<string | null>(null);
+  const go = async (plan: "monthly" | "yearly") => {
+    setErr(null);
+    if (!email.includes("@")) {
+      setErr("Informe um email válido.");
+      return;
+    }
+    setBusy(plan);
+    try {
+      window.location.href = await startCheckout(email, plan);
+    } catch (e) {
+      setErr((e as Error).message || "Falha de conexão. Tente novamente.");
+      setBusy(null);
+    }
+  };
+  const btn: React.CSSProperties = {
+    flex: 1,
+    cursor: "pointer",
+    padding: 12,
+    borderRadius: 10,
+    fontWeight: 600,
+    fontSize: 13.5,
+    fontFamily: "inherit",
+  };
+  return (
+    <div style={{ margin: "20px 0", display: "flex", flexDirection: "column", gap: 9 }}>
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="seu@email.com"
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          padding: 12,
+          borderRadius: 10,
+          border: "1px solid rgba(255,255,255,.14)",
+          background: "rgba(0,0,0,.25)",
+          color: "#F3F3F4",
+          fontSize: 14.5,
+          fontFamily: "inherit",
+          outline: "none",
+        }}
+      />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={() => go("monthly")}
+          disabled={busy !== null}
+          style={{ ...btn, border: "none", background: "#F3F3F4", color: "#0A0A0C", opacity: busy && busy !== "monthly" ? 0.5 : 1 }}
+        >
+          {busy === "monthly" ? "…" : "Mensal · R$14,90"}
+        </button>
+        <button
+          onClick={() => go("yearly")}
+          disabled={busy !== null}
+          style={{ ...btn, border: "1px solid rgba(255,255,255,.18)", background: "transparent", color: "#F3F3F4", opacity: busy && busy !== "yearly" ? 0.5 : 1 }}
+        >
+          {busy === "yearly" ? "…" : "Anual · R$109,90"}
+        </button>
+      </div>
+      {err && <div style={{ color: "#F38A8A", fontSize: 12.5 }}>{err}</div>}
+    </div>
+  );
 }
 
 const LogoBars = ({ size = 18 }: { size?: number }) => (
@@ -543,27 +606,7 @@ export function Landing() {
                 <span style={{ color: DIM, fontSize: 15 }}>/mês</span>
               </div>
               <div style={{ color: DIM, fontSize: 13.5 }}>ou R$109,90/ano (economize ~38%)</div>
-              <button
-                onClick={() => startCheckout("monthly")}
-                style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  width: "100%",
-                  border: "none",
-                  cursor: "pointer",
-                  background: "#F3F3F4",
-                  color: "#0A0A0C",
-                  textDecoration: "none",
-                  padding: 13,
-                  borderRadius: 11,
-                  fontWeight: 600,
-                  fontSize: 15,
-                  fontFamily: "inherit",
-                  margin: "22px 0",
-                }}
-              >
-                Quero o Pro
-              </button>
+              <ProCheckout />
               <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 14.5, color: "#C9C9CF" }}>
                 <div style={{ color: MUTED }}>Tudo do Grátis, e mais:</div>
                 <div>Workspaces ilimitados</div>
