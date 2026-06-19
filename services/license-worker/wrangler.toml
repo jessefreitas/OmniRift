@@ -20,9 +20,15 @@ PRICE_MONTHLY_CENTS = "1490"   # R$ 14,90 / mês (ciclo MONTHLY)
 PRICE_YEARLY_CENTS = "10990"   # R$ 109,90 / ano (ciclo YEARLY)
 TRIAL_DAYS = "7"
 SEAT_CAP = "3"
+# Asaas: sandbox p/ testar, prod = https://api.asaas.com/v3
+ASAAS_BASE = "https://sandbox.asaas.com/api/v3"
 OMNICHAT_BASE = "https://chat.omniforge.com.br"
 OMNICHAT_ACCOUNT = "2"
 OMNICHAT_INBOX = "196"
 OMNICHAT_FUNNEL = "59"
+# Stages do funil "OmniRift Pro" #59 (ver omnichat). novo/perdido têm sufixo de timestamp.
+FUNNEL_STAGE_TRIAL = "trial"
+FUNNEL_STAGE_PAYING = "cliente"
+FUNNEL_STAGE_LOST = "perdido_1781834581"
 GITHUB_REPO = "jessefreitas/OmniRift"
 FROM_EMAIL = "licenca@omnirift.app"

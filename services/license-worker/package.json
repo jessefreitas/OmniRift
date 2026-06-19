@@ -9,7 +9,6 @@
     "db:init:remote": "wrangler d1 execute omnirift-licenses --remote --file=schema.sql"
   },
   "dependencies": {
-    "@noble/ed25519": "^2.1.0",
     "hono": "^4.6.14"
   },
   "devDependencies": {
