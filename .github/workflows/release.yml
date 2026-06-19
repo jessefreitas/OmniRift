@@ -44,6 +44,12 @@ jobs:
 
       - run: npm ci
 
+      # Builda o omnicompress-proxy (OmniCompress) e coloca como sidecar (externalBin)
+      # ANTES do tauri build — senão o bundle falha por binário externo ausente.
+      - name: Build OmniCompress sidecar
+        shell: bash
+        run: bash scripts/build-omnicompress.sh
+
       - name: Build + Release (tauri-action)
         uses: tauri-apps/tauri-action@v0
         env:

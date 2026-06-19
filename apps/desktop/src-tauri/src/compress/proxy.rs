@@ -17,10 +17,20 @@ const INSTANCES: [(&str, &str); 2] = [
     ("127.0.0.1:8788", "https://api.openai.com"),
 ];
 
-/// Acha o binário: ~/.cargo/bin (cargo install), depois PATH. (Sidecar bundlado
-/// entra no release.)
+/// Acha o binário: 1) sidecar ao lado do app (bundlado no release/dev), 2) ~/.cargo/bin
+/// (cargo install), 3) PATH.
 fn find_binary() -> Option<PathBuf> {
     let name = if cfg!(windows) { "omnicompress-proxy.exe" } else { "omnicompress-proxy" };
+    // 1) Sidecar: o Tauri coloca o externalBin ao lado do executável do app.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let p = dir.join(name);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+    // 2) cargo install
     if let Ok(home) = std::env::var("HOME") {
         let p = PathBuf::from(home).join(".cargo/bin").join(name);
         if p.exists() {

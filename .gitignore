@@ -38,3 +38,7 @@ tools/.omnirift-license.key
 # A pública vai no tauri.conf.json; a privada assina o build (TAURI_SIGNING_PRIVATE_KEY).
 tools/.omnirift-updater.key
 tools/.omnirift-updater.key.pub
+
+# Sidecar do OmniCompress — binário por-plataforma, buildado pela CI
+# (scripts/build-omnicompress.sh). Não comitar (6MB+, derivado, por-triple).
+apps/desktop/src-tauri/binaries/
