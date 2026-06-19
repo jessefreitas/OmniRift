@@ -11,6 +11,7 @@ pub mod spec;
 
 use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles};
 use commands::skills::{skills_import_github, skills_import_md, skills_list};
+use commands::skill_wiring::{agent_skills_config, list_installed_skills};
 use commands::usage::{budget_remove, budget_set, usage_budget_status, usage_scan};
 use commands::browser::browser_shot;
 use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
@@ -213,6 +214,8 @@ pub fn run() {
             skills_list,
             skills_import_md,
             skills_import_github,
+            list_installed_skills,
+            agent_skills_config,
             usage_scan,
             usage_budget_status,
             budget_set,

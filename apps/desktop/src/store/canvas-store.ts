@@ -74,6 +74,9 @@ interface CanvasState {
     id?: string;
     /** Compressor de token deste agente ("rtk"|"headroom"|"none"). Decora só env. */
     compressor?: string;
+    /** Env extra para injetar no spawn (ex: CODEX_HOME do bundle de skills).
+     *  Mesclada com a env do compressor; o compressor tem prioridade em colisão. */
+    env?: Array<[string, string]>;
   }) => TerminalNode | null;
   addNote: (params?: { position?: { x: number; y: number }; content?: string; color?: string }) => NoteNode;
   addGroup: (params?: { position?: { x: number; y: number }; label?: string }) => GroupNode;
@@ -272,7 +275,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       return { dirtyFiles: next };
     }),
 
-  addTerminal: ({ command, args, role = "shell", position, label, id, compressor }) => {
+  addTerminal: ({ command, args, role = "shell", position, label, id, compressor, env: extraEnv }) => {
     // Gate de licença: community = máx 5 agentes (terminais). 0 = ilimitado.
     const lic = useLicenseStore.getState();
     if (!withinLimit(lic.limits.agents, get().allTerminalNodes().length)) {
@@ -283,7 +286,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     const cwd = get().currentCwd ?? undefined;
     // Compõe a env de todos os compressores ligados (OmniCompress nativo entra por
     // padrão) + o override do role, se houver. Proxy só injeta se está de pé.
-    const env = composedCompressorEnv(nodeId, compressor, command);
+    // Env extra do caller (ex: CODEX_HOME de skills) vai na frente; compressor tem prioridade.
+    const compressorEnv = composedCompressorEnv(nodeId, compressor, command) ?? [];
+    const env: Array<[string, string]> = extraEnv?.length
+      ? [...extraEnv.filter(([k]) => !compressorEnv.some(([ck]) => ck === k)), ...compressorEnv]
+      : compressorEnv;
     const node: TerminalNode = {
       id: nodeId,
       kind: "terminal",

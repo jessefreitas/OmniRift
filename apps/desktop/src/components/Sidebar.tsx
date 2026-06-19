@@ -44,6 +44,7 @@ import {
   Gem,
   Save,
   Server,
+  Settings,
   Trash2,
   Sparkles,
   TerminalSquare,
@@ -64,6 +65,7 @@ import { specListFiles, specArchive, specUnarchive, isDeadSpec, pathsOverlap, ty
 import { writeFile } from "@/lib/preview-client";
 import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
+import { type SkillWiring } from "@/lib/agent-skills";
 import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { UpdaterButton } from "@/components/UpdaterButton";
@@ -96,6 +98,7 @@ const LlmConfigModal = lazy(() => import("@/components/LlmConfigModal").then((m)
 const GitReposModal = lazy(() => import("@/components/GitReposModal").then((m) => ({ default: m.GitReposModal })));
 const ReviewPolicyModal = lazy(() => import("@/components/ReviewPolicyModal").then((m) => ({ default: m.ReviewPolicyModal })));
 const ReviewSettingsModal = lazy(() => import("@/components/ReviewSettingsModal").then((m) => ({ default: m.ReviewSettingsModal })));
+const SkillLaunchPickerModal = lazy(() => import("@/components/SkillLaunchPicker").then((m) => ({ default: m.SkillLaunchPicker })));
 import { loadPolicy } from "@/lib/review-policy";
 import { loadDefaultCompressor } from "@/lib/compress-client";
 import { loadLlmConfig } from "@/lib/llm-client";
@@ -257,12 +260,6 @@ function detectShell(): string {
   return "bash";
 }
 
-// Anexa as skills curadas do role à persona — o agente passa a priorizá-las
-// (Claude Code auto-descobre as skills; isto direciona a escolha por role).
-function withSkills(prompt: string, skills?: string[]): string {
-  if (!skills || skills.length === 0) return prompt;
-  return `${prompt}\n\nSKILLS HABILITADAS (priorize usar quando a tarefa pedir): ${skills.join(", ")}.`;
-}
 
 const MCP_SSE_URL = "http://127.0.0.1:7844/sse";
 const MCP_ADD_CMD = `/mcp add --transport sse omnirift-agents ${MCP_SSE_URL}`;
@@ -333,6 +330,7 @@ export function Sidebar() {
   const [docsStatus, setDocsStatus] = useState<AgentDocsStatus | null>(null);
   const [roles, setRoles] = useState<AgentRoleDef[]>(() => loadRoles());
   const [editingRole, setEditingRole] = useState<AgentRoleDef | null>(null);
+  const [launchPickerRole, setLaunchPickerRole] = useState<AgentRoleDef | null>(null);
   const [diffFloor, setDiffFloor] = useState<Floor | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
@@ -902,22 +900,52 @@ export function Sidebar() {
     const k = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
   }
 
-  function spawnRole(r: AgentRoleDef) {
+  // Cria um agente no CLI do role com a persona + wiring de skills nativa.
+  // skillIdsOverride: override por-instância (SkillLaunchPicker); não persiste.
+  // Invariante no-skills: ids vazio → sem invoke agent_skills_config, sem args/env
+  // extras → addTerminal idêntico ao comportamento pré-skills (garantia de no-op).
+  async function spawnRole(r: AgentRoleDef, skillIdsOverride?: string[]) {
     const cli = ROLE_CLIS.find((c) => c.id === (r.cli ?? "claude")) ?? ROLE_CLIS[0];
+    const ids = skillIdsOverride ?? r.skills ?? [];
+
+    // Wiring só quando há IDs; vazio → null (sem tocar em args/env).
+    let wiring: SkillWiring | null = null;
+    if (ids.length > 0) {
+      try {
+        wiring = await invoke<SkillWiring | null>("agent_skills_config", { cli: cli.id, skillIds: ids });
+      } catch (e) {
+        console.warn("[skills] agent_skills_config falhou (segue sem skills):", e);
+      }
+    }
+
+    const pluginArgs = wiring?.kind === "pluginDir" ? ["--plugin-dir", wiring.dir] : [];
+    const skillEnv: Array<[string, string]> =
+      wiring?.kind === "codexHome" ? [["CODEX_HOME", wiring.home]] : [];
+    const indexText = wiring?.kind === "indexPrompt" ? wiring.text : "";
+
     if (cli.systemPromptFlag) {
-      // claude-code: contrato DEV + persona do role (concatenados) + deny + MCP.
-      // Outros CLIs com flag de system-prompt: só a persona (não têm o perfil MCP).
-      const persona = withSkills(r.prompt, r.skills);
-      const args =
+      const baseArgs =
         cli.role === "claude-code"
-          ? workerClaudeArgs(mcpConfigPath, persona, settingsConfigPath)
-          : [cli.systemPromptFlag, persona];
-      addTerminal({ command: cli.command, args, role: cli.role, label: r.name, compressor: r.compressor ?? loadDefaultCompressor() });
+          ? workerClaudeArgs(mcpConfigPath, r.prompt, settingsConfigPath)
+          : [cli.systemPromptFlag, r.prompt];
+      addTerminal({
+        command: cli.command,
+        args: [...baseArgs, ...pluginArgs],
+        role: cli.role,
+        label: r.name,
+        compressor: r.compressor ?? loadDefaultCompressor(),
+        env: skillEnv.length > 0 ? skillEnv : undefined,
+      });
       return;
     }
-    const node = addTerminal({ command: cli.command, role: cli.role, label: r.name, compressor: r.compressor ?? loadDefaultCompressor() });
-    if (!node) return; // bloqueado pelo limite community de agentes
-    // Envia uma linha (texto + Enter à parte) após `delay` ms.
+    const node = addTerminal({
+      command: cli.command,
+      role: cli.role,
+      label: r.name,
+      compressor: r.compressor ?? loadDefaultCompressor(),
+      env: skillEnv.length > 0 ? skillEnv : undefined,
+    });
+    if (!node) return;
     const sendLine = (text: string, delay: number) => {
       if (!text.trim()) return;
       setTimeout(() => {
@@ -925,8 +953,6 @@ export function Sidebar() {
         setTimeout(() => invoke("pty_write", { sessionId: node.session_id, data: "\r" }).catch(console.warn), 200);
       }, delay);
     };
-    // Injeta `text` QUANDO o terminal fica pronto (idle, depois do boot/seleção de
-    // modelo) — robusto a tempo de boot variável; não injeta durante prompts.
     const injectWhenReady = (sid: string, text: string) => {
       if (!text.trim()) return;
       let ready = false, done = false;
@@ -946,14 +972,10 @@ export function Sidebar() {
       }, 1500);
       const killT = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
     };
-    // Aspas simples seguras pro bash (escapa ' interno).
     const shellQuote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
     if (cli.role === "shell") {
       const startup = (r.startupCmd ?? "").trim();
-      const persona = withSkills(r.prompt, r.skills).trim();
-      // CLI Claude Code (claude/claude-ollama/…): persona NATIVA via flag — carrega
-      // no startup, sem corrida de boot/seleção de modelo. Outros CLIs de IA sem
-      // flag: tenta injetar quando o terminal ficar pronto (best-effort).
+      const persona = (indexText ? `${r.prompt}\n\n${indexText}` : r.prompt).trim();
       if (persona && /\bclaude\b/i.test(startup)) {
         sendLine(`${startup} --append-system-prompt ${shellQuote(persona)}`, 400);
       } else {
@@ -961,8 +983,8 @@ export function Sidebar() {
         if (startup && persona) injectWhenReady(node.session_id, persona);
       }
     } else {
-      // CLIs LLM sem flag (opencode/antigravity): persona como 1ª mensagem.
-      sendLine(withSkills(r.prompt, r.skills), 1800);
+      const firstMsg = indexText ? `${r.prompt}\n\n${indexText}` : r.prompt;
+      sendLine(firstMsg, 1800);
     }
   }
 
@@ -1625,7 +1647,7 @@ export function Sidebar() {
                   <UserCog size={12} className="text-brand/70 shrink-0" />
                 )}
                 <button
-                  onClick={() => spawnRole(r)}
+                  onClick={() => void spawnRole(r)}
                   title={r.prompt}
                   className={cn(
                     "flex-1 min-w-0 text-left text-xs truncate hover:text-brand transition-colors",
@@ -1639,6 +1661,14 @@ export function Sidebar() {
                     {r.cli ?? "claude"}
                   </span>
                 )}
+                <Tooltip label={tr("sidebar.launchWith", "Launch with… (override de skills por-instância)")} side="top" className="shrink-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setLaunchPickerRole(r); }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all"
+                  >
+                    <Settings size={10} />
+                  </button>
+                </Tooltip>
                 <Tooltip label={tr("sidebar.editPrompt", "Editar prompt")} side="top" className="shrink-0">
                   <button
                     onClick={() => setEditingRole(r)}
@@ -1864,6 +1894,14 @@ export function Sidebar() {
           cwd={currentCwd}
           onClose={() => setEditingRole(null)}
           onSave={saveRole}
+        />
+      )}
+      {launchPickerRole && (
+        <SkillLaunchPickerModal
+          key={launchPickerRole.id}
+          role={launchPickerRole}
+          onLaunch={(skillIds) => { void spawnRole(launchPickerRole, skillIds); }}
+          onClose={() => setLaunchPickerRole(null)}
         />
       )}
       {diffFloor && (
