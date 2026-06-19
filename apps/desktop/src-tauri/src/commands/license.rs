@@ -1,8 +1,9 @@
 //! Licença OmniRift — entitlement de TIER (community/full), **secret-free** e
 //! verificado **offline** com a chave pública embutida.
 //!
-//! O app SEMPRE roda. Sem entitlement válido → tier **community** com limites
-//! (1 canvas · 5 agentes · 1 paralelo). Um entitlement **full** assinado (Ed25519,
+//! O app SEMPRE roda. Sem entitlement válido → tier **community** que gateia SÓ o
+//! nº de workspaces (1 canvas); agentes e paralelos são ilimitados no free (ver
+//! COMMUNITY_* abaixo). Um entitlement **full** assinado (Ed25519,
 //! emitido pelo license server — Fase 2) DESBLOQUEIA o ilimitado. O token é
 //! `payload.sig` (base64url), vinculado ao FINGERPRINT da máquina + `exp`.
 //! Em build de desenvolvimento (debug) = full (não limita o dev).
@@ -193,7 +194,9 @@ fn verify_key(key: &str, fp: &str) -> Result<Verified, String> {
 fn license_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     use tauri::Manager;
     let dir = app.path().app_data_dir().ok()?;
-    let _ = std::fs::create_dir_all(&dir);
+    // Propaga falha de criação do dir → license_path = None → activate/load retornam
+    // erro claro ("sem permissão no dir de dados") em vez de um write críptico depois.
+    std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("license.key"))
 }
 

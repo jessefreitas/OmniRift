@@ -47,6 +47,10 @@ export interface Env {
 const now = () => Math.floor(Date.now() / 1000);
 const REFRESH_DAYS = 30;
 
+// Email single-line (sem CR/LF → barra SMTP header injection) + formato simples.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const validEmail = (e: string): boolean => e.length <= 254 && !/[\r\n]/.test(e) && EMAIL_RE.test(e);
+
 const app = new Hono<{ Bindings: Env }>();
 app.use("/*", cors());
 
@@ -57,6 +61,26 @@ app.post("/signup", async (c) => {
   const body = await c.req.json<{ email: string; name?: string; plan: "monthly" | "yearly" }>();
   if (!body?.email || !body?.plan) return c.json({ error: "email + plan obrigatórios" }, 400);
   const env = c.env;
+  const email = body.email.trim().toLowerCase();
+  if (!validEmail(email)) return c.json({ error: "email inválido" }, 400);
+  if (body.plan !== "monthly" && body.plan !== "yearly") return c.json({ error: "plano inválido" }, 400);
+
+  // Dedup: 1 licença viva por email. Mata email-bomb (do nosso domínio), spam de
+  // checkout no Asaas e poluição do funil. Reemite só o link de checkout — sem novo
+  // email/card/licença. (Rate-limit por IP fica no binding de Rate Limiting do CF.)
+  const dup = await db.getLicenseByEmail(env.DB, email);
+  if (dup) {
+    const plan = dup.plan === "monthly" || dup.plan === "yearly" ? dup.plan : body.plan;
+    const co = await asaasCreateCheckout(env, plan, dup.id);
+    await db.setCheckoutId(env.DB, dup.id, co.checkoutId);
+    return c.json({
+      licenseKey: dup.id,
+      checkoutLink: co.link,
+      checkoutExpiresInMin: Number(env.CHECKOUT_MINUTES) || 30,
+      trialEndsAt: dup.trial_ends_at,
+      existing: true,
+    });
+  }
 
   const id = randomId("lic");
   const trialEnds = now() + Number(env.TRIAL_DAYS) * 86400;
@@ -68,10 +92,10 @@ app.post("/signup", async (c) => {
 
   // Lead no funil ANTES (guarda o card_id na licença pra mover no webhook).
   const note = `🛒 Lead OmniRift Pro (${body.plan}) — trial 7d. Licença: ${id}. Checkout: ${checkout.checkoutId}.`;
-  const card = await omnichatNotifyLead(env, body.name ?? body.email, body.email, note);
+  const card = await omnichatNotifyLead(env, body.name ?? email, email, note);
   await db.createLicense(env.DB, {
     id,
-    email: body.email,
+    email,
     name: body.name ?? null,
     plan: body.plan,
     status: "trial",
@@ -86,7 +110,7 @@ app.post("/signup", async (c) => {
 
   await sendEmail(
     env,
-    body.email,
+    email,
     "Sua licença OmniRift Pro",
     `<p>Bem-vindo ao OmniRift Pro!</p><p>Sua chave de licença:</p><pre>${id}</pre>` +
       `<p>Cole no app em <b>Licença → Chave de licença</b> — você já tem 7 dias grátis.</p>` +

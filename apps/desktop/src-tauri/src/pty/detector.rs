@@ -164,7 +164,16 @@ impl StateDetector {
                             continue;
                         }
                         let quiescent = last_activity.elapsed() > QUIET;
+                        // `process_group_leader` é Unix-only no portable-pty (grupo de
+                        // processo POSIX). No Windows (ConPTY) não existe → sem fg pid,
+                        // a classificação cai nas heurísticas de quiescência/tela.
+                        #[cfg(unix)]
                         let fg_pid = master.lock().process_group_leader();
+                        #[cfg(not(unix))]
+                        let fg_pid: Option<i32> = {
+                            let _ = &master;
+                            None
+                        };
                         let fg = classify_fg(root_pid, fg_pid);
                         let bottom = screen.lock().screen().contents();
                         let next = classify(prev, quiescent, fg, &bottom, profile);

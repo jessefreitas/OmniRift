@@ -27,6 +27,14 @@ export async function getLicenseBySubscription(db: D1Database, subId: string): P
   return db.prepare("SELECT * FROM licenses WHERE asaas_subscription_id = ?1").bind(subId).first<License>();
 }
 
+/** Licença viva (não cancelada) mais recente de um email — pro dedup do /signup. */
+export async function getLicenseByEmail(db: D1Database, email: string): Promise<License | null> {
+  return db
+    .prepare("SELECT * FROM licenses WHERE email = ?1 AND status != 'canceled' ORDER BY created_at DESC LIMIT 1")
+    .bind(email)
+    .first<License>();
+}
+
 export async function createLicense(
   db: D1Database,
   l: Pick<License, "id" | "email" | "name" | "plan" | "status" | "asaas_customer_id" | "asaas_subscription_id" | "trial_ends_at"> & {

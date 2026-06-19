@@ -87,6 +87,9 @@ fn install_impl(
     let script = dir.join(format!("{base}.sh"));
     let body = format!("#!/bin/bash\ncd {cwd:?} || exit 1\n{command}\n");
     std::fs::write(&script, body).map_err(|e| e.to_string())?;
+    // chmod +x é Unix-only (PermissionsExt). No Windows o import nem existe → cfg-guard
+    // (o agendador é systemd, então só funciona de fato no Linux; Windows compila/no-op).
+    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755));

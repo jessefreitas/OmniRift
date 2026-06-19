@@ -44,11 +44,13 @@ impl Compressor for OmnicompressProvider {
     }
 
     fn detect(&self) -> DetectStatus {
-        // "up" = a instância anthropic responde (o gerenciador sobe as duas juntas).
-        // Reachability (não só binário) → ligar por padrão é seguro: sem proxy o
-        // front não injeta a env e o agente fala direto (fail-open).
+        // "up" = AS DUAS instâncias respondem (claude→8787, demais→8788). Probar só a
+        // anthropic deixaria o front injetar OPENAI_BASE_URL→8788 morto se a instância
+        // openai não subisse (porta ocupada) → quebrava agentes Codex em silêncio. Com
+        // ambas exigidas, parcial = não-instalado → ninguém recebe env e fala direto
+        // (fail-open). Reachability (não só binário) → ligar por padrão é seguro.
         DetectStatus {
-            installed: proxy_reachable(ANTHROPIC_PROXY),
+            installed: proxy_reachable(ANTHROPIC_PROXY) && proxy_reachable(OPENAI_PROXY),
             version: None,
             install_hint: INSTALL_HINT.to_string(),
         }

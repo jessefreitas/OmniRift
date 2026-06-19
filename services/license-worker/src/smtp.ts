@@ -20,6 +20,8 @@ export async function smtpSend(
   subject: string,
   html: string,
 ): Promise<void> {
+  // Defesa em profundidade: CR/LF em from/to injetaria comandos/headers SMTP.
+  if (/[\r\n]/.test(from) || /[\r\n]/.test(to)) throw new Error("SMTP: endereço com CR/LF (injeção bloqueada)");
   const socket = connect({ hostname: cfg.host, port: cfg.port }, { secureTransport: "on", allowHalfOpen: false });
   const writer = socket.writable.getWriter();
   const reader = socket.readable.getReader();
