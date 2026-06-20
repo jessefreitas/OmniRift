@@ -1,6 +1,6 @@
 [package]
 name = "omnirift"
-version = "0.1.0"
+version = "0.1.1"
 description = "OmniRift — AI Agent Orchestration Canvas"
 authors = ["OmniForge <contato@omniforge.com.br>"]
 license = "MIT"
