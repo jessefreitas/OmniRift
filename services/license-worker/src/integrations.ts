@@ -24,8 +24,18 @@ export interface CheckoutResult {
  * página do Asaas → **zero escopo PCI** pra gente. `externalReference = licenseId`
  * faz o webhook correlacionar de volta à licença. Trial: 1ª cobrança em +TRIAL_DAYS.
  */
-export async function asaasCreateCheckout(env: Env, plan: "monthly" | "yearly", licenseId: string): Promise<CheckoutResult> {
-  const value = (plan === "yearly" ? Number(env.PRICE_YEARLY_CENTS) : Number(env.PRICE_MONTHLY_CENTS)) / 100;
+export async function asaasCreateCheckout(
+  env: Env,
+  plan: "monthly" | "yearly",
+  licenseId: string,
+  discountPct = 0,
+): Promise<CheckoutResult> {
+  let value = (plan === "yearly" ? Number(env.PRICE_YEARLY_CENTS) : Number(env.PRICE_MONTHLY_CENTS)) / 100;
+  // Desconto de beta tester: reduz o valor recorrente direto (preço beta), sem depender
+  // do schema de `discount` do Asaas. pct válido = 1..90.
+  if (discountPct > 0 && discountPct < 100) {
+    value = Math.round(value * (100 - discountPct)) / 100;
+  }
   const cycle = plan === "yearly" ? "YEARLY" : "MONTHLY";
   const nextDueDate = new Date(Date.now() + Number(env.TRIAL_DAYS) * 86400_000).toISOString().slice(0, 10);
   const r = await fetch(`${env.ASAAS_BASE}/checkouts`, {

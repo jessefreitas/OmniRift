@@ -7,22 +7,52 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Copy, KeyRound, Lock, Sparkles, X } from "lucide-react";
+import { Check, Copy, Gift, KeyRound, Lock, Sparkles, X } from "lucide-react";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { useLicenseStore, type LimitKind } from "@/store/license-store";
 import { useT } from "@/lib/i18n";
+import { BetaInviteModal } from "@/components/BetaInviteModal";
+
+/** Landing de planos (upgrade Pro). `?beta=1` sinaliza o desconto de beta tester. */
+const PRICING_URL = "https://omnirift.omniforge.com.br/?beta=1";
 
 export function LicenseHost() {
   const refresh = useLicenseStore((s) => s.refresh);
+  const refreshRemote = useLicenseStore((s) => s.refreshRemote);
+  const loadBetaMeta = useLicenseStore((s) => s.loadBetaMeta);
+  const openBeta = useLicenseStore((s) => s.openBeta);
   const showLicense = useLicenseStore((s) => s.showLicense);
+  const showBeta = useLicenseStore((s) => s.showBeta);
   const limitNotice = useLicenseStore((s) => s.limitNotice);
+
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    let cancelled = false;
+    void (async () => {
+      await refresh(); // status local (Rust, offline)
+      await refreshRemote(); // renova no servidor (fecha o gap pós-trial/beta)
+      await loadBetaMeta();
+      if (cancelled) return;
+      // 1º run: community + nunca viu o convite → abre o beta uma vez.
+      const seen = localStorage.getItem("beta_invite_seen");
+      if (!seen && useLicenseStore.getState().status?.tier !== "full") {
+        localStorage.setItem("beta_invite_seen", "1");
+        openBeta();
+      }
+    })();
+    // Renova periodicamente (6h) enquanto o app roda — pega renovações do operador.
+    const id = setInterval(() => void refreshRemote(), 6 * 60 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [refresh, refreshRemote, loadBetaMeta, openBeta]);
+
   return (
     <>
       {limitNotice && <LimitNotice kind={limitNotice} />}
       {showLicense && <LicenseModal />}
+      {showBeta && <BetaInviteModal />}
     </>
   );
 }
@@ -67,6 +97,7 @@ function LicenseModal() {
   const status = useLicenseStore((s) => s.status);
   const activate = useLicenseStore((s) => s.activate);
   const close = useLicenseStore((s) => s.closeLicense);
+  const wasBeta = useLicenseStore((s) => s.wasBeta);
   const [key, setKey] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -107,6 +138,19 @@ function LicenseModal() {
         </header>
 
         <div className="p-5 space-y-4">
+          {!isFull && wasBeta && (
+            <div className="flex items-start gap-2 rounded-md border border-brand/40 bg-brand/10 px-3 py-2.5">
+              <Gift size={15} className="text-brand mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-[12px] text-text">
+                  {t("beta.ended", "Seu acesso beta acabou. Continue no OmniRift Pro com desconto de beta tester.")}
+                </p>
+                <button onClick={() => void openExternal(PRICING_URL)} className="mt-1 text-[12px] font-medium text-brand hover:underline">
+                  {t("beta.upgrade", "Ver planos com desconto ›")}
+                </button>
+              </div>
+            </div>
+          )}
           {isFull ? (
             <div className="flex items-center gap-2 text-[13px] text-text">
               <Sparkles size={15} className="text-brand" />

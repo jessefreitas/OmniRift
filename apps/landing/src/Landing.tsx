@@ -17,12 +17,15 @@ const BETA_WA =
 // License worker: /signup cria a licença trial + o link de checkout (cartão, 30min).
 const LICENSE_WORKER = "https://omnirift-license-worker.jesse-vieira-freitas.workers.dev";
 
+// `?beta=1` (vem do CTA in-app do fim do beta) → checkout com desconto de beta tester.
+const BETA_DISCOUNT = typeof location !== "undefined" && new URLSearchParams(location.search).has("beta");
+
 /** Cria a licença/checkout no worker e devolve o link de pagamento (ou lança). */
 async function startCheckout(email: string, plan: "monthly" | "yearly"): Promise<string> {
   const res = await fetch(`${LICENSE_WORKER}/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: email.trim(), plan }),
+    body: JSON.stringify({ email: email.trim(), plan, betaDiscount: BETA_DISCOUNT }),
   });
   const data = (await res.json().catch(() => ({}))) as { checkoutLink?: string; error?: string };
   if (res.ok && data.checkoutLink) return data.checkoutLink;

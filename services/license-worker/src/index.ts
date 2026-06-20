@@ -8,6 +8,7 @@ import { cors } from "hono/cors";
 import { signEntitlement, randomId, type EntitlementPayload } from "./sign";
 import * as db from "./db";
 import { asaasCreateCheckout, omnichatNotifyLead, omnichatMoveCard, sendEmail } from "./integrations";
+import { signupBeta, renewBeta, listBeta } from "./beta";
 
 export interface Env {
   DB: D1Database;
@@ -42,6 +43,11 @@ export interface Env {
   FUNNEL_STAGE_LOST: string;
   FROM_EMAIL: string;
   GITHUB_REPO: string;
+  // Beta tester program
+  BETA_DAYS: string; // dias do beta (default 60)
+  ADMIN_TOKEN?: string; // auth dos endpoints /admin/* (renovação)
+  BETA_DISCOUNT_PCT?: string; // % de desconto na oferta Pro pós-beta
+  FUNNEL_STAGE_BETA?: string; // stage do funil pro card de beta tester
 }
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -58,12 +64,14 @@ app.get("/", (c) => c.json({ ok: true, service: "omnirift-license-worker" }));
 
 // ── Contratação (licença trial 7d + link de checkout cartão) ─────────────────
 app.post("/signup", async (c) => {
-  const body = await c.req.json<{ email: string; name?: string; plan: "monthly" | "yearly" }>();
+  const body = await c.req.json<{ email: string; name?: string; plan: "monthly" | "yearly"; betaDiscount?: boolean }>();
   if (!body?.email || !body?.plan) return c.json({ error: "email + plan obrigatórios" }, 400);
   const env = c.env;
   const email = body.email.trim().toLowerCase();
   if (!validEmail(email)) return c.json({ error: "email inválido" }, 400);
   if (body.plan !== "monthly" && body.plan !== "yearly") return c.json({ error: "plano inválido" }, 400);
+  // Desconto de beta tester (vindo da landing ?beta=1): aplica BETA_DISCOUNT_PCT no checkout.
+  const discountPct = body.betaDiscount ? Number(env.BETA_DISCOUNT_PCT) || 0 : 0;
 
   // Dedup: 1 licença viva por email. Mata email-bomb (do nosso domínio), spam de
   // checkout no Asaas e poluição do funil. Reemite só o link de checkout — sem novo
@@ -71,7 +79,7 @@ app.post("/signup", async (c) => {
   const dup = await db.getLicenseByEmail(env.DB, email);
   if (dup) {
     const plan = dup.plan === "monthly" || dup.plan === "yearly" ? dup.plan : body.plan;
-    const co = await asaasCreateCheckout(env, plan, dup.id);
+    const co = await asaasCreateCheckout(env, plan, dup.id, discountPct);
     await db.setCheckoutId(env.DB, dup.id, co.checkoutId);
     return c.json({
       licenseKey: dup.id,
@@ -88,7 +96,7 @@ app.post("/signup", async (c) => {
 
   // Checkout hospedado (cartão, recorrente, expira em N min). Cliente/assinatura
   // são criados pelo Asaas quando o cartão é inserido — chegam de volta no webhook.
-  const checkout = await asaasCreateCheckout(env, body.plan, id);
+  const checkout = await asaasCreateCheckout(env, body.plan, id, discountPct);
 
   // Lead no funil ANTES (guarda o card_id na licença pra mover no webhook).
   const note = `🛒 Lead OmniRift Pro (${body.plan}) — trial 7d. Licença: ${id}. Checkout: ${checkout.checkoutId}.`;
@@ -120,6 +128,27 @@ app.post("/signup", async (c) => {
   );
 
   return c.json({ licenseKey: id, checkoutLink: checkout.link, checkoutExpiresInMin: minutes, trialEndsAt: trialEnds });
+});
+
+// ── Beta tester (60d full, SEM Asaas) — cadastro 1-clique do app ─────────────
+app.post("/signup/beta", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const out = await signupBeta(c.env, body);
+  return c.json(out, "error" in out ? 400 : 200);
+});
+
+// ── Admin (auth ADMIN_TOKEN): renovar / listar betas (usado pelo beta-renew.mjs) ─
+app.post("/admin/beta/renew", async (c) => {
+  if (!requireAdmin(c.req, c.env)) return c.json({ error: "unauthorized" }, 401);
+  const body = await c.req.json().catch(() => ({}));
+  const out = await renewBeta(c.env, body);
+  const code = "error" in out ? (out.error === "licença não encontrada" ? 404 : 400) : 200;
+  return c.json(out, code);
+});
+
+app.get("/admin/beta/list", async (c) => {
+  if (!requireAdmin(c.req, c.env)) return c.json({ error: "unauthorized" }, 401);
+  return c.json({ betas: await listBeta(c.env) });
 });
 
 // ── Reemite o link de checkout (o de 30min expira) ───────────────────────────
@@ -218,10 +247,19 @@ app.get("/download/:platform?", (c) => c.redirect(`https://github.com/${c.env.GI
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 async function issueEntitlement(env: Env, lic: db.License, fingerprint: string): Promise<string> {
-  // trial → exp no fim do trial; active → janela curta (refresh renova). full = ilimitado.
-  const exp = lic.status === "trial" && lic.trial_ends_at ? lic.trial_ends_at : now() + REFRESH_DAYS * 86400;
+  // trial/beta → exp no fim da janela (trial_ends_at); active → janela curta (refresh renova).
+  // full = ilimitado. (beta usa o mesmo trial_ends_at; passado isso, emite token já expirado
+  // → o app degrada pra community, igual ao trial não-pago.)
+  const exp =
+    (lic.status === "trial" || lic.status === "beta") && lic.trial_ends_at ? lic.trial_ends_at : now() + REFRESH_DAYS * 86400;
   const payload: EntitlementPayload = { fp: fingerprint, holder: lic.email, exp, tier: "full" };
   return signEntitlement(env.ED25519_PRIVATE_KEY, payload);
+}
+
+// Auth dos endpoints /admin/* — header "Authorization: token <ADMIN_TOKEN>".
+function requireAdmin(req: { header(name: string): string | undefined }, env: Env): boolean {
+  const tok = (req.header("authorization") || "").replace(/^token\s+/i, "").trim();
+  return Boolean(env.ADMIN_TOKEN) && tok.length > 0 && tok === env.ADMIN_TOKEN;
 }
 
 // Move o card do funil pro stage (usa o card_id guardado na licença; best-effort).

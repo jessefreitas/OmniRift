@@ -71,6 +71,7 @@ import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { UpdaterButton } from "@/components/UpdaterButton";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { useLicenseStore } from "@/store/license-store";
+import { openFeedback } from "@/lib/feedback";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { clisList, type CliInfo } from "@/lib/clis-client";
 import { loadCustomClis, saveCustomClis, type CustomCli } from "@/lib/custom-clis";
@@ -1882,6 +1883,14 @@ export function Sidebar() {
           <span className="opacity-40">·</span>
           <button onClick={() => useLicenseStore.getState().openLicense()} className="text-textMuted hover:text-brand">
             {tr("sidebar.license", "Licença")}
+          </button>
+          <span className="opacity-40">·</span>
+          <button onClick={() => useLicenseStore.getState().openBeta()} className="text-textMuted hover:text-brand">
+            {tr("sidebar.beta", "Seja beta")}
+          </button>
+          <span className="opacity-40">·</span>
+          <button onClick={() => void openFeedback()} className="text-textMuted hover:text-brand">
+            {tr("sidebar.feedback", "Feedback")}
           </button>
         </div>
       </footer>

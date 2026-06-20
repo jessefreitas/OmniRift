@@ -50,7 +50,9 @@ function isEntitlement(k: string): boolean {
 export async function licenseActivate(key: string): Promise<LicenseStatus> {
   const k = key.trim();
   let entitlement = k;
+  let licenseKey: string | null = null;
   if (!isEntitlement(k)) {
+    licenseKey = k; // é uma license key `lic_` (será guardada p/ /refresh)
     const { fingerprint } = await licenseStatus();
     const res = await fetch(`${LICENSE_WORKER_URL}/activate`, {
       method: "POST",
@@ -62,7 +64,60 @@ export async function licenseActivate(key: string): Promise<LicenseStatus> {
     if (!data.entitlement) throw new Error("o servidor não retornou um entitlement");
     entitlement = data.entitlement;
   }
-  return invoke<LicenseStatus>("license_activate", { key: entitlement });
+  const status = await invoke<LicenseStatus>("license_activate", { key: entitlement });
+  // Guarda a license key (lic_) → habilita /refresh (fecha o gap pós-trial). Não mexe no
+  // flag was_beta (omitido) — ativação paga não é beta.
+  if (licenseKey) await invoke("license_store_meta", { licenseKey });
+  return status;
+}
+
+/**
+ * Cadastro de BETA TESTER (60 dias full), 1-clique: manda email + fingerprint pro
+ * worker `/signup/beta`, recebe o entitlement já ativado + a license key, grava tudo
+ * (entitlement + lic_ key + flag was_beta). Sem copiar/colar, sem pagamento.
+ */
+export async function signupBeta(email: string): Promise<LicenseStatus> {
+  const { fingerprint } = await licenseStatus();
+  const res = await fetch(`${LICENSE_WORKER_URL}/signup/beta`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email.trim().toLowerCase(), fingerprint }),
+  });
+  const data = await res.json().catch(() => ({}) as { licenseKey?: string; entitlement?: string; error?: string });
+  if (!res.ok || !data.entitlement) throw new Error(data.error || `falha no cadastro beta (${res.status})`);
+  const status = await invoke<LicenseStatus>("license_activate", { key: data.entitlement });
+  await invoke("license_store_meta", { licenseKey: data.licenseKey ?? null, wasBeta: true });
+  return status;
+}
+
+/**
+ * Renova o entitlement (boot + periódico) usando a license key guardada. Mantém o
+ * acesso enquanto a licença vive (assinatura ativa ou beta dentro dos 60d) e puxa
+ * renovações feitas pelo operador. Offline / expirado → null (mantém o cache atual).
+ */
+export async function licenseRefresh(): Promise<LicenseStatus | null> {
+  const key = await invoke<string | null>("license_stored_key");
+  if (!key) return null;
+  const { fingerprint } = await licenseStatus();
+  let data: { entitlement?: string };
+  try {
+    const res = await fetch(`${LICENSE_WORKER_URL}/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, fingerprint }),
+    });
+    if (!res.ok) return null; // expirado/inativo → degrada natural (entitlement vence sozinho)
+    data = await res.json().catch(() => ({}));
+  } catch {
+    return null; // offline → segue com o entitlement em cache
+  }
+  if (!data.entitlement) return null;
+  return invoke<LicenseStatus>("license_activate", { key: data.entitlement });
+}
+
+/** Esta máquina ativou via beta? (decide se mostra a oferta de upgrade no fim do beta). */
+export async function wasBeta(): Promise<boolean> {
+  return invoke<boolean>("license_was_beta");
 }
 
 /** `count` ainda cabe no limite? (0 = ilimitado). */

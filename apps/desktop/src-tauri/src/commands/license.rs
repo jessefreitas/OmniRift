@@ -254,6 +254,54 @@ pub fn license_activate(app: tauri::AppHandle, key: String) -> Result<LicenseSta
     Ok(status_from(fp, v))
 }
 
+// ── Metadados de licença: a license key `lic_` (p/ /refresh e renovação) + o flag
+// was_beta (p/ a oferta de upgrade no fim do beta). Guardados ao lado do entitlement.
+// (O entitlement em si fica em license.key; a verificação de tier continua só nele.) ──
+
+/// Grava metadados (só os campos fornecidos): `license.id` = lic_ key, `was_beta` = flag.
+fn write_meta(dir: &std::path::Path, license_key: Option<&str>, was_beta: Option<bool>) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    if let Some(k) = license_key {
+        std::fs::write(dir.join("license.id"), k.trim())?;
+    }
+    if let Some(b) = was_beta {
+        std::fs::write(dir.join("was_beta"), if b { "1" } else { "0" })?;
+    }
+    Ok(())
+}
+
+fn read_stored_key(dir: &std::path::Path) -> Option<String> {
+    std::fs::read_to_string(dir.join("license.id")).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+fn read_was_beta(dir: &std::path::Path) -> bool {
+    std::fs::read_to_string(dir.join("was_beta")).map(|s| s.trim() == "1").unwrap_or(false)
+}
+
+fn app_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    app.path().app_data_dir().ok()
+}
+
+/// Persiste a license key (`lic_`) e/ou o flag was_beta. Campos `None` ficam intactos.
+#[tauri::command]
+pub fn license_store_meta(app: tauri::AppHandle, license_key: Option<String>, was_beta: Option<bool>) -> Result<(), String> {
+    let dir = app_dir(&app).ok_or("sem dir de dados")?;
+    write_meta(&dir, license_key.as_deref(), was_beta).map_err(|e| e.to_string())
+}
+
+/// A license key (`lic_`) guardada — usada pelo /refresh (renova/renovação do beta).
+#[tauri::command]
+pub fn license_stored_key(app: tauri::AppHandle) -> Option<String> {
+    read_stored_key(&app_dir(&app)?)
+}
+
+/// true se esta máquina ativou via beta (mostra a oferta de upgrade quando o beta acaba).
+#[tauri::command]
+pub fn license_was_beta(app: tauri::AppHandle) -> bool {
+    app_dir(&app).map(|d| read_was_beta(&d)).unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,6 +322,23 @@ mod tests {
         let l = Limits::community();
         // 1 workspace (canvas); agentes e paralelos ilimitados (0).
         assert_eq!((l.canvas, l.agents, l.floors), (1, 0, 0));
+    }
+
+    #[test]
+    fn meta_roundtrip_partial_updates() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        // vazio por padrão
+        assert_eq!(read_stored_key(p), None);
+        assert!(!read_was_beta(p));
+        // grava key + flag
+        write_meta(p, Some("lic_abc123"), Some(true)).unwrap();
+        assert_eq!(read_stored_key(p).as_deref(), Some("lic_abc123"));
+        assert!(read_was_beta(p));
+        // update parcial: só was_beta=false, mantém a key
+        write_meta(p, None, Some(false)).unwrap();
+        assert_eq!(read_stored_key(p).as_deref(), Some("lic_abc123"));
+        assert!(!read_was_beta(p));
     }
 
     #[test]

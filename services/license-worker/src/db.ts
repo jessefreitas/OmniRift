@@ -35,6 +35,32 @@ export async function getLicenseByEmail(db: D1Database, email: string): Promise<
     .first<License>();
 }
 
+/** Licença (não cancelada) mais recente ligada a um fingerprint de device — anti-abuso do beta.
+ *  `plan` opcional filtra por tipo (ex.: 'beta'). */
+export async function getLicenseByFingerprint(db: D1Database, fingerprint: string, plan?: string): Promise<License | null> {
+  return db
+    .prepare(
+      `SELECT l.* FROM licenses l
+         JOIN devices d ON d.license_id = l.id
+        WHERE d.fingerprint = ?1 AND d.revoked_at IS NULL AND l.status != 'canceled'
+          AND (?2 IS NULL OR l.plan = ?2)
+        ORDER BY l.created_at DESC LIMIT 1`,
+    )
+    .bind(fingerprint, plan ?? null)
+    .first<License>();
+}
+
+/** Estende o trial/beta (define novo trial_ends_at) e marca como beta. Usado pela renovação. */
+export async function extendTrial(db: D1Database, id: string, newEndsAt: number): Promise<void> {
+  await db.prepare("UPDATE licenses SET trial_ends_at = ?2, status = 'beta', updated_at = ?3 WHERE id = ?1").bind(id, newEndsAt, now()).run();
+}
+
+/** Todas as licenças do programa beta (mais novas primeiro). */
+export async function listBetaLicenses(db: D1Database): Promise<License[]> {
+  const r = await db.prepare("SELECT * FROM licenses WHERE plan = 'beta' ORDER BY created_at DESC").all<License>();
+  return r.results ?? [];
+}
+
 export async function createLicense(
   db: D1Database,
   l: Pick<License, "id" | "email" | "name" | "plan" | "status" | "asaas_customer_id" | "asaas_subscription_id" | "trial_ends_at"> & {

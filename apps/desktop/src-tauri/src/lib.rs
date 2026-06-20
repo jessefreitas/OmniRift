@@ -26,7 +26,7 @@ use commands::fs::{list_dir, read_file, write_file};
 use commands::gitremote::{git_clone, git_list_repos};
 use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
-use commands::license::{license_activate, license_status};
+use commands::license::{license_activate, license_status, license_store_meta, license_stored_key, license_was_beta};
 use commands::llm::{llm_chat, llm_list_models};
 use commands::review_cfg::{
     agent_settings_config, review_config_path, review_config_write, review_context_read,
@@ -260,6 +260,9 @@ pub fn run() {
             scheduler_list,
             license_status,
             license_activate,
+            license_store_meta,
+            license_stored_key,
+            license_was_beta,
             mcp_servers_list,
             mcp_server_upsert,
             mcp_server_remove,
