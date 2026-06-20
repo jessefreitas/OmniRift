@@ -49,6 +49,26 @@ pub fn classify_fg(root_pid: Option<u32>, fg_pid: Option<i32>) -> FgClass {
     }
 }
 
+/// Equivalente Windows do `process_group_leader`: o ConPTY não tem grupo de
+/// processo POSIX, então aproximamos o foreground enumerando os filhos do `root`.
+/// ≥1 filho vivo → há subprocesso em foreground (devolve o pid dele → `Subprocess`);
+/// nenhum filho → o próprio root no loop (devolve `root` → `Root`); sem root → `None`.
+#[cfg(windows)]
+fn fg_pid_from_children(root_pid: Option<u32>) -> Option<i32> {
+    let root = root_pid?;
+    // System novo a cada tick (new() é vazio/barato): evita segurar um System
+    // entre os .await do loop (a future precisa ser Send pro async_runtime).
+    let mut sys = sysinfo::System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let root = sysinfo::Pid::from_u32(root);
+    let child = sys
+        .processes()
+        .values()
+        .find(|p| p.parent() == Some(root))
+        .map(|p| p.pid().as_u32() as i32);
+    Some(child.unwrap_or(root.as_u32() as i32))
+}
+
 /// Máquina de estados pura. Ordem: subprocess → atividade → blocked → ready → mantém.
 /// `Dead` é decidido fora (no runtime, ao fechar o canal de output).
 pub fn classify(
@@ -165,14 +185,17 @@ impl StateDetector {
                         }
                         let quiescent = last_activity.elapsed() > QUIET;
                         // `process_group_leader` é Unix-only no portable-pty (grupo de
-                        // processo POSIX). No Windows (ConPTY) não existe → sem fg pid,
-                        // a classificação cai nas heurísticas de quiescência/tela.
+                        // processo POSIX). No Windows (ConPTY) aproximamos via enumeração
+                        // dos filhos do root (sysinfo); em outros SOs cai na heurística.
                         #[cfg(unix)]
                         let fg_pid = master.lock().process_group_leader();
                         #[cfg(not(unix))]
                         let fg_pid: Option<i32> = {
                             let _ = &master;
-                            None
+                            #[cfg(windows)]
+                            { fg_pid_from_children(root_pid) }
+                            #[cfg(not(windows))]
+                            { None }
                         };
                         let fg = classify_fg(root_pid, fg_pid);
                         let bottom = screen.lock().screen().contents();

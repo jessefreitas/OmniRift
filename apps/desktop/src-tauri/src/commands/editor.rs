@@ -81,7 +81,47 @@ fn resolve_offpath(cmd: &str) -> Option<String> {
     None
 }
 
-#[cfg(not(target_os = "linux"))]
+/// Windows: editor fora do PATH. 1) registry App Paths (HKCU+HKLM) lido pela API do
+/// registro (crate `winreg`, sem subprocess `reg`) — pega VS Code/Cursor/etc. que
+/// registram `<Editor>.exe` mesmo sem por o launcher no PATH; 2) dirs comuns de
+/// instalação (LOCALAPPDATA/ProgramFiles[(x86)]). Devolve caminho absoluto.
+#[cfg(target_os = "windows")]
+fn resolve_offpath(cmd: &str) -> Option<String> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+    // 1) App Paths: o valor padrão da chave `<cmd>.exe` é o caminho absoluto do exe.
+    let sub = format!("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{cmd}.exe");
+    for hive in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        if let Ok(key) = RegKey::predef(hive).open_subkey(&sub) {
+            if let Ok(path) = key.get_value::<String, _>("") {
+                if !path.is_empty() && std::path::Path::new(&path).exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
+    let bases = ["LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"]
+        .iter()
+        .filter_map(|v| std::env::var_os(v).map(std::path::PathBuf::from));
+    for base in bases {
+        let candidates = [
+            base.join(format!("{cmd}.cmd")),
+            base.join(format!("{cmd}.exe")),
+            base.join(format!("{cmd}.bat")),
+            base.join("Programs").join(format!("{cmd}.cmd")),
+            base.join("Programs").join(format!("{cmd}.exe")),
+        ];
+        for p in candidates {
+            if p.exists() {
+                return Some(p.to_string_lossy().into_owned());
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 fn resolve_offpath(_cmd: &str) -> Option<String> {
     None
 }

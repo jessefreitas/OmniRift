@@ -100,14 +100,22 @@ pub struct FloorDiffDto {
     pub untracked: Vec<String>,
 }
 
-/// Roda um hook de ciclo de vida do floor: `sh -lc <command>` no diretório `cwd`
-/// (worktree). Strip de LD_PRELOAD/GTK_MODULES (mesmo motivo dos PTYs). Devolve
-/// stdout+stderr; Err se o comando sair com código ≠ 0. Bloqueante (use p/ onLand).
+/// Roda um hook de ciclo de vida do floor no diretório `cwd` (worktree) usando o
+/// shell nativo do SO: `sh -lc <command>` no Unix, `cmd /C <command>` no Windows.
+/// Strip de LD_PRELOAD/GTK_MODULES (mesmo motivo dos PTYs; no-op no Windows).
+/// Devolve stdout+stderr; Err se o comando sair com código ≠ 0. Bloqueante (use p/ onLand).
 #[tauri::command]
 pub fn floor_run_hook(cwd: String, command: String) -> Result<String, String> {
-    let out = std::process::Command::new("sh")
-        .arg("-lc")
-        .arg(&command)
+    let mut cmd = if cfg!(windows) {
+        let mut c = std::process::Command::new("cmd");
+        c.arg("/C").arg(&command);
+        c
+    } else {
+        let mut c = std::process::Command::new("sh");
+        c.arg("-lc").arg(&command);
+        c
+    };
+    let out = cmd
         .current_dir(&cwd)
         .env("LD_PRELOAD", "")
         .env("GTK_MODULES", "")

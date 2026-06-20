@@ -111,7 +111,10 @@ fn real_codex_home() -> Option<PathBuf> {
     if let Ok(h) = std::env::var("CODEX_HOME") {
         if !h.is_empty() { return Some(PathBuf::from(h)); }
     }
-    std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".codex"))
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()
+        .map(|h| PathBuf::from(h).join(".codex"))
 }
 
 fn materialize_codex_home(skills: &[ResolvedSkill], base: &Path) -> Option<String> {
@@ -215,7 +218,7 @@ fn scan_skills_root(root: &Path) -> Vec<InstalledSkill> {
 #[tauri::command]
 pub fn list_installed_skills() -> Vec<InstalledSkill> {
     let mut all = vec![];
-    if let Ok(home) = std::env::var("HOME") {
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         let home = PathBuf::from(home);
         for (sub, source) in [(".claude/skills", "claude-global"), (".codex/skills", "codex-global")] {
             let mut v = scan_skills_root(&home.join(sub));

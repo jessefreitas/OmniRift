@@ -47,11 +47,19 @@ pub fn floor_mirror_set(
 
 /// Detecta o binário do Serena (MCP de estrutura de código por linguagem).
 fn which(bin: &str) -> Option<String> {
-    let out = std::process::Command::new("which").arg(bin).output().ok()?;
+    // `which` no Unix, `where` no Windows (resolve binário via PATH em ambos).
+    let finder = if cfg!(windows) { "where" } else { "which" };
+    let out = std::process::Command::new(finder).arg(bin).output().ok()?;
     if !out.status.success() {
         return None;
     }
-    let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    // `where` pode devolver múltiplas linhas — fica com a primeira.
+    let p = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
     if p.is_empty() { None } else { Some(p) }
 }
 

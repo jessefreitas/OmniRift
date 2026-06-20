@@ -1,0 +1,10 @@
+[
+  {
+    "file": "editor.rs",
+    "keywords": ["variáve", "ambiente", "env var", "registr", "reg query", "não sanitiz", "sanitiz", "path travers", "caminho"]
+  },
+  {
+    "file": "git.rs",
+    "keywords": ["injeç", "injection", "arbitr", "sh -lc", "cmd /c", "floor_run_hook"]
+  }
+]

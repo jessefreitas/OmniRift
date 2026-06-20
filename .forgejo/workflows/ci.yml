@@ -1,0 +1,106 @@
+name: ci
+
+# Smoke test em cada PR e push na main. Roda no runner `ubuntu-latest` do Forgejo
+# (o mesmo do code-review-ai). NÃO depende de runner Windows: a validação Windows é
+# cross-compile via cargo-xwin (clang-cl/lld-link) no próprio runner Linux.
+# O build de INSTALADOR Windows real (.msi/.nsis) fica no release.yml (github, runner
+# windows hosted) — lá o Windows de verdade é necessário; aqui só validamos compilação.
+#
+# NB: este Forgejo só espelha o namespace `actions/*` — por isso rust é instalado via
+# rustup direto (nada de dtolnay/swatinem, que não resolveriam aqui).
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  test:
+    name: rust test (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup (rust via rustup + WebKitGTK + linker)
+        run: |
+          set -e
+          SUDO=$(command -v sudo || true)
+          export DEBIAN_FRONTEND=noninteractive
+          $SUDO apt-get update
+          $SUDO apt-get install -y curl build-essential \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          if ! command -v cargo >/dev/null && [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: cargo test
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustc --version && cargo --version
+          # tauri-build exige o externalBin pro triple; binaries/ é gitignored e os
+          # testes não executam o sidecar → stubs vazios bastam.
+          T="$(rustc -vV | sed -n 's/host: //p')"
+          mkdir -p apps/desktop/src-tauri/binaries
+          for b in omnicompress-proxy omnicompress-mcp omnicompress; do
+            : > "apps/desktop/src-tauri/binaries/$b-$T"
+          done
+          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+  windows-cross:
+    name: windows compile (cargo-xwin no linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup (rust + cross toolchain clang-cl/lld + cargo-xwin)
+        run: |
+          set -e
+          SUDO=$(command -v sudo || true)
+          export DEBIAN_FRONTEND=noninteractive
+          $SUDO apt-get update
+          $SUDO apt-get install -y curl build-essential clang lld llvm
+          # O pacote Ubuntu NÃO cria `clang-cl` (é só o clang em modo cl pelo argv[0]).
+          $SUDO ln -sf "$(command -v clang)" /usr/local/bin/clang-cl
+          if ! command -v cargo >/dev/null && [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup target add x86_64-pc-windows-msvc
+          cargo install --locked cargo-xwin
+
+      - name: cargo xwin check (windows-msvc)
+        env:
+          XWIN_ACCEPT_LICENSE: "1"
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          mkdir -p apps/desktop/src-tauri/binaries
+          for b in omnicompress-proxy omnicompress-mcp omnicompress; do
+            : > "apps/desktop/src-tauri/binaries/$b-x86_64-pc-windows-msvc.exe"
+          done
+          cargo xwin check --target x86_64-pc-windows-msvc \
+            --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+  frontend:
+    name: frontend typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      # typecheck dos workspaces (packages/*) que têm o script.
+      - run: npm run typecheck
+
+      # apps/desktop só é tipado pelo `tsc -b` do build (o typecheck-root NÃO o cobre).
+      - name: typecheck apps/desktop (tsc -b)
+        working-directory: apps/desktop
+        run: npx tsc -b

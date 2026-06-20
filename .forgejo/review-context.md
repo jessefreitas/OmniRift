@@ -28,6 +28,25 @@ diferente de um serviço web multi-tenant — leve isso em conta.
   pra um app desktop; não precisa ser configurável.
 - **Comentários em português** são o padrão do projeto — não é problema de estilo.
 
+## Hardening cross-platform (Win/Linux) — decisões INTENCIONAIS (não CRITICAL)
+
+Família de arquivos que faz integração de SO **controlada**. No máximo INFO/WARNING:
+
+- **Env vars de SO em caminhos de busca** (`commands/editor.rs`, `compress/proxy.rs`,
+  `commands/mcp.rs`, `commands/skill_wiring.rs`, `commands/scheduler.rs`): ler
+  `HOME`/`USERPROFILE`/`LOCALAPPDATA`/`ProgramFiles`/`APPDATA`/`CODEX_HOME` pra montar
+  caminhos + `Path::exists()` e então spawnar um binário CONHECIDO é o design. App
+  desktop **single-user**: essas env vars são do próprio usuário (quem as controla já é
+  dono do home). **NÃO** é "input não sanitizado" nem path traversal — não é CRITICAL.
+- **Editores por lista fixa** (`commands/editor.rs`, const `KNOWN`): `cmd` vem de array
+  hardcoded (code/cursor/subl/…), nunca de input do usuário. Registro do Windows é lido
+  pela **API `winreg`** (sem subprocess `reg`). `where`/`which` via `.args()` (sem shell).
+- **Floor hooks rodam o comando do usuário** (`commands/git.rs`, `floor_run_hook`): roda
+  o hook de ciclo de vida do floor via `sh -lc`/`cmd /C` **por design** — é o comando que
+  o PRÓPRIO usuário configurou pro floor dele (como um git hook / npm script). A fonte do
+  comando é o dono do app → **não é injeção de comando**.
+- **fg-pid no Windows** (`pty/detector.rs`): enumera processos via `sysinfo` (read-only).
+
 ## Foco do review
 
 Relate achados **reais**: secrets de verdade (chave privada/credencial viva),

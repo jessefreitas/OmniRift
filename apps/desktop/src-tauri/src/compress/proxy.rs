@@ -32,8 +32,8 @@ pub fn find_sidecar(stem: &str) -> Option<PathBuf> {
             }
         }
     }
-    // 2) cargo install
-    if let Ok(home) = std::env::var("HOME") {
+    // 2) cargo install (HOME no Unix, USERPROFILE no Windows — `~/.cargo/bin` existe nos dois)
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         let p = PathBuf::from(home).join(".cargo/bin").join(&name);
         if p.exists() {
             return Some(p);
