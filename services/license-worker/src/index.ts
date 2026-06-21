@@ -242,8 +242,44 @@ app.post("/webhooks/asaas", async (c) => {
   return c.json({ ok: true });
 });
 
-// ── Download (redireciona pros Releases) ─────────────────────────────────────
-app.get("/download/:platform?", (c) => c.redirect(`https://github.com/${c.env.GITHUB_REPO}/releases/latest`, 302));
+// ── Download direto por SO ───────────────────────────────────────────────────
+// Resolve o asset mais novo do último release e faz 302 direto pro arquivo:
+//   linux → .AppImage (fallback .deb) · windows → .exe (fallback .msi).
+// Plataforma vem do path (/download/linux) ou do User-Agent (/download). Mac/desconhecido
+// ou qualquer falha → página de releases. Cacheia o lookup ~15min (rate limit do GitHub API).
+app.get("/download/:platform?", async (c) => {
+  const env = c.env;
+  const releasesPage = `https://github.com/${env.GITHUB_REPO}/releases/latest`;
+  const ua = c.req.header("user-agent") || "";
+  let platform = (c.req.param("platform") || "").toLowerCase();
+  if (!platform) {
+    if (/windows/i.test(ua)) platform = "windows";
+    else if (/linux/i.test(ua) && !/android/i.test(ua)) platform = "linux";
+  }
+  if (platform !== "windows" && platform !== "linux") return c.redirect(releasesPage, 302);
+
+  try {
+    const cache = caches.default;
+    const cacheKey = new Request(`https://dl.omnirift.internal/${env.GITHUB_REPO}/latest`);
+    let res = await cache.match(cacheKey);
+    if (!res) {
+      const api = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/releases/latest`, {
+        headers: { "User-Agent": "omnirift-license-worker", Accept: "application/vnd.github+json" },
+      });
+      if (!api.ok) return c.redirect(releasesPage, 302);
+      res = new Response(await api.text(), { headers: { "content-type": "application/json", "cache-control": "max-age=900" } });
+      c.executionCtx.waitUntil(cache.put(cacheKey, res.clone()));
+    }
+    const rel = JSON.parse(await res.text()) as { assets?: { name: string; browser_download_url: string }[] };
+    const assets = rel.assets ?? [];
+    const pick = (exts: string[]) =>
+      assets.find((a) => exts.some((e) => a.name.toLowerCase().endsWith(e) && !a.name.toLowerCase().endsWith(".sig")));
+    const asset = platform === "windows" ? pick([".exe", ".msi"]) : pick([".appimage", ".deb"]);
+    return c.redirect(asset?.browser_download_url ?? releasesPage, 302);
+  } catch {
+    return c.redirect(releasesPage, 302);
+  }
+});
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 async function issueEntitlement(env: Env, lic: db.License, fingerprint: string): Promise<string> {

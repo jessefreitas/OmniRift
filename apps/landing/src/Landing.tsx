@@ -9,16 +9,21 @@ import { ACCENT, PRODUCT_NAME, TAGLINE, REPO_URL } from "./theme";
 const MUTED = "#9A9AA2";
 const DIM = "#6A6A72";
 
-// Beta de lançamento: enquanto não há build público, os CTAs de ação levam pro
-// WhatsApp (inbox 196 → funil). Depois do 1º release, "Baixar" → GitHub Releases.
-const BETA_WA =
-  "https://wa.me/5553999034520?text=Quero%20uma%20vaga%20no%20beta%20de%20lan%C3%A7amento%20do%20OmniRift";
-
-// License worker: /signup cria a licença trial + o link de checkout (cartão, 30min).
+// License worker: /signup cria a licença trial + o link de checkout (cartão, 30min);
+// /download/<so> faz 302 direto pro instalador mais novo do release.
 const LICENSE_WORKER = "https://omnirift-license-worker.jesse-vieira-freitas.workers.dev";
 
 // `?beta=1` (vem do CTA in-app do fim do beta) → checkout com desconto de beta tester.
 const BETA_DISCOUNT = typeof location !== "undefined" && new URLSearchParams(location.search).has("beta");
+
+// Download direto por SO: detecta o sistema e aponta pro /download do worker, que
+// resolve o asset mais novo (linux→.AppImage, windows→.exe; mac/desconhecido→releases).
+const DOWNLOAD_URL = (() => {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  if (/Windows/i.test(ua)) return `${LICENSE_WORKER}/download/windows`;
+  if (/Linux/i.test(ua) && !/Android/i.test(ua)) return `${LICENSE_WORKER}/download/linux`;
+  return `${LICENSE_WORKER}/download`;
+})();
 
 /** Cria a licença/checkout no worker e devolve o link de pagamento (ou lança). */
 async function startCheckout(email: string, plan: "monthly" | "yearly"): Promise<string> {
@@ -86,16 +91,17 @@ function ProCheckout() {
           disabled={busy !== null}
           style={{ ...btn, border: "none", background: "#F3F3F4", color: "#0A0A0C", opacity: busy && busy !== "monthly" ? 0.5 : 1 }}
         >
-          {busy === "monthly" ? "…" : "Mensal · R$14,90"}
+          {busy === "monthly" ? "Indo pro pagamento…" : "Assinar · R$14,90/mês"}
         </button>
         <button
           onClick={() => go("yearly")}
           disabled={busy !== null}
           style={{ ...btn, border: "1px solid rgba(255,255,255,.18)", background: "transparent", color: "#F3F3F4", opacity: busy && busy !== "yearly" ? 0.5 : 1 }}
         >
-          {busy === "yearly" ? "…" : "Anual · R$109,90"}
+          {busy === "yearly" ? "Indo pro pagamento…" : "Assinar · R$109,90/ano"}
         </button>
       </div>
+      <div style={{ color: DIM, fontSize: 11.5, textAlign: "center" }}>→ checkout seguro no Asaas (cartão) · 7 dias grátis</div>
       {err && <div style={{ color: "#F38A8A", fontSize: 12.5 }}>{err}</div>}
     </div>
   );
@@ -348,7 +354,7 @@ export function Landing() {
           <NavLink href="#precos">Preços</NavLink>
           <NavLink href="#faq">FAQ</NavLink>
           <a
-            href={BETA_WA}
+            href={DOWNLOAD_URL}
             target="_blank"
             rel="noreferrer"
             style={{
@@ -396,7 +402,7 @@ export function Landing() {
           <p style={{ maxWidth: 560, margin: "0 auto 36px", fontSize: 19, lineHeight: 1.55, color: MUTED, textWrap: "pretty" }}>{TAGLINE}</p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
             <a
-              href={BETA_WA}
+              href={DOWNLOAD_URL}
               target="_blank"
               rel="noreferrer"
               style={{
@@ -553,7 +559,7 @@ export function Landing() {
                 <span style={{ color: DIM, fontSize: 15 }}>open-source</span>
               </div>
               <a
-                href={BETA_WA}
+                href={DOWNLOAD_URL}
                 target="_blank"
                 rel="noreferrer"
                 style={{
@@ -692,7 +698,7 @@ export function Landing() {
             Open-source, multiplataforma e 100% local. Baixe pronto ou clone o repositório e rode você mesmo — em segundos.
           </p>
           <a
-            href={BETA_WA}
+            href={DOWNLOAD_URL}
             target="_blank"
             rel="noreferrer"
             style={{
