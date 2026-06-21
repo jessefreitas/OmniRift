@@ -1,7 +1,7 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "OmniRift",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "identifier": "com.omniforge.omnirift",
   "build": {
     "frontendDist": "../dist",
@@ -29,6 +29,12 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "OmniForge",
+    "homepage": "https://omnirift.omniforge.com.br",
+    "license": "MIT",
+    "category": "DeveloperTool",
+    "shortDescription": "Canvas infinito para orquestrar agentes de IA, terminais e notas.",
+    "longDescription": "OmniRift é um canvas infinito para orquestrar agentes de IA (Claude Code, Codex, shell), terminais PTY, sketches e notas — o equivalente open-source do Maestri para Linux e Windows. Conecte agentes entre si, organize o trabalho em workspaces e paralelos (git worktrees) e mantenha terminais, notas e navegadores num só lugar.",
     "createUpdaterArtifacts": true,
     "externalBin": [
       "binaries/omnicompress-proxy",

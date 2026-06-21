@@ -1,7 +1,7 @@
 [package]
 name = "omnirift"
-version = "0.1.2"
-description = "OmniRift — AI Agent Orchestration Canvas"
+version = "0.1.3"
+description = "OmniRift - canvas infinito para orquestrar agentes de IA, terminais e notas"
 authors = ["OmniForge <contato@omniforge.com.br>"]
 license = "MIT"
 repository = "https://git.omnimemory.com.br/jesse_freitas/maestri_linux"

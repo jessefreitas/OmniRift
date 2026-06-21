@@ -45,3 +45,7 @@ apps/desktop/src-tauri/binaries/
 
 # OmniRift beta admin token (local; NUNCA commitar)
 tools/.omrift-admin-token
+
+# Tauri icon: saídas mobile não usadas (projeto desktop)
+apps/desktop/src-tauri/icons/android/
+apps/desktop/src-tauri/icons/ios/
