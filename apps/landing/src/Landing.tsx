@@ -101,11 +101,15 @@ function ProCheckout() {
   );
 }
 
-const LogoBars = ({ size = 18 }: { size?: number }) => (
-  <svg width={size} height={(size * 18) / 18} viewBox="0 0 18 18" fill="none">
-    <rect x="1" y="8" width="3" height="9" rx="1.5" fill="var(--ac)" />
-    <rect x="7.5" y="2" width="3" height="15" rx="1.5" fill="var(--ac)" />
-    <rect x="14" y="5" width="3" height="12" rx="1.5" fill="var(--ac)" />
+// Marca OmniRift — "Fenda em Espiral" (conceito 03): dois arcos concêntricos em
+// sentidos opostos + núcleo. Usa var(--ac) (accent teal) pra acompanhar o tema.
+const Logo = ({ size = 18 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
+    <g stroke="var(--ac)" strokeLinecap="round" fill="none">
+      <circle cx="50" cy="50" r="34" strokeWidth="7" strokeDasharray="150 64" transform="rotate(-90 50 50)" />
+      <circle cx="50" cy="50" r="21" strokeWidth="7" strokeDasharray="95 37" transform="rotate(120 50 50)" />
+    </g>
+    <circle cx="50" cy="50" r="6" fill="var(--ac)" />
   </svg>
 );
 
@@ -337,7 +341,7 @@ export function Landing() {
               marginRight: "auto",
             }}
           >
-            <LogoBars />
+            <Logo />
             {PRODUCT_NAME}
           </a>
           <NavLink href="#recursos">Recursos</NavLink>
@@ -725,7 +729,7 @@ export function Landing() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 600, fontSize: 16 }}>
-            <LogoBars size={16} />
+            <Logo size={16} />
             {PRODUCT_NAME}
           </div>
           <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
