@@ -75,6 +75,16 @@ import { openFeedback } from "@/lib/feedback";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { clisList, type CliInfo } from "@/lib/clis-client";
 import { loadCustomClis, saveCustomClis, type CustomCli } from "@/lib/custom-clis";
+import { getVersion } from "@tauri-apps/api/app";
+
+/** Versão do app (dinâmica, via Tauri) — evita hardcode no rodapé. */
+function AppVersion() {
+  const [v, setV] = useState("");
+  useEffect(() => {
+    getVersion().then(setV).catch(() => {});
+  }, []);
+  return <>v{v || "0.1.0"}</>;
+}
 
 // Modais carregados sob demanda (lazy) — saem do bundle inicial (index ~1.3MB) e só
 // baixam quando abertos. Renderizados sob um único <Suspense> no fim do componente.
@@ -1877,8 +1887,8 @@ export function Sidebar() {
           </button>
         )}
         {tr("sidebar.footerPhase", "Fase 2 — PTY + canvas + workspaces + MCP")}
-        <div className="opacity-70 mt-0.5">v0.1.0 · {tr("sidebar.localBuild", "build local")}</div>
-        <div className="mt-1 flex items-center gap-2">
+        <div className="opacity-70 mt-0.5"><AppVersion /> · {tr("sidebar.localBuild", "build local")}</div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <UpdaterButton />
           <span className="opacity-40">·</span>
           <button onClick={() => useLicenseStore.getState().openLicense()} className="text-textMuted hover:text-brand">
