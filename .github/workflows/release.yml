@@ -22,6 +22,14 @@ jobs:
           - os: windows-latest
             bundles: "nsis,msi"
     runs-on: ${{ matrix.os }}
+    # Resiliência de rede em runner hospedado: o build do Windows já caiu com
+    # "HTTP2 framing layer / curl failed" baixando crate. Desligar multiplexing HTTP2
+    # (força HTTP/1.1) mata esse erro; retry alto cobre quedas pontuais; git via CLI
+    # é mais robusto pra deps git. Evita o rerun manual do job.
+    env:
+      CARGO_NET_RETRY: "10"
+      CARGO_HTTP_MULTIPLEXING: "false"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     steps:
       - uses: actions/checkout@v4
 
