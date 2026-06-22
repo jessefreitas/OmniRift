@@ -1,0 +1,30 @@
+# OmniRift — documentação para LLMs
+
+> Canvas infinito open-source para orquestrar agentes de IA, terminais, paralelos (worktrees git), notas e navegadores num só espaço. Roda no Linux e Windows, 100% local.
+
+## O que é
+
+OmniRift é um app desktop (Tauri 2 + Rust) que coloca agentes de IA (Claude Code, Codex, shell), terminais PTY reais, notas, sketches e navegadores embutidos num canvas infinito. Cada paralelo é uma worktree git de verdade. Sem nuvem obrigatória, sem conta — seus dados ficam na sua máquina.
+
+## Recursos
+
+- Canvas infinito com terminais, agentes, notas e navegadores.
+- Agentes Claude Code / Codex / shell conectáveis entre si.
+- Paralelos = worktrees git independentes.
+- OmniPartner: traga seu próprio LLM (BYO LLM).
+- Memória plugável (OmniMemory / Obsidian).
+
+## Planos
+
+- Community (grátis): 1 workspace; agentes, canvas e paralelos ilimitados.
+- Pro: R$14,90/mês ou R$109,90/ano; workspaces ilimitados; até 3 computadores; 7 dias grátis.
+
+## Plataformas
+
+Linux (.AppImage, .deb) e Windows (.exe, .msi). Download em https://omnirift.omniforge.com.br/#baixar
+
+## Links
+
+- Site: https://omnirift.omniforge.com.br/
+- Código: https://github.com/jessefreitas/OmniRift
+- Contato: contato@omniforge.com.br (OmniForge)

@@ -1,0 +1,18 @@
+# OmniRift
+
+> OmniRift é um canvas infinito open-source para orquestrar agentes de IA e ferramentas de desenvolvimento, 100% local.
+
+Um workspace visual e expansível para gerenciar agentes de IA (Claude Code, Codex, shell), terminais PTY, paralelos (worktrees git de verdade), notas, sketches e navegadores num único espaço.
+
+## Links
+
+- [Home](https://omnirift.omniforge.com.br/): visão geral do produto.
+- [Recursos](https://omnirift.omniforge.com.br/#recursos): funcionalidades e integrações.
+- [Preços](https://omnirift.omniforge.com.br/#precos): edição Community grátis e plano Pro.
+- [FAQ](https://omnirift.omniforge.com.br/#faq): perguntas frequentes.
+- [Baixar](https://omnirift.omniforge.com.br/#baixar): instaladores para Linux e Windows.
+- [Código (GitHub)](https://github.com/jessefreitas/OmniRift): repositório open-source.
+
+## Sobre
+
+OmniRift roda no Linux e Windows (Tauri 2 + Rust), 100% local, sem conta. A edição Community é grátis (1 workspace; agentes, canvas e paralelos ilimitados; OmniPartner BYO LLM). O plano Pro custa R$14,90/mês ou R$109,90/ano, com 7 dias grátis. Feito pela OmniForge — contato@omniforge.com.br.
