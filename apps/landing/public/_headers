@@ -6,6 +6,21 @@
   Permissions-Policy: geolocation=(), microphone=(), camera=()
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https://omnirift-license-worker.jesse-vieira-freitas.workers.dev; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'
 
+/
+  Cache-Control: no-transform
+/*.html
+  Cache-Control: no-transform
+/sobre
+  Cache-Control: no-transform
+/contato
+  Cache-Control: no-transform
+/privacidade
+  Cache-Control: no-transform
+/termos
+  Cache-Control: no-transform
+/lgpd
+  Cache-Control: no-transform
+
 /llms.txt
   Content-Type: text/plain; charset=utf-8
 

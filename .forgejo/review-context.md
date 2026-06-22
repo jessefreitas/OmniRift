@@ -53,3 +53,18 @@ Relate achados **reais**: secrets de verdade (chave privada/credencial viva),
 injeção (SQL/cmd), authz quebrada, bugs de correção, data loss. O resto (preferências
 de error-handling, async vs spawn_blocking, "poderia ter mais testes") é **advisory**
 (WARNING/INFO em categorias não-bloqueantes), não motivo de NO-GO.
+
+## Landing / site estático de marketing (apps/landing, public/*.html, _headers)
+
+`apps/landing` é um SITE ESTÁTICO de marketing (Vite + HTML), NÃO é o app desktop.
+Sem backend, sem processamento de input de usuário, sem superfície de RCE/SQL/injeção.
+Trate o seguinte como INTENCIONAL — NÃO gere CRITICAL nem WARNING:
+
+- **CSP com `'unsafe-inline'`/`'unsafe-eval'`** em `public/_headers`: a landing usa estilos
+  inline (`style=`) e é estática; é permissivo de propósito e NÃO há XSS (zero input dinâmico).
+- **`Cache-Control: no-transform`** nas rotas HTML: intencional — o crawler do auditor não
+  decodifica brotli; serve o HTML sem compressão (os assets `/assets/*` seguem comprimidos).
+- **E-mail/telefone/WhatsApp/CNPJ** nas páginas: são DADOS PÚBLICOS de contato da empresa,
+  NÃO são secrets (CNPJ 17.790.316/0001-27 é registro público da Receita Federal).
+- **HTML estático** em `public/*.html` (sobre/contato/privacidade/termos/lgpd): conteúdo
+  institucional; linhas longas com estilo inline são o padrão do projeto, não code smell.
