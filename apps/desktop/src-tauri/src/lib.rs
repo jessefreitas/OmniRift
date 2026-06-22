@@ -68,11 +68,48 @@ use std::sync::Arc;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// App GUI no Unix não herda o PATH do shell de login (nvm/asdf/etc.) — então o spawn
+/// de agentes acharia binários velhos do sistema (ex.: /usr/bin/claude) em vez do
+/// `claude` que o usuário tem no terminal. Adota o PATH do shell de login UMA vez no
+/// startup, com timeout (nunca trava o boot) e só se vier um PATH válido e não-menor.
+#[cfg(unix)]
+fn inherit_login_shell_path() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+    let (tx, rx) = mpsc::channel::<Result<String, std::io::Error>>();
+
+    std::thread::spawn(move || {
+        let res = std::process::Command::new(&shell)
+            .args(["-lic", "printf %s \"$PATH\""])
+            .env("LD_PRELOAD", "")
+            .env("GTK_MODULES", "")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+        let _ = tx.send(res);
+    });
+
+    let Ok(Ok(path)) = rx.recv_timeout(Duration::from_secs(3)) else { return };
+    let p = path.trim();
+    let current = std::env::var("PATH").unwrap_or_default();
+    if p.contains('/') && p.split(':').count() >= current.split(':').count() {
+        std::env::set_var("PATH", p);
+    }
+}
+
+#[cfg(not(unix))]
+fn inherit_login_shell_path() {}
+
 pub fn run() {
     let _ = env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("info"),
     )
     .try_init();
+
+    // Antes de qualquer spawn de agente: adota o PATH do shell de login (nvm/asdf/etc.),
+    // senão a GUI acha CLIs velhos do sistema (ex.: claude do /usr/bin em vez do nvm).
+    inherit_login_shell_path();
 
     // Criados aqui para compartilhar Arc entre Tauri state e MCP server
     let pty_manager = Arc::new(PtyManager::new());
