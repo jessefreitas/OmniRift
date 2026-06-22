@@ -354,9 +354,7 @@ export function Landing() {
           <NavLink href="#precos">Preços</NavLink>
           <NavLink href="#faq">FAQ</NavLink>
           <a
-            href={DOWNLOAD_URL}
-            target="_blank"
-            rel="noreferrer"
+            href="#baixar"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -632,6 +630,35 @@ export function Landing() {
       </section>
 
       {/* ===== faq ===== */}
+      <section id="baixar" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
+        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "96px 24px", textAlign: "center" }}>
+          <div style={eyebrow}>Baixar</div>
+          <h2 style={{ ...h2, margin: "14px auto 8px" }}>Pegue o OmniRift</h2>
+          <p style={{ textAlign: "center", color: MUTED, fontSize: 17, maxWidth: 520, margin: "0 auto 44px" }}>
+            Open-source · grátis · sem conta · roda no seu Linux ou Windows.
+          </p>
+          <div style={{ display: "flex", gap: 20, justifyContent: "center", flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 260px", maxWidth: 320, border: "1px solid rgba(255,255,255,.09)", borderRadius: 16, padding: 28, background: "linear-gradient(180deg, rgba(20,20,23,.6), rgba(12,12,15,.6))", textAlign: "center" }}>
+              <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Linux</div>
+              <div style={{ color: MUTED, fontSize: 13, marginBottom: 18 }}>.AppImage portátil</div>
+              <a href={`${LICENSE_WORKER}/download/linux`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#F3F3F4", color: "#0A0A0C", textDecoration: "none", padding: "12px 22px", borderRadius: 10, fontWeight: 600, fontSize: 15 }}>
+                Baixar para Linux →
+              </a>
+            </div>
+            <div style={{ flex: "1 1 260px", maxWidth: 320, border: "1px solid rgba(255,255,255,.09)", borderRadius: 16, padding: 28, background: "linear-gradient(180deg, rgba(20,20,23,.6), rgba(12,12,15,.6))", textAlign: "center" }}>
+              <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Windows</div>
+              <div style={{ color: MUTED, fontSize: 13, marginBottom: 18 }}>.exe instalador</div>
+              <a href={`${LICENSE_WORKER}/download/windows`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#F3F3F4", color: "#0A0A0C", textDecoration: "none", padding: "12px 22px", borderRadius: 10, fontWeight: 600, fontSize: 15 }}>
+                Baixar para Windows →
+              </a>
+            </div>
+          </div>
+          <a href="https://github.com/jessefreitas/OmniRift/releases/latest" target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 28, color: "var(--ac)", textDecoration: "none", fontSize: 14 }}>
+            Todas as versões e formatos (.deb, .msi) → GitHub Releases
+          </a>
+        </div>
+      </section>
+
       <section id="faq" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
         <div style={{ maxWidth: 760, margin: "0 auto", padding: "96px 24px" }}>
           <div style={eyebrow}>Perguntas frequentes</div>
