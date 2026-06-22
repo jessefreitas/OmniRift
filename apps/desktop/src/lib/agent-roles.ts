@@ -23,6 +23,10 @@ export interface AgentRoleDef {
   skills?: string[];
   /** Compressor de token deste role ("none"|"rtk"|"headroom"). Decora só env no spawn. */
   compressor?: string;
+  /** true = o comando de início já injeta o próprio system-prompt (wrapper tipo
+   *  claude-ollama). O OmniRift NÃO anexa --append-system-prompt; a persona vai como
+   *  1ª mensagem. Evita o conflito --append-system-prompt + --append-system-prompt-file. */
+  selfSystemPrompt?: boolean;
 }
 
 /** CLIs/LLMs disponíveis pra rodar um role. claude injeta via --append-system-prompt;

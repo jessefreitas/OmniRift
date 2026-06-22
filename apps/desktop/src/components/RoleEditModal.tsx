@@ -18,7 +18,7 @@ interface Props {
   role: AgentRoleDef;
   /** cwd do projeto ativo — pra listar as skills de .claude/skills. */
   cwd?: string | null;
-  onSave: (name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string) => void;
+  onSave: (name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string, selfSystemPrompt: boolean) => void;
   onClose: () => void;
 }
 
@@ -31,6 +31,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
   const [skills, setSkills] = useState<string[]>(role.skills ?? []);
   const [available, setAvailable] = useState<SkillInfo[]>([]);
   const [compressor, setCompressor] = useState(role.compressor ?? "none");
+  const [selfSystemPrompt, setSelfSystemPrompt] = useState(role.selfSystemPrompt ?? false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const isShell = cli === "shell";
@@ -140,6 +141,22 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
               </p>
             </div>
           )}
+          {isShell && (
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selfSystemPrompt}
+                onChange={(e) => setSelfSystemPrompt(e.target.checked)}
+                className="mt-0.5 accent-brand"
+              />
+              <span className="text-xs text-text">
+                {t("roleEdit.selfSystemPrompt", "Este comando injeta o próprio system-prompt")}
+                <span className="block text-[10px] text-textMuted opacity-60">
+                  {t("roleEdit.selfSystemPromptHint", "Marque pra wrappers de Claude (ex.: claude-ollama) que já passam --append-system-prompt(-file). O OmniRift não anexa o seu — a persona vai como 1ª mensagem. Evita o erro \"Cannot use both --append-system-prompt and --append-system-prompt-file\".")}
+                </span>
+              </span>
+            </label>
+          )}
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">
               {isShell ? t("roleEdit.personaLabel", "Persona (injetada no CLI que o comando abrir)") : t("roleEdit.promptLabel", "Prompt (persona / instruções)")}
@@ -217,7 +234,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
             {t("common.cancel", "Cancelar")}
           </button>
           <button
-            onClick={() => onSave(name.trim() || "Role", prompt, cli, startupCmd, skills, compressor)}
+            onClick={() => onSave(name.trim() || "Role", prompt, cli, startupCmd, skills, compressor, selfSystemPrompt)}
             disabled={!isShell && !prompt.trim()}
             className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >

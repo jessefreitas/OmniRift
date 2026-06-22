@@ -571,6 +571,8 @@ export const pt: Record<string, string> = {
   "roleEdit.sourceProject": "projeto",
   "roleEdit.startupCmd": "Comando ao abrir (opcional)",
   "roleEdit.startupCmdHint": "Roda ao abrir. Se for um CLI Claude (ex.: claude-ollama), a persona abaixo entra nativa via --append-system-prompt.",
+  "roleEdit.selfSystemPrompt": "Este comando injeta o próprio system-prompt",
+  "roleEdit.selfSystemPromptHint": "Marque pra wrappers de Claude (ex.: claude-ollama) que já passam --append-system-prompt(-file). O OmniRift não anexa o seu — a persona vai como 1ª mensagem. Evita o erro \"Cannot use both --append-system-prompt and --append-system-prompt-file\".",
   "roleEdit.startupCmdPlaceholder": "ex: npm run dev",
   "roleEdit.tokenCompressor": "Compressor de token",
   "routineCat.Git": "Git",

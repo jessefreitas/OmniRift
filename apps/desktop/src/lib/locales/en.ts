@@ -571,6 +571,8 @@ export const en: Record<string, string> = {
   "roleEdit.sourceProject": "project",
   "roleEdit.startupCmd": "Startup command (optional)",
   "roleEdit.startupCmdHint": "Runs on open. If it's a Claude CLI (e.g.: claude-ollama), the persona below enters natively via --append-system-prompt.",
+  "roleEdit.selfSystemPrompt": "This command injects its own system prompt",
+  "roleEdit.selfSystemPromptHint": "Check this for Claude wrappers (e.g.: claude-ollama) that already pass --append-system-prompt(-file). OmniRift won't append its own — the persona goes as the first message. Avoids the \"Cannot use both --append-system-prompt and --append-system-prompt-file\" error.",
   "roleEdit.startupCmdPlaceholder": "e.g.: npm run dev",
   "roleEdit.tokenCompressor": "Token compressor",
   "routineCat.Git": "Git",

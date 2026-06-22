@@ -987,7 +987,7 @@ export function Sidebar() {
     if (cli.role === "shell") {
       const startup = (r.startupCmd ?? "").trim();
       const persona = (indexText ? `${r.prompt}\n\n${indexText}` : r.prompt).trim();
-      if (persona && /\bclaude\b/i.test(startup)) {
+      if (persona && /\bclaude\b/i.test(startup) && !r.selfSystemPrompt) {
         sendLine(`${startup} --append-system-prompt ${shellQuote(persona)}`, 400);
       } else {
         sendLine(startup, 400);
@@ -1030,13 +1030,13 @@ export function Sidebar() {
   }
 
   // Salva (upsert) um role editado/criado no modal.
-  function saveRole(name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string) {
+  function saveRole(name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string, selfSystemPrompt: boolean) {
     if (!editingRole) return;
     setRoles((prev) => {
       const exists = prev.some((x) => x.id === editingRole.id);
       const next = exists
-        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd, skills, compressor } : x))
-        : [...prev, { ...editingRole, name, prompt, cli, startupCmd, skills, compressor }];
+        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd, skills, compressor, selfSystemPrompt } : x))
+        : [...prev, { ...editingRole, name, prompt, cli, startupCmd, skills, compressor, selfSystemPrompt }];
       saveRoles(next);
       return next;
     });
