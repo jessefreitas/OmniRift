@@ -3,7 +3,7 @@ import { AgentCanvas } from "./AgentCanvas";
 import { ACCENT, PRODUCT_NAME, TAGLINE, REPO_URL } from "./theme";
 
 /* OmniRift marketing landing — ported from the `Ensemble Landing.dc.html` design and
-   adapted to the real product: cross-platform (Linux/Windows/macOS via Tauri + Rust),
+   adapted to the real product: cross-platform (Linux/Windows via Tauri + Rust),
    Floors = git worktrees (not APFS), open-source. Styling is inline for 1:1 fidelity. */
 
 const MUTED = "#9A9AA2";
@@ -743,7 +743,7 @@ export function Landing() {
           >
             Baixar {PRODUCT_NAME} →
           </a>
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12.5, color: DIM, marginTop: 18 }}>Linux · Windows · macOS · open-source</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12.5, color: DIM, marginTop: 18 }}>Linux · Windows · open-source</div>
         </div>
       </section>
 
