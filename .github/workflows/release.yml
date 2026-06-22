@@ -63,8 +63,9 @@ jobs:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
           releaseName: "OmniRift ${{ github.ref_name }}"
-          releaseDraft: true # sai como rascunho — você revisa e publica
+          releaseDraft: false # AUTO-PUBLICA: re-execução do workflow NÃO re-drafta (era
+          # a causa do latest.json voltar a 404). O review acontece no PR antes da tag.
           # Gera latest.json (feed do updater) + .sig de cada bundle e anexa ao Release.
-          # O updater só acha quando você PUBLICA o rascunho (latest = release publicado).
+          # latest = release publicado → updater/downloads funcionam assim que o build sai.
           includeUpdaterJson: true
           args: --bundles ${{ matrix.bundles }}
