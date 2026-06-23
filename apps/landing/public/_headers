@@ -30,7 +30,7 @@
   Cache-Control: no-transform
 
 /robots.txt
-  Cache-Control: no-transform
+  Cache-Control: public, max-age=0, must-revalidate, no-transform
 
 /sitemap.xml
   Cache-Control: no-transform
