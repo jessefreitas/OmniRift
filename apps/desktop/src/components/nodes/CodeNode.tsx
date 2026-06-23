@@ -13,13 +13,36 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
 import { NodeHelp } from "@/components/NodeHelp";
 import { NodeComment } from "@/components/NodeComment";
-import { codeOpen, codeSave, codeUnwatch, codeWatch, onCodeChanged } from "@/lib/code-client";
+import { codeMetrics, codeOpen, codeSave, codeUnwatch, codeWatch, onCodeChanged } from "@/lib/code-client";
 import { ptyWrite } from "@/lib/pty-client";
 import type { CodeNode as CodeNodeData } from "@/types/canvas";
+import type { CodeMetrics, FunctionMetrics } from "@/types/code";
 
 const CodeMonaco = lazy(() => import("@/components/nodes/CodeMonaco"));
 
 type CodeRfNode = Node<CodeNodeData & Record<string, unknown>, "code">;
+
+/** Nível ok|warn|high pela ciclomática (espelha os thresholds do backend 9c). */
+type CxLevel = "ok" | "warn" | "high";
+function cxLevel(cyclomatic: number): CxLevel {
+  if (cyclomatic > 20) return "high";
+  if (cyclomatic > 10) return "warn";
+  return "ok";
+}
+
+const CX_BADGE_CLASS: Record<CxLevel, string> = {
+  ok: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
+  warn: "border-yellow-500/40 bg-yellow-500/10 text-yellow-400",
+  high: "border-red-500/40 bg-red-500/10 text-red-400",
+};
+
+/** Função com a pior (maior) ciclomática do arquivo. */
+function worstFunction(m: CodeMetrics): FunctionMetrics | null {
+  return m.functions.reduce<FunctionMetrics | null>(
+    (worst, f) => (worst == null || f.cyclomatic > worst.cyclomatic ? f : worst),
+    null,
+  );
+}
 
 export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const t = useT();
@@ -69,6 +92,16 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const [maximized, setMaximized] = useState(false);
   const [showSend, setShowSend] = useState(false);
   const [pendingSelection, setPendingSelection] = useState<string | null>(null);
+  // Métricas de complexidade (9c). `null` = ainda não calculado ou linguagem sem grammar.
+  const [metrics, setMetrics] = useState<CodeMetrics | null>(null);
+
+  // Recalcula as métricas a partir do arquivo em disco. Linguagem sem grammar
+  // (ex.: .md/.json) ou erro → some o badge (não polui a UI nem é fatal).
+  const refreshMetrics = useCallback(() => {
+    codeMetrics(filePath)
+      .then(setMetrics)
+      .catch(() => setMetrics(null));
+  }, [filePath]);
 
   // Refs pra o Ctrl+S do Monaco (capturado 1x no mount) enxergar o estado atual.
   const sourceRef = useRef(source);
@@ -76,10 +109,14 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
+  const refreshMetricsRef = useRef(refreshMetrics);
+  refreshMetricsRef.current = refreshMetrics;
+
   const save = useCallback(async () => {
     try {
       await codeSave(filePath, sourceRef.current);
       setDirty(false);
+      refreshMetricsRef.current(); // recalcula o badge com o conteúdo salvo
     } catch (e) {
       setError(String(e));
     } finally {
@@ -104,6 +141,7 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
         setLanguage(o.language);
         setDirty(false);
         setError(null);
+        refreshMetricsRef.current(); // métricas iniciais (e a cada reload do disco)
       } catch (e) {
         if (alive) setError(String(e));
       } finally {
@@ -140,6 +178,26 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
     return () => setFileDirty(id, false);
   }, [id, dirty, setFileDirty]);
 
+  // Badge de complexidade (cx N) — pior ciclomática do arquivo + tooltip.
+  const cxBadge = (() => {
+    if (!metrics || metrics.functions.length === 0) return null;
+    const worst = worstFunction(metrics);
+    if (!worst) return null;
+    const level = cxLevel(metrics.maxCyclomatic);
+    const tip =
+      `${t("code.complexity", "complexidade")} — ${t("code.worst", "pior")}: ` +
+      `${worst.name} (${t("code.line", "linha")} ${worst.startLine}) ` +
+      `· cx ${worst.cyclomatic} · cog ${worst.cognitive} · MI ${Math.round(worst.maintainabilityIndex)}`;
+    return (
+      <span
+        title={tip}
+        className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-mono leading-none border ${CX_BADGE_CLASS[level]}`}
+      >
+        cx {metrics.maxCyclomatic}
+      </span>
+    );
+  })();
+
   const card = (
     <>
       <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
@@ -148,6 +206,7 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
           {fileName}
           {dirty && <span className="text-yellow-400" title={t("code.unsaved", "não salvo")}> ●</span>}
         </span>
+        {cxBadge}
         <NodeHelp text={t("code.help", "Editor de código (Monaco). Edite e salve com 💾 ou Ctrl/Cmd+S. Recarrega sozinho se o arquivo mudar no disco (sem edição pendente). O ✈ envia o caminho deste arquivo pro input de um agente aberto (Claude usa @, anexa o arquivo). Métricas chegam na próxima fase.")} />
         <div className="relative shrink-0">
           <button

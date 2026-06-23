@@ -7,8 +7,14 @@
 //! quebrar o build com módulo inexistente.
 
 pub mod file_io;
+pub mod metrics;
 
 use serde::{Deserialize, Serialize};
+
+/// Timestamp RFC3339/ISO-8601 da computação das métricas (UTC).
+pub(crate) fn now_iso8601() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
 
 /// Id de linguagem do **Monaco** (syntax highlight) pela extensão. Independente
 /// do tree-sitter (que é pras métricas, 9c) — aqui é só o editor.

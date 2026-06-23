@@ -8,6 +8,9 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-confirm",
     "shell:allow-open",
     "updater:default",
     "process:default"

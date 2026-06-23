@@ -1,5 +1,5 @@
 //! Comandos Tauri do CodeNode (Fase 9, Task 10 — editor-first: open/save/watch).
-//! As métricas (`code_metrics`) entram na sub-fase 9c (motor tree-sitter).
+//! Métricas de complexidade (`code_metrics`) — sub-fase 9c (motor tree-sitter).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::code::{file_io, monaco_language};
+use crate::code::{file_io, metrics, monaco_language, CodeMetrics};
 
 /// Conteúdo + linguagem (Monaco) de um arquivo aberto no CodeNode.
 #[derive(Serialize)]
@@ -61,6 +61,16 @@ pub fn code_watch(
 pub fn code_unwatch(path: String, watchers: State<'_, CodeWatchers>) -> Result<(), String> {
     watchers.0.lock().remove(&path);
     Ok(())
+}
+
+/// Métricas de complexidade do arquivo (sub-fase 9c). Detecta a linguagem pela
+/// extensão; linguagem sem grammar → erro-suave (`Err` com mensagem amigável).
+/// Lê o arquivo do disco (conteúdo nunca é logado — só os números).
+#[tauri::command]
+pub fn code_metrics(path: String) -> Result<CodeMetrics, String> {
+    let p = Path::new(&path);
+    let content = file_io::read(p).map_err(|e| e.to_string())?;
+    metrics::compute(p, &content).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
