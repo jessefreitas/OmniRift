@@ -98,6 +98,10 @@ export const ROUTINE_TEMPLATES: RoutineTemplate[] = [
   // Sistema
   { category: "Sistema", name: "Backup do projeto", desc: "Compacta a pasta num .tgz ao meio-dia", command: 'tar czf "../backup-$(basename "$PWD")-$(date +%F-%H%M).tgz" --exclude=node_modules --exclude=.git . && echo "backup ok"', atTime: "12:00" },
   { category: "Sistema", name: "Espaço em disco", desc: "du do projeto + df a cada 1h", command: "du -sh . 2>/dev/null; df -h .", intervalMin: 60 },
+  // Specs — auditoria de specs/planos vs código (anti-regressão). A auditoria IA usa o
+  // comando /audit do projeto (Claude Code); o status é só shell (sem IA).
+  { category: "Specs", name: "Auditar specs vs código (IA)", desc: "Re-audita specs+planos contra o código e reescreve docs/STATUS.md (usa o comando /audit)", command: 'claude -p "/audit" --dangerously-skip-permissions || echo "precisa do claude-code + comando /audit neste projeto"' },
+  { category: "Specs", name: "Status das specs", desc: "Lista specs ATIVAS vs ARQUIVADAS (sem IA)", command: 'echo "── ATIVAS ──"; ls docs/superpowers/specs/*.md 2>/dev/null | xargs -n1 basename 2>/dev/null; echo; echo "ARQUIVADAS: $(ls docs/superpowers/specs/archive/*.md 2>/dev/null | wc -l)"' },
 ];
 
 /** Categorias na ordem de inserção dos templates. */
