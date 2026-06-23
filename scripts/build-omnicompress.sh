@@ -20,7 +20,11 @@ DEST="$ROOT/apps/desktop/src-tauri/binaries"
 
 TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
 EXT=""
-case "$TRIPLE" in *windows*) EXT=".exe" ;; esac
+# Windows: linka o CRT MSVC ESTÁTICO no sidecar — senão o .exe exige VCRUNTIME140.dll,
+# que não existe num Windows limpo (erro "VCRUNTIME140.dll não foi encontrado" no boot).
+case "$TRIPLE" in
+  *windows*) EXT=".exe"; export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-feature=+crt-static" ;;
+esac
 
 if [ -n "${OMNICOMPRESS_SRC:-}" ]; then
   # Fonte do usuário: respeita como está (pode ter edits/working copy).

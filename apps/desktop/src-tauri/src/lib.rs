@@ -64,7 +64,7 @@ use db::{
     session_events_list, session_start, sessions_list, snapshot_create, snapshot_delete,
     snapshot_get, snapshot_prune_auto, snapshots_list,
 };
-use mcp::{mcp_router, AgentRegistry};
+use mcp::{mcp_router, serena_health, AgentRegistry};
 use pty::PtyManager;
 use std::sync::Arc;
 use tauri::Manager;
@@ -173,6 +173,12 @@ pub fn run() {
             // Teto de agentes simultâneos do Orquestrador (default 5; ajustável).
             let max_agents = Arc::new(std::sync::atomic::AtomicUsize::new(5));
             app.manage(Arc::clone(&max_agents));
+
+            // Pool de subprocessos Serena (Fase 9b) — keyed por projeto, teto 3,
+            // idle 5min. Criado DENTRO do setup (runtime tokio do Tauri) porque o
+            // construtor sobe a task de limpeza de ociosos. Spawn real só acontece
+            // sob demanda (serena_health / DebuggerAgent na Fase 9d).
+            app.manage(Arc::new(crate::mcp::SerenaPool::new()));
 
             // Monitor de recursos (sub-fase A): sampler em thread de fundo (1s) que
             // emite `resource://sample`. Degrada sozinho; falha de leitura não derruba.
@@ -318,6 +324,7 @@ pub fn run() {
             metrics_snapshot,
             compressor_list,
             serena_ensure_project,
+            serena_health,
             scheduler_install,
             scheduler_uninstall,
             scheduler_list,

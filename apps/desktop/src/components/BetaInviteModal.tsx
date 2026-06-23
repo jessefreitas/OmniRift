@@ -41,7 +41,7 @@ export function BetaInviteModal() {
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 p-4" onClick={close}>
+    <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 p-4" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
       <div className="w-[460px] max-w-[94vw] rounded-xl border border-border bg-surface1 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center gap-2 px-5 py-3 border-b border-border">
           <Rocket size={16} className="text-brand" />
