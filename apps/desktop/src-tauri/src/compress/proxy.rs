@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
+use crate::proc_ext::NoWindow;
 use parking_lot::Mutex;
 
 /// As duas instâncias do proxy: (bind, upstream).
@@ -43,6 +44,7 @@ pub fn find_sidecar(stem: &str) -> Option<PathBuf> {
     let finder = if cfg!(windows) { "where" } else { "which" };
     Command::new(finder)
         .arg(stem)
+        .no_window()
         .output()
         .ok()
         .filter(|o| o.status.success())
@@ -80,6 +82,7 @@ impl OmnicompressProxies {
                 .env("OMNICOMPRESS_UPSTREAM", upstream)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
+                .no_window()
                 .spawn()
             {
                 Ok(child) => children.push(child),

@@ -3,6 +3,7 @@
 //! `arquivo:linha` exato quando o editor suporta, e marca editores de terminal
 //! pra abrirem DENTRO de um terminal do canvas (o frontend trata).
 
+use crate::proc_ext::NoWindow;
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -41,6 +42,7 @@ fn cmd_in_path(cmd: &str) -> bool {
     let finder = if cfg!(windows) { "where" } else { "which" };
     std::process::Command::new(finder)
         .arg(cmd)
+        .no_window()
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -174,6 +176,6 @@ pub fn open_in_editor(cmd: String, path: String, line: Option<u32>) -> Result<()
             c.arg(&path);
         }
     }
-    c.spawn().map_err(|e| format!("falha ao abrir '{cmd}': {e}"))?;
+    c.no_window().spawn().map_err(|e| format!("falha ao abrir '{cmd}': {e}"))?;
     Ok(())
 }

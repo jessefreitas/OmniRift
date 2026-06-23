@@ -3,6 +3,7 @@
 
 use super::provider::Compressor;
 use super::types::{CliFamily, CompressorKind, DetectStatus, SpawnDecoration};
+use crate::proc_ext::NoWindow;
 
 // Upstream chopratejas/headroom via git, com os extras [all]. `python3 -m pip`
 // em vez de `pip` cru (mais confiável — muitos sistemas só têm pip3/python3).
@@ -15,6 +16,7 @@ fn cmd_available(cmd: &str) -> bool {
     let finder = if cfg!(windows) { "where" } else { "which" };
     let in_path = std::process::Command::new(finder)
         .arg(cmd)
+        .no_window()
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
@@ -43,6 +45,7 @@ impl Compressor for HeadroomProvider {
         let version = if installed {
             std::process::Command::new("headroom")
                 .arg("--version")
+                .no_window()
                 .output()
                 .ok()
                 .filter(|o| o.status.success())

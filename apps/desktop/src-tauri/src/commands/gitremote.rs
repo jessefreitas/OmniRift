@@ -2,6 +2,7 @@
 //! Roda no processo nativo (reqwest/git), fora do WebKit. Token vem do frontend
 //! por chamada (config em localStorage; keychain = fase futura).
 
+use crate::proc_ext::NoWindow;
 use serde::Serialize;
 use std::time::Duration;
 
@@ -113,6 +114,7 @@ pub fn git_clone(clone_url: String, dest_dir: String, token: Option<String>) -> 
     let out = std::process::Command::new("git")
         .args(["clone", "--depth", "50", &auth_url, &target.to_string_lossy()])
         .env("GIT_TERMINAL_PROMPT", "0")
+        .no_window()
         .output()
         .map_err(|e| format!("falha ao rodar git: {e}"))?;
     if !out.status.success() {

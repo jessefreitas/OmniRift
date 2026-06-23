@@ -12,11 +12,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::proc_ext::NoWindow;
+
 /// Roda `git` num cwd e devolve stdout (trimmed). Erro carrega o stderr.
 fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
     let out = Command::new("git")
         .current_dir(cwd)
         .args(args)
+        .no_window()
         .output()
         .map_err(|e| anyhow!("falha ao executar git: {e}"))?;
     if !out.status.success() {

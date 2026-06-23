@@ -35,6 +35,7 @@ pub fn output_matches(buf: &str, pattern: &str, use_regex: bool) -> Option<Strin
 }
 
 use crate::mcp::server::McpState;
+use crate::proc_ext::NoWindow;
 use serde_json::{json, Value};
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
@@ -784,7 +785,7 @@ pub async fn review_dispatch(state: &McpState, args: Value) -> String {
         if !base.is_empty() {
             cmd.arg("--base").arg(&base);
         }
-        cmd.output()
+        cmd.no_window().output()
     })
     .await;
 

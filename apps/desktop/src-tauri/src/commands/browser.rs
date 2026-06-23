@@ -3,6 +3,7 @@
 //! não carrega (TLS quebrado). Usa o MESMO Playwright que os agentes dirigem, então
 //! é a base pro "browser dirigido por agente" visualizado no canvas.
 
+use crate::proc_ext::NoWindow;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -42,6 +43,7 @@ pub async fn browser_shot(url: String) -> Result<String, String> {
                 &url2,
                 &tmp_run,
             ])
+            .no_window()
             .output()
     })
     .await

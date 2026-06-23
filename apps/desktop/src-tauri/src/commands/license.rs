@@ -135,8 +135,10 @@ fn read_machine_id() -> String {
     }
     #[cfg(target_os = "windows")]
     {
+        use crate::proc_ext::NoWindow;
         if let Ok(out) = std::process::Command::new("reg")
             .args(["query", "HKLM\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid"])
+            .no_window()
             .output()
         {
             let s = String::from_utf8_lossy(&out.stdout);

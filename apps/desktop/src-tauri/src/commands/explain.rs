@@ -2,6 +2,7 @@
 //! pelo explainshell node pra dar a linha-resumo real de qualquer binário instalado.
 //! Falha silenciosa (string vazia) quando whatis/man-db não existe.
 
+use crate::proc_ext::NoWindow;
 use std::process::Command;
 
 /// Roda `whatis <name>` e devolve só a descrição (após o `- `), ou "" se não achar.
@@ -11,7 +12,7 @@ pub fn whatis_lookup(name: String) -> String {
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c)) {
         return String::new();
     }
-    let out = match Command::new("whatis").arg(&name).output() {
+    let out = match Command::new("whatis").arg(&name).no_window().output() {
         Ok(o) => o,
         Err(_) => return String::new(),
     };

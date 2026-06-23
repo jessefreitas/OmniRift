@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::process::Command;
 
+use crate::proc_ext::NoWindow;
 use super::GpuStats;
 
 /// `nvidia-smi` está disponível? (decidido 1× no boot do sampler pra não spawnar
@@ -11,6 +12,7 @@ use super::GpuStats;
 pub fn nvidia_available() -> bool {
     Command::new("nvidia-smi")
         .arg("-L")
+        .no_window()
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -27,6 +29,7 @@ pub fn probe_gpus() -> Vec<GpuStats> {
             "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
             "--format=csv,noheader,nounits",
         ])
+        .no_window()
         .output();
     let Ok(out) = out else { return Vec::new() };
     if !out.status.success() {
@@ -58,6 +61,7 @@ pub fn vram_by_pid() -> HashMap<u32, u64> {
     let mut m = HashMap::new();
     let out = Command::new("nvidia-smi")
         .args(["--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"])
+        .no_window()
         .output();
     let Ok(out) = out else { return m };
     if !out.status.success() {

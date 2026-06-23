@@ -4,6 +4,7 @@
 
 use super::provider::Compressor;
 use super::types::{CliFamily, CompressorKind, DetectStatus, SpawnDecoration};
+use crate::proc_ext::NoWindow;
 
 // Quick-install (binário pronto, ~/.local/bin) — não compila do zero como o
 // `cargo install --git` (que é lento e pode quebrar por deps de build).
@@ -17,6 +18,7 @@ fn cmd_available(cmd: &str) -> bool {
     let finder = if cfg!(windows) { "where" } else { "which" };
     let in_path = std::process::Command::new(finder)
         .arg(cmd)
+        .no_window()
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
@@ -45,6 +47,7 @@ impl Compressor for RtkProvider {
         let version = if installed {
             std::process::Command::new("rtk")
                 .arg("--version")
+                .no_window()
                 .output()
                 .ok()
                 .filter(|o| o.status.success())

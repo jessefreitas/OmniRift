@@ -6,6 +6,7 @@
 //! cross-platform). Aqui detectamos se o FS suporta reflink pra também oferecer o
 //! "instantâneo" deles, e expomos um helper de clone reflink.
 
+use crate::proc_ext::NoWindow;
 use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
@@ -32,6 +33,7 @@ fn fs_has_cow(fs: &str) -> bool {
 pub fn fs_cow_info(path: String) -> CowInfo {
     let fs = Command::new("stat")
         .args(["-f", "-c", "%T", &path])
+        .no_window()
         .output()
         .ok()
         .filter(|o| o.status.success())
@@ -57,6 +59,7 @@ pub fn reflink_clone(src: String, dst: String) -> Result<CloneResult, String> {
     }
     let status = Command::new("cp")
         .args(["--reflink=auto", "-a", &src, &dst])
+        .no_window()
         .status()
         .map_err(|e| format!("cp falhou: {e}"))?;
     if !status.success() {

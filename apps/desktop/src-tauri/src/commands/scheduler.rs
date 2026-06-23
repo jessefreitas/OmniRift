@@ -61,9 +61,11 @@ fn unit_dir() -> Result<std::path::PathBuf, String> {
 
 #[cfg(target_os = "linux")]
 fn systemctl(args: &[&str]) -> Result<String, String> {
+    use crate::proc_ext::NoWindow;
     let out = Command::new("systemctl")
         .arg("--user")
         .args(args)
+        .no_window()
         .output()
         .map_err(|e| format!("systemctl indisponível: {e}"))?;
     if out.status.success() {
@@ -161,6 +163,7 @@ fn install_impl(
     at_time: Option<&str>,
     interval_min: Option<u32>,
 ) -> Result<String, String> {
+    use crate::proc_ext::NoWindow;
     let dir = script_dir()?;
     let script = dir.join(format!("omnirift-{slug}.cmd"));
     let body = format!("@echo off\r\ncd /d \"{cwd}\"\r\n{command}\r\n");
@@ -181,7 +184,7 @@ fn install_impl(
             "/MO".into(), interval_min.unwrap_or(30).to_string(),
         ]);
     }
-    let out = Command::new("schtasks").args(&args).output().map_err(|e| e.to_string())?;
+    let out = Command::new("schtasks").args(&args).no_window().output().map_err(|e| e.to_string())?;
     if out.status.success() {
         Ok(format!("Agendado no Task Scheduler: {tn}"))
     } else {
@@ -191,8 +194,9 @@ fn install_impl(
 
 #[cfg(target_os = "windows")]
 fn uninstall_impl(slug: &str) -> Result<String, String> {
+    use crate::proc_ext::NoWindow;
     let tn = format!("OmniRift\\{slug}");
-    let _ = Command::new("schtasks").args(["/Delete", "/F", "/TN", &tn]).output();
+    let _ = Command::new("schtasks").args(["/Delete", "/F", "/TN", &tn]).no_window().output();
     if let Ok(dir) = script_dir() {
         let _ = std::fs::remove_file(dir.join(format!("omnirift-{slug}.cmd")));
     }

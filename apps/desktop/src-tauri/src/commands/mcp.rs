@@ -1,5 +1,6 @@
 use crate::db::Db;
 use crate::mcp::{registry::to_tool_name, AgentRegistry};
+use crate::proc_ext::NoWindow;
 use tauri::State;
 
 #[tauri::command]
@@ -49,7 +50,7 @@ pub fn floor_mirror_set(
 fn which(bin: &str) -> Option<String> {
     // `which` no Unix, `where` no Windows (resolve binário via PATH em ambos).
     let finder = if cfg!(windows) { "where" } else { "which" };
-    let out = std::process::Command::new(finder).arg(bin).output().ok()?;
+    let out = std::process::Command::new(finder).arg(bin).no_window().output().ok()?;
     if !out.status.success() {
         return None;
     }

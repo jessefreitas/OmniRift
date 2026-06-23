@@ -2,6 +2,7 @@
 //! Finos: delegam pro módulo `crate::git` e serializam o resultado pro frontend.
 
 use crate::git;
+use crate::proc_ext::NoWindow;
 use serde::Serialize;
 use std::path::Path;
 
@@ -119,6 +120,7 @@ pub fn floor_run_hook(cwd: String, command: String) -> Result<String, String> {
         .current_dir(&cwd)
         .env("LD_PRELOAD", "")
         .env("GTK_MODULES", "")
+        .no_window()
         .output()
         .map_err(|e| format!("falha ao rodar hook: {e}"))?;
     let mut s = String::from_utf8_lossy(&out.stdout).to_string();

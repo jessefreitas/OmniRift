@@ -8,6 +8,7 @@
 // Self-contained: não depende de clis/installer.rs (o dispatcher gerou um
 // módulo auxiliar, mas preferimos manter tudo aqui pra reduzir coupling).
 
+use crate::proc_ext::NoWindow;
 use serde::{Deserialize, Serialize};
 use std::process::Command as StdCommand;
 use tauri::Emitter;
@@ -311,6 +312,7 @@ async fn run_capture(cmd: &mut TokioCommand) -> Result<String, String> {
     let output = cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
+        .no_window()
         .output()
         .await
         .map_err(|e| format!("falha ao spawnar comando: {e}"))?;
@@ -346,7 +348,8 @@ fn is_binary_on_path(binary: &str) -> bool {
         StdCommand::new("which")
     };
     cmd.arg(binary);
-    cmd.output()
+    cmd.no_window()
+        .output()
         .map(|o| o.status.success() && !o.stdout.is_empty())
         .unwrap_or(false)
 }
@@ -356,9 +359,10 @@ fn detect_version(binary: &str) -> Option<String> {
     let out = if cfg!(target_os = "windows") {
         StdCommand::new("cmd")
             .args(["/C", binary, "--version"])
+            .no_window()
             .output()
     } else {
-        StdCommand::new(binary).arg("--version").output()
+        StdCommand::new(binary).arg("--version").no_window().output()
     };
     match out {
         Ok(o) if o.status.success() => {

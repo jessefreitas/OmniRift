@@ -6,6 +6,7 @@ pub mod git;
 pub mod mcp;
 pub mod memory;
 pub mod metrics;
+pub mod proc_ext;
 pub mod pty;
 pub mod spec;
 
