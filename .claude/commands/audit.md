@@ -1,5 +1,5 @@
 ---
-description: Re-audita as specs (docs/superpowers/specs) contra o código real e reescreve docs/STATUS.md
+description: Audita specs + planos contra o código real, reescreve docs/STATUS.md e (com aprovação) arquiva os concluídos pra evitar regressão
 ---
 
 Audite o status REAL de implementação de TODAS as specs em `docs/superpowers/specs/*.md`
@@ -29,7 +29,20 @@ deste projeto (OmniRift — Tauri 2 = Rust + React + Cloudflare Worker).
    - tabela `spec | status | evidência`,
    - seção **"Pendências reais"** com os gaps dos parciais,
    - resumo `X DONE · Y PARCIAL · Z DESIGN-ONLY`.
-5. **NÃO commite automaticamente** — mostre o resumo + o diff do STATUS.md e pergunte se
-   quero commitar (branch + PR, como o fluxo padrão do projeto).
+5. **Mapeie os PLANOS** (`docs/superpowers/plans/*.md`) pra suas specs: marque cada plano
+   como `concluído` (todas as tarefas implementadas no código) / `parcial` / `não-iniciado`,
+   IGNORANDO os checkboxes (verifique o código). Inclua isso no STATUS.md.
+6. **Anti-regressão — proponha ARQUIVAR os concluídos:** liste as specs+planos **DONE**
+   que deveriam ser marcados como "não usar mais" (pra nenhum agente re-dispatchar e
+   re-implementar = regressão). Arquivar = mover pra `docs/superpowers/specs/archive/`
+   (e `plans/archive/`) OU setar frontmatter `status: done` / `superseded_by`. O painel
+   SPECS já desabilita dispatch em spec arquivada/concluída.
+   - **Mostre a lista e PERGUNTE antes de mover** — só arquive os que eu aprovar.
+7. Agregue tudo e **reescreva `docs/STATUS.md`** (data, aviso de que os checkboxes mentem,
+   tabela `spec | status | plano | evidência`, "Pendências reais", e o resumo
+   `X DONE · Y PARCIAL · Z DESIGN-ONLY · W arquivados`).
+8. **NÃO commite automaticamente** — mostre o resumo + o diff e pergunte se commito
+   (branch + PR, fluxo padrão do projeto).
 
-Escopo: só leitura + reescrita do `docs/STATUS.md`. Não altere código de feature.
+Escopo: leitura do código + reescrita do `docs/STATUS.md` + (com aprovação) mover specs/planos
+concluídos pra `archive/`. NUNCA altere código de feature.
