@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect, useMemo, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
-import { open, message } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Bookmark,
@@ -72,7 +72,6 @@ import { UpdaterButton } from "@/components/UpdaterButton";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { useLicenseStore } from "@/store/license-store";
 import { openFeedback } from "@/lib/feedback";
-import { sendDiagnostics } from "@/lib/diagnostics";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 // Grupo de beta testers no WhatsApp — suporte direto (rodapé + onboarding beta).
@@ -115,6 +114,7 @@ const GitReposModal = lazy(() => import("@/components/GitReposModal").then((m) =
 const ReviewPolicyModal = lazy(() => import("@/components/ReviewPolicyModal").then((m) => ({ default: m.ReviewPolicyModal })));
 const ReviewSettingsModal = lazy(() => import("@/components/ReviewSettingsModal").then((m) => ({ default: m.ReviewSettingsModal })));
 const SkillLaunchPickerModal = lazy(() => import("@/components/SkillLaunchPicker").then((m) => ({ default: m.SkillLaunchPicker })));
+const DiagnosticsModal = lazy(() => import("@/components/DiagnosticsModal").then((m) => ({ default: m.DiagnosticsModal })));
 import { loadPolicy } from "@/lib/review-policy";
 import { loadDefaultCompressor } from "@/lib/compress-client";
 import { loadLlmConfig } from "@/lib/llm-client";
@@ -357,6 +357,7 @@ export function Sidebar() {
   const [showMcpServers, setShowMcpServers] = useState(false);
   const [showClis, setShowClis] = useState(false);
   const [showCompressors, setShowCompressors] = useState(false);
+  const [showDiag, setShowDiag] = useState(false);
   // Lista "Novo agente" automática: CLIs instalados do catálogo + CLIs personalizados.
   const [catalogClis, setCatalogClis] = useState<CliInfo[]>([]);
   const [customClis, setCustomClis] = useState<CustomCli[]>(() => loadCustomClis());
@@ -1912,17 +1913,9 @@ export function Sidebar() {
           </button>
           <span className="opacity-40">·</span>
           <button
-            onClick={async () => {
-              try {
-                const id = await sendDiagnostics();
-                // window.alert é no-op no WebKitGTK → usa o dialog nativo do Tauri.
-                await message(`Código: ${id}\n\nCole esse código no grupo do WhatsApp pra equipe achar seu log.`, { title: "Diagnóstico enviado ✓", kind: "info" });
-              } catch (e) {
-                await message(`Falha ao enviar diagnóstico:\n${String(e)}`, { title: "Diagnóstico", kind: "error" });
-              }
-            }}
+            onClick={() => setShowDiag(true)}
             className="text-textMuted hover:text-brand"
-            title="Envia logs de erro pra equipe analisar (sem credenciais)"
+            title="Reportar problema / enviar logs pra equipe (sem credenciais)"
           >
             {tr("sidebar.sendDiag", "Enviar diagnóstico")}
           </button>
@@ -1962,6 +1955,7 @@ export function Sidebar() {
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
       {showClis && <ClisModal onClose={() => setShowClis(false)} />}
       {showCompressors && <CompressorsModal onClose={() => setShowCompressors(false)} />}
+      {showDiag && <DiagnosticsModal onClose={() => setShowDiag(false)} />}
       {closingFolder && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={() => setClosingFolder(false)}>
           <div className="w-[440px] max-w-[92vw] rounded-lg border border-border bg-surface1 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
