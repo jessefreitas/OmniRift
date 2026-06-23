@@ -62,7 +62,10 @@ impl SerenaPool {
 
     /// Task de fundo: a cada `REAP_INTERVAL`, mata instâncias ociosas há ≥ IDLE_TIMEOUT.
     fn spawn_reaper(instances: Arc<Mutex<HashMap<String, SerenaInstance>>>) {
-        tokio::spawn(async move {
+        // tauri::async_runtime (não tokio::spawn): o pool é criado no setup() do app,
+        // FORA de um runtime tokio → tokio::spawn dá panic "no reactor running" e o app
+        // nem abre. tauri::async_runtime usa o runtime gerenciado do Tauri (sempre vivo).
+        tauri::async_runtime::spawn(async move {
             loop {
                 tokio::time::sleep(REAP_INTERVAL).await;
                 let mut map = instances.lock().await;
@@ -305,6 +308,14 @@ mod tests {
     }
 
     /// Keying: pedir o MESMO projeto duas vezes devolve o MESMO Arc (reuso, não respawn).
+    /// Regressão (v0.1.15→16): SerenaPool::new() roda no setup() do app, FORA de um
+    /// runtime tokio. Com tokio::spawn dava panic "no reactor running" e o app NEM ABRIA.
+    /// Este teste roda SEM runtime (#[test], não #[tokio::test]) e não pode panicar.
+    #[test]
+    fn new_does_not_panic_outside_tokio_runtime() {
+        let _pool = SerenaPool::new();
+    }
+
     #[tokio::test]
     async fn same_project_returns_same_arc() {
         let pool = SerenaPool::new();
