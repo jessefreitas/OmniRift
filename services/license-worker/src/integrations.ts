@@ -68,6 +68,37 @@ export async function asaasCreateCheckout(
   return { checkoutId: d.id as string, link: d.link as string };
 }
 
+/**
+ * Checkout de DOAÇÃO: pagamento ÚNICO (DETACHED), SÓ PIX + cartão (sem boleto — o
+ * paymentLink do Asaas não restringe métodos, mas o checkout aceita array billingTypes).
+ * Reutilizável: cada clique cria um checkout novo e redireciona. Valor em DONATION_CENTS.
+ */
+export async function asaasCreateDonation(env: Env): Promise<string> {
+  const value = (Number(env.DONATION_CENTS) || 1090) / 100;
+  const r = await fetch(`${env.ASAAS_BASE}/checkouts`, {
+    method: "POST",
+    headers: asaasHeaders(env),
+    body: JSON.stringify({
+      billingTypes: ["PIX", "CREDIT_CARD"],
+      chargeTypes: ["DETACHED"],
+      minutesToExpire: 60,
+      callback: { successUrl: env.CHECKOUT_SUCCESS_URL, cancelUrl: env.CHECKOUT_CANCEL_URL },
+      items: [
+        {
+          name: "Doação OmniRift",
+          description: "Apoie o desenvolvimento do OmniRift (open-source)",
+          quantity: 1,
+          value,
+          imageBase64: env.CHECKOUT_ITEM_IMAGE_B64 || ONE_PX_PNG,
+        },
+      ],
+    }),
+  });
+  if (!r.ok) throw new Error(`asaas donation ${r.status}: ${await r.text()}`);
+  const d = await json(r);
+  return d.link as string;
+}
+
 // ── omnichat (cria lead + card no funil; move o card) ────────────────────────
 function ocBase(env: Env) {
   return `${env.OMNICHAT_BASE}/api/v1/accounts/${env.OMNICHAT_ACCOUNT}`;

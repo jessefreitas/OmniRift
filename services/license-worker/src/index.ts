@@ -7,7 +7,7 @@ import { cors } from "hono/cors";
 
 import { signEntitlement, randomId, type EntitlementPayload } from "./sign";
 import * as db from "./db";
-import { asaasCreateCheckout, omnichatNotifyLead, omnichatMoveCard, sendEmail } from "./integrations";
+import { asaasCreateCheckout, asaasCreateDonation, omnichatNotifyLead, omnichatMoveCard, sendEmail } from "./integrations";
 import { signupBeta, renewBeta, listBeta } from "./beta";
 
 export interface Env {
@@ -34,6 +34,7 @@ export interface Env {
   CHECKOUT_CANCEL_URL: string;
   CHECKOUT_EXPIRED_URL: string;
   CHECKOUT_ITEM_IMAGE_B64?: string;
+  DONATION_CENTS?: string; // valor da doação em centavos (default 1090 = R$10,90)
   OMNICHAT_BASE: string;
   OMNICHAT_ACCOUNT: string;
   OMNICHAT_INBOX: string;
@@ -249,6 +250,15 @@ app.post("/webhooks/asaas", async (c) => {
     await db.setLicenseStatus(env.DB, lic.id, "canceled");
   }
   return c.json({ ok: true });
+});
+
+// ── Doação (checkout PIX + cartão, pagamento único, reutilizável) ────────────
+app.get("/donate", async (c) => {
+  try {
+    return c.redirect(await asaasCreateDonation(c.env), 302);
+  } catch {
+    return c.redirect("https://omnirift.omniforge.com.br/", 302);
+  }
 });
 
 // ── Download direto por SO ───────────────────────────────────────────────────

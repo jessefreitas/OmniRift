@@ -29,6 +29,9 @@ const DOWNLOAD_URL = (() => {
 // Flip pra false quando começar a cobrar → volta o checkout Asaas (ProCheckout).
 const BETA_LAUNCH = true;
 const BETA_WA = "https://wa.me/5553999034520?text=Quero%20uma%20vaga%20no%20beta%20de%20lan%C3%A7amento%20do%20OmniRift";
+// Doação: o worker /donate cria um checkout Asaas (R$10,90, pagamento único, SÓ PIX+cartão)
+// e redireciona. paymentLink não restringe método; o checkout (billingTypes array) sim.
+const DONATE_URL = `${LICENSE_WORKER}/donate`;
 
 /** Cria a licença/checkout no worker e devolve o link de pagamento (ou lança). */
 async function startCheckout(email: string, plan: "monthly" | "yearly"): Promise<string> {
@@ -358,6 +361,7 @@ export function Landing() {
           <NavLink href="#recursos">Recursos</NavLink>
           <NavLink href="#precos">Preços</NavLink>
           <NavLink href="#faq">FAQ</NavLink>
+          <a href={REPO_URL} target="_blank" rel="noreferrer" style={{ color: MUTED, textDecoration: "none", fontSize: 14, fontWeight: 500 }}>GitHub</a>
           <a
             href="#baixar"
             style={{
@@ -442,6 +446,27 @@ export function Landing() {
             >
               Abrir demo interativa →
             </button>
+            <a
+              href={DONATE_URL}
+              target="_blank"
+              rel="noreferrer"
+              title="Apoie o desenvolvimento (doação única via Asaas)"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                background: "transparent",
+                color: "var(--ac)",
+                textDecoration: "none",
+                padding: "14px 24px",
+                borderRadius: 11,
+                fontWeight: 600,
+                fontSize: 16,
+                border: "1px solid color-mix(in oklab,var(--ac) 40%,transparent)",
+              }}
+            >
+              ❤️ Apoiar · R$10,90
+            </a>
           </div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12.5, color: DIM, marginTop: 20, letterSpacing: ".3px" }}>
             Open-source · sem conta · 100% local

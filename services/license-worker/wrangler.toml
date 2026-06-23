@@ -27,6 +27,7 @@ BETA_LAUNCH = "1"              # beta de lançamento: /signup pago OFF (sem cobr
 BETA_DISCOUNT_PCT = "30"
 # Checkout hospedado (SÓ cartão, link expira em CHECKOUT_MINUTES; faixa 10..1440).
 CHECKOUT_MINUTES = "30"
+DONATION_CENTS = "1090"        # doação /donate: R$10,90, pagamento único, PIX + cartão
 CHECKOUT_SUCCESS_URL = "https://omnirift.omniforge.com.br/checkout/success"
 CHECKOUT_CANCEL_URL = "https://omnirift.omniforge.com.br/checkout/cancel"
 CHECKOUT_EXPIRED_URL = "https://omnirift.omniforge.com.br/checkout/expired"
