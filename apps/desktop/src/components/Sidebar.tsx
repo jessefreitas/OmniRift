@@ -1886,7 +1886,6 @@ export function Sidebar() {
             <span className="tabular-nums">{tr("sidebar.todayCost", "Hoje")}: {fmtUsd(todayCost)}</span>
           </button>
         )}
-        {tr("sidebar.footerPhase", "Fase 2 — PTY + canvas + workspaces + MCP")}
         <div className="opacity-70 mt-0.5"><AppVersion /> · {tr("sidebar.localBuild", "build local")}</div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <UpdaterButton />

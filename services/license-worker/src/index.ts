@@ -45,6 +45,7 @@ export interface Env {
   GITHUB_REPO: string;
   // Beta tester program
   BETA_DAYS: string; // dias do beta (default 60)
+  BETA_LAUNCH?: string; // "1" = beta de lançamento: /signup pago desativado (sem cobrança/email Asaas)
   ADMIN_TOKEN?: string; // auth dos endpoints /admin/* (renovação)
   BETA_DISCOUNT_PCT?: string; // % de desconto na oferta Pro pós-beta
   FUNNEL_STAGE_BETA?: string; // stage do funil pro card de beta tester
@@ -70,6 +71,14 @@ app.post("/signup", async (c) => {
   const email = body.email.trim().toLowerCase();
   if (!validEmail(email)) return c.json({ error: "email inválido" }, 400);
   if (body.plan !== "monthly" && body.plan !== "yearly") return c.json({ error: "plano inválido" }, 400);
+  // Beta de lançamento: SEM cobrança. O /signup pago fica desativado — não cria checkout
+  // Asaas nem manda email com link/30min. Cadastro de beta tester é via POST /signup/beta.
+  if (env.BETA_LAUNCH === "1") {
+    return c.json(
+      { error: "Estamos em beta de lançamento — o Pro é grátis por 60 dias, sem pagamento. Cadastre-se como beta tester.", beta: true },
+      409,
+    );
+  }
   // Desconto de beta tester (vindo da landing ?beta=1): aplica BETA_DISCOUNT_PCT no checkout.
   const discountPct = body.betaDiscount ? Number(env.BETA_DISCOUNT_PCT) || 0 : 0;
 

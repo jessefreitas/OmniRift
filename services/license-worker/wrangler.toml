@@ -23,6 +23,7 @@ TRIAL_DAYS = "7"
 SEAT_CAP = "3"
 # Beta tester program (60d full, sem Asaas). ADMIN_TOKEN é SECRET (wrangler secret put).
 BETA_DAYS = "60"
+BETA_LAUNCH = "1"              # beta de lançamento: /signup pago OFF (sem cobrança/email Asaas). Vira "0" quando começar a cobrar.
 BETA_DISCOUNT_PCT = "30"
 # Checkout hospedado (SÓ cartão, link expira em CHECKOUT_MINUTES; faixa 10..1440).
 CHECKOUT_MINUTES = "30"
