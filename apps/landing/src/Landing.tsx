@@ -25,6 +25,11 @@ const DOWNLOAD_URL = (() => {
   return `${LICENSE_WORKER}/download`;
 })();
 
+// Fase de beta de lançamento: o card Pro vira CTA de "ser beta tester" (sem cobrança).
+// Flip pra false quando começar a cobrar → volta o checkout Asaas (ProCheckout).
+const BETA_LAUNCH = true;
+const BETA_WA = "https://wa.me/5553999034520?text=Quero%20uma%20vaga%20no%20beta%20de%20lan%C3%A7amento%20do%20OmniRift";
+
 /** Cria a licença/checkout no worker e devolve o link de pagamento (ou lança). */
 async function startCheckout(email: string, plan: "monthly" | "yearly"): Promise<string> {
   const res = await fetch(`${LICENSE_WORKER}/signup`, {
@@ -609,15 +614,36 @@ export function Landing() {
                   fontWeight: 700,
                 }}
               >
-                7 DIAS GRÁTIS
+                {BETA_LAUNCH ? "BETA · 60 DIAS GRÁTIS" : "7 DIAS GRÁTIS"}
               </div>
               <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ac)" }}>Pro</div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 2px" }}>
-                <span style={{ fontSize: 46, fontWeight: 600, letterSpacing: "-1.5px" }}>R$14,90</span>
-                <span style={{ color: DIM, fontSize: 15 }}>/mês</span>
-              </div>
-              <div style={{ color: DIM, fontSize: 13.5 }}>ou R$109,90/ano (economize ~38%)</div>
-              <ProCheckout />
+              {BETA_LAUNCH ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 2px" }}>
+                    <span style={{ fontSize: 46, fontWeight: 600, letterSpacing: "-1.5px" }}>Grátis</span>
+                    <span style={{ color: DIM, fontSize: 15 }}>no beta · 60 dias</span>
+                  </div>
+                  <div style={{ color: DIM, fontSize: 13.5 }}>Beta de lançamento · 50 vagas · tudo liberado</div>
+                  <a
+                    href={BETA_WA}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ display: "block", textAlign: "center", background: "var(--ac)", color: "#0A0A0C", textDecoration: "none", padding: "13px 0", borderRadius: 11, fontWeight: 700, fontSize: 15, margin: "18px 0 6px" }}
+                  >
+                    Quero ser beta tester →
+                  </a>
+                  <div style={{ color: DIM, fontSize: 12, textAlign: "center" }}>→ garanta sua vaga pelo WhatsApp</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 2px" }}>
+                    <span style={{ fontSize: 46, fontWeight: 600, letterSpacing: "-1.5px" }}>R$14,90</span>
+                    <span style={{ color: DIM, fontSize: 15 }}>/mês</span>
+                  </div>
+                  <div style={{ color: DIM, fontSize: 13.5 }}>ou R$109,90/ano (economize ~38%)</div>
+                  <ProCheckout />
+                </>
+              )}
               <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 14.5, color: "#C9C9CF" }}>
                 <div style={{ color: MUTED }}>Tudo do Grátis, e mais:</div>
                 <div>Workspaces ilimitados</div>
