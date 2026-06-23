@@ -12,7 +12,29 @@ permissions:
   contents: write # tauri-action cria o Release e anexa os assets
 
 jobs:
+  # Guard: se o release da tag JÁ está publicado, PULA o build. O push-mirror Forgejo→github
+  # re-empurra as tags (interval 8h + sync_on_commit) → re-dispara este workflow → o
+  # tauri-action re-draftava o release publicado. Com o guard, o re-run vira no-op. Estável.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.chk.outputs.published }}
+    steps:
+      - name: Release já publicado?
+        id: chk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "published=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          draft=$(gh release view "${{ github.ref_name }}" -R "${{ github.repository }}" --json isDraft -q .isDraft 2>/dev/null || echo missing)
+          echo "release '${{ github.ref_name }}' isDraft=$draft"
+          if [ "$draft" = "false" ]; then echo "published=true" >> "$GITHUB_OUTPUT"; else echo "published=false" >> "$GITHUB_OUTPUT"; fi
+
   build:
+    needs: guard
+    if: needs.guard.outputs.published != 'true'
     strategy:
       fail-fast: false
       matrix:
