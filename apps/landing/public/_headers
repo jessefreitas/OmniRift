@@ -23,6 +23,14 @@
 
 /llms.txt
   Content-Type: text/plain; charset=utf-8
+  Cache-Control: no-transform
 
 /llms-full.txt
   Content-Type: text/plain; charset=utf-8
+  Cache-Control: no-transform
+
+/robots.txt
+  Cache-Control: no-transform
+
+/sitemap.xml
+  Cache-Control: no-transform
