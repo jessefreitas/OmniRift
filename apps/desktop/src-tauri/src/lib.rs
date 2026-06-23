@@ -81,8 +81,12 @@ fn inherit_login_shell_path() {
     let (tx, rx) = mpsc::channel::<Result<String, std::io::Error>>();
 
     std::thread::spawn(move || {
+        // stdin = /dev/null: shell INTERATIVO (-i) lançado pela GUI (sem TTY) trava
+        // esperando input → sem isso, o timeout estoura e o fix não aplica (o app cai
+        // no node de sistema: claude velho/Opus 4.7 + npm install -g → EACCES).
         let res = std::process::Command::new(&shell)
             .args(["-lic", "printf %s \"$PATH\""])
+            .stdin(std::process::Stdio::null())
             .env("LD_PRELOAD", "")
             .env("GTK_MODULES", "")
             .output()
@@ -90,7 +94,7 @@ fn inherit_login_shell_path() {
         let _ = tx.send(res);
     });
 
-    let Ok(Ok(path)) = rx.recv_timeout(Duration::from_secs(3)) else { return };
+    let Ok(Ok(path)) = rx.recv_timeout(Duration::from_secs(8)) else { return };
     let p = path.trim();
     let current = std::env::var("PATH").unwrap_or_default();
     if p.contains('/') && p.split(':').count() >= current.split(':').count() {
