@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect, useMemo, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, message } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Bookmark,
@@ -1915,9 +1915,10 @@ export function Sidebar() {
             onClick={async () => {
               try {
                 const id = await sendDiagnostics();
-                window.alert(`Diagnóstico enviado ✓\nCódigo: ${id}\n\nCole esse código no grupo do WhatsApp pra equipe achar seu log.`);
+                // window.alert é no-op no WebKitGTK → usa o dialog nativo do Tauri.
+                await message(`Código: ${id}\n\nCole esse código no grupo do WhatsApp pra equipe achar seu log.`, { title: "Diagnóstico enviado ✓", kind: "info" });
               } catch (e) {
-                window.alert(`Falha ao enviar diagnóstico: ${String(e)}`);
+                await message(`Falha ao enviar diagnóstico:\n${String(e)}`, { title: "Diagnóstico", kind: "error" });
               }
             }}
             className="text-textMuted hover:text-brand"
