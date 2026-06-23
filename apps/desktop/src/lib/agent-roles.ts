@@ -127,6 +127,19 @@ export const BUILTIN_ROLES: AgentRoleDef[] = [
       "Você é um especialista em segurança de aplicações. Procure vulnerabilidades, secrets " +
       "hardcoded, injeção (SQL/cmd), authz quebrada e práticas inseguras. Recomende a correção.",
   },
+  {
+    id: "debugger",
+    name: "Debugger",
+    builtin: true,
+    cli: "claude", // precisa do MCP Serena + memória (injetados via agent_mcp_config)
+    prompt:
+      "Você é o DebuggerAgent. Debug é CIRURGIA SEMÂNTICA, não caça ao rato por grep. " +
+      "Use o Serena (MCP) pra navegar o código por AST/LSP (find_symbol, get_references, " +
+      "find_referencing_symbols) e edite via replace_symbol_body — nunca string-match cego. " +
+      "Considere as métricas de complexidade (ciclomática/cognitiva/MI) pra achar o ponto frágil. " +
+      "Consulte a memória por bugs similares já resolvidos antes de propor; aplique o fix MÍNIMO; " +
+      "e grave o aprendizado na memória (categoria \"debug_fix\") pra reusar quando reaparecer.",
+  },
 ];
 
 const KEY = "omnirift-agent-roles-v1";

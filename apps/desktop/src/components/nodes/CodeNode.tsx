@@ -7,13 +7,16 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
-import { FileCode2, Maximize2, Minimize2, Save, Send, X } from "lucide-react";
+import { Bug, FileCode2, Maximize2, Minimize2, Save, Send, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
 import { NodeHelp } from "@/components/NodeHelp";
 import { NodeComment } from "@/components/NodeComment";
-import { codeMetrics, codeOpen, codeSave, codeUnwatch, codeWatch, onCodeChanged } from "@/lib/code-client";
+import { codeMetrics, codeOpen, codeSave, codeUnwatch, codeWatch, debugRequest, onCodeChanged } from "@/lib/code-client";
+import { agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
+import { workerClaudeArgs } from "@/lib/agent-contract";
+import { loadRoles, ROLE_CLIS } from "@/lib/agent-roles";
 import { ptyWrite } from "@/lib/pty-client";
 import type { CodeNode as CodeNodeData } from "@/types/canvas";
 import type { CodeMetrics, FunctionMetrics } from "@/types/code";
@@ -83,6 +86,8 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
     setShowSend(true);
   }, []);
 
+  const addTerminal = useCanvasStore((s) => s.addTerminal);
+
   const [source, setSource] = useState("");
   const [language, setLanguage] = useState("plaintext");
   const [loading, setLoading] = useState(true);
@@ -92,8 +97,53 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const [maximized, setMaximized] = useState(false);
   const [showSend, setShowSend] = useState(false);
   const [pendingSelection, setPendingSelection] = useState<string | null>(null);
+  const [debugging, setDebugging] = useState(false);
   // Métricas de complexidade (9c). `null` = ainda não calculado ou linguagem sem grammar.
   const [metrics, setMetrics] = useState<CodeMetrics | null>(null);
+
+  // Spawna o DebuggerAgent (sub-fase 9d) pelo MESMO caminho dos outros agentes:
+  // debug_request monta o prompt (arquivo + pior função + erro/seleção + bugs
+  // similares da memória), depois addTerminal sobe um claude com o role "debugger"
+  // — e o agent_mcp_config injeta Serena + memória nele. Tudo degrada: se
+  // debug_request/métricas/memória falharem, ainda spawna com o contexto que tiver.
+  const onDebug = useCallback(async () => {
+    if (debugging) return;
+    setDebugging(true);
+    try {
+      const claude = ROLE_CLIS.find((c) => c.id === "claude") ?? ROLE_CLIS[0];
+      const debuggerRole = loadRoles().find((r) => r.id === "debugger");
+
+      const [mcpPath, settingsPath] = await Promise.all([
+        agentMcpConfig().catch(() => null),
+        agentSettingsConfig().catch(() => null),
+      ]);
+
+      // Prompt rico do backend (best-effort). Se falhar, cai num prompt mínimo
+      // com o caminho do arquivo — o agente ainda nasce memory/Serena-aware.
+      let prompt: string;
+      try {
+        const res = await debugRequest({
+          filePath,
+          selection: pendingSelection ?? undefined,
+        });
+        prompt = res.prompt;
+      } catch (e) {
+        console.warn("[code] debug_request falhou — prompt mínimo:", e);
+        prompt = `Faça debug cirúrgico do arquivo ${filePath}. Use o Serena (find_symbol/get_references) e edite via replace_symbol_body. Consulte a memória por bugs similares e grave o aprendizado ao final.`;
+      }
+
+      const baseArgs = workerClaudeArgs(mcpPath, debuggerRole?.prompt, settingsPath);
+      addTerminal({
+        command: claude.command,
+        args: [...baseArgs, prompt],
+        role: "claude-code",
+        label: `debug: ${fileName}`,
+      });
+      setPendingSelection(null);
+    } finally {
+      setDebugging(false);
+    }
+  }, [debugging, filePath, fileName, pendingSelection, addTerminal]);
 
   // Recalcula as métricas a partir do arquivo em disco. Linguagem sem grammar
   // (ex.: .md/.json) ou erro → some o badge (não polui a UI nem é fatal).
@@ -248,6 +298,15 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
             </>
           )}
         </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); void onDebug(); }}
+          onPointerDown={(e) => e.stopPropagation()}
+          disabled={debugging}
+          title={t("code.debug", "Debugar com IA (DebuggerAgent: Serena + memória + métricas)")}
+          className="hover:text-brand shrink-0 disabled:opacity-30"
+        >
+          <Bug size={12} />
+        </button>
         <button
           onClick={(e) => { e.stopPropagation(); onSave(); }}
           disabled={!dirty || saving}

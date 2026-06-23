@@ -6,6 +6,34 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { CodeMetrics } from "@/types/code";
 
+/** Pedido de debug (sub-fase 9d) — payload enviado ao backend. */
+export interface DebugRequestPayload {
+  filePath: string;
+  /** Texto do erro (stack trace / mensagem do compilador). */
+  errorText?: string;
+  /** Trecho selecionado no editor (foco do debug). */
+  selection?: string;
+}
+
+/** Resposta do debug_request: prompt pronto + metadados (NÃO spawna no backend). */
+export interface DebugRequestResult {
+  /** Prompt PT-BR rico, vai como 1ª tarefa do agente "debugger". */
+  prompt: string;
+  language: string;
+  metrics: CodeMetrics | null;
+  similarBugs: number;
+}
+
+/**
+ * Monta o prompt + contexto do DebuggerAgent (sub-fase 9d). O backend lê o arquivo,
+ * calcula a pior função (best-effort), busca bugs similares na memória ativa
+ * (best-effort) e devolve o prompt — NÃO spawna; o frontend spawna pelo caminho
+ * normal (addTerminal + agent_mcp_config injeta Serena+memória).
+ */
+export async function debugRequest(payload: DebugRequestPayload): Promise<DebugRequestResult> {
+  return invoke<DebugRequestResult>("debug_request", { payload });
+}
+
 export interface OpenedFile {
   content: string;
   /** Id de linguagem do Monaco (rust/typescript/python/…). */

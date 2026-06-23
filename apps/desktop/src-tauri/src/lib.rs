@@ -18,6 +18,7 @@ use commands::browser::browser_shot;
 use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
 use commands::code::{code_metrics, code_open, code_save, code_unwatch, code_watch, CodeWatchers};
 use commands::dbnode::db_query;
+use commands::debug::debug_request;
 use commands::diagnostics::collect_diagnostics;
 use commands::metrics::metrics_snapshot;
 use commands::compress::compressor_list;
@@ -321,6 +322,7 @@ pub fn run() {
             code_watch,
             code_unwatch,
             code_metrics,
+            debug_request,
             metrics_snapshot,
             compressor_list,
             serena_ensure_project,
