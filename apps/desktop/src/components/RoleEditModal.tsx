@@ -12,6 +12,7 @@ import { Download, FileUp, Sparkles, X } from "lucide-react";
 import { ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 import { skillsList, skillsImportMd, skillsImportGithub, type SkillInfo } from "@/lib/skills-client";
 import { loadGitProviders } from "@/lib/git-providers";
+import { isCompressorEnabled } from "@/lib/compress-client";
 import { useT } from "@/lib/i18n";
 
 interface Props {
@@ -35,6 +36,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const isShell = cli === "shell";
+  const omniOn = isCompressorEnabled("omnicompress"); // nativo, global (Ferramentas → Compressores)
 
   const loadSkills = useCallback(async () => {
     if (!cwd) { setAvailable([]); return; }
@@ -119,12 +121,22 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
               onChange={(e) => setCompressor(e.target.value)}
               className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text focus:outline-none focus:border-brand"
             >
-              <option value="none">{t("roleEdit.none", "Nenhum")}</option>
+              <option value="none">{t("roleEdit.compressorNoneExtra", "Nenhum (extra)")}</option>
               <option value="rtk">{t("roleEdit.rtkOption", "RTK · Rust Token Killer (saída de comando)")}</option>
               <option value="headroom">{t("roleEdit.headroomOption", "Headroom (chamada ao LLM)")}</option>
             </select>
-            <p className="mt-1 text-[10px] text-textMuted opacity-60">
-              {t("roleEdit.compressorHint", "Aplicado só via env no spawn (não toca command/args). Instale-o em Ferramentas → Compressores.")}
+            <p className="mt-1 text-[10px] opacity-80">
+              {omniOn ? (
+                <span className="text-brand">● OmniCompress (nativo) ativo globalmente</span>
+              ) : (
+                <span className="text-textMuted">○ OmniCompress (nativo) desligado</span>
+              )}
+              <span className="text-textMuted">
+                {omniOn
+                  ? " — já cuida dos tokens em todo agente. Este campo é um compressor EXTRA por role."
+                  : " — este campo escolhe um compressor por role."}
+                {" "}Liga/desliga em Ferramentas → Compressores.
+              </span>
             </p>
           </div>
           {isShell && (
