@@ -70,6 +70,6 @@ planos pra `plans/archive/`) — o painel SPECS desabilita dispatch em spec arqu
 nenhum agente re-implementa algo já pronto (= regressão). **Continuam ativos** os 3 parciais.
 
 ## Fora do escopo das specs (roadmap, não iniciado)
-- **Fase 7** — "Ombro" (LLM local) + bridges OmniForge.
+- **Fase 7** — OmniPartner (companion BYOK, inclui LLM local) **✅ feito**; faltam as bridges OmniForge.
 - **Fase 8.2** — multi-DB via `sqlx` (Postgres compartilhado). Keychain (8.2 secret_store) já feito.
 - **Dialogs** `window.prompt` (nome de branch, URL github, motivo de ignore) — no-op no WebKitGTK, precisa de modal de input próprio (os `alert/confirm` já foram migrados pros dialogs nativos).
