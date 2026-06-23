@@ -13,7 +13,7 @@ export interface FloorHooks {
   onLand?: string;
 }
 
-const KEY = "maestri-floor-hooks-v1";
+const KEY = "omnirift-floor-hooks-v1";
 
 export function loadHooks(): FloorHooks {
   try {

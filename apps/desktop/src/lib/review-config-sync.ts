@@ -7,7 +7,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { loadLlmConfig } from "@/lib/llm-client";
 
-const POLICY_KEY = "maestri-review-policy-v1";
+const POLICY_KEY = "omnirift-review-policy-v1";
 
 export async function persistReviewConfig(): Promise<void> {
   try {

@@ -288,10 +288,26 @@ fn migrate(conn: &Connection) {
 }
 
 impl Db {
-    /// Abre (ou cria) `dir/maestri.db` e garante o schema.
+    /// Abre (ou cria) `dir/omnirift.db` e garante o schema.
+    ///
+    /// Migração de nome legado: o DB antigo se chamava `maestri.db` (codename
+    /// aposentado). Se `omnirift.db` ainda NÃO existe mas `maestri.db` existe,
+    /// renomeia o arquivo (e os companheiros -wal/-shm do SQLite) pra preservar os
+    /// dados do usuário. O rename dos -wal/-shm é best-effort (ignoramos o erro:
+    /// podem não existir, e o SQLite os recria a partir do .db principal).
     pub fn open(dir: &Path) -> Result<Self> {
         std::fs::create_dir_all(dir).context("criar app data dir")?;
-        let conn = Connection::open(dir.join("maestri.db")).context("abrir maestri.db")?;
+
+        let new_db = dir.join("omnirift.db");
+        let old_db = dir.join("maestri.db");
+        if !new_db.exists() && old_db.exists() {
+            std::fs::rename(&old_db, &new_db).context("migrar maestri.db → omnirift.db")?;
+            // -wal/-shm: best-effort (ignora erro — podem não existir).
+            let _ = std::fs::rename(dir.join("maestri.db-wal"), dir.join("omnirift.db-wal"));
+            let _ = std::fs::rename(dir.join("maestri.db-shm"), dir.join("omnirift.db-shm"));
+        }
+
+        let conn = Connection::open(&new_db).context("abrir omnirift.db")?;
         conn.execute_batch(SCHEMA)?;
         migrate(&conn);
         Ok(Self(Mutex::new(conn)))

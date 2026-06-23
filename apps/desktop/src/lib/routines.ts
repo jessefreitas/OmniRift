@@ -19,9 +19,9 @@ export interface Routine {
   enabled: boolean;
 }
 
-const KEY = "maestri-routines-v1";
+const KEY = "omnirift-routines-v1";
 /** Evento disparado quando a lista muda — o scheduler re-arma os timers. */
-export const ROUTINES_CHANGED = "maestri-routines-changed";
+export const ROUTINES_CHANGED = "omnirift-routines-changed";
 
 /** Normaliza routines antigas (sem atTime) ao carregar. */
 function normalize(r: Partial<Routine>): Routine {

@@ -147,3 +147,49 @@ export async function logEvent(db: D1Database, licenseId: string | null, type: s
     .bind(licenseId, type, JSON.stringify(payload ?? {}).slice(0, 4000), now())
     .run();
 }
+
+// ── Diagnósticos (suporte; POST /diag) ───────────────────────────────────────
+
+export interface Diagnostic {
+  id: string;
+  created_at: number;
+  app_version: string | null;
+  os: string | null;
+  os_version: string | null;
+  log: string | null;
+  state: string | null;
+  note: string | null;
+}
+
+/** Resumo de diagnóstico (sem log/state) pro /admin/diag/list. */
+export type DiagnosticSummary = Pick<Diagnostic, "id" | "created_at" | "app_version" | "os" | "os_version" | "note">;
+
+/** Salva um diagnóstico enviado pelo tester (log/state já truncados na borda). */
+export async function saveDiagnostic(
+  db: D1Database,
+  d: Pick<Diagnostic, "id" | "app_version" | "os" | "os_version" | "log" | "state" | "note">,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO diagnostics (id, created_at, app_version, os, os_version, log, state, note)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+    )
+    .bind(d.id, now(), d.app_version ?? null, d.os ?? null, d.os_version ?? null, d.log ?? null, d.state ?? null, d.note ?? null)
+    .run();
+}
+
+/** Lista os diagnósticos recentes SEM log/state (limit 100, desc por created_at). */
+export async function listDiagnostics(db: D1Database): Promise<DiagnosticSummary[]> {
+  const r = await db
+    .prepare(
+      `SELECT id, created_at, app_version, os, os_version, note
+         FROM diagnostics ORDER BY created_at DESC LIMIT 100`,
+    )
+    .all<DiagnosticSummary>();
+  return r.results ?? [];
+}
+
+/** Diagnóstico completo (com log/state) por id. */
+export async function getDiagnostic(db: D1Database, id: string): Promise<Diagnostic | null> {
+  return db.prepare("SELECT * FROM diagnostics WHERE id = ?1").bind(id).first<Diagnostic>();
+}

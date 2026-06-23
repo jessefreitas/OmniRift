@@ -54,7 +54,7 @@ function TreeItem({ entry, depth, showHidden }: { entry: DirEntry; depth: number
         draggable
         onDragStart={(e) => {
           // Arrasta o caminho do arquivo/pasta — solta num terminal pra inserir.
-          e.dataTransfer.setData("application/x-maestri-path", entry.path);
+          e.dataTransfer.setData("application/x-omnirift-path", entry.path);
           e.dataTransfer.setData("text/plain", entry.path);
           e.dataTransfer.effectAllowed = "copy";
           e.stopPropagation();

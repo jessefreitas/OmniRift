@@ -28,7 +28,7 @@ const DOWNLOAD_URL = (() => {
 // Fase de beta de lançamento: o card Pro vira CTA de "ser beta tester" (sem cobrança).
 // Flip pra false quando começar a cobrar → volta o checkout Asaas (ProCheckout).
 const BETA_LAUNCH = true;
-const BETA_WA = "https://wa.me/5553999034520?text=Quero%20uma%20vaga%20no%20beta%20de%20lan%C3%A7amento%20do%20OmniRift";
+const BETA_WA = "https://chat.whatsapp.com/D8jBZtQd70k2VponOHvETX";
 // Doação: o worker /donate cria um checkout Asaas (R$10,90, pagamento único, SÓ PIX+cartão)
 // e redireciona. paymentLink não restringe método; o checkout (billingTypes array) sim.
 const DONATE_URL = `${LICENSE_WORKER}/donate`;
@@ -289,7 +289,7 @@ export function Landing() {
     <div style={rootStyle}>
       {/* ===== banner: beta de lançamento ===== */}
       <a
-        href="https://wa.me/5553999034520?text=Quero%20uma%20vaga%20no%20beta%20de%20lan%C3%A7amento%20do%20OmniRift"
+        href="https://chat.whatsapp.com/D8jBZtQd70k2VponOHvETX"
         target="_blank"
         rel="noreferrer"
         style={{

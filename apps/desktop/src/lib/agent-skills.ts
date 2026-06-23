@@ -10,7 +10,7 @@ export interface SkillDef {
   id: string;
   name: string;
   description: string;
-  source: "maestri-core" | "library";
+  source: "omnirift-core" | "library";
   path?: string; // dir no disco (library); maestri-core não precisa
 }
 
@@ -20,7 +20,7 @@ export interface SkillDef {
  *  SKILL.md no disco. Bundlar os SKILL.md core como Tauri resource + escanear o
  *  resource dir é Fase 2 — até lá o catálogo expõe só a biblioteca instalada
  *  (que materializa de verdade), pra não mostrar entradas mortas no picker.
- *  A infra (`source: "maestri-core"`) fica pronta pra Fase 2. */
+ *  A infra (`source: "omnirift-core"`) fica pronta pra Fase 2. */
 export const MAESTRI_CORE_SKILLS: SkillDef[] = [];
 
 export interface InstalledSkill {

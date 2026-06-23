@@ -129,7 +129,7 @@ export const BUILTIN_ROLES: AgentRoleDef[] = [
   },
 ];
 
-const KEY = "maestri-agent-roles-v1";
+const KEY = "omnirift-agent-roles-v1";
 
 /** Carrega os roles (custom + editados do localStorage; senão os padrões). */
 export function loadRoles(): AgentRoleDef[] {

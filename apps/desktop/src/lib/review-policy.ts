@@ -45,7 +45,7 @@ export const DEFAULT_POLICY: ReviewPolicy = {
   prLimits: { maxFiles: 40, maxLines: 800, maxFileLines: 500 },
 };
 
-const KEY = "maestri-review-policy-v1";
+const KEY = "omnirift-review-policy-v1";
 
 function readAll(): Record<string, ReviewPolicy> {
   try {

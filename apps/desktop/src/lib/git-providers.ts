@@ -39,8 +39,8 @@ export const GIT_PRESETS: { id: string; label: string; kind: GitProviderKind; ba
   { id: "forgejo", label: "Forgejo / Gitea (custom)", kind: "forgejo", baseUrl: "" },
 ];
 
-const KEY = "maestri-git-providers-v1";
-const DEST_KEY = "maestri-git-clone-dir";
+const KEY = "omnirift-git-providers-v1";
+const DEST_KEY = "omnirift-git-clone-dir";
 
 export function loadGitProviders(): GitProviderConfig[] {
   try {

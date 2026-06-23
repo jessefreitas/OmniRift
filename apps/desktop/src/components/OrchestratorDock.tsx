@@ -30,7 +30,7 @@ export function OrchestratorDock() {
   // Posição do dock (arrastável). null = canto inferior-direito padrão.
   const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
     try {
-      const s = localStorage.getItem("maestri-dock-pos");
+      const s = localStorage.getItem("omnirift-dock-pos");
       return s ? JSON.parse(s) : null;
     } catch {
       return null;
@@ -54,7 +54,7 @@ export function OrchestratorDock() {
   };
   const onDragEnd = (e: React.PointerEvent) => {
     if (dragRef.current && pos) {
-      try { localStorage.setItem("maestri-dock-pos", JSON.stringify(pos)); } catch { /* ignore */ }
+      try { localStorage.setItem("omnirift-dock-pos", JSON.stringify(pos)); } catch { /* ignore */ }
     }
     dragRef.current = null;
     e.currentTarget.releasePointerCapture(e.pointerId);

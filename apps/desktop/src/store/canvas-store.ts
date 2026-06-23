@@ -137,6 +137,14 @@ function syncActiveMeta(s: CanvasState): ProjectMeta[] {
   );
 }
 
+// Circuit-breaker anti "infinitos terminais": se nascerem terminais demais num
+// intervalo curto (loop de spawn — agente em looping, restore bugado, etc.), bloqueia
+// os próximos e avisa, mantendo o app usável. Fan-out legítimo (orquestrador → equipe)
+// cabe folgado abaixo do limite.
+const _spawnTimes: number[] = [];
+const SPAWN_WINDOW_MS = 4000;
+const SPAWN_BURST_MAX = 20;
+
 export const useCanvasStore = create<CanvasState>()((set, get) => ({
   projects: [FIRST_PROJECT],
   activeProjectId: FIRST_PROJECT.id,
@@ -147,7 +155,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   clipboardHistory: [],
   terminalStatuses: {},
   orchestratorSid:
-    (typeof localStorage !== "undefined" && localStorage.getItem("maestri-mcp-orch")) || null,
+    (typeof localStorage !== "undefined" && localStorage.getItem("omnirift-mcp-orch")) || null,
 
   // ---- project management (canvas isolado por projeto; floors flat) ----
   addProject: ({ name, cwd = null } = {}) => {
@@ -282,6 +290,16 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       lic.noteLimit("agents");
       return null;
     }
+    // Circuit-breaker: corta loop de spawn (vide _spawnTimes) antes de inundar o app.
+    const _now = Date.now();
+    while (_spawnTimes.length > 0 && _now - _spawnTimes[0] > SPAWN_WINDOW_MS) _spawnTimes.shift();
+    if (_spawnTimes.length >= SPAWN_BURST_MAX) {
+      console.error(
+        `[spawn-guard] loop de spawn detectado: ${_spawnTimes.length} terminais em <${SPAWN_WINDOW_MS}ms — bloqueado (role=${role}, label=${label ?? "?"}). App protegido.`,
+      );
+      return null;
+    }
+    _spawnTimes.push(_now);
     const nodeId = id ?? nanoid();
     const cwd = get().currentCwd ?? undefined;
     // Compõe a env de todos os compressores ligados (OmniCompress nativo entra por
@@ -562,8 +580,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
 
   setOrchestratorSid: (sid) => {
     try {
-      if (sid) localStorage.setItem("maestri-mcp-orch", sid);
-      else localStorage.removeItem("maestri-mcp-orch");
+      if (sid) localStorage.setItem("omnirift-mcp-orch", sid);
+      else localStorage.removeItem("omnirift-mcp-orch");
     } catch { /* localStorage indisponível */ }
     set({ orchestratorSid: sid });
   },

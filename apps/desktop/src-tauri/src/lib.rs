@@ -17,6 +17,7 @@ use commands::browser::browser_shot;
 use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
 use commands::code::{code_open, code_save, code_unwatch, code_watch, CodeWatchers};
 use commands::dbnode::db_query;
+use commands::diagnostics::collect_diagnostics;
 use commands::metrics::metrics_snapshot;
 use commands::compress::compressor_list;
 use commands::editor::{detect_editors, open_in_editor};
@@ -106,10 +107,12 @@ fn inherit_login_shell_path() {
 fn inherit_login_shell_path() {}
 
 pub fn run() {
-    let _ = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
-    )
-    .try_init();
+    // Logging: o `tauri-plugin-log` (registrado abaixo no builder) instala o logger
+    // GLOBAL `log::` e grava em ARQUIVO (app log dir → "omnirift.log") + stdout.
+    // NÃO inicializamos o env_logger aqui: só pode haver UM logger global por processo
+    // — se o env_logger reivindicar o slot primeiro, o plugin falha em instalar o seu
+    // e o log em arquivo não acontece. Os `log::info!/error!` existentes continuam
+    // funcionando, agora indo pro arquivo também.
 
     // Antes de qualquer spawn de agente: adota o PATH do shell de login (nvm/asdf/etc.),
     // senão a GUI acha CLIs velhos do sistema (ex.: claude do /usr/bin em vez do nvm).
@@ -195,6 +198,23 @@ pub fn run() {
         .manage(agent_registry)
         .manage(floor_mirror)
         .manage(CodeWatchers::default())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    // Arquivo no app log dir do SO → "omnirift.log" (resolvido por
+                    // app.path().app_log_dir() — mesmo path lido pelo collect_diagnostics).
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("omnirift".into()),
+                    }),
+                    // Também stdout (dev/terminal).
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                ])
+                .level(log::LevelFilter::Info)
+                // Rotação razoável: mantém só o log atual até ~5 MB, depois rotaciona.
+                .max_file_size(5 * 1024 * 1024)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .build(),
+        )
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -317,6 +337,7 @@ pub fn run() {
             cli_install,
             cli_uninstall,
             cli_validate,
+            collect_diagnostics,
         ])
         .build(tauri::generate_context!())
         .expect("erro fatal construindo OmniRift")

@@ -193,7 +193,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
     e.preventDefault();
     setDragOver(false);
     const path =
-      e.dataTransfer.getData("application/x-maestri-path") || e.dataTransfer.getData("text/plain");
+      e.dataTransfer.getData("application/x-omnirift-path") || e.dataTransfer.getData("text/plain");
     if (!path) return;
     let rel = path;
     if (data.cwd && path.startsWith(data.cwd + "/")) rel = path.slice(data.cwd.length + 1);

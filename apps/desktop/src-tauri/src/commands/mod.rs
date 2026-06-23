@@ -4,6 +4,7 @@ pub mod code;
 pub mod compress;
 pub mod clis;
 pub mod dbnode;
+pub mod diagnostics;
 pub mod editor;
 pub mod explain;
 pub mod fsinfo;

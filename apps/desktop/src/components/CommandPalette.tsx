@@ -81,7 +81,7 @@ export function CommandPalette() {
       })),
     ];
     const openTool = (tool: string) =>
-      act(() => window.dispatchEvent(new CustomEvent("maestri:open-tool", { detail: tool })));
+      act(() => window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: tool })));
     const openCmds: Cmd[] = [
       { id: "open-routines", label: t("palette.openRoutines", "Abrir: Routines"), category: t("palette.catOpen", "Abrir"), run: openTool("routines") },
       { id: "open-snapshots", label: t("palette.openSnapshots", "Abrir: Snapshots do canvas"), category: t("palette.catOpen", "Abrir"), run: openTool("snapshots") },

@@ -43,3 +43,17 @@ CREATE TABLE IF NOT EXISTS events (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_license ON events(license_id);
+
+-- Diagnósticos enviados pelos testers via POST /diag (sem auth). log/state
+-- truncados a 256KB cada na borda antes de salvar.
+CREATE TABLE IF NOT EXISTS diagnostics (
+  id          TEXT PRIMARY KEY,
+  created_at  INTEGER NOT NULL,
+  app_version TEXT,
+  os          TEXT,
+  os_version  TEXT,
+  log         TEXT,
+  state       TEXT,
+  note        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_diagnostics_created ON diagnostics(created_at);

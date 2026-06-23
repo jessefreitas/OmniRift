@@ -95,3 +95,25 @@ describe("admin auth", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("diag", () => {
+  it("POST /diag (sem auth) salva e devolve um id diag_", async () => {
+    const res = await SELF.fetch("https://worker.test/diag", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ appVersion: "1.2.3", os: "linux", osVersion: "6.17", logTail: "boom", note: "crash" }),
+    });
+    expect(res.status).toBe(200);
+    const { id } = (await res.json()) as { id: string };
+    expect(id).toMatch(/^diag_/);
+    // persistido com o log completo
+    const row = await env.DB.prepare("SELECT app_version, log FROM diagnostics WHERE id = ?1").bind(id).first<{ app_version: string; log: string }>();
+    expect(row?.app_version).toBe("1.2.3");
+    expect(row?.log).toBe("boom");
+  });
+
+  it("/admin/diag/list responde 401 sem ADMIN_TOKEN", async () => {
+    const res = await SELF.fetch("https://worker.test/admin/diag/list");
+    expect(res.status).toBe(401);
+  });
+});

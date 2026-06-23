@@ -161,6 +161,41 @@ app.get("/admin/beta/list", async (c) => {
   return c.json({ betas: await listBeta(c.env) });
 });
 
+// ── Diagnósticos ─────────────────────────────────────────────────────────────
+// Tester posta o pacote de suporte (sem auth). log/state truncados a 256KB cada.
+const DIAG_MAX = 256 * 1024; // 256KB por campo
+const trunc = (s: unknown): string | null => (typeof s === "string" ? s.slice(0, DIAG_MAX) : null);
+
+app.post("/diag", async (c) => {
+  const body = await c.req
+    .json<{ appVersion?: string; os?: string; osVersion?: string; logTail?: string; stateSummary?: string; note?: string }>()
+    .catch(() => ({}) as Record<string, unknown>);
+  const id = randomId("diag");
+  await db.saveDiagnostic(c.env.DB, {
+    id,
+    app_version: typeof body.appVersion === "string" ? body.appVersion : null,
+    os: typeof body.os === "string" ? body.os : null,
+    os_version: typeof body.osVersion === "string" ? body.osVersion : null,
+    log: trunc(body.logTail),
+    state: trunc(body.stateSummary),
+    note: typeof body.note === "string" ? body.note : null,
+  });
+  return c.json({ id });
+});
+
+// Admin (auth ADMIN_TOKEN): lista recentes (sem log) / registro completo por id.
+app.get("/admin/diag/list", async (c) => {
+  if (!requireAdmin(c.req, c.env)) return c.json({ error: "unauthorized" }, 401);
+  return c.json({ diagnostics: await db.listDiagnostics(c.env.DB) });
+});
+
+app.get("/admin/diag/:id", async (c) => {
+  if (!requireAdmin(c.req, c.env)) return c.json({ error: "unauthorized" }, 401);
+  const diag = await db.getDiagnostic(c.env.DB, c.req.param("id"));
+  if (!diag) return c.json({ error: "not found" }, 404);
+  return c.json(diag);
+});
+
 // ── Reemite o link de checkout (o de 30min expira) ───────────────────────────
 app.post("/checkout", async (c) => {
   const { key } = await c.req.json<{ key: string }>();

@@ -72,6 +72,11 @@ import { UpdaterButton } from "@/components/UpdaterButton";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { useLicenseStore } from "@/store/license-store";
 import { openFeedback } from "@/lib/feedback";
+import { sendDiagnostics } from "@/lib/diagnostics";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
+
+// Grupo de beta testers no WhatsApp — suporte direto (rodapé + onboarding beta).
+const BETA_WHATSAPP_GROUP = "https://chat.whatsapp.com/D8jBZtQd70k2VponOHvETX";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { clisList, type CliInfo } from "@/lib/clis-client";
 import { loadCustomClis, saveCustomClis, type CustomCli } from "@/lib/custom-clis";
@@ -123,7 +128,7 @@ import { useT } from "@/lib/i18n";
 import { useReorderable } from "@/hooks/useReorderable";
 import type { AgentRole } from "@/types/pty";
 
-// Ferramentas da sidebar (ids = os mesmos do handler "maestri:open-tool" + Command
+// Ferramentas da sidebar (ids = os mesmos do handler "omnirift:open-tool" + Command
 // palette). Ordem reordenável por drag-and-drop; ações no map runTool() abaixo.
 // Ordem alfabética por label (o usuário ainda pode reordenar por drag).
 const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[] = [
@@ -312,11 +317,11 @@ export function Sidebar() {
 
   // MCP: persistido em localStorage para sobreviver restarts
   const [mcpAgents, setMcpAgents] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("maestri-mcp-agents") ?? "[]")); }
+    try { return new Set(JSON.parse(localStorage.getItem("omnirift-mcp-agents") ?? "[]")); }
     catch { return new Set(); }
   });
   const [agentDescriptions, setAgentDescriptions] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem("maestri-mcp-descs") ?? "{}"); }
+    try { return JSON.parse(localStorage.getItem("omnirift-mcp-descs") ?? "{}"); }
     catch { return {}; }
   });
   // Orquestrador agora vive no store (compartilhado com o dock onipresente).
@@ -424,7 +429,7 @@ export function Sidebar() {
     hooks: () => setShowHooks(true),
   };
 
-  // Abre os modais de ferramenta via Command palette (CustomEvent "maestri:open-tool").
+  // Abre os modais de ferramenta via Command palette (CustomEvent "omnirift:open-tool").
   useEffect(() => {
     const h = (e: Event) => {
       switch ((e as CustomEvent<string>).detail) {
@@ -446,31 +451,31 @@ export function Sidebar() {
         case "companion": setShowCompanion(true); break;
       }
     };
-    window.addEventListener("maestri:open-tool", h);
-    return () => window.removeEventListener("maestri:open-tool", h);
+    window.addEventListener("omnirift:open-tool", h);
+    return () => window.removeEventListener("omnirift:open-tool", h);
   }, []);
 
   // Esconde/mostra a barra inteira (persiste).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    try { return localStorage.getItem("maestri-sidebar-collapsed") === "1"; } catch { return false; }
+    try { return localStorage.getItem("omnirift-sidebar-collapsed") === "1"; } catch { return false; }
   });
   const toggleSidebar = () =>
     setSidebarCollapsed((c) => {
       const n = !c;
-      try { localStorage.setItem("maestri-sidebar-collapsed", n ? "1" : "0"); } catch { /* ignore */ }
+      try { localStorage.setItem("omnirift-sidebar-collapsed", n ? "1" : "0"); } catch { /* ignore */ }
       return n;
     });
 
   // Seções recolhíveis (accordion) — guarda as FECHADAS (persiste).
   const [closedSections, setClosedSections] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("maestri-sidebar-closed") ?? "[]")); } catch { return new Set(); }
+    try { return new Set(JSON.parse(localStorage.getItem("omnirift-sidebar-closed") ?? "[]")); } catch { return new Set(); }
   });
   const isOpen = (key: string) => !closedSections.has(key);
   const toggleSection = (key: string) =>
     setClosedSections((prev) => {
       const next = new Set(prev);
       next.has(key) ? next.delete(key) : next.add(key);
-      try { localStorage.setItem("maestri-sidebar-closed", JSON.stringify([...next])); } catch { /* ignore */ }
+      try { localStorage.setItem("omnirift-sidebar-closed", JSON.stringify([...next])); } catch { /* ignore */ }
       return next;
     });
   // Título de seção clicável (recolhe/expande).
@@ -490,10 +495,10 @@ export function Sidebar() {
 
   // Salva estado no localStorage sempre que muda
   useEffect(() => {
-    localStorage.setItem("maestri-mcp-agents", JSON.stringify([...mcpAgents]));
+    localStorage.setItem("omnirift-mcp-agents", JSON.stringify([...mcpAgents]));
   }, [mcpAgents]);
   useEffect(() => {
-    localStorage.setItem("maestri-mcp-descs", JSON.stringify(agentDescriptions));
+    localStorage.setItem("omnirift-mcp-descs", JSON.stringify(agentDescriptions));
   }, [agentDescriptions]);
 
   // Resolve o perfil universal de MCP (Serena = estrutura de código + Context7 =
@@ -1802,7 +1807,7 @@ export function Sidebar() {
                       </span>
                     </Tooltip>
                   )}
-                  <Tooltip label={tr("sidebar.injectMcpAdd", "Injeta /mcp add neste terminal (conecta-o ao MCP do maestri)")} side="top" className="shrink-0">
+                  <Tooltip label={tr("sidebar.injectMcpAdd", "Injeta /mcp add neste terminal (conecta-o ao MCP do OmniRift)")} side="top" className="shrink-0">
                     <button
                       onClick={() => injectMcpToTerminal(sid)}
                       className="opacity-0 group-hover:opacity-100 transition-opacity"
@@ -1900,6 +1905,25 @@ export function Sidebar() {
           <span className="opacity-40">·</span>
           <button onClick={() => void openFeedback()} className="text-textMuted hover:text-brand">
             {tr("sidebar.feedback", "Feedback")}
+          </button>
+          <span className="opacity-40">·</span>
+          <button onClick={() => void openExternal(BETA_WHATSAPP_GROUP)} className="text-textMuted hover:text-brand" title="Grupo de beta testers no WhatsApp">
+            {tr("sidebar.betaGroup", "Grupo WhatsApp")}
+          </button>
+          <span className="opacity-40">·</span>
+          <button
+            onClick={async () => {
+              try {
+                const id = await sendDiagnostics();
+                window.alert(`Diagnóstico enviado ✓\nCódigo: ${id}\n\nCole esse código no grupo do WhatsApp pra equipe achar seu log.`);
+              } catch (e) {
+                window.alert(`Falha ao enviar diagnóstico: ${String(e)}`);
+              }
+            }}
+            className="text-textMuted hover:text-brand"
+            title="Envia logs de erro pra equipe analisar (sem credenciais)"
+          >
+            {tr("sidebar.sendDiag", "Enviar diagnóstico")}
           </button>
         </div>
       </footer>

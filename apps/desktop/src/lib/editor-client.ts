@@ -13,7 +13,7 @@ export interface EditorInfo {
   terminal: boolean;
 }
 
-const KEY = "maestri-preferred-editor";
+const KEY = "omnirift-preferred-editor";
 
 export async function detectEditors(): Promise<EditorInfo[]> {
   try {

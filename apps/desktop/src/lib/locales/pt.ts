@@ -688,7 +688,7 @@ export const pt: Record<string, string> = {
   "sidebar.footerPhase": "Fase 2 — PTY + canvas + workspaces + MCP",
   "sidebar.hideSidebar": "Esconder barra lateral",
   "sidebar.hookOnLandFailed": "Hook onLand falhou — Land abortado:",
-  "sidebar.injectMcpAdd": "Injeta /mcp add neste terminal (conecta-o ao MCP do maestri)",
+  "sidebar.injectMcpAdd": "Injeta /mcp add neste terminal (conecta-o ao MCP do OmniRift)",
   "sidebar.isOrchClickRemove": "É o Orquestrador — clique pra remover",
   "sidebar.landFailed": "Land falhou (resolva conflitos no paralelo e tente de novo):",
   "sidebar.license": "Licença",

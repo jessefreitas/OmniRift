@@ -56,7 +56,7 @@ export const LLM_PRESETS: LlmPreset[] = [
   { id: "openrouter", label: "OpenRouter", provider: "openai", baseUrl: "https://openrouter.ai/api/v1", modelHint: "qwen/qwen-2.5-coder-32b-instruct" },
 ];
 
-const KEY = "maestri-llm-config-v1";
+const KEY = "omnirift-llm-config-v1";
 
 export function loadLlmConfig(): LlmConfig | null {
   try {

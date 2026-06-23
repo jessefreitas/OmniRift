@@ -16,7 +16,7 @@ export interface AutoSnapSettings {
   maxAuto: number;
 }
 
-const KEY = "maestri-autosnap-v1";
+const KEY = "omnirift-autosnap-v1";
 const DEFAULTS: AutoSnapSettings = { enabled: true, intervalMin: 10, maxAuto: 20 };
 
 function clampNum(v: unknown, lo: number, hi: number, dflt: number): number {
