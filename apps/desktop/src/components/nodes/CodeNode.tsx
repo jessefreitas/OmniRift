@@ -18,6 +18,9 @@ import { agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
 import { workerClaudeArgs } from "@/lib/agent-contract";
 import { loadRoles, ROLE_CLIS } from "@/lib/agent-roles";
 import { ptyWrite } from "@/lib/pty-client";
+import { loadThresholds, levelFor, type ThresholdLevel } from "@/lib/code-thresholds";
+import { CodeComplexityPanel } from "@/components/nodes/CodeComplexityPanel";
+import type { CodeMonacoHandle } from "@/components/nodes/CodeMonaco";
 import type { CodeNode as CodeNodeData } from "@/types/canvas";
 import type { CodeMetrics, FunctionMetrics } from "@/types/code";
 
@@ -25,15 +28,7 @@ const CodeMonaco = lazy(() => import("@/components/nodes/CodeMonaco"));
 
 type CodeRfNode = Node<CodeNodeData & Record<string, unknown>, "code">;
 
-/** Nível ok|warn|high pela ciclomática (espelha os thresholds do backend 9c). */
-type CxLevel = "ok" | "warn" | "high";
-function cxLevel(cyclomatic: number): CxLevel {
-  if (cyclomatic > 20) return "high";
-  if (cyclomatic > 10) return "warn";
-  return "ok";
-}
-
-const CX_BADGE_CLASS: Record<CxLevel, string> = {
+const CX_BADGE_CLASS: Record<ThresholdLevel, string> = {
   ok: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
   warn: "border-yellow-500/40 bg-yellow-500/10 text-yellow-400",
   high: "border-red-500/40 bg-red-500/10 text-red-400",
@@ -100,6 +95,21 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const [debugging, setDebugging] = useState(false);
   // Métricas de complexidade (9c). `null` = ainda não calculado ou linguagem sem grammar.
   const [metrics, setMetrics] = useState<CodeMetrics | null>(null);
+  // Painel de complexidade (9e) + thresholds configuráveis (cor por nível).
+  const [showComplexity, setShowComplexity] = useState(false);
+  const [thresholds, setThresholds] = useState(() => loadThresholds());
+  // Handle imperativo do Monaco — pra pular pra linha de uma função no painel.
+  const monacoRef = useRef<CodeMonacoHandle | null>(null);
+
+  // Recarrega thresholds quando o painel abre (pega edições feitas em outro lugar).
+  useEffect(() => {
+    if (showComplexity) setThresholds(loadThresholds());
+  }, [showComplexity]);
+
+  const onJumpToLine = useCallback((line: number) => {
+    monacoRef.current?.revealLine(line);
+    setShowComplexity(false);
+  }, []);
 
   // Spawna o DebuggerAgent (sub-fase 9d) pelo MESMO caminho dos outros agentes:
   // debug_request monta o prompt (arquivo + pior função + erro/seleção + bugs
@@ -228,23 +238,37 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
     return () => setFileDirty(id, false);
   }, [id, dirty, setFileDirty]);
 
-  // Badge de complexidade (cx N) — pior ciclomática do arquivo + tooltip.
+  // Badge de complexidade (cx N) — pior ciclomática do arquivo + tooltip. Clicável:
+  // abre o painel de complexidade (9e). A cor deriva dos thresholds configuráveis.
   const cxBadge = (() => {
     if (!metrics || metrics.functions.length === 0) return null;
     const worst = worstFunction(metrics);
     if (!worst) return null;
-    const level = cxLevel(metrics.maxCyclomatic);
+    const level = levelFor(thresholds, "cyclomatic", metrics.maxCyclomatic, metrics.language);
     const tip =
       `${t("code.complexity", "complexidade")} — ${t("code.worst", "pior")}: ` +
       `${worst.name} (${t("code.line", "linha")} ${worst.startLine}) ` +
-      `· cx ${worst.cyclomatic} · cog ${worst.cognitive} · MI ${Math.round(worst.maintainabilityIndex)}`;
+      `· cx ${worst.cyclomatic} · cog ${worst.cognitive} · MI ${Math.round(worst.maintainabilityIndex)} — ` +
+      t("code.openComplexityPanel", "clique p/ ver todas as funções");
     return (
-      <span
-        title={tip}
-        className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-mono leading-none border ${CX_BADGE_CLASS[level]}`}
-      >
-        cx {metrics.maxCyclomatic}
-      </span>
+      <div className="relative shrink-0">
+        <button
+          title={tip}
+          onClick={(e) => { e.stopPropagation(); setShowComplexity((s) => !s); }}
+          onPointerDown={(e) => e.stopPropagation()}
+          className={`rounded px-1 py-0.5 text-[9px] font-mono leading-none border transition-colors hover:brightness-125 ${CX_BADGE_CLASS[level]}`}
+        >
+          cx {metrics.maxCyclomatic}
+        </button>
+        {showComplexity && (
+          <CodeComplexityPanel
+            metrics={metrics}
+            thresholds={thresholds}
+            onJump={onJumpToLine}
+            onClose={() => setShowComplexity(false)}
+          />
+        )}
+      </div>
     );
   })();
 
@@ -330,7 +354,16 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
           <p className="px-3 py-2 text-[11px] text-textMuted">{t("code.opening", "abrindo")} {fileName}…</p>
         ) : (
           <Suspense fallback={<p className="px-3 py-2 text-[11px] text-textMuted">{t("code.loadingEditor", "carregando editor…")}</p>}>
-            <CodeMonaco value={source} language={language} onChange={onEdit} onSave={onSave} onSendSelection={onSendSelection} />
+            <CodeMonaco
+              value={source}
+              language={language}
+              onChange={onEdit}
+              onSave={onSave}
+              onSendSelection={onSendSelection}
+              metrics={metrics}
+              thresholds={thresholds}
+              onReady={(h) => { monacoRef.current = h; }}
+            />
           </Suspense>
         )}
       </div>

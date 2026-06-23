@@ -96,3 +96,17 @@
 .md-preview th, .md-preview td { border: 1px solid rgb(var(--border)); padding: 0.3em 0.6em; }
 .md-preview img { max-width: 100%; }
 .md-preview hr { border: none; border-top: 1px solid rgb(var(--border)); margin: 0.8em 0; }
+
+/* CodeNode — highlight inline de complexidade (sub-fase 9e). Marca a linha de
+   abertura de funções warn/high no Monaco: faixa sutil na linha + glifo na
+   gutter. As cores batem com o badge "cx N" (amarelo=warn, vermelho=high). */
+.cx-line-warn { background: rgba(245, 166, 35, 0.10); }
+.cx-line-high { background: rgba(229, 72, 77, 0.12); }
+.cx-glyph-warn,
+.cx-glyph-high {
+  width: 4px !important;
+  margin-left: 3px;
+  border-radius: 2px;
+}
+.cx-glyph-warn { background: #f5a623; }
+.cx-glyph-high { background: #e5484d; }
