@@ -49,3 +49,11 @@ tools/.omrift-admin-token
 # Tauri icon: saídas mobile não usadas (projeto desktop)
 apps/desktop/src-tauri/icons/android/
 apps/desktop/src-tauri/icons/ios/
+
+# Artefatos de build / distribuição — vão pros Releases, NUNCA pro git (incham o repo)
+*.zip
+*.AppImage
+*.deb
+*.exe
+*.msi
+*.tar.gz
