@@ -15,7 +15,7 @@ use commands::skill_wiring::{agent_skills_config, list_installed_skills};
 use commands::usage::{budget_remove, budget_set, usage_budget_status, usage_scan};
 use commands::browser::browser_shot;
 use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
-use commands::code::{code_open, code_save, code_unwatch, code_watch, CodeWatchers};
+use commands::code::{code_metrics, code_open, code_save, code_unwatch, code_watch, CodeWatchers};
 use commands::dbnode::db_query;
 use commands::diagnostics::collect_diagnostics;
 use commands::metrics::metrics_snapshot;
@@ -313,6 +313,7 @@ pub fn run() {
             code_save,
             code_watch,
             code_unwatch,
+            code_metrics,
             metrics_snapshot,
             compressor_list,
             serena_ensure_project,

@@ -125,6 +125,7 @@ import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
+import { notify, confirmDialog } from "@/lib/notify";
 import { useReorderable } from "@/hooks/useReorderable";
 import type { AgentRole } from "@/types/pty";
 
@@ -531,7 +532,7 @@ export function Sidebar() {
       if (s.status === "archived") await specUnarchive(currentCwd, s.path);
       else await specArchive(currentCwd, s.path);
       loadSpecs();
-    } catch (e) { alert(String(e)); }
+    } catch (e) { void notify(String(e), "error"); }
   }
 
   async function importSpecRoot() {
@@ -554,7 +555,7 @@ export function Sidebar() {
       ? `# ${raw.trim()}\n\n**Goal:** \n\n**Architecture:** \n\n## Task 1: \n- [ ] passo\n\n## Task 2: \n- [ ] passo\n`
       : `---\nstatus: active\n# paths: [src/...]  # descomente pra detectar sobreposição\n---\n\n# ${raw.trim()} — Design\n\n**Goal:** \n\n**Architecture:** \n\n**Data flow:** \n\n**Error handling:** \n\n**Testing:** \n`;
     try { await writeFile(path, tpl); loadSpecs(); addPreviewNode({ path }); }
-    catch (e) { alert(String(e)); }
+    catch (e) { void notify(String(e), "error"); }
   }
 
   const activeSpecs = useMemo(() => specs.filter((s) => !isDeadSpec(s)), [specs]);
@@ -770,7 +771,7 @@ export function Sidebar() {
   // editam sem conflito). Parte da branch atual do repo do floor ativo.
   async function createGitFloor() {
     if (!currentCwd) {
-      alert(tr("sidebar.openProjectForBranch", "Abra um projeto (pasta) primeiro — um paralelo-branch precisa de um repo git."));
+      void notify(tr("sidebar.openProjectForBranch", "Abra um projeto (pasta) primeiro — um paralelo-branch precisa de um repo git."), "error");
       return;
     }
     const branch = prompt(tr("sidebar.newBranchPrompt", "Branch do novo paralelo (ex: feature/auth):"));
@@ -789,7 +790,7 @@ export function Sidebar() {
         });
       }
     } catch (e) {
-      alert(tr("sidebar.createGitFloorFailed", "Falha ao criar paralelo git:") + "\n" + String(e));
+      void notify(tr("sidebar.createGitFloorFailed", "Falha ao criar paralelo git:") + "\n" + String(e), "error");
     }
   }
 
@@ -797,7 +798,7 @@ export function Sidebar() {
   // Destrutivo → confirma explicitamente. Em conflito, o merge falha e o floor fica.
   async function landFloor(f: Floor) {
     if (!f.repoRoot || !f.branch || !f.worktreePath || !f.baseBranch) return;
-    if (!confirm(tr("sidebar.landConfirm", "Land \"{branch}\" → \"{base}\"?\nFaz merge e remove o worktree.").replace("{branch}", f.branch).replace("{base}", f.baseBranch))) return;
+    if (!(await confirmDialog(tr("sidebar.landConfirm", "Land \"{branch}\" → \"{base}\"?\nFaz merge e remove o worktree.").replace("{branch}", f.branch).replace("{base}", f.baseBranch)))) return;
     // Review gate: se a política liga o gate, roda o code review antes do merge.
     const policy = loadPolicy(f.repoRoot);
     if (policy.enabled && policy.gate !== "off") {
@@ -807,10 +808,10 @@ export function Sidebar() {
           const r = await runReview(f.worktreePath, f.baseBranch, llm, policy);
           if (r.verdict === "NO-GO") {
             if (policy.gate === "block") {
-              alert(tr("sidebar.reviewBlockedLand", "🚫 Review reprovou (NO-GO · score {score}). Land bloqueado.\nAbra o Review (⊟ no paralelo) pra ver os findings e corrija.").replace("{score}", String(r.score)));
+              void notify(tr("sidebar.reviewBlockedLand", "🚫 Review reprovou (NO-GO · score {score}). Land bloqueado.\nAbra o Review (⊟ no paralelo) pra ver os findings e corrija.").replace("{score}", String(r.score)), "error");
               return;
             }
-            if (!confirm(tr("sidebar.reviewNoGoConfirm", "⚠️ Review reprovou (NO-GO · score {score}).\n{summary}\nLand mesmo assim?").replace("{score}", String(r.score)).replace("{summary}", r.summary))) return;
+            if (!(await confirmDialog(tr("sidebar.reviewNoGoConfirm", "⚠️ Review reprovou (NO-GO · score {score}).\n{summary}\nLand mesmo assim?").replace("{score}", String(r.score)).replace("{summary}", r.summary)))) return;
           }
         } catch (e) {
           console.warn("[review gate] falhou, não bloqueia o Land:", e);
@@ -823,7 +824,7 @@ export function Sidebar() {
       try {
         await runFloorHook(f.worktreePath, hooks.onLand);
       } catch (e) {
-        alert(tr("sidebar.hookOnLandFailed", "Hook onLand falhou — Land abortado:") + "\n" + String(e));
+        void notify(tr("sidebar.hookOnLandFailed", "Hook onLand falhou — Land abortado:") + "\n" + String(e), "error");
         return;
       }
     }
@@ -831,7 +832,7 @@ export function Sidebar() {
       await floorGitLand(f.repoRoot, f.branch, f.baseBranch, f.worktreePath);
       deleteFloor(f.id);
     } catch (e) {
-      alert(tr("sidebar.landFailed", "Land falhou (resolva conflitos no paralelo e tente de novo):") + "\n" + String(e));
+      void notify(tr("sidebar.landFailed", "Land falhou (resolva conflitos no paralelo e tente de novo):") + "\n" + String(e), "error");
     }
   }
 
@@ -847,7 +848,7 @@ export function Sidebar() {
   // Tasks independentes e spawnar 1 agente por branch (terminal_spawn_on_floor).
   function dispatchSpec(s: SpecFile) {
     if (!orchestratorSid) {
-      alert(tr("sidebar.setOrchBeforeDispatch", "Defina um Orquestrador (botão 'O') e conecte-o ao MCP antes do dispatch."));
+      void notify(tr("sidebar.setOrchBeforeDispatch", "Defina um Orquestrador (botão 'O') e conecte-o ao MCP antes do dispatch."), "error");
       return;
     }
     const prompt =
@@ -870,12 +871,12 @@ export function Sidebar() {
     const from: "claude" | "agents" = docsStatus.claude ? "claude" : "agents";
     const src = from === "claude" ? "CLAUDE.md" : "AGENTS.md";
     const dst = from === "claude" ? "AGENTS.md" : "CLAUDE.md";
-    if (!confirm(tr("sidebar.syncDocsConfirm", "Sincronizar {src} → {dst}?\nSobrescreve o conteúdo do {dst} (não apaga mais nada).").replace("{src}", src).replace(/\{dst\}/g, dst))) return;
+    if (!(await confirmDialog(tr("sidebar.syncDocsConfirm", "Sincronizar {src} → {dst}?\nSobrescreve o conteúdo do {dst} (não apaga mais nada).").replace("{src}", src).replace(/\{dst\}/g, dst)))) return;
     try {
       await agentDocsSync(currentCwd, from);
       setDocsStatus(await agentDocsStatus(currentCwd));
     } catch (e) {
-      alert(tr("sidebar.syncFailed", "Sync falhou:") + "\n" + String(e));
+      void notify(tr("sidebar.syncFailed", "Sync falhou:") + "\n" + String(e), "error");
     }
   }
 
@@ -1012,11 +1013,11 @@ export function Sidebar() {
     try {
       found = await discoverRoles(currentCwd);
     } catch (e) {
-      alert(tr("sidebar.discoverRolesFailed", "Falha ao descobrir roles:") + "\n" + String(e));
+      void notify(tr("sidebar.discoverRolesFailed", "Falha ao descobrir roles:") + "\n" + String(e), "error");
       return;
     }
     if (found.length === 0) {
-      alert(tr("sidebar.noRolesInProject", "Nenhum role em .claude/agents/ deste projeto."));
+      void notify(tr("sidebar.noRolesInProject", "Nenhum role em .claude/agents/ deste projeto."), "error");
       return;
     }
     setRoles((prev) => {
@@ -1025,12 +1026,12 @@ export function Sidebar() {
         .filter((f) => !have.has(f.name.toLowerCase()))
         .map((f) => ({ id: nanoid(), name: f.name, prompt: f.prompt || f.description, cli: "claude" }));
       if (fresh.length === 0) {
-        alert(tr("sidebar.allRolesAlreadyInLibrary", "Todos os roles do projeto já estão na biblioteca."));
+        void notify(tr("sidebar.allRolesAlreadyInLibrary", "Todos os roles do projeto já estão na biblioteca."));
         return prev;
       }
       const next = [...prev, ...fresh];
       saveRoles(next);
-      alert(tr("sidebar.rolesImported", "{n} role(s) importado(s) de .claude/agents/.").replace("{n}", String(fresh.length)));
+      void notify(tr("sidebar.rolesImported", "{n} role(s) importado(s) de .claude/agents/.").replace("{n}", String(fresh.length)));
       return next;
     });
   }

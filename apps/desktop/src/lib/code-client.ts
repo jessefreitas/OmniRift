@@ -4,6 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { CodeMetrics } from "@/types/code";
 
 export interface OpenedFile {
   content: string;
@@ -25,6 +26,15 @@ export async function codeWatch(path: string): Promise<string> {
 
 export async function codeUnwatch(path: string): Promise<void> {
   return invoke("code_unwatch", { path });
+}
+
+/**
+ * Métricas de complexidade do arquivo (sub-fase 9c). Rejeita com mensagem
+ * amigável se a linguagem não tiver grammar (ex.: .md, .json) — o chamador
+ * deve tratar como "sem métricas", não como erro fatal.
+ */
+export async function codeMetrics(path: string): Promise<CodeMetrics> {
+  return invoke<CodeMetrics>("code_metrics", { path });
 }
 
 /** Escuta mudanças no disco (emitidas pelo code_watch). Devolve o unlisten. */

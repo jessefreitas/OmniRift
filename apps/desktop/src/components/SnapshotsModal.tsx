@@ -13,6 +13,7 @@ import { dbSaveWorkspace } from "@/lib/db-client";
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
+import { notify, confirmDialog } from "@/lib/notify";
 
 interface Props {
   onClose: () => void;
@@ -62,7 +63,7 @@ export function SnapshotsModal({ onClose }: Props) {
   }
 
   async function restore(id: number) {
-    if (!confirm(t("snapshots.restoreConfirm", "Restaurar este snapshot? O canvas atual será substituído (salve um snapshot antes se quiser)."))) return;
+    if (!(await confirmDialog(t("snapshots.restoreConfirm", "Restaurar este snapshot? O canvas atual será substituído (salve um snapshot antes se quiser).")))) return;
     const doc = await snapshotGet(id);
     if (!doc) return;
     try {
@@ -70,7 +71,7 @@ export function SnapshotsModal({ onClose }: Props) {
       await dbSaveWorkspace(doc);
       onClose();
     } catch (e) {
-      alert(t("snapshots.restoreFailed", "Falha ao restaurar:") + "\n" + String(e));
+      void notify(t("snapshots.restoreFailed", "Falha ao restaurar:") + "\n" + String(e), "error");
     }
   }
 

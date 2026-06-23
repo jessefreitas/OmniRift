@@ -20,6 +20,7 @@ import {
 } from "@/lib/clis-client";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
+import { confirmDialog } from "@/lib/notify";
 
 interface ClisModalProps {
   onClose: () => void;
@@ -72,7 +73,7 @@ export function ClisModal({ onClose }: ClisModalProps) {
   };
 
   const handleUninstall = async (cli: CliInfo) => {
-    if (!window.confirm(`${t("clis.removeConfirmPrefix", "Remover")} ${cli.label} ${t("clis.removeConfirmSuffix", "do sistema?")}`)) return;
+    if (!(await confirmDialog(`${t("clis.removeConfirmPrefix", "Remover")} ${cli.label} ${t("clis.removeConfirmSuffix", "do sistema?")}`))) return;
 
     setError(null);
     setInstallingId(cli.id);

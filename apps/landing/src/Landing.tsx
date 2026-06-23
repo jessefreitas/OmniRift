@@ -315,7 +315,7 @@ export function Landing() {
           <b>50 vagas</b> · 60 dias grátis com <b>tudo liberado</b>
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--ac)", fontWeight: 700 }}>
-          Garantir minha vaga →
+          💬 Entrar no grupo do WhatsApp →
         </span>
       </a>
       {/* ===== nav ===== */}
@@ -655,9 +655,9 @@ export function Landing() {
                     rel="noreferrer"
                     style={{ display: "block", textAlign: "center", background: "var(--ac)", color: "#0A0A0C", textDecoration: "none", padding: "13px 0", borderRadius: 11, fontWeight: 700, fontSize: 15, margin: "18px 0 6px" }}
                   >
-                    Quero ser beta tester →
+                    💬 Entrar no grupo do WhatsApp →
                   </a>
-                  <div style={{ color: DIM, fontSize: 12, textAlign: "center" }}>→ garanta sua vaga pelo WhatsApp</div>
+                  <div style={{ color: DIM, fontSize: 12, textAlign: "center" }}>grupo de beta testers · suporte direto</div>
                 </>
               ) : (
                 <>
