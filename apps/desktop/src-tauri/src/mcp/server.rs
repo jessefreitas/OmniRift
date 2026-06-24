@@ -8,7 +8,7 @@
 ///   - list_agents  → lista agentes registrados no canvas
 ///   - send_task    → envia tarefa para um agente, captura e retorna resultado
 
-use crate::mcp::{registry::to_tool_name, AgentRegistry};
+use crate::mcp::{registry::to_tool_name, AgentRegistry, ClaimsRegistry};
 use crate::pty::{AgentState, PtyManager};
 use axum::{
     extract::{Query, State},
@@ -39,6 +39,8 @@ pub struct McpState {
     pub(crate) memory_registry: Arc<crate::memory::MemoryRegistry>,
     /// Teto de agentes simultâneos que o Orquestrador pode ter (default 5).
     pub(crate) max_agents: Arc<std::sync::atomic::AtomicUsize>,
+    /// Registry de claims (Bloco E — coordenação de edição entre agentes).
+    pub(crate) claims: Arc<ClaimsRegistry>,
 }
 
 pub fn mcp_router(
@@ -48,6 +50,7 @@ pub fn mcp_router(
     floor_mirror: Arc<parking_lot::Mutex<Value>>,
     memory_registry: Arc<crate::memory::MemoryRegistry>,
     max_agents: Arc<std::sync::atomic::AtomicUsize>,
+    claims: Arc<ClaimsRegistry>,
 ) -> Router {
     let state = Arc::new(McpState {
         pty_manager,
@@ -57,6 +60,7 @@ pub fn mcp_router(
         floor_mirror,
         memory_registry,
         max_agents,
+        claims,
     });
     Router::new()
         .route("/sse", get(sse_handler))
@@ -214,6 +218,12 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
             json!({ "content": [{ "type": "text", "text": text }] })
         }
 
+        // spec_path_conflicts é cross-spec/claims — roteado pelo claim_dispatch.
+        "spec_path_conflicts" => {
+            let text = crate::mcp::tools::claim_dispatch(&state, tool, args);
+            json!({ "content": [{ "type": "text", "text": text }] })
+        }
+
         t if t.starts_with("spec_") => {
             let text = crate::mcp::tools::spec_dispatch(t, args);
             json!({ "content": [{ "type": "text", "text": text }] })
@@ -221,6 +231,11 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
 
         t if t.starts_with("memory_") => {
             let text = crate::mcp::tools::memory_dispatch(&state, t, args).await;
+            json!({ "content": [{ "type": "text", "text": text }] })
+        }
+
+        t if t.starts_with("claim_") => {
+            let text = crate::mcp::tools::claim_dispatch(&state, t, args);
             json!({ "content": [{ "type": "text", "text": text }] })
         }
 

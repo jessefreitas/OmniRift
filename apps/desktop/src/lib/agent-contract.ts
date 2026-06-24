@@ -34,8 +34,11 @@ export const ORCHESTRATOR_CONTRACT =
   "agentes simultâneos no sistema — se o spawn for recusado por limite, rode em ONDAS (aguarde um agente " +
   "encerrar via terminal_wait_status antes do próximo) e avise o usuário a cada onda.\n" +
   "COORDENAÇÃO: cada spec/grupo de tasks roda na SUA branch/floor (1 spec → 1 floor) pra não se atravessar. " +
-  "Instrua os agentes a postar um claim (memory_remember 'claim: editando <arquivo>') antes de editar e a " +
-  "ler os claims (memory_recall) antes de tocar em arquivo compartilhado.";
+  "ANTES do fan-out, rode spec_path_conflicts(dir=<raiz do projeto>) — se duas specs ATIVAS declaram `paths:` " +
+  "que se cruzam, serialize-as (uma de cada vez) ou redesenhe o escopo, e AVISE o usuário. " +
+  "Instrua cada agente a reivindicar o arquivo com claim_acquire(path, agent) ANTES de editar, a checar " +
+  "claim_check(paths, agent) antes de tocar em arquivo compartilhado, e a liberar com claim_release(path, agent) " +
+  "ao terminar — assim ninguém edita o mesmo arquivo ao mesmo tempo.";
 
 /** Contrato de DEV — forçado em todo agente claude que desenvolve (worker/role/dispatch). */
 export const DEV_CONTRACT =
@@ -48,15 +51,17 @@ export const DEV_CONTRACT =
   "3) Confirme a API/assinatura/versão real de qualquer lib pelo Context7 antes de usá-la — não invente.\n" +
   "4) Quando descobrir que algo deu errado E como consertou, chame memory_remember_error(what, why, fix).\n" +
   "5) Decisões, convenções e fatos duráveis que outros agentes precisam: grave com memory_remember.\n" +
-  "5b) ANTES de editar um arquivo, poste um claim: memory_remember('claim: editando <caminho> (floor <x>)'). " +
-  "E ANTES de tocar num arquivo, faça memory_recall pra ver se outro agente já reivindicou — se sim, recue ou " +
-  "alinhe. Evita dois agentes editando o mesmo arquivo.\n" +
+  "5b) ANTES de editar um arquivo, reivindique-o: claim_acquire(path=<caminho>, agent=<seu label>). Se vier " +
+  "CONFLITO (outro agente já reivindicou), recue ou alinhe — NÃO edite. Antes de mexer em arquivos compartilhados, " +
+  "rode claim_check(paths=[...], agent=<seu label>) pra ver o que está livre. Ao terminar de editar um arquivo, " +
+  "libere com claim_release(path, agent). Evita dois agentes editando o mesmo arquivo.\n" +
   "6) Nunca rode comandos destrutivos (rm, reset --hard, push --force) — estão bloqueados.\n" +
   "7) ANTES de declarar a tarefa pronta, chame a tool review_current com cwd = sua pasta de " +
   "trabalho e CORRIJA tudo que ela apontar (CRITICAL/WARNING). Não é opcional: seu encerramento é " +
   "GATEADO por um Stop hook que roda o MESMO review e te BLOQUEIA de finalizar enquanto reprovar " +
   "(NO-GO). Logo, revise e conserte ANTES de tentar parar — senão você será forçado a continuar.\n" +
-  "As tools memory_*, review_current, do Serena e do Context7 estão disponíveis via MCP. Use-as ATIVAMENTE.";
+  "As tools memory_*, claim_* (claim_acquire/claim_check/claim_release), review_current, do Serena e do " +
+  "Context7 estão disponíveis via MCP. Use-as ATIVAMENTE.";
 
 /**
  * Args de um agente claude WORKER (desenvolvimento): contrato DEV + auto-aprovação

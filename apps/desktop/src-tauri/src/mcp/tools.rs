@@ -192,6 +192,35 @@ pub fn terminal_tool_defs() -> Vec<Value> {
             "description": "Apaga uma memória por id (ex: fato obsoleto).",
             "inputSchema": { "type": "object", "properties": {
                 "id": { "type": "number" } }, "required": ["id"] } }),
+        json!({ "name": "claim_acquire",
+            "description": "COORDENAÇÃO: reivindica um arquivo ANTES de editá-lo. Recusa (conflito) se OUTRO agente já reivindicou o mesmo path. Use no começo de cada edição; libere com claim_release ao terminar. Substitui o claim textual antigo por enforcement real.",
+            "inputSchema": { "type": "object", "properties": {
+                "path": { "type": "string", "description": "Caminho do arquivo a reivindicar (relativo ou absoluto)." },
+                "agent": { "type": "string", "description": "Seu label de agente (ex: Backend)." },
+                "floor": { "type": "string", "description": "Sua branch/floor (opcional)." } },
+                "required": ["path", "agent"] } }),
+        json!({ "name": "claim_release",
+            "description": "Libera um arquivo que VOCÊ reivindicou (claim_acquire). Só o dono libera. Chame ao terminar de editar pra liberar pros outros.",
+            "inputSchema": { "type": "object", "properties": {
+                "path": { "type": "string" },
+                "agent": { "type": "string", "description": "Seu label de agente." } },
+                "required": ["path", "agent"] } }),
+        json!({ "name": "claim_list",
+            "description": "Lista todos os claims ativos (quem está editando o quê, em qual floor).",
+            "inputSchema": { "type": "object", "properties": {} } }),
+        json!({ "name": "claim_check",
+            "description": "ANTES de tocar em arquivos compartilhados: verifica se algum dos paths já está reivindicado por OUTRO agente. Devolve os conflitos pra você recuar/alinhar antes de editar.",
+            "inputSchema": { "type": "object", "properties": {
+                "paths": { "type": "array", "items": { "type": "string" }, "description": "Lista de paths a checar." },
+                "agent": { "type": "string", "description": "Seu label (claims SEUS não contam como conflito)." },
+                "floor": { "type": "string" } },
+                "required": ["paths"] } }),
+        json!({ "name": "spec_path_conflicts",
+            "description": "PRÓ-ATIVO (antes do fan-out): cruza os `paths:` declarados nas specs ATIVAS e devolve as sobreposições. Use ANTES de spawnar agentes pra avisar quando duas specs mexem nos mesmos arquivos (serialize ou redesenhe o escopo).",
+            "inputSchema": { "type": "object", "properties": {
+                "dir": { "type": "string", "description": "Raiz do projeto (onde vivem docs/superpowers)." },
+                "extra_roots": { "type": "array", "items": { "type": "string" }, "description": "Raízes extras de spec (opcional)." } },
+                "required": ["dir"] } }),
     ]
 }
 
@@ -227,6 +256,113 @@ pub fn spec_dispatch(tool: &str, args: Value) -> String {
             s
         }
         other => format!("❌ tool de spec desconhecida: {other}"),
+    }
+}
+
+/// Despacha as tools de coordenação (Bloco E): `claim_acquire/release/list/check`
+/// + `spec_path_conflicts`. Estado puro no `ClaimsRegistry` (sem IO, exceto a
+/// leitura de specs em spec_path_conflicts).
+pub fn claim_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    let claims = &state.claims;
+    match tool {
+        "claim_acquire" => {
+            let path = arg_str(&args, "path");
+            let agent = arg_str(&args, "agent");
+            if path.is_empty() || agent.is_empty() {
+                return "❌ 'path' e 'agent' são obrigatórios".into();
+            }
+            // floor explícito > floor ativo do espelho.
+            let floor = arg_opt(&args, "floor").or_else(|| active_floor_name(state));
+            match claims.acquire(&path, &agent, floor) {
+                Ok(e) => format!(
+                    "✅ claim adquirido: '{}'{} por {agent}",
+                    e.raw_path,
+                    floor_suffix(&e.floor)
+                ),
+                Err(c) => format!(
+                    "❌ CONFLITO: '{}' já reivindicado por {}{}. Recue ou alinhe (não edite ainda).",
+                    c.path,
+                    c.holder,
+                    floor_suffix(&c.holder_floor)
+                ),
+            }
+        }
+        "claim_release" => {
+            let path = arg_str(&args, "path");
+            let agent = arg_str(&args, "agent");
+            if path.is_empty() || agent.is_empty() {
+                return "❌ 'path' e 'agent' são obrigatórios".into();
+            }
+            if claims.release(&path, &agent) {
+                format!("✅ claim liberado: '{path}'")
+            } else {
+                format!("nada a liberar: '{path}' não é seu claim (ou não existe)")
+            }
+        }
+        "claim_list" => {
+            let list = claims.list();
+            if list.is_empty() {
+                return "Nenhum claim ativo.".into();
+            }
+            list.iter()
+                .map(|e| format!("• '{}'{} — {}", e.raw_path, floor_suffix(&e.floor), e.agent_label))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        "claim_check" => {
+            let paths: Vec<String> = args
+                .get("paths")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            if paths.is_empty() {
+                return "❌ 'paths' (lista) é obrigatório".into();
+            }
+            let agent = arg_str(&args, "agent");
+            let floor = arg_opt(&args, "floor");
+            let conflicts = claims.check(&paths, &agent, floor.as_deref());
+            if conflicts.is_empty() {
+                return "✅ Livre: nenhum dos paths está reivindicado por outro agente.".into();
+            }
+            let mut s = format!("⚠️ {} conflito(s) — NÃO edite ainda:\n", conflicts.len());
+            for c in &conflicts {
+                s.push_str(&format!(
+                    "• '{}' reivindicado por {}{}\n",
+                    c.path,
+                    c.holder,
+                    floor_suffix(&c.holder_floor)
+                ));
+            }
+            s
+        }
+        "spec_path_conflicts" => {
+            let dir = arg_str(&args, "dir");
+            if dir.is_empty() {
+                return "❌ 'dir' (raiz do projeto) é obrigatório".into();
+            }
+            let extra: Vec<String> = args
+                .get("extra_roots")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let conflicts =
+                crate::spec::spec_path_conflicts(std::path::Path::new(&dir), &extra);
+            if conflicts.is_empty() {
+                return "✅ Nenhuma sobreposição entre os `paths:` das specs ativas.".into();
+            }
+            let mut s = format!(
+                "⚠️ {} sobreposição(ões) entre specs ativas — serialize ou redesenhe o escopo ANTES do fan-out:\n",
+                conflicts.len()
+            );
+            for c in &conflicts {
+                s.push_str(&format!(
+                    "• '{}' tocado por '{}' E '{}'\n",
+                    c.path, c.holder, c.requester
+                ));
+            }
+            s
+        }
+        other => format!("❌ tool de coordenação desconhecida: {other}"),
     }
 }
 

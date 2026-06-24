@@ -47,3 +47,26 @@ pub fn spec_archive(dir: String, path: String) -> Result<String, String> {
 pub fn spec_unarchive(dir: String, path: String) -> Result<String, String> {
     spec::unarchive_spec(Path::new(&path), Path::new(&dir)).map_err(|e| e.to_string())
 }
+
+/// Conflito de sobreposição de `paths:` entre duas specs ativas (Bloco E).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathConflictDto {
+    /// Path-base em comum.
+    pub path: String,
+    /// Título da primeira spec.
+    pub spec_a: String,
+    /// Título da segunda spec.
+    pub spec_b: String,
+}
+
+/// Cruza os `paths:` das specs ATIVAS e devolve as sobreposições — pra o
+/// Orquestrador/UI avisar ANTES do fan-out (Bloco E, detecção pró-ativa).
+#[tauri::command]
+pub fn spec_path_conflicts(dir: String, extra_roots: Option<Vec<String>>) -> Vec<PathConflictDto> {
+    let extra = extra_roots.unwrap_or_default();
+    spec::spec_path_conflicts(Path::new(&dir), &extra)
+        .into_iter()
+        .map(|c| PathConflictDto { path: c.path, spec_a: c.holder, spec_b: c.requester })
+        .collect()
+}

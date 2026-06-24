@@ -214,6 +214,32 @@ pub fn list_spec_files(dir: &Path, extra_roots: &[String]) -> Vec<SpecFile> {
     out
 }
 
+/// Coleta os `paths:` declarados pelas specs ATIVAS (status == "active") sob
+/// `dir` + raízes extras. Cada entrada vira um `SpecPaths` (título + paths) pro
+/// detector de sobreposição (Bloco E). Specs done/obsolete/archived são ignoradas
+/// — só faz sentido cruzar o que ainda vai ser despachado.
+pub fn active_spec_paths(dir: &Path, extra_roots: &[String]) -> Vec<crate::mcp::claims::SpecPaths> {
+    list_spec_files(dir, extra_roots)
+        .into_iter()
+        .filter(|f| f.status == "active" && !f.paths.is_empty())
+        .map(|f| crate::mcp::claims::SpecPaths {
+            label: f.title,
+            floor: None,
+            paths: f.paths,
+        })
+        .collect()
+}
+
+/// Cruza os `paths:` das specs ativas e devolve as sobreposições (Bloco E,
+/// detecção pró-ativa). Wrapper de conveniência usado pelo comando Tauri e pela
+/// tool MCP `spec_path_conflicts`.
+pub fn spec_path_conflicts(
+    dir: &Path,
+    extra_roots: &[String],
+) -> Vec<crate::mcp::claims::Conflict> {
+    crate::mcp::claims::cross_spec_conflicts(&active_spec_paths(dir, extra_roots))
+}
+
 /// Move a spec pra `<dir>/docs/superpowers/archive/`. Devolve o novo path.
 pub fn archive_spec(file: &Path, dir: &Path) -> std::io::Result<String> {
     let archive = dir.join("docs/superpowers/archive");
@@ -292,5 +318,35 @@ Passo C.
         assert_eq!(compute_status("/x/plans/p.md", &Some("done".into()), 1, 3), "done");
         assert_eq!(compute_status("/x/plans/p.md", &None, 3, 3), "done");
         assert_eq!(compute_status("/x/plans/p.md", &None, 1, 3), "active");
+    }
+
+    #[test]
+    fn spec_path_conflicts_crosses_active_specs() {
+        let tmp = std::env::temp_dir().join(format!("omnirift-spec-xtest-{}", std::process::id()));
+        let specs = tmp.join("docs/superpowers/specs");
+        std::fs::create_dir_all(&specs).unwrap();
+        // Spec A (active) e Spec B (active) cruzam em src/lib/db.
+        std::fs::write(
+            specs.join("a.md"),
+            "---\nstatus: active\npaths:\n  - src/lib/db/**\n---\n# Spec A\n",
+        )
+        .unwrap();
+        std::fs::write(
+            specs.join("b.md"),
+            "---\nstatus: active\npaths:\n  - src/lib/db/conn.ts\n---\n# Spec B\n",
+        )
+        .unwrap();
+        // Spec C (done) NÃO entra na detecção mesmo cruzando.
+        std::fs::write(
+            specs.join("c.md"),
+            "---\nstatus: done\npaths:\n  - src/lib/db/old.ts\n---\n# Spec C\n",
+        )
+        .unwrap();
+
+        let conflicts = spec_path_conflicts(&tmp, &[]);
+        assert_eq!(conflicts.len(), 1, "só A×B; C é done");
+        assert_eq!(conflicts[0].path, "src/lib/db");
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

@@ -57,7 +57,7 @@ use commands::pty::{
     pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
     pty_read_screen, pty_resize, pty_spawn, pty_write,
 };
-use commands::spec::{spec_archive, spec_list_files, spec_unarchive};
+use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
 use commands::workspace::{workspace_load, workspace_save};
 use db::{
     db_load_workspace, db_save_workspace, memory_add, memory_delete, memory_query, reminder_add,
@@ -65,7 +65,7 @@ use db::{
     session_events_list, session_start, sessions_list, snapshot_create, snapshot_delete,
     snapshot_get, snapshot_prune_auto, snapshots_list,
 };
-use mcp::{mcp_router, serena_health, AgentRegistry};
+use mcp::{mcp_router, serena_health, AgentRegistry, ClaimsRegistry};
 use pty::PtyManager;
 use std::sync::Arc;
 use tauri::Manager;
@@ -127,10 +127,15 @@ pub fn run() {
     let floor_mirror: Arc<parking_lot::Mutex<serde_json::Value>> =
         Arc::new(parking_lot::Mutex::new(serde_json::json!({ "floors": [], "activeFloorId": null })));
 
+    // Registry de claims (Bloco E) — estado PURO (HashMap em Mutex). Sem threads,
+    // sem IO no construtor: app.manage disto no boot nunca panica.
+    let claims_registry = Arc::new(ClaimsRegistry::new());
+
     let mcp_pm = Arc::clone(&pty_manager);
     let sampler_pm = Arc::clone(&pty_manager);
     let mcp_ar = Arc::clone(&agent_registry);
     let mcp_fm = Arc::clone(&floor_mirror);
+    let mcp_claims = Arc::clone(&claims_registry);
 
     tauri::Builder::default()
         .setup(move |app| {
@@ -189,7 +194,7 @@ pub fn run() {
 
             // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente.
             tauri::async_runtime::spawn(async move {
-                let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry, max_agents);
+                let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry, max_agents, mcp_claims);
                 match tokio::net::TcpListener::bind("127.0.0.1:7844").await {
                     Ok(listener) => {
                         log::info!("OmniRift MCP server: http://127.0.0.1:7844");
@@ -205,6 +210,7 @@ pub fn run() {
         .manage(pty_manager)
         .manage(agent_registry)
         .manage(floor_mirror)
+        .manage(claims_registry)
         .manage(CodeWatchers::default())
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -277,6 +283,7 @@ pub fn run() {
             spec_list_files,
             spec_archive,
             spec_unarchive,
+            spec_path_conflicts,
             agent_docs_status,
             agent_docs_sync,
             discover_roles,
