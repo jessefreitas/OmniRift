@@ -9,6 +9,10 @@ pub mod memory;
 pub mod metrics;
 pub mod proc_ext;
 pub mod pty;
+// Redator de segredos — aplicado no caminho OUTBOUND (gateway OmniMemory + /diag),
+// nunca no blackboard local. Módulo puro (regex compiladas lazy via OnceLock):
+// boot-safe, sem IO no load. Ver redactor.rs para a fronteira local vs sai-da-máquina.
+pub mod redactor;
 pub mod spec;
 
 use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles};

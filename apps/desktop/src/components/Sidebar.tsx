@@ -122,6 +122,7 @@ import { loadLlmConfig } from "@/lib/llm-client";
 import { runReview } from "@/lib/review";
 import { loadHooks, runFloorHook } from "@/lib/hooks-client";
 import type { Floor } from "@/types/workspace";
+import { floorHost } from "@/types/workspace";
 import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
 import { cn } from "@/lib/cn";
@@ -512,6 +513,36 @@ export function Sidebar() {
     };
     window.addEventListener("omnirift:health-spawn-agent", h);
     return () => window.removeEventListener("omnirift:health-spawn-agent", h);
+  }, [roles, mcpConfigPath, settingsFor]);
+
+  // "Capturar elemento" do Portal (Design Mode grab, ref teardown §3.5): o
+  // PortalNode extrai um GrabPayload em markdown e dispara `omnirift:portal-grab`
+  // { markdown, url }. Aqui spawnamos um agente com esse contexto seedado — mesmo
+  // padrão do health-spawn-agent (workerClaudeArgs + addTerminal). O PortalNode já
+  // copiou o markdown pro clipboard como fallback, então mesmo que o spawn falhe o
+  // user não perde a captura.
+  useEffect(() => {
+    const h = (e: Event) => {
+      const det = (e as CustomEvent<{ markdown?: string; url?: string }>).detail;
+      if (!det?.markdown) return;
+      const dbg = roles.find((r) => r.id === "debugger");
+      const task =
+        `Capturei um elemento da página${det.url ? ` ${det.url}` : ""} no portal de browser. ` +
+        `Use este contexto pra a próxima tarefa (ajustar estilo, criar componente equivalente, ` +
+        `escrever um seletor de teste, etc.):\n\n${det.markdown}`;
+      const label = `grab: ${(det.url ?? "portal").replace(/^https?:\/\//, "").split("/")[0]}`;
+      void settingsFor(label).then((settingsConfigPath) =>
+        addTerminal({
+          command: "claude",
+          args: [...workerClaudeArgs(mcpConfigPath, dbg?.prompt, settingsConfigPath), task],
+          role: "claude-code",
+          label,
+          compressor: loadDefaultCompressor(),
+        }),
+      );
+    };
+    window.addEventListener("omnirift:portal-grab", h);
+    return () => window.removeEventListener("omnirift:portal-grab", h);
   }, [roles, mcpConfigPath, settingsFor]);
 
   // Esconde/mostra a barra inteira (persiste).
@@ -1313,6 +1344,21 @@ export function Sidebar() {
                   <GitBranch size={9} className="text-brand opacity-70 shrink-0" />
                 </Tooltip>
               )}
+              {(() => {
+                const host = floorHost(f);
+                if (host.kind === "local") return null;
+                return (
+                  <Tooltip
+                    label={tr("sidebar.parallelRemoteHost", "Executa em host remoto: {host}").replace("{host}", `${host.kind}:${host.id}`)}
+                    side="top"
+                  >
+                    <span className="flex items-center gap-0.5 text-[8px] text-amber-500 opacity-80 shrink-0 font-mono">
+                      <Server size={9} />
+                      {host.kind}
+                    </span>
+                  </Tooltip>
+                );
+              })()}
               <span className="text-xs flex-1 truncate">{f.name}</span>
               <Tooltip label={tr("sidebar.nodesInParallel", "{n} nó(s) neste paralelo").replace("{n}", String(f.nodes.length))} side="top">
                 <span className="text-[9px] text-textMuted opacity-60">{f.nodes.length}</span>

@@ -22,7 +22,7 @@ import type {
   TerminalNode,
 } from "@/types/canvas";
 import type { AnyWorkspaceFile, Floor, Project, ProjectMeta, WorkspaceFileV3 } from "@/types/workspace";
-import { migrateWorkspace } from "@/types/workspace";
+import { LOCAL_HOST_ID, migrateWorkspace, normalizeFloorHostId } from "@/types/workspace";
 import type { AgentRole, AgentState } from "@/types/pty";
 
 interface CanvasState {
@@ -122,7 +122,7 @@ function defaultPosition(): { x: number; y: number } {
   return { x: 200 + Math.random() * 400, y: 150 + Math.random() * 300 };
 }
 
-const FIRST_FLOOR: Floor = { id: "floor-main", name: "Principal", cwd: null, projectId: "proj-main", nodes: [], edges: [] };
+const FIRST_FLOOR: Floor = { id: "floor-main", name: "Principal", cwd: null, projectId: "proj-main", nodes: [], edges: [], hostId: LOCAL_HOST_ID };
 const FIRST_PROJECT: ProjectMeta = { id: "proj-main", name: "Principal", cwd: null, activeFloorId: FIRST_FLOOR.id };
 
 /** Map sobre os nós do floor ativo (busca por activeFloorId no array flat). */
@@ -166,7 +166,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       return null;
     }
     const projId = nanoid();
-    const floor: Floor = { id: nanoid(), name: "Principal", cwd, projectId: projId, nodes: [], edges: [] };
+    const floor: Floor = { id: nanoid(), name: "Principal", cwd, projectId: projId, nodes: [], edges: [], hostId: LOCAL_HOST_ID };
     const proj: ProjectMeta = {
       id: projId,
       name: name?.trim() || `Projeto ${get().projects.length + 1}`,
@@ -223,6 +223,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       projectId: s0.activeProjectId, // floor nasce no projeto ativo
       nodes: [],
       edges: [],
+      hostId: LOCAL_HOST_ID, // SSH/runtime ainda não existem; nasce local
+
       ...(g && {
         branch: g.branch,
         worktreePath: g.worktreePath,
@@ -268,7 +270,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   closeFolder: () =>
     set((s) => {
       const pid = s.activeProjectId;
-      const fresh: Floor = { id: nanoid(), name: "Floor 1", cwd: null, projectId: pid, nodes: [], edges: [] };
+      const fresh: Floor = { id: nanoid(), name: "Floor 1", cwd: null, projectId: pid, nodes: [], edges: [], hostId: LOCAL_HOST_ID };
       // Tira os floors do projeto ativo (terminais desmontam → PTYs morrem) + 1 floor limpo.
       const floors = [...s.floors.filter((f) => f.projectId !== pid), fresh];
       return { floors, activeFloorId: fresh.id, currentCwd: null, dirtyFiles: new Set() };
@@ -623,7 +625,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
         source: idMap.get(e.source) ?? e.source,
         target: idMap.get(e.target) ?? e.target,
       }));
-      return { floor: { ...f, id: nanoid(), projectId: projId, nodes, edges }, oldId: f.id };
+      // Migração suave: floors legados (sem hostId) → "local" ao carregar.
+      return { floor: { ...f, id: nanoid(), projectId: projId, nodes, edges, hostId: normalizeFloorHostId(f.hostId) }, oldId: f.id };
     };
     const flatFloors: Floor[] = [];
     const projects: ProjectMeta[] = v3.projects.map((p) => {
