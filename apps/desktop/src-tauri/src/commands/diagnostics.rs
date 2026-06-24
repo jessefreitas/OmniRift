@@ -39,7 +39,11 @@ fn read_log_tail(app: &tauri::AppHandle) -> String {
     };
     let start = bytes.len().saturating_sub(LOG_TAIL_BYTES);
     // from_utf8_lossy lida com um corte no meio de um caractere multibyte.
-    String::from_utf8_lossy(&bytes[start..]).into_owned()
+    let tail = String::from_utf8_lossy(&bytes[start..]).into_owned();
+    // FRONTEIRA sai-da-máquina: o bundle do /diag é anexado a reports de suporte
+    // (sai do disco do usuário). Redige fingerprints de provedor / tokens / linhas
+    // de env que possam ter caído no log antes de empacotar. Ver crate::redactor.
+    crate::redactor::redact(&tail)
 }
 
 /// Coleta um bundle de diagnóstico (versão, SO, tail do log) pra reports de suporte.

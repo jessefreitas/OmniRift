@@ -90,7 +90,11 @@ impl MemoryProvider for OmniMemoryProvider {
 
     async fn save(&self, m: NewMemory) -> anyhow::Result<String> {
         let base = self.base().ok_or_else(|| anyhow::anyhow!("sem endpoint"))?;
-        let body = serde_json::json!({ "content": m.content, "category": m.category, "project": m.project });
+        // FRONTEIRA sai-da-máquina: o conteúdo (contexto de agente / SQL) é redigido
+        // ANTES de cruzar a rede pro gateway remoto. O blackboard LOCAL não passa por
+        // aqui — só o que sai. Ver crate::redactor (fronteira documentada lá).
+        let content = crate::redactor::redact(&m.content);
+        let body = serde_json::json!({ "content": content, "category": m.category, "project": m.project });
         // Gateway real: /actions/omnimemory/v1/save_project_memory (verificado
         // contra http_gateway.py — NÃO existe "save_memory"; o /v1 é obrigatório).
         let resp = self
@@ -109,7 +113,11 @@ impl MemoryProvider for OmniMemoryProvider {
 
     async fn search(&self, q: MemoryQuery) -> anyhow::Result<Vec<MemoryRecord>> {
         let base = self.base().ok_or_else(|| anyhow::anyhow!("sem endpoint"))?;
-        let body = serde_json::json!({ "query": q.query, "limit": q.limit, "project": q.project });
+        // FRONTEIRA sai-da-máquina: a query também é redigida antes de ir pro gateway
+        // — uma busca pode conter um segredo colado por engano. Resultados que VOLTAM
+        // não são redigidos (já estavam no servidor remoto).
+        let query = crate::redactor::redact(&q.query);
+        let body = serde_json::json!({ "query": query, "limit": q.limit, "project": q.project });
         // Gateway real: /actions/omnimemory/v1/search_memories (o /v1 é obrigatório).
         let resp = self
             .post(format!("{base}/actions/omnimemory/v1/search_memories"))
