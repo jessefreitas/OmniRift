@@ -34,17 +34,24 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
   // orquestrador) nasce com o mesmo contrato de dev (Serena + Context7 + memória)
   // e deny-list, igual aos presets manuais. É o "forçar via dispatch".
   const mcpConfigPath = await agentMcpConfig().catch(() => null);
-  const settingsPath = await agentSettingsConfig().catch(() => null);
-  const devArgs = (role: AgentRole) =>
-    role === "claude-code" ? workerClaudeArgs(mcpConfigPath, undefined, settingsPath) : undefined;
+  // Settings é POR-AGENTE agora (label embute no push-hook de status) → resolvido
+  // por spawn com o label real. Sem label cai em "agent" (status no-op, review ok).
+  const devArgs = async (role: AgentRole, label?: string) =>
+    role === "claude-code"
+      ? workerClaudeArgs(
+          mcpConfigPath,
+          undefined,
+          await agentSettingsConfig(label ?? "agent").catch(() => null),
+        )
+      : undefined;
 
-  const unSpawn = await listen<SpawnRequest>("canvas://spawn-request", (event) => {
+  const unSpawn = await listen<SpawnRequest>("canvas://spawn-request", async (event) => {
     const p = event.payload;
     const role = asRole(p.role);
     store().addTerminal({
       id: p.id,
       command: p.command,
-      args: devArgs(role),
+      args: await devArgs(role, p.label),
       label: p.label,
       role,
       position: p.position ?? undefined,
@@ -78,7 +85,7 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
     }
     store().createFloor(p.branch, gitOpts);
     const role = asRole(p.role);
-    store().addTerminal({ id: p.id, command: p.command, args: devArgs(role), label: p.label, role });
+    store().addTerminal({ id: p.id, command: p.command, args: await devArgs(role, p.label), label: p.label, role });
   });
 
   const unCreate = await listen<{ name?: string }>("canvas://floor-create", (e) => {

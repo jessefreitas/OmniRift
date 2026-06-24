@@ -49,12 +49,16 @@ export async function agentMcpConfig(): Promise<string | null> {
 }
 
 /**
- * Caminho do `agent-settings.json` com o **Stop hook** de code review — injetado
- * via `--settings` nos agentes claude. O hook bloqueia o agente de encerrar
- * enquanto o review reprovar (NO-GO). Null se indisponível.
+ * Caminho do `agent-settings-<label>.json` (POR-AGENTE) com os hooks do claude:
+ *  - **Status push-hooks**: UserPromptSubmit→working, Notification→blocked,
+ *    Stop→done. O agente empurra o próprio estado p/ `/agent-hook/<label>` (P0 do
+ *    teardown do ref) — autoritativo sobre o detector PTY.
+ *  - **Stop hook de review**: bloqueia o agente de encerrar em NO-GO.
+ * `label` = label do agente (mesmo usado em mcpRegisterAgent / addTerminal) →
+ * resolvido p/ session_id no POST do hook. Null se indisponível.
  */
-export async function agentSettingsConfig(): Promise<string | null> {
-  return invoke<string | null>("agent_settings_config");
+export async function agentSettingsConfig(label: string): Promise<string | null> {
+  return invoke<string | null>("agent_settings_config", { label });
 }
 
 /** Envia o estado dos floors ao espelho do backend (para workspace_list). */

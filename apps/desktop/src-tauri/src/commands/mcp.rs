@@ -35,7 +35,7 @@ pub fn mcp_list_agents(
 
 #[tauri::command]
 pub fn mcp_server_url() -> String {
-    "http://127.0.0.1:7844/sse".to_string()
+    format!("http://127.0.0.1:{}/sse", crate::mcp::MCP_PORT)
 }
 
 #[tauri::command]

@@ -72,7 +72,7 @@ use db::{
     session_events_list, session_start, sessions_list, snapshot_create, snapshot_delete,
     snapshot_get, snapshot_prune_auto, snapshots_list,
 };
-use mcp::{mcp_router, serena_health, AgentRegistry, ClaimsRegistry};
+use mcp::{mcp_router, serena_health, AgentRegistry, ClaimsRegistry, MCP_PORT};
 use pty::PtyManager;
 use std::sync::Arc;
 use tauri::Manager;
@@ -202,13 +202,14 @@ pub fn run() {
             // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente.
             tauri::async_runtime::spawn(async move {
                 let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry, max_agents, mcp_claims);
-                match tokio::net::TcpListener::bind("127.0.0.1:7844").await {
+                let addr = format!("127.0.0.1:{MCP_PORT}");
+                match tokio::net::TcpListener::bind(&addr).await {
                     Ok(listener) => {
-                        log::info!("OmniRift MCP server: http://127.0.0.1:7844");
+                        log::info!("OmniRift MCP server: http://{addr}");
                         let _ = axum::serve(listener, router).await;
                     }
                     Err(e) => {
-                        log::error!("Falha ao iniciar MCP server na porta 7844: {e}");
+                        log::error!("Falha ao iniciar MCP server na porta {MCP_PORT}: {e}");
                     }
                 }
             });

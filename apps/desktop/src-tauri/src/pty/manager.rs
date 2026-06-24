@@ -114,6 +114,16 @@ impl PtyManager {
         self.state_map.get(id).map(|e| *e.value())
     }
 
+    /// Push autoritativo de estado vindo de fora do detector (ex.: hooks do agente
+    /// via `POST /agent-hook/:label`). Atualiza o mapa e propaga no `state_tx` —
+    /// mantém o `subscribe_state` (usado por `terminal_wait_status` / send_task) em
+    /// sincronia com o que o hook reporta. NÃO emite `agent://status`: o caller
+    /// (handler do MCP) faz o emit com o `AppHandle` + nome do agente.
+    pub fn set_agent_state(&self, id: &str, state: AgentState) {
+        self.state_map.insert(id.to_string(), state);
+        let _ = self.state_tx.send((id.to_string(), state));
+    }
+
     /// Stream de mudanças de estado (base do `wait agent-status` do Sub-projeto B).
     pub fn subscribe_state(&self) -> broadcast::Receiver<(SessionId, AgentState)> {
         self.state_tx.subscribe()

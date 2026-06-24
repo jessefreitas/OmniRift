@@ -62,9 +62,10 @@ export function ReviewFixConfirm({ finding, floor, onClose, onDispatched }: Prop
     setBusy(true);
     setErr(null);
     try {
+      const label = `fix: ${finding.file.split("/").pop()}`;
       const [mcpPath, settingsPath] = await Promise.all([
         agentMcpConfig().catch(() => null),
-        agentSettingsConfig().catch(() => null),
+        agentSettingsConfig(label).catch(() => null),
       ]);
       const claude = ROLE_CLIS.find((c) => c.id === "claude");
       const store = useCanvasStore.getState();
@@ -74,7 +75,7 @@ export function ReviewFixConfirm({ finding, floor, onClose, onDispatched }: Prop
         command: claude?.command ?? "claude",
         args: [...workerClaudeArgs(mcpPath, undefined, settingsPath), prompt],
         role: "claude-code",
-        label: `fix: ${finding.file.split("/").pop()}`,
+        label,
       });
       if (!node) {
         setErr(t("reviewFixConfirm.limitBlocked", "Limite de agentes da edição community atingido."));

@@ -331,7 +331,12 @@ export function Sidebar() {
   const setOrchestratorSid = useCanvasStore((s) => s.setOrchestratorSid);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
-  const [settingsConfigPath, setSettingsConfigPath] = useState<string | null>(null);
+  // Settings POR-AGENTE: o label embute no push-hook de status (/agent-hook/<label>).
+  // Resolvido por spawn com o label real do agente. Degrada p/ null (sem --settings).
+  const settingsFor = useCallback(
+    (label: string) => agentSettingsConfig(label).catch(() => null),
+    [],
+  );
   const [specs, setSpecs] = useState<SpecFile[]>([]);
   const [specRoots, setSpecRoots] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("omnirift-spec-roots") ?? "[]"); } catch { return []; }
@@ -494,17 +499,20 @@ export function Sidebar() {
         task = `Analise e conserte o arquivo ${det.target}. Use Serena (find_symbol/get_references) e aplique o fix.${bk}\n\nRelatório prévio:\n${det.report?.summary ?? ""}\n${pts}`;
       }
 
-      addTerminal({
-        command: "claude",
-        args: [...workerClaudeArgs(mcpConfigPath, dbg?.prompt, settingsConfigPath), task],
-        role: "claude-code",
-        label: `${det.finding ? "fix" : "debug"}: ${det.target.split("/").pop()}`,
-        compressor: loadDefaultCompressor(),
-      });
+      const label = `${det.finding ? "fix" : "debug"}: ${det.target.split("/").pop()}`;
+      void settingsFor(label).then((settingsConfigPath) =>
+        addTerminal({
+          command: "claude",
+          args: [...workerClaudeArgs(mcpConfigPath, dbg?.prompt, settingsConfigPath), task],
+          role: "claude-code",
+          label,
+          compressor: loadDefaultCompressor(),
+        }),
+      );
     };
     window.addEventListener("omnirift:health-spawn-agent", h);
     return () => window.removeEventListener("omnirift:health-spawn-agent", h);
-  }, [roles, mcpConfigPath, settingsConfigPath]);
+  }, [roles, mcpConfigPath, settingsFor]);
 
   // Esconde/mostra a barra inteira (persiste).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -556,7 +564,6 @@ export function Sidebar() {
   // docs ao vivo) uma vez — injetado via --mcp-config nos agentes claude.
   useEffect(() => {
     agentMcpConfig().then(setMcpConfigPath).catch(() => {});
-    agentSettingsConfig().then(setSettingsConfigPath).catch(() => {});
     void clisList().then(setCatalogClis).catch(() => {});
   }, []);
 
@@ -757,12 +764,13 @@ export function Sidebar() {
   // Injeta o perfil universal de MCP (--mcp-config) nos agentes claude — o
   // agente nasce com estrutura de código por linguagem (Serena) + docs ao vivo
   // (Context7) apontados pra pasta do projeto.
-  function argsWithMcp(preset: AgentPreset): string[] | undefined {
+  async function argsWithMcp(preset: AgentPreset): Promise<string[] | undefined> {
     if (preset.role === "claude-code") {
+      const settingsPath = await settingsFor(preset.label);
       return [
         ...(preset.args ?? []),
         ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath] : []),
-        ...(settingsConfigPath ? ["--settings", settingsConfigPath] : []),
+        ...(settingsPath ? ["--settings", settingsPath] : []),
       ];
     }
     return preset.args;
@@ -934,9 +942,10 @@ export function Sidebar() {
   // têm flag de system-prompt → a persona vai como 1ª mensagem após o CLI subir.
   /** Spawna o Orquestrador no CLI escolhido, com ORCHESTRATOR_CONTRACT (não o
    *  DEV_CONTRACT do worker). Claude = flag nativa; sem flag = 1ª mensagem quando pronto. */
-  function spawnOrchestrator(cliId: string) {
+  async function spawnOrchestrator(cliId: string) {
     const cli = ROLE_CLIS.find((c) => c.id === cliId) ?? ROLE_CLIS[0];
     if (cli.role === "claude-code") {
+      const settingsConfigPath = await settingsFor("Orquestrador");
       const args = [
         "--append-system-prompt", ORCHESTRATOR_CONTRACT,
         "--dangerously-skip-permissions",
@@ -993,7 +1002,7 @@ export function Sidebar() {
     if (cli.systemPromptFlag) {
       const baseArgs =
         cli.role === "claude-code"
-          ? workerClaudeArgs(mcpConfigPath, r.prompt, settingsConfigPath)
+          ? workerClaudeArgs(mcpConfigPath, r.prompt, await settingsFor(r.name))
           : [cli.systemPromptFlag, r.prompt];
       addTerminal({
         command: cli.command,
@@ -1590,17 +1599,18 @@ export function Sidebar() {
               className="group flex items-center rounded-md hover:bg-surface2 transition-colors"
             >
               <button
-                onClick={() =>
-                  isOrch
-                    ? spawnOrchestrator(orchCli)
-                    : addTerminal({
-                        command: preset.command,
-                        args: argsWithMcp(preset),
-                        role: preset.role,
-                        label: preset.label,
-                        compressor: loadDefaultCompressor(),
-                      })
-                }
+                onClick={() => {
+                  if (isOrch) { void spawnOrchestrator(orchCli); return; }
+                  void argsWithMcp(preset).then((args) =>
+                    addTerminal({
+                      command: preset.command,
+                      args,
+                      role: preset.role,
+                      label: preset.label,
+                      compressor: loadDefaultCompressor(),
+                    }),
+                  );
+                }}
                 title={isOrch ? tr("sidebar.orchRunningIn", "Orquestrador rodando em {cli} — só decompõe e delega").replace("{cli}", orchLabel) : tr("presetDesc." + preset.id, preset.description)}
                 className="flex-1 min-w-0 text-left flex items-start gap-3 px-2 py-2"
               >

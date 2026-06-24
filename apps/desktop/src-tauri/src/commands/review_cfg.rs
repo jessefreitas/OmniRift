@@ -48,27 +48,74 @@ pub fn ensure_review_script(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(script)
 }
 
-/// Gera o `agent-settings.json` com um **Stop hook** que roda o review headless
-/// e bloqueia o encerramento do agente em NO-GO. Injetado via `--settings` no
-/// spawn dos agentes claude (espelha o `agent_mcp_config`). Devolve o caminho.
+/// Sanitiza um label de agente p/ uso em nome de arquivo (settings por-agente).
+/// "Backend (API)" → "backend_api". Vazio → "agent".
+fn sanitize_label(label: &str) -> String {
+    let s: String = label
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect::<String>()
+        .split('_')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("_");
+    if s.is_empty() { "agent".into() } else { s }
+}
+
+/// Comando curl de um push-hook de status (loopback, `-m 2` = nunca trava o agente).
+/// `state` em query param → ZERO inferno de quoting cross-platform (curl existe no
+/// Win10+/Linux/Mac). O label vai no path da rota `/agent-hook/:label`.
+fn status_hook_cmd(label: &str, state: &str) -> String {
+    format!(
+        "curl -s -m 2 -X POST \"http://127.0.0.1:{}/agent-hook/{}?state={}\"",
+        crate::mcp::MCP_PORT,
+        label,
+        state,
+    )
+}
+
+/// Gera o `agent-settings-<label>.json` com os hooks do agente claude. Injetado via
+/// `--settings` no spawn (espelha o `agent_mcp_config`). MERGE de dois grupos:
+///   - **Status push-hooks** (P0 do teardown do ref): UserPromptSubmit→working,
+///     Notification→blocked, Stop→done. O agente empurra o próprio estado p/ o
+///     servidor MCP (`/agent-hook/:label`), autoritativo sobre o detector PTY.
+///   - **Review Stop hook** (já existente): roda o review headless e BLOQUEIA o
+///     encerramento em NO-GO. Somado ao status `done` no MESMO array de Stop.
+/// `label` = label do agente no registry (resolve p/ session_id no POST). Devolve o caminho.
 #[tauri::command]
-pub fn agent_settings_config(app: tauri::AppHandle) -> Option<String> {
+pub fn agent_settings_config(app: tauri::AppHandle, label: String) -> Option<String> {
     let script = ensure_review_script(&app).ok()?;
     let cfg = config_path(&app).ok()?;
     // command roda via shell (sem `args`) → cita os caminhos por segurança.
-    let cmd = format!(
+    let review_cmd = format!(
         "python3 \"{}\" --hook --config \"{}\"",
         script.display(),
         cfg.display()
     );
+    let label = label.trim();
+    let label = if label.is_empty() { "agent" } else { label };
+
     let settings = serde_json::json!({
         "hooks": {
-            // Stop não usa matcher (sempre dispara). timeout 180s = teto do review LLM.
-            "Stop": [ { "hooks": [ { "type": "command", "command": cmd, "timeout": 180 } ] } ]
+            // Prompt submetido → o agente começou a trabalhar.
+            "UserPromptSubmit": [ { "hooks": [
+                { "type": "command", "command": status_hook_cmd(label, "working"), "timeout": 5 }
+            ] } ],
+            // Notification (pedido de permissão / espera de input) → bloqueado.
+            "Notification": [ { "hooks": [
+                { "type": "command", "command": status_hook_cmd(label, "blocked"), "timeout": 5 }
+            ] } ],
+            // Stop: MERGE — status `done` (push) + review headless (gate NO-GO).
+            // Ambos no mesmo array; o de review mantém timeout 180s (teto do LLM).
+            "Stop": [ { "hooks": [
+                { "type": "command", "command": status_hook_cmd(label, "done"), "timeout": 5 },
+                { "type": "command", "command": review_cmd, "timeout": 180 }
+            ] } ]
         }
     });
     let dir = app.path().app_data_dir().ok()?;
-    let path = dir.join("agent-settings.json");
+    let path = dir.join(format!("agent-settings-{}.json", sanitize_label(label)));
     std::fs::write(&path, serde_json::to_string_pretty(&settings).ok()?).ok()?;
     Some(path.to_string_lossy().into_owned())
 }

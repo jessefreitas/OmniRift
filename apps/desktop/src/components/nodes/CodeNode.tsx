@@ -123,9 +123,10 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
       const claude = ROLE_CLIS.find((c) => c.id === "claude") ?? ROLE_CLIS[0];
       const debuggerRole = loadRoles().find((r) => r.id === "debugger");
 
+      const label = `debug: ${fileName}`;
       const [mcpPath, settingsPath] = await Promise.all([
         agentMcpConfig().catch(() => null),
-        agentSettingsConfig().catch(() => null),
+        agentSettingsConfig(label).catch(() => null),
       ]);
 
       // Prompt rico do backend (best-effort). Se falhar, cai num prompt mínimo
@@ -147,7 +148,7 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
         command: claude.command,
         args: [...baseArgs, prompt],
         role: "claude-code",
-        label: `debug: ${fileName}`,
+        label,
       });
       setPendingSelection(null);
     } finally {

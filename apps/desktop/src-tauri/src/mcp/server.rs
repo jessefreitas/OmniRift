@@ -9,9 +9,9 @@
 ///   - send_task    → envia tarefa para um agente, captura e retorna resultado
 
 use crate::mcp::{registry::to_tool_name, AgentRegistry, ClaimsRegistry};
-use crate::pty::{AgentState, PtyManager};
+use crate::pty::{AgentState, AgentStatusEvent, PtyManager};
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{
         sse::{Event, Sse},
@@ -20,6 +20,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use tauri::Emitter;
 use dashmap::DashMap;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
@@ -65,7 +66,73 @@ pub fn mcp_router(
     Router::new()
         .route("/sse", get(sse_handler))
         .route("/message", post(message_handler))
+        // Push-hooks de status: o agente (claude) POSTa o próprio estado
+        // (working/blocked/done) via curl no `?state=`. Loopback only, sem auth.
+        .route("/agent-hook/{label}", post(agent_hook_handler))
         .with_state(state)
+}
+
+// ── Status push-hooks ──────────────────────────────────────────────────────────
+
+/// Mapeia a string do query param `state` → `AgentState`. Puro/testável.
+/// `working→Working`, `blocked|waiting→Blocked`, `done→Done`. Qualquer outra
+/// string (incl. estados não-empurráveis como idle/dead) → `None` (no-op 204).
+pub(crate) fn map_state(s: &str) -> Option<AgentState> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "working" => Some(AgentState::Working),
+        "blocked" | "waiting" => Some(AgentState::Blocked),
+        "done" => Some(AgentState::Done),
+        _ => None,
+    }
+}
+
+/// `POST /agent-hook/:label?state=<working|blocked|waiting|done>[&tool=<x>]`
+/// O agente empurra seu próprio estado (autoritativo sobre o detector PTY).
+/// - `state` inválido/ausente → 204 no-op (não 4xx — o hook nunca deve falhar feio).
+/// - `label` não registrado → 204 no-op (agente sem registro cai no fallback detector).
+/// - sucesso → atualiza o AgentStateMap, propaga no `state_tx` e emite `agent://status`.
+async fn agent_hook_handler(
+    Path(label): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<Arc<McpState>>,
+) -> StatusCode {
+    let Some(new_state) = params.get("state").and_then(|s| map_state(s)) else {
+        return StatusCode::NO_CONTENT; // estado inválido/ausente → ignora
+    };
+
+    // Resolve label → (session_id, nome do agente p/ o evento). Label desconhecido = no-op.
+    let Some((session_id, agent_name)) = resolve_hook_target(&state.agent_registry, &label) else {
+        return StatusCode::NO_CONTENT;
+    };
+
+    // Mensagem opcional: a tool em uso (PreToolUse manda `&tool=`).
+    let message = params.get("tool").filter(|t| !t.is_empty()).cloned();
+
+    // Autoritativo: atualiza o mapa + broadcast (sincroniza terminal_wait_status),
+    // e emite o MESMO evento que o detector emite (front consome por session_id).
+    state.pty_manager.set_agent_state(&session_id, new_state);
+    let _ = state.app.emit(
+        "agent://status",
+        AgentStatusEvent {
+            session_id,
+            state: new_state,
+            agent: agent_name,
+            message,
+        },
+    );
+
+    StatusCode::OK
+}
+
+/// Resolve um label de hook → (session_id, nome do agente para o evento).
+/// Devolve `None` se o label não estiver no registry. Puro sobre o registry
+/// (testável sem axum/AppHandle).
+pub(crate) fn resolve_hook_target(
+    registry: &AgentRegistry,
+    label: &str,
+) -> Option<(String, String)> {
+    let session_id = registry.get_session_id(label)?;
+    Some((session_id, label.to_string()))
 }
 
 // ── SSE handler ──────────────────────────────────────────────────────────────
@@ -311,4 +378,64 @@ async fn do_send_task(
 
     // Resultado = tela renderizada (VT100) do agente, não o stream cru.
     Ok(state.pty_manager.read_screen(&session_id).unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_state_valid_strings() {
+        assert_eq!(map_state("working"), Some(AgentState::Working));
+        assert_eq!(map_state("blocked"), Some(AgentState::Blocked));
+        assert_eq!(map_state("waiting"), Some(AgentState::Blocked));
+        assert_eq!(map_state("done"), Some(AgentState::Done));
+    }
+
+    #[test]
+    fn map_state_is_case_and_space_insensitive() {
+        assert_eq!(map_state("  WORKING "), Some(AgentState::Working));
+        assert_eq!(map_state("Done"), Some(AgentState::Done));
+    }
+
+    #[test]
+    fn map_state_invalid_strings_are_none() {
+        // String inválida → None → handler responde 204 (no-op).
+        assert_eq!(map_state(""), None);
+        assert_eq!(map_state("idle"), None); // não-empurrável: vem do detector
+        assert_eq!(map_state("dead"), None); // idem (lifecycle)
+        assert_eq!(map_state("garbage"), None);
+    }
+
+    #[test]
+    fn resolve_hook_target_unknown_label_is_none() {
+        let reg = AgentRegistry::new();
+        // Label não registrado → None → handler responde 204 (não 500).
+        assert!(resolve_hook_target(&reg, "ghost").is_none());
+    }
+
+    #[test]
+    fn resolve_hook_target_known_label_returns_session_and_name() {
+        let reg = AgentRegistry::new();
+        reg.register("Backend".into(), "sess-abc-123".into(), "API".into(), None);
+        let (sid, name) = resolve_hook_target(&reg, "Backend").expect("label registrado");
+        assert_eq!(sid, "sess-abc-123");
+        assert_eq!(name, "Backend");
+    }
+
+    #[test]
+    fn hook_target_plus_map_builds_status_event() {
+        // Reproduz o que o handler monta (sem subir o axum): resolve label →
+        // session_id + monta o AgentStatusEvent com o mesmo shape do detector.
+        let reg = AgentRegistry::new();
+        reg.register("DBA".into(), "sess-xyz".into(), "schema".into(), None);
+        let state = map_state("done").expect("done é válido");
+        let (session_id, agent) =
+            resolve_hook_target(&reg, "DBA").expect("DBA registrado");
+        let ev = AgentStatusEvent { session_id, state, agent, message: Some("Edit".into()) };
+        assert_eq!(ev.session_id, "sess-xyz");
+        assert_eq!(ev.state, AgentState::Done);
+        assert_eq!(ev.agent, "DBA");
+        assert_eq!(ev.message.as_deref(), Some("Edit"));
+    }
 }
