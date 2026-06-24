@@ -161,9 +161,53 @@ export async function healthAnalyzeDb(root: string): Promise<AiReport> {
  * Análise de IA de um arquivo (sob demanda). Monta prompt com as métricas +
  * trecho e roteia pelo LLM/brain ativo → relatório estruturado. Em caso de LLM
  * indisponível, o backend deve rejeitar com mensagem amigável (fail-open na UI).
+ *
+ * O backend PERSISTE o relatório por projeto (`root`) — depois recupere via
+ * `healthReportGet`/`healthReportsList`. Por isso `root` agora é obrigatório.
  */
-export async function healthAnalyzeFile(path: string): Promise<AiReport> {
-  return invoke<AiReport>("health_analyze_file", { path });
+export async function healthAnalyzeFile(root: string, path: string): Promise<AiReport> {
+  return invoke<AiReport>("health_analyze_file", { root, path });
+}
+
+// ── Persistência de relatórios (spec 2026-06-24) ─────────────────────────────
+//
+// O backend é a FONTE DA VERDADE: ao rodar `health_analyze_file`, ele grava o
+// relatório por projeto. A UI carrega os salvos ao abrir/escanear (badge
+// "✓ analisado" + ts), mostra os que estão `running` como "analisando…", e
+// exibe o relatório salvo sem re-analisar (botão "re-analisar" força novo).
+//
+// Contrato do backend (implementado em paralelo):
+//   - health_report_get(root, path) → SavedReport | null
+//   - health_reports_list(root)     → SavedReport[]
+
+/** Relatório salvo de um arquivo (retorno de `health_report_get`/`health_reports_list`). */
+export interface SavedReport {
+  /** Caminho do arquivo analisado (chave do relatório no projeto). */
+  file: string;
+  /** Timestamp ISO de quando o relatório foi gerado/atualizado. */
+  ts: string;
+  /** O relatório de IA em si (mesmo tipo da análise inline). */
+  report: AiReport;
+  /** true enquanto a análise deste arquivo está em andamento no backend. */
+  running: boolean;
+}
+
+/**
+ * Recupera o relatório salvo de UM arquivo do projeto em `root`. Resolve com o
+ * `SavedReport` (ou `null` se nunca foi analisado). Use ao expandir/abrir um
+ * arquivo: se houver salvo, mostre direto — sem re-analisar.
+ */
+export async function healthReportGet(root: string, path: string): Promise<SavedReport | null> {
+  return invoke<SavedReport | null>("health_report_get", { root, path });
+}
+
+/**
+ * Lista todos os relatórios salvos do projeto em `root` (incluindo os que estão
+ * `running`). Use ao abrir/escanear pra marcar quais arquivos JÁ têm relatório
+ * (badge "✓ analisado" + ts) e quais estão em análise ("analisando…").
+ */
+export async function healthReportsList(root: string): Promise<SavedReport[]> {
+  return invoke<SavedReport[]>("health_reports_list", { root });
 }
 
 // ── Dimensão Banco de Dados (Fase C — ao vivo) ──────────────────────────────

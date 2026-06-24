@@ -27,7 +27,7 @@ use sqlparser::ast::{ColumnOption, Statement, TableConstraint};
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
 
-use super::ai::{run_agent_report, AiReport};
+use super::ai::{clear_db_running, mark_db_running, persist_db_report, run_agent_report, AiReport};
 
 /// Diretórios sempre ignorados, mesmo sem `.gitignore` no repo (espelha `scan.rs`).
 const ALWAYS_SKIP_DIRS: [&str; 4] = ["node_modules", "target", "dist", ".git"];
@@ -698,12 +698,27 @@ pub async fn db_scan_repo(root: String) -> Result<DbScan, String> {
 
 /// `health_analyze_db` — roda `db_scan_repo`, monta o prompt do schema e roda
 /// pelo MESMO motor headless do `ai.rs`. Degrada limpo (sem CLI → `Err` amigável).
+///
+/// PERSISTE o resultado sob a key fixa `__db_repo__` (mesmo padrão de
+/// `health_analyze_file`): marcador `.running` antes de spawnar, `<key>.json` ao
+/// concluir, remoção do marcador em erro (sem órfão).
 #[tauri::command]
 pub async fn health_analyze_db(root: String) -> Result<AiReport, String> {
     let scan = db_scan_repo(root.clone()).await?;
     let prompt = build_db_prompt(&scan);
     let target = format!("schema:{root}");
-    run_agent_report(&prompt, &target).await
+
+    mark_db_running(&root);
+    match run_agent_report(&prompt, &target).await {
+        Ok(report) => {
+            persist_db_report(&root, &report);
+            Ok(report)
+        }
+        Err(e) => {
+            clear_db_running(&root);
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]

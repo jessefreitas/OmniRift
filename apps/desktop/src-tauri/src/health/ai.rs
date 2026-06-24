@@ -14,14 +14,23 @@
 //! Boundary: este módulo SÓ fala com o agente/LLM — não caminha o projeto.
 //! Conteúdo do arquivo vai no prompt (o agente precisa), NUNCA em log.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::AppHandle;
 use tokio::process::Command as TokioCommand;
 
 use crate::code::{file_io, metrics, monaco_language, CodeMetrics, FunctionMetrics};
 use crate::proc_ext::NoWindow;
+
+/// Diretório (relativo ao root) onde os relatórios de IA persistidos vivem.
+/// Mesmo princípio do backup-gate (`.omnirift/...`) — dentro do projeto, gitignored.
+const REPORTS_DIR: &str = ".omnirift/health-reports";
+
+/// Key fixa do relatório da dimensão Banco (`health_analyze_db`) — não há arquivo,
+/// então usamos um nome estável em vez de derivar de um relpath.
+const DB_REPORT_KEY: &str = "__db_repo__";
 
 /// Um achado da análise de IA.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -49,6 +58,27 @@ pub struct AiReport {
     pub findings: Vec<AiFinding>,
     /// Resumo executivo (1-3 frases) do estado do arquivo.
     pub summary: String,
+}
+
+/// Relatório de IA PERSISTIDO — o que `health_report_get`/`health_reports_list`
+/// devolvem. Sobrevive ao fechamento do painel: depois que o usuário dá o comando,
+/// o backend grava o `AiReport` quando ele fica pronto, então a UI pode recarregá-lo.
+///
+/// `file` é o relpath (relativo ao root) analisado — ou a key fixa pra dimensões sem
+/// arquivo (ex.: banco). `ts` é o carimbo ISO-8601 da conclusão. `running` indica que
+/// existe um marcador `.running` (análise em andamento) — quando `true` e o `report`
+/// é placeholder vazio, é uma análise que ainda não concluiu.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedReport {
+    /// Relpath (relativo ao root) do arquivo analisado, ou key fixa (ex.: banco).
+    pub file: String,
+    /// Carimbo ISO-8601 (RFC3339) de quando a análise concluiu.
+    pub ts: String,
+    /// O relatório de IA propriamente dito.
+    pub report: AiReport,
+    /// `true` se há um marcador `.running` pra esta key (análise em andamento).
+    pub running: bool,
 }
 
 /// Função com a pior (maior) complexidade ciclomática.
@@ -219,11 +249,211 @@ fn is_on_path(binary: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Analisa um arquivo via IA: lê + métricas → prompt → agente headless → `AiReport`.
-/// Degrada limpo: sem CLI de agente no PATH → `Err` amigável. Conteúdo só vai no
-/// prompt (pro agente), nunca em log.
+// ───────────────────────── persistência dos relatórios ─────────────────────────
+//
+// Espelha o estilo do backup-gate (`backup.rs`): grava em `<root>/.omnirift/...`
+// como JSON via serde, normaliza o path pra dentro do root, e separa a lógica de IO
+// em fns puras testáveis (`save_report`/`load_report`/`list_reports`) das `#[tauri::command]`.
+//
+// Por que persistir: hoje `health_analyze_file` roda o agente e DEVOLVE o `AiReport`,
+// mas se o usuário fecha o painel antes de terminar, perde tudo — mesmo já tendo dado o
+// comando (que pode levar minutos). Gravamos um marcador `.running` ANTES de spawnar e o
+// `<key>.json` AO CONCLUIR; assim a UI recarrega o resultado (ou vê "em andamento").
+
+/// Carimbo ISO-8601 (RFC3339) — vai no campo `ts` do `SavedReport`. Espelha `backup.rs`.
+fn ts_iso() -> String {
+    chrono::Local::now().to_rfc3339()
+}
+
+/// Diretório absoluto dos relatórios sob o root (`<root>/.omnirift/health-reports`).
+fn reports_dir(root: &str) -> PathBuf {
+    Path::new(root).join(REPORTS_DIR)
+}
+
+/// Deriva a chave de arquivo (segura pra nome de arquivo) a partir do `path` do alvo,
+/// normalizado pra RELPATH dentro do `root`. Path absoluto dentro do root → relpath;
+/// path relativo → usado como veio; path fora do root → cai pro próprio path.
+///
+/// A key é o sha256 curto (16 hex) do relpath: estável, sem caracteres inválidos pra
+/// nome de arquivo, e tolerante a `/`, `\\`, `:` (Windows drive), etc. Retorna
+/// `(key, relpath)` — o relpath vai no campo `file` do `SavedReport` (legível).
+fn report_key(root: &str, path: &str) -> (String, String) {
+    let root_p = Path::new(root);
+    let raw = Path::new(path);
+
+    // Relpath legível: se o alvo está dentro do root, strip do prefixo; senão usa cru.
+    let rel = if raw.is_absolute() {
+        raw.strip_prefix(root_p)
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| path.to_string())
+    } else {
+        path.replace('\\', "/")
+    };
+
+    (sha256_short(&rel), rel)
+}
+
+/// sha256 do input → primeiros 16 hex chars (64 bits) — colisão desprezível pra
+/// o nº de arquivos de um projeto, e curto o bastante pra nome de arquivo.
+fn sha256_short(s: &str) -> String {
+    let digest = Sha256::digest(s.as_bytes());
+    let mut hex = String::with_capacity(16);
+    for b in digest.iter().take(8) {
+        hex.push_str(&format!("{b:02x}"));
+    }
+    hex
+}
+
+/// **Helper puro testável.** Grava o `SavedReport` (`file`+`ts`+`report`) em
+/// `<dir>/<key>.json` e REMOVE o marcador `<dir>/<key>.running` (se houver). Cria o
+/// `dir` se preciso. NÃO spawna agente — só IO. `running` não é persistido no JSON
+/// (é derivado da existência do marcador na leitura).
+fn save_report(dir: &Path, key: &str, file: &str, report: &AiReport) -> Result<SavedReport, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("não criou {}: {e}", dir.display()))?;
+
+    let saved = SavedReport {
+        file: file.to_string(),
+        ts: ts_iso(),
+        report: report.clone(),
+        running: false,
+    };
+    let json =
+        serde_json::to_string_pretty(&saved).map_err(|e| format!("serializar relatório: {e}"))?;
+    std::fs::write(dir.join(format!("{key}.json")), json)
+        .map_err(|e| format!("escrever relatório {key}: {e}"))?;
+
+    // Concluiu → remove o marcador (não deixa órfão). Falha de remoção é soft.
+    let _ = std::fs::remove_file(dir.join(format!("{key}.running")));
+
+    Ok(saved)
+}
+
+/// **Helper puro testável.** Lê `<dir>/<key>.json` se existir; marca `running` se há
+/// `<dir>/<key>.running`. `None` quando não há JSON nem marcador. Se há SÓ o marcador
+/// (análise em andamento, ainda sem resultado), devolve um `SavedReport` placeholder
+/// (`report` vazio) com `running: true`.
+fn load_report(dir: &Path, key: &str, file_hint: &str) -> Result<Option<SavedReport>, String> {
+    let json_path = dir.join(format!("{key}.json"));
+    let running = dir.join(format!("{key}.running")).exists();
+
+    if json_path.is_file() {
+        let raw = std::fs::read_to_string(&json_path)
+            .map_err(|e| format!("ler relatório {key}: {e}"))?;
+        let mut saved: SavedReport =
+            serde_json::from_str(&raw).map_err(|e| format!("relatório inválido {key}: {e}"))?;
+        saved.running = running;
+        return Ok(Some(saved));
+    }
+
+    if running {
+        // Em andamento, sem resultado ainda → placeholder vazio + running:true.
+        return Ok(Some(SavedReport {
+            file: file_hint.to_string(),
+            ts: String::new(),
+            report: AiReport {
+                target: file_hint.to_string(),
+                findings: Vec::new(),
+                summary: String::new(),
+            },
+            running: true,
+        }));
+    }
+
+    Ok(None)
+}
+
+/// **Helper puro testável.** Lista todos os relatórios de `dir`: cada `<key>.json` (+
+/// marca `running` se há o `.running` da mesma key) e cada `.running` ÓRFÃO (sem json
+/// → análise em andamento, placeholder vazio). Ordena por `ts` desc (mais recente
+/// primeiro; placeholders com `ts` vazio caem pro fim). `dir` inexistente → vazio.
+fn list_reports(dir: &Path) -> Result<Vec<SavedReport>, String> {
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut out: Vec<SavedReport> = Vec::new();
+    let mut running_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut json_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("ler {}: {e}", dir.display()))?;
+    let entries: Vec<_> = entries.flatten().collect();
+
+    // 1ª passada: cataloga as keys que têm marcador `.running`.
+    for entry in &entries {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if let Some(key) = name.strip_suffix(".running") {
+            running_keys.insert(key.to_string());
+        }
+    }
+
+    // 2ª passada: lê cada `<key>.json` (pula inválidos), marcando `running`.
+    for entry in &entries {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Some(key) = name.strip_suffix(".json") else {
+            continue;
+        };
+        json_keys.insert(key.to_string());
+        let raw = match std::fs::read_to_string(entry.path()) {
+            Ok(r) => r,
+            Err(_) => continue, // ilegível → pula (não derruba a listagem)
+        };
+        let mut saved: SavedReport = match serde_json::from_str(&raw) {
+            Ok(s) => s,
+            Err(_) => continue, // json inválido → pula
+        };
+        saved.running = running_keys.contains(key);
+        out.push(saved);
+    }
+
+    // Marcadores `.running` ÓRFÃOS (sem json) → análise em andamento (placeholder).
+    for key in &running_keys {
+        if !json_keys.contains(key) {
+            out.push(SavedReport {
+                file: String::new(),
+                ts: String::new(),
+                report: AiReport {
+                    target: String::new(),
+                    findings: Vec::new(),
+                    summary: String::new(),
+                },
+                running: true,
+            });
+        }
+    }
+
+    // Mais recente primeiro. `ts` RFC3339 → ordenável lexicograficamente; `ts` vazio
+    // (placeholders em andamento) ordena por último com este desc.
+    out.sort_by(|a, b| b.ts.cmp(&a.ts));
+    Ok(out)
+}
+
+/// Grava o marcador `<dir>/<key>.running` (vazio) — chamado ANTES de spawnar o agente.
+/// Cria o `dir` se preciso. Falha de IO é propagada (sem marcador → sem rastro de "em
+/// andamento", mas não bloqueamos a análise por isso no caller).
+fn write_running_marker(dir: &Path, key: &str) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("não criou {}: {e}", dir.display()))?;
+    std::fs::write(dir.join(format!("{key}.running")), b"")
+        .map_err(|e| format!("escrever marcador {key}: {e}"))
+}
+
+/// Remove o marcador `<dir>/<key>.running` (idempotente; falha = soft).
+fn clear_running_marker(dir: &Path, key: &str) {
+    let _ = std::fs::remove_file(dir.join(format!("{key}.running")));
+}
+
+/// Analisa um arquivo via IA: lê + métricas → prompt → agente headless → `AiReport`,
+/// PERSISTINDO o resultado pra sobreviver ao fechamento do painel.
+///
+/// Fluxo: deriva a key (relpath→sha256 curto) → escreve `<key>.running` → roda o agente
+/// → AO CONCLUIR grava `<key>.json` e remove o `.running`; em ERRO remove o `.running`
+/// (sem órfão). Degrada limpo: sem CLI de agente no PATH → `Err` amigável. Conteúdo só
+/// vai no prompt (pro agente), nunca em log. Retorna o `AiReport` como antes.
 #[tauri::command]
-pub async fn health_analyze_file(_app: AppHandle, path: String) -> Result<AiReport, String> {
+pub async fn health_analyze_file(
+    _app: AppHandle,
+    root: String,
+    path: String,
+) -> Result<AiReport, String> {
     let p = Path::new(&path);
     let language = monaco_language(p).to_string();
     let content = file_io::read(p).map_err(|e| e.to_string())?;
@@ -231,7 +461,68 @@ pub async fn health_analyze_file(_app: AppHandle, path: String) -> Result<AiRepo
 
     let prompt = build_prompt(&path, &language, &content, metrics.as_ref());
 
-    run_agent_report(&prompt, &path).await
+    let dir = reports_dir(&root);
+    let (key, rel) = report_key(&root, &path);
+
+    // Marcador ANTES de rodar (UI mostra "em andamento" mesmo se o painel reabrir).
+    let _ = write_running_marker(&dir, &key);
+
+    match run_agent_report(&prompt, &path).await {
+        Ok(report) => {
+            // Concluiu: grava o JSON e remove o marcador (save_report já faz os dois).
+            let _ = save_report(&dir, &key, &rel, &report);
+            Ok(report)
+        }
+        Err(e) => {
+            // Erro: nunca deixa o `.running` órfão.
+            clear_running_marker(&dir, &key);
+            Err(e)
+        }
+    }
+}
+
+/// Lê o relatório persistido de um arquivo (`<key>.json`), marcando `running` se há o
+/// marcador. `None` se nunca foi analisado. Só-marcador (em andamento) → placeholder
+/// vazio com `running: true`.
+#[tauri::command]
+pub async fn health_report_get(root: String, path: String) -> Result<Option<SavedReport>, String> {
+    let dir = reports_dir(&root);
+    let (key, rel) = report_key(&root, &path);
+    load_report(&dir, &key, &rel)
+}
+
+/// Lista todos os relatórios persistidos do projeto (incluindo análises em andamento),
+/// ordenados por `ts` desc (mais recente primeiro).
+#[tauri::command]
+pub async fn health_reports_list(root: String) -> Result<Vec<SavedReport>, String> {
+    let dir = reports_dir(&root);
+    list_reports(&dir)
+}
+
+/// Key fixa do relatório da dimensão Banco — reusada por `health_analyze_db` pra
+/// persistir sob o MESMO padrão (sem arquivo, então key estável).
+pub fn db_report_key() -> &'static str {
+    DB_REPORT_KEY
+}
+
+/// Persiste um `AiReport` da dimensão Banco sob a key fixa `__db_repo__`, MESMO padrão
+/// de `health_analyze_file`. Reusado por `db.rs::health_analyze_db`. Falha de IO é soft
+/// (não derruba a análise já concluída).
+pub fn persist_db_report(root: &str, report: &AiReport) {
+    let dir = reports_dir(root);
+    let _ = save_report(&dir, DB_REPORT_KEY, DB_REPORT_KEY, report);
+}
+
+/// Escreve o marcador `.running` da dimensão Banco (antes de spawnar). Falha = soft.
+pub fn mark_db_running(root: &str) {
+    let dir = reports_dir(root);
+    let _ = write_running_marker(&dir, DB_REPORT_KEY);
+}
+
+/// Remove o marcador `.running` da dimensão Banco (em erro, sem órfão). Falha = soft.
+pub fn clear_db_running(root: &str) {
+    let dir = reports_dir(root);
+    clear_running_marker(&dir, DB_REPORT_KEY);
 }
 
 #[cfg(test)]
@@ -305,5 +596,183 @@ mod tests {
     #[test]
     fn parse_report_errs_on_garbage() {
         assert!(parse_report("isso não é json", "x").is_err());
+    }
+
+    // ───────────────────── persistência dos relatórios ─────────────────────
+
+    fn sample_report(target: &str, summary: &str) -> AiReport {
+        AiReport {
+            target: target.to_string(),
+            summary: summary.to_string(),
+            findings: vec![AiFinding {
+                severity: "warning".into(),
+                kind: "smell".into(),
+                title: "função longa".into(),
+                detail: "40 linhas".into(),
+                suggestion: "extraia".into(),
+                line: Some(12),
+            }],
+        }
+    }
+
+    /// Round-trip: save_report grava → load_report lê de volta idêntico.
+    #[test]
+    fn save_load_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let report = sample_report("src/app.rs", "tem smells");
+
+        let saved = save_report(d, "k1", "src/app.rs", &report).unwrap();
+        assert_eq!(saved.file, "src/app.rs");
+        assert_eq!(saved.report, report);
+        assert!(!saved.running, "sem marcador → running:false");
+        assert!(d.join("k1.json").is_file(), "JSON gravado");
+
+        let loaded = load_report(d, "k1", "src/app.rs").unwrap().unwrap();
+        assert_eq!(loaded.file, "src/app.rs");
+        assert_eq!(loaded.report, report, "report idêntico no round-trip");
+        assert_eq!(loaded.ts, saved.ts);
+        assert!(!loaded.running);
+    }
+
+    /// load_report → None quando nunca foi analisado (sem json, sem marcador).
+    #[test]
+    fn load_none_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(load_report(dir.path(), "nope", "x.rs").unwrap().is_none());
+    }
+
+    /// save_report REMOVE o marcador `.running` ao concluir (não deixa órfão).
+    #[test]
+    fn save_clears_running_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        write_running_marker(d, "k2").unwrap();
+        assert!(d.join("k2.running").exists());
+
+        save_report(d, "k2", "f.rs", &sample_report("f.rs", "ok")).unwrap();
+        assert!(!d.join("k2.running").exists(), "marcador removido ao concluir");
+
+        let loaded = load_report(d, "k2", "f.rs").unwrap().unwrap();
+        assert!(!loaded.running);
+    }
+
+    /// JSON presente + marcador presente → running:true marcado na leitura.
+    #[test]
+    fn load_marks_running_when_marker_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        save_report(d, "k3", "f.rs", &sample_report("f.rs", "ok")).unwrap();
+        // Re-cria o marcador (ex.: nova análise por cima de um resultado antigo).
+        write_running_marker(d, "k3").unwrap();
+
+        let loaded = load_report(d, "k3", "f.rs").unwrap().unwrap();
+        assert!(loaded.running, "marcador presente → running:true");
+        assert_eq!(loaded.report.summary, "ok", "ainda traz o resultado anterior");
+    }
+
+    /// Só-marcador (sem json) → placeholder vazio com running:true (em andamento).
+    #[test]
+    fn load_running_only_returns_placeholder() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        write_running_marker(d, "k4").unwrap();
+
+        let loaded = load_report(d, "k4", "novo.rs").unwrap().unwrap();
+        assert!(loaded.running);
+        assert_eq!(loaded.file, "novo.rs", "file_hint vira o file do placeholder");
+        assert!(loaded.report.findings.is_empty(), "placeholder vazio");
+        assert!(loaded.report.summary.is_empty());
+        assert_eq!(loaded.ts, "", "sem ts pois não concluiu");
+    }
+
+    /// list_reports ordena por ts desc (mais recente primeiro).
+    #[test]
+    fn list_orders_by_ts_desc() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        // Fabrica 3 JSONs com ts conhecidos (não dependemos do relógio).
+        for (key, ts) in [
+            ("a", "2026-01-01T00:00:00+00:00"),
+            ("b", "2026-03-01T12:00:00+00:00"),
+            ("c", "2026-02-01T06:00:00+00:00"),
+        ] {
+            let saved = SavedReport {
+                file: format!("{key}.rs"),
+                ts: ts.to_string(),
+                report: sample_report(&format!("{key}.rs"), "s"),
+                running: false,
+            };
+            let json = serde_json::to_string_pretty(&saved).unwrap();
+            std::fs::write(d.join(format!("{key}.json")), json).unwrap();
+        }
+
+        let list = list_reports(d).unwrap();
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0].file, "b.rs", "março primeiro");
+        assert_eq!(list[1].file, "c.rs", "fevereiro");
+        assert_eq!(list[2].file, "a.rs", "janeiro por último");
+    }
+
+    /// list_reports inclui marcadores ÓRFÃOS (em andamento) como placeholder running.
+    #[test]
+    fn list_includes_orphan_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        save_report(d, "done", "done.rs", &sample_report("done.rs", "ok")).unwrap();
+        write_running_marker(d, "inprogress").unwrap();
+
+        let list = list_reports(d).unwrap();
+        assert_eq!(list.len(), 2, "1 concluído + 1 em andamento");
+        let running: Vec<_> = list.iter().filter(|r| r.running).collect();
+        assert_eq!(running.len(), 1, "exatamente 1 em andamento");
+        assert!(running[0].report.findings.is_empty(), "órfão é placeholder vazio");
+    }
+
+    /// list_reports em dir inexistente → vazio (não erro).
+    #[test]
+    fn list_empty_when_dir_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("does-not-exist");
+        assert!(list_reports(&missing).unwrap().is_empty());
+    }
+
+    /// report_key produz key SEGURA pra path com `/` (sem barra no nome de arquivo)
+    /// e estável (mesma entrada → mesma key). Relpath é derivado dentro do root.
+    #[test]
+    fn report_key_safe_for_slashes_and_stable() {
+        let root = "/proj";
+        let (k1, rel1) = report_key(root, "/proj/src/deep/nested/app.rs");
+        assert_eq!(rel1, "src/deep/nested/app.rs", "relpath dentro do root");
+        assert!(!k1.contains('/'), "key sem barra → nome de arquivo seguro");
+        assert!(!k1.contains('\\'));
+        assert_eq!(k1.len(), 16, "sha256 curto = 16 hex");
+
+        // Estável: mesma entrada → mesma key.
+        let (k2, _) = report_key(root, "/proj/src/deep/nested/app.rs");
+        assert_eq!(k1, k2);
+
+        // Paths diferentes → keys diferentes.
+        let (k3, _) = report_key(root, "/proj/src/deep/nested/other.rs");
+        assert_ne!(k1, k3);
+
+        // E a key serve de fato como nome de arquivo gravável.
+        let dir = tempfile::tempdir().unwrap();
+        let saved = save_report(dir.path(), &k1, &rel1, &sample_report(&rel1, "ok"));
+        assert!(saved.is_ok(), "key gravável como nome de arquivo");
+    }
+
+    /// report_key com path relativo usa o próprio path (normalizado) como relpath.
+    #[test]
+    fn report_key_relative_path() {
+        let (key, rel) = report_key("/proj", "src/app.rs");
+        assert_eq!(rel, "src/app.rs");
+        assert_eq!(key, sha256_short("src/app.rs"));
+    }
+
+    /// db_report_key é a key fixa esperada (`__db_repo__`).
+    #[test]
+    fn db_key_is_fixed() {
+        assert_eq!(db_report_key(), "__db_repo__");
     }
 }
