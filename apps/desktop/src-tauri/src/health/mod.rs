@@ -14,6 +14,7 @@
 pub mod ai;
 pub mod backup;
 pub mod db;
+pub mod db_live;
 pub mod scan;
 
 use std::collections::HashMap;

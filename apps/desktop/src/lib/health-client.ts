@@ -166,6 +166,38 @@ export async function healthAnalyzeFile(path: string): Promise<AiReport> {
   return invoke<AiReport>("health_analyze_file", { path });
 }
 
+// ── Dimensão Banco de Dados (Fase C — ao vivo) ──────────────────────────────
+//
+// Contrato do backend (implementado em paralelo):
+//   - db_introspect(conn_str)         → DbScan (MESMO tipo da Fase B): conecta
+//                                       via sqlx::Any e introspecta o schema real.
+//   - health_analyze_db_live(conn_str) → AiReport (mesmo tipo da análise de repo).
+//
+// SEGURANÇA: a connection string carrega credencial — vive só no estado efêmero
+// do componente, NUNCA em localStorage/log. O backend não deve logar a string.
+
+/**
+ * Conecta a um banco AO VIVO via connection string (`postgres://…`, `mysql://…`
+ * ou `sqlite:/caminho.db`) e introspecta o schema real — devolve o MESMO `DbScan`
+ * da Fase B (tabelas + fontes + dialeto), pra reusar a renderização de tabelas.
+ * Falha de conexão → o backend rejeita com mensagem amigável (fail-open na UI).
+ * A credencial NÃO é persistida pelo front.
+ */
+export async function dbIntrospect(connStr: string): Promise<DbScan> {
+  return invoke<DbScan>("db_introspect", { connStr });
+}
+
+/**
+ * Análise de IA do schema de um banco AO VIVO (sob demanda). Introspecta via a
+ * mesma `connStr` e monta o prompt com as tabelas/relações reais → relatório
+ * estruturado. Reusa o mesmo `AiReport`/`AiReportView` das demais dimensões. Em
+ * caso de LLM/conexão indisponível, o backend rejeita com mensagem amigável.
+ * A credencial NÃO é persistida pelo front.
+ */
+export async function healthAnalyzeDbLive(connStr: string): Promise<AiReport> {
+  return invoke<AiReport>("health_analyze_db_live", { connStr });
+}
+
 /**
  * Escuta cada arquivo medido durante o scan (evento `health://file`).
  * Devolve o `unlisten` — chame no cleanup do efeito.

@@ -1,6 +1,6 @@
 [package]
 name = "omnirift"
-version = "0.1.24"
+version = "0.1.25"
 description = "OmniRift - canvas infinito para orquestrar agentes de IA, terminais e notas"
 authors = ["OmniForge <contato@omniforge.com.br>"]
 license = "MIT"
@@ -81,6 +81,13 @@ ignore = "0.4"
 # migrations/.sql do repo. GenericDialect cobre Postgres/MySQL/SQLite o suficiente
 # pra extrair tabelas/colunas/PK/FK/índices. Fail-soft: SQL que não parsear vira aviso.
 sqlparser = "0.62"
+# Painel "Saúde do Projeto" (Fase C) — Banco de Dados AO VIVO. SQLite via rusqlite
+# (já presente, bundled — reusado). Postgres via tokio-postgres (LEVE, async puro,
+# sem o peso do sqlx). TLS via rustls (sem OpenSSL de sistema, igual ao reqwest) p/
+# Postgres em nuvem; conexões locais usam NoTls (fallback automático).
+tokio-postgres = "0.7"
+tokio-postgres-rustls = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # Monitor de recursos (CPU/RAM/disco/rede) — sub-fase A. GPU (NVML) entra na fase C.
 sysinfo = "0.33"
 # Datas: cutoff do filtro por período + carimbo do ledger nativo (RFC3339 comparável

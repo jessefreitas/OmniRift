@@ -33,6 +33,7 @@ use commands::http::http_request;
 use health::ai::health_analyze_file;
 use health::backup::{health_backup, health_backup_list, health_backup_restore};
 use health::db::{db_scan_repo, health_analyze_db};
+use health::db_live::{db_introspect, health_analyze_db_live};
 use health::scan::project_scan;
 use health::HealthCache;
 use commands::license::{license_activate, license_status, license_store_meta, license_stored_key, license_was_beta};
@@ -345,6 +346,8 @@ pub fn run() {
             health_backup_list,
             db_scan_repo,
             health_analyze_db,
+            db_introspect,
+            health_analyze_db_live,
             debug_request,
             metrics_snapshot,
             compressor_list,
