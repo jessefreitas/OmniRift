@@ -83,6 +83,46 @@ export interface AiReport {
   summary: string;
 }
 
+// ── Dimensão Banco de Dados (Fase B — do repo) ──────────────────────────────
+//
+// Contrato do backend (implementado em paralelo):
+//   - db_scan_repo(root)    → DbScan: detecta fontes de schema no repo
+//                             (migrations, *.sql, schema.prisma, models ORM) e
+//                             extrai tabelas/colunas/PK/FK/índices. Fail-soft.
+//   - health_analyze_db(root) → AiReport (mesmo tipo da análise de arquivo).
+
+/** Uma coluna de uma tabela detectada no schema do repo. */
+export interface DbColumn {
+  name: string;
+  /** Tipo declarado (texto livre — varia por dialeto/ORM). */
+  type: string;
+  /** É chave primária. */
+  pk: boolean;
+  /** É chave estrangeira. */
+  fk: boolean;
+  /** Aceita NULL. */
+  nullable: boolean;
+}
+
+/** Uma tabela detectada no schema do repo (evento/retorno de `db_scan_repo`). */
+export interface DbTable {
+  name: string;
+  columns: DbColumn[];
+  /** Índices declarados (texto livre — nome/expressão por índice). */
+  indexes: string[];
+  /** De onde veio (arquivo de migration/.sql/prisma/model ORM). */
+  source: string;
+}
+
+/** Resultado do scan de schema do repo (retorno de `db_scan_repo`). */
+export interface DbScan {
+  tables: DbTable[];
+  /** Fontes de schema detectadas (caminhos/diretórios). */
+  sources: string[];
+  /** Dialeto inferido (postgres/mysql/sqlite/prisma…), quando detectável. */
+  dialect?: string | null;
+}
+
 /**
  * Dispara o scan do projeto inteiro a partir de `root`. O backend percorre o
  * repo (respeita `.gitignore`), calcula métricas por arquivo e EMITE eventos
@@ -91,6 +131,25 @@ export interface AiReport {
  */
 export async function projectScan(root: string): Promise<ScanSummary> {
   return invoke<ScanSummary>("project_scan", { root });
+}
+
+/**
+ * Detecta e parseia o schema de banco a partir do repo em `root` — migrations,
+ * `*.sql`, `schema.prisma` e models ORM. Fail-soft: o que não parsear vira
+ * aviso no backend, não erro. Resolve com o `DbScan` (tabelas + fontes + dialeto).
+ */
+export async function dbScanRepo(root: string): Promise<DbScan> {
+  return invoke<DbScan>("db_scan_repo", { root });
+}
+
+/**
+ * Análise de IA do schema detectado no repo (sob demanda). Monta prompt com as
+ * tabelas/relações e roteia pelo LLM/brain ativo → relatório estruturado. Em
+ * caso de LLM indisponível, o backend rejeita com mensagem amigável (fail-open
+ * na UI). Reusa o mesmo `AiReport`/`AiReportView` da dimensão Código.
+ */
+export async function healthAnalyzeDb(root: string): Promise<AiReport> {
+  return invoke<AiReport>("health_analyze_db", { root });
 }
 
 /**

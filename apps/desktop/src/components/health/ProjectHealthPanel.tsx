@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Activity, X, RefreshCw, Loader2, Code2, Database } from "lucide-react";
+import { Activity, X, RefreshCw, Loader2, Code2, Database, GraduationCap } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
@@ -24,8 +24,10 @@ import {
   type ScanSummary,
 } from "@/lib/health-client";
 import { CodeDimension } from "./CodeDimension";
+import { DbDimension } from "./DbDimension";
+import { LearnDimension } from "./LearnDimension";
 
-type Dimension = "code" | "db";
+type Dimension = "code" | "db" | "learn";
 
 export function ProjectHealthPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -90,7 +92,8 @@ export function ProjectHealthPanel({ onClose }: { onClose: () => void }) {
 
   const dimensions: Array<{ id: Dimension; label: string; icon: typeof Code2; disabled?: boolean; soon?: boolean }> = [
     { id: "code", label: t("health.dimCode", "Código"), icon: Code2 },
-    { id: "db", label: t("health.dimDb", "Banco de Dados"), icon: Database, disabled: true, soon: true },
+    { id: "db", label: t("health.dimDb", "Banco de Dados"), icon: Database },
+    { id: "learn", label: t("health.dimLearn", "Entenda"), icon: GraduationCap },
   ];
 
   return createPortal(
@@ -167,25 +170,25 @@ export function ProjectHealthPanel({ onClose }: { onClose: () => void }) {
 
         {/* Corpo */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {!currentCwd ? (
+          {active === "learn" ? (
+            // Aba didática — sempre disponível, não depende de scan/projeto.
+            <LearnDimension />
+          ) : !currentCwd ? (
             <div className="h-full flex items-center justify-center text-center">
               <p className="text-[13px] text-textMuted max-w-[360px]">
                 {t("health.noProject", "Abra um projeto primeiro para escanear a saúde do código.")}
               </p>
             </div>
+          ) : active === "db" ? (
+            // Dimensão Banco — scan próprio (independente do scan de Código).
+            <DbDimension currentCwd={currentCwd} />
           ) : error ? (
             <div className="rounded-lg border border-red-400/30 bg-red-400/5 p-4">
               <p className="text-[13px] text-red-400 font-medium">{t("health.scanError", "Falha no scan")}</p>
               <p className="text-[12px] text-textMuted mt-1 whitespace-pre-wrap">{error}</p>
             </div>
-          ) : active === "code" ? (
-            <CodeDimension files={files} summary={summary} scanning={scanning} />
           ) : (
-            <div className="h-full flex items-center justify-center text-center">
-              <p className="text-[13px] text-textMuted max-w-[360px]">
-                {t("health.dbSoon", "A dimensão Banco de Dados chega numa próxima fase.")}
-              </p>
-            </div>
+            <CodeDimension files={files} summary={summary} scanning={scanning} />
           )}
         </div>
       </div>

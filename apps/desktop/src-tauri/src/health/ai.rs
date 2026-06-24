@@ -167,7 +167,7 @@ pub fn parse_report(stdout: &str, target: &str) -> Result<AiReport, String> {
 
 /// CLI de agente headless + os args pra rodar um prompt único e capturar stdout.
 /// `claude -p "<prompt>"` (modo print) ou `codex exec "<prompt>"`.
-fn agent_invocation(prompt: &str) -> Option<(&'static str, Vec<String>)> {
+pub fn agent_invocation(prompt: &str) -> Option<(&'static str, Vec<String>)> {
     if is_on_path("claude") {
         return Some(("claude", vec!["-p".into(), prompt.to_string()]));
     }
@@ -175,6 +175,37 @@ fn agent_invocation(prompt: &str) -> Option<(&'static str, Vec<String>)> {
         return Some(("codex", vec!["exec".into(), prompt.to_string()]));
     }
     None
+}
+
+/// Roda um prompt pelo MESMO motor headless de `health_analyze_file`
+/// (`claude -p` / `codex exec`), parseia o stdout num `AiReport` e força o
+/// `target`. Degrada limpo: sem CLI no PATH → `Err` amigável. Reusado pela
+/// dimensão Banco (`health_analyze_db`) — NÃO duplica spawn/parse.
+/// Conteúdo do prompt nunca é logado.
+pub async fn run_agent_report(prompt: &str, target: &str) -> Result<AiReport, String> {
+    let (bin, args) = agent_invocation(prompt).ok_or_else(|| {
+        "análise IA indisponível — configure um agente (instale o CLI `claude` ou `codex`)"
+            .to_string()
+    })?;
+
+    let output = TokioCommand::new(bin)
+        .args(&args)
+        .no_window()
+        .output()
+        .await
+        .map_err(|e| format!("falha ao rodar o agente '{bin}': {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "o agente '{bin}' falhou (exit {}): {}",
+            output.status.code().unwrap_or(-1),
+            stderr.trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_report(&stdout, target)
 }
 
 /// `which`/`where <binary>` — true se no PATH (espelha clis.rs).
@@ -200,27 +231,7 @@ pub async fn health_analyze_file(_app: AppHandle, path: String) -> Result<AiRepo
 
     let prompt = build_prompt(&path, &language, &content, metrics.as_ref());
 
-    let (bin, args) = agent_invocation(&prompt)
-        .ok_or_else(|| "análise IA indisponível — configure um agente (instale o CLI `claude` ou `codex`)".to_string())?;
-
-    let output = TokioCommand::new(bin)
-        .args(&args)
-        .no_window()
-        .output()
-        .await
-        .map_err(|e| format!("falha ao rodar o agente '{bin}': {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "o agente '{bin}' falhou (exit {}): {}",
-            output.status.code().unwrap_or(-1),
-            stderr.trim()
-        ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_report(&stdout, &path)
+    run_agent_report(&prompt, &path).await
 }
 
 #[cfg(test)]

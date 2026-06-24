@@ -12,6 +12,7 @@
 //! Conteúdo de arquivo NUNCA é logado (só números/labels) — igual ao motor 9c.
 
 pub mod ai;
+pub mod db;
 pub mod scan;
 
 use std::collections::HashMap;

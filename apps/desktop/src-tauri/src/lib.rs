@@ -31,6 +31,7 @@ use commands::gitremote::{git_clone, git_list_repos};
 use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
 use health::ai::health_analyze_file;
+use health::db::{db_scan_repo, health_analyze_db};
 use health::scan::project_scan;
 use health::HealthCache;
 use commands::license::{license_activate, license_status, license_store_meta, license_stored_key, license_was_beta};
@@ -338,6 +339,8 @@ pub fn run() {
             code_metrics,
             project_scan,
             health_analyze_file,
+            db_scan_repo,
+            health_analyze_db,
             debug_request,
             metrics_snapshot,
             compressor_list,
