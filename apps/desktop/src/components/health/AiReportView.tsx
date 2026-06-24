@@ -1,7 +1,8 @@
 // src/components/health/AiReportView.tsx
 //
 // Renderiza inline um relatório de IA (AiReport) — achados por severidade + resumo.
-// Botões: "abrir agente" (escala pro fluxo de spawn do canvas) e "copiar".
+// Botões: "abrir agente" (escala pro fluxo de spawn do canvas), "copiar" e, por
+// finding, "corrigir" (spec 2026-06-24 — ações com backup).
 //
 // NOTA sobre "abrir agente": o spawn de agente (spawnRole / addTerminal + role +
 // prompt inicial) vive na Sidebar e NÃO é exportado. Para não inventar um import
@@ -9,12 +10,21 @@
 // `omnirift:health-spawn-agent` (caminho já usado p/ "open-tool"). Quem quiser
 // implementar a escalada escuta esse evento e chama o fluxo de spawn existente
 // com `target` + `report` no detail. Sem listener, é um no-op seguro.
+//
+// FLUXO "corrigir" (REGRA INVIOLÁVEL — backup ANTES de corrigir):
+//   1) confirmDialog (usuário decide)
+//   2) healthBackup(root, [file])  — se falhar → notify(erro) e ABORTA (não corrige)
+//   3) dispatch `omnirift:health-spawn-agent` { target, finding, backupId }
+//   4) trackFinding(... "corrigindo", backupId)  — vira dívida no tracker
 
 import { useState } from "react";
-import { Bot, Copy, Check } from "lucide-react";
+import { Bot, Copy, Check, Wrench, Loader2, ShieldCheck } from "lucide-react";
 
+import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
-import type { AiReport, AiFinding, FindingSeverity } from "@/lib/health-client";
+import { confirmDialog, notify } from "@/lib/notify";
+import { healthBackup, type AiReport, type AiFinding, type FindingSeverity, type BackupRef } from "@/lib/health-client";
+import { trackFinding } from "@/lib/health-tracker";
 
 /** Cor de borda/badge por severidade (alinhada às cores de nível do 9e). */
 function severityTone(sev: FindingSeverity): { dot: string; text: string; border: string } {
@@ -30,9 +40,36 @@ function severityTone(sev: FindingSeverity): { dot: string; text: string; border
   }
 }
 
-function FindingCard({ f }: { f: AiFinding }) {
+/** ts curtinho (HH:MM:SS) pra exibir o BackupRef criado. */
+function shortTs(ts: string): string {
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? ts : d.toLocaleTimeString();
+}
+
+function FindingCard({
+  f,
+  root,
+  onFix,
+  fixing,
+  backup,
+  fixable,
+}: {
+  f: AiFinding;
+  root: string | null;
+  /** Dispara o gate de fix deste finding (confirma→backup→spawn→tracker). */
+  onFix: () => void;
+  /** true enquanto o backup deste finding roda. */
+  fixing: boolean;
+  /** BackupRef criado pra este finding (mostra ts curtinho). */
+  backup?: BackupRef;
+  /** O alvo do relatório é um arquivo backupável (false p/ DB = diretório/schema). */
+  fixable: boolean;
+}) {
   const t = useT();
   const tone = severityTone(f.severity);
+  // Só faz sentido corrigir quando há projeto aberto + alvo de arquivo backupável
+  // (o finding herda `report.target` quando não traz `file` próprio).
+  const canFix = !!root && fixable;
   return (
     <div className={`rounded-md border ${tone.border} bg-bg/40 p-2.5 space-y-1.5`}>
       <div className="flex items-center gap-2">
@@ -55,17 +92,60 @@ function FindingCard({ f }: { f: AiFinding }) {
           <span className="whitespace-pre-wrap">{f.suggestion}</span>
         </div>
       )}
+      <div className="flex items-center gap-2 pt-0.5">
+        {backup && (
+          <span
+            className="flex items-center gap-1 text-[10px] text-emerald-400/90"
+            title={t("health.fixBackupAt", "Backup criado") + ` ${backup.id}`}
+          >
+            <ShieldCheck size={11} />
+            {t("health.fixBackupDone", "backup")} {shortTs(backup.ts)}
+          </span>
+        )}
+        <div className="flex-1" />
+        {canFix && (
+          <button
+            type="button"
+            onClick={onFix}
+            disabled={fixing}
+            className="flex items-center gap-1.5 px-2 py-1 text-[11px] rounded bg-brand/15 text-brand hover:bg-brand/25 border border-brand/30 disabled:opacity-50"
+            title={t("health.fixHint", "Faz backup do arquivo e manda um agente corrigir SÓ este achado")}
+          >
+            {fixing ? <Loader2 size={12} className="animate-spin" /> : <Wrench size={12} />}
+            {fixing ? t("health.fixing", "preparando…") : t("health.fix", "corrigir")}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
 interface Props {
   report: AiReport;
+  /**
+   * Raiz do projeto (p/ o backup-gate). Quando omitido, lê `currentCwd` do store.
+   * O DbDimension passa o root explicitamente; o CodeDimension pode confiar no store.
+   */
+  root?: string | null;
+  /**
+   * O `report.target` é um arquivo backupável? Default `true` (dimensão Código —
+   * o target É o arquivo). O DbDimension passa `false` porque o target é o repo/
+   * schema (diretório), não um arquivo único — sem ação de "corrigir" com backup.
+   */
+  fixable?: boolean;
 }
 
-export function AiReportView({ report }: Props) {
+export function AiReportView({ report, root: rootProp, fixable = true }: Props) {
   const t = useT();
+  const currentCwd = useCanvasStore((s) => s.currentCwd);
+  const root = rootProp ?? currentCwd;
+
   const [copied, setCopied] = useState(false);
+  // Findings com backup em andamento (índice) e BackupRefs já criados.
+  const [fixingIdx, setFixingIdx] = useState<Set<number>>(new Set());
+  const [fixingAll, setFixingAll] = useState(false);
+  const [backups, setBackups] = useState<Record<number, BackupRef>>({});
+  const [fileBackup, setFileBackup] = useState<BackupRef | null>(null);
 
   async function copy() {
     const lines: string[] = [`# ${t("health.aiReport", "Relatório de IA")} — ${report.target}`, ""];
@@ -87,14 +167,85 @@ export function AiReportView({ report }: Props) {
   }
 
   // Escala pro fluxo de spawn de agente do canvas (desacoplado — ver nota no topo).
-  // TODO: ligar a um listener que chame spawnRole/addTerminal com o relatório como
-  // contexto inicial. Por ora é um sinal seguro (no-op sem listener).
+  // Caminho ANTIGO (genérico): { target, report }. Mantido funcionando.
   function openAgent() {
     window.dispatchEvent(
       new CustomEvent("omnirift:health-spawn-agent", {
         detail: { target: report.target, report },
       }),
     );
+  }
+
+  /**
+   * Gate de fix de UM finding (REGRA INVIOLÁVEL): confirma → backup → spawn →
+   * tracker. Se o backup falhar, ABORTA (não corrige).
+   */
+  async function fixFinding(idx: number, f: AiFinding) {
+    const file = f.file || report.target;
+    if (!root || !file) return;
+    const ok = await confirmDialog(
+      t("health.fixConfirm", "Vou fazer backup do arquivo e mandar um agente corrigir isso, ok?") + `\n\n${file}\n→ ${f.title}`,
+      t("health.fixConfirmTitle", "Corrigir com backup"),
+    );
+    if (!ok) return;
+
+    setFixingIdx((p) => new Set(p).add(idx));
+    let ref: BackupRef;
+    try {
+      ref = await healthBackup(root, [file]);
+    } catch (e) {
+      // Backup falhou → NÃO corrige.
+      void notify(t("health.fixBackupFailed", "Backup falhou — correção abortada (nada foi alterado):") + "\n" + String(e), "error");
+      setFixingIdx((p) => { const n = new Set(p); n.delete(idx); return n; });
+      return;
+    }
+    setBackups((p) => ({ ...p, [idx]: ref }));
+
+    // Spawn focado naquele finding (payload estendido) + registra no tracker.
+    window.dispatchEvent(
+      new CustomEvent("omnirift:health-spawn-agent", {
+        detail: { target: file, finding: f, backupId: ref.id },
+      }),
+    );
+    trackFinding(root, { file, title: f.title, severity: f.severity, line: f.line }, "corrigindo", ref.id);
+
+    setFixingIdx((p) => { const n = new Set(p); n.delete(idx); return n; });
+  }
+
+  /**
+   * "Corrigir tudo do arquivo": 1 backup do arquivo → 1 agente com TODOS os
+   * findings. Reaproveita o gate (confirma → backup → spawn → tracker em lote).
+   */
+  async function fixAll() {
+    const file = report.target;
+    if (!root || !file || report.findings.length === 0) return;
+    const ok = await confirmDialog(
+      t("health.fixAllConfirm", "Vou fazer um backup do arquivo e mandar um agente corrigir TODOS os achados dele, ok?") + `\n\n${file}\n(${report.findings.length})`,
+      t("health.fixConfirmTitle", "Corrigir com backup"),
+    );
+    if (!ok) return;
+
+    setFixingAll(true);
+    let ref: BackupRef;
+    try {
+      ref = await healthBackup(root, [file]);
+    } catch (e) {
+      void notify(t("health.fixBackupFailed", "Backup falhou — correção abortada (nada foi alterado):") + "\n" + String(e), "error");
+      setFixingAll(false);
+      return;
+    }
+    setFileBackup(ref);
+
+    // 1 agente com o relatório inteiro + backupId. Registra cada finding no tracker.
+    window.dispatchEvent(
+      new CustomEvent("omnirift:health-spawn-agent", {
+        detail: { target: file, report, backupId: ref.id },
+      }),
+    );
+    for (const f of report.findings) {
+      trackFinding(root, { file, title: f.title, severity: f.severity, line: f.line }, "corrigindo", ref.id);
+    }
+    setFixingAll(false);
   }
 
   return (
@@ -107,6 +258,18 @@ export function AiReportView({ report }: Props) {
           {report.target}
         </span>
         <div className="flex-1" />
+        {root && fixable && report.findings.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void fixAll()}
+            disabled={fixingAll}
+            className="flex items-center gap-1.5 px-2 py-1 text-[11px] rounded bg-brand/15 text-brand hover:bg-brand/25 border border-brand/30 disabled:opacity-50"
+            title={t("health.fixAllHint", "Um backup do arquivo + um agente pra corrigir todos os achados")}
+          >
+            {fixingAll ? <Loader2 size={13} className="animate-spin" /> : <Wrench size={13} />}
+            {t("health.fixAll", "corrigir tudo do arquivo")}
+          </button>
+        )}
         <button
           type="button"
           onClick={openAgent}
@@ -126,6 +289,13 @@ export function AiReportView({ report }: Props) {
         </button>
       </div>
 
+      {fileBackup && (
+        <p className="flex items-center gap-1 text-[11px] text-emerald-400/90">
+          <ShieldCheck size={12} />
+          {t("health.fixAllBackupDone", "Backup do arquivo criado")} ({shortTs(fileBackup.ts)}) — {t("health.fixDebtTracked", "veja na aba Dívida pra restaurar/acompanhar")}
+        </p>
+      )}
+
       {report.summary && (
         <p className="text-[12px] text-text/90 leading-snug whitespace-pre-wrap">{report.summary}</p>
       )}
@@ -137,7 +307,15 @@ export function AiReportView({ report }: Props) {
       ) : (
         <div className="space-y-2">
           {report.findings.map((f, i) => (
-            <FindingCard key={`${f.title}-${i}`} f={f} />
+            <FindingCard
+              key={`${f.title}-${i}`}
+              f={f}
+              root={root}
+              fixable={fixable}
+              fixing={fixingIdx.has(i)}
+              backup={backups[i]}
+              onFix={() => void fixFinding(i, f)}
+            />
           ))}
         </div>
       )}

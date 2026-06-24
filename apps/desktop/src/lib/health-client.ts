@@ -72,6 +72,11 @@ export interface AiFinding {
   suggestion: string;
   /** Linha alvo, quando aplicável. */
   line?: number | null;
+  /**
+   * Arquivo alvo do achado, quando o relatório cobre múltiplos arquivos. Quando
+   * ausente, o alvo é o próprio `AiReport.target` (caso por-arquivo, o comum).
+   */
+  file?: string;
 }
 
 /** Relatório de IA por arquivo (retorno de `health_analyze_file`). */
@@ -175,6 +180,69 @@ export async function onHealthFile(cb: (file: FileHealth) => void): Promise<Unli
  */
 export async function onHealthScanDone(cb: (summary: ScanSummary) => void): Promise<UnlistenFn> {
   return listen<ScanSummary>("health://scan-done", (e) => cb(e.payload));
+}
+
+// ── Ações com backup (spec 2026-06-24) ─────────────────────────────────────
+//
+// Toda correção de um finding passa por um GATE de backup ANTES do spawn do
+// agente. O backend (`src-tauri/src/health/backup.rs`, em paralelo) copia os
+// arquivos pra `<root>/.omnirift/backups/<ts>/` (reflink/CoW + manifest) e
+// devolve um `BackupRef` restaurável. Se o backup falhar → o fix ABORTA.
+
+/** Referência a um backup criado pelo backup-gate (retorno de `health_backup`). */
+export interface BackupRef {
+  /** Id do backup (= timestamp ISO/diretório). */
+  id: string;
+  /** Timestamp ISO de criação. */
+  ts: string;
+  /** Paths (relativos à raiz) incluídos no backup. */
+  files: string[];
+  /** Diretório do backup (`<root>/.omnirift/backups/<ts>`). */
+  dir: string;
+}
+
+/** Status de um item de dívida técnica no tracker. */
+export type DebtStatus = "aberto" | "corrigindo" | "resolvido" | "ignorado";
+
+/** Item rastreado de dívida técnica (1 finding → 1 item), persistido por projeto. */
+export interface DebtItem {
+  /** Id estável do item (derivado de arquivo+título+linha). */
+  id: string;
+  /** Arquivo alvo do finding. */
+  file: string;
+  /** Título curto do finding. */
+  title: string;
+  /** Severidade herdada do finding. */
+  severity: FindingSeverity;
+  /** Estado atual no tracker. */
+  status: DebtStatus;
+  /** Id do backup criado ao mandar corrigir (quando houver). */
+  backupId?: string;
+  /** Timestamp ISO da última atualização do item. */
+  ts: string;
+}
+
+/**
+ * Cria um backup dos `paths` (relativos ou absolutos) sob `root`. O backend copia
+ * cada arquivo pra `<root>/.omnirift/backups/<ts>/` (reflink/CoW quando o FS
+ * suporta; fallback cópia normal) + grava um manifest. Rejeita se o backup não
+ * puder ser criado (disco cheio, permissão) — o chamador DEVE abortar o fix.
+ */
+export async function healthBackup(root: string, paths: string[]): Promise<BackupRef> {
+  return invoke<BackupRef>("health_backup", { root, paths });
+}
+
+/**
+ * Restaura um backup pelo `id` — sobrescreve os arquivos do projeto com a cópia
+ * salva. Valida que o backup existe; rejeita com mensagem amigável se não.
+ */
+export async function healthBackupRestore(root: string, id: string): Promise<void> {
+  await invoke("health_backup_restore", { root, id });
+}
+
+/** Lista os backups do projeto (lê os manifests em `.omnirift/backups/`). */
+export async function healthBackupList(root: string): Promise<BackupRef[]> {
+  return invoke<BackupRef[]>("health_backup_list", { root });
 }
 
 /**

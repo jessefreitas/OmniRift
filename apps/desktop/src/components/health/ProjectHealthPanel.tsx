@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Activity, X, RefreshCw, Loader2, Code2, Database, GraduationCap } from "lucide-react";
+import { Activity, X, RefreshCw, Loader2, Code2, Database, GraduationCap, Wrench } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
@@ -26,8 +26,9 @@ import {
 import { CodeDimension } from "./CodeDimension";
 import { DbDimension } from "./DbDimension";
 import { LearnDimension } from "./LearnDimension";
+import { DebtTab } from "./DebtTab";
 
-type Dimension = "code" | "db" | "learn";
+type Dimension = "code" | "db" | "debt" | "learn";
 
 export function ProjectHealthPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -93,6 +94,7 @@ export function ProjectHealthPanel({ onClose }: { onClose: () => void }) {
   const dimensions: Array<{ id: Dimension; label: string; icon: typeof Code2; disabled?: boolean; soon?: boolean }> = [
     { id: "code", label: t("health.dimCode", "Código"), icon: Code2 },
     { id: "db", label: t("health.dimDb", "Banco de Dados"), icon: Database },
+    { id: "debt", label: t("health.dimDebt", "Dívida"), icon: Wrench },
     { id: "learn", label: t("health.dimLearn", "Entenda"), icon: GraduationCap },
   ];
 
@@ -182,6 +184,9 @@ export function ProjectHealthPanel({ onClose }: { onClose: () => void }) {
           ) : active === "db" ? (
             // Dimensão Banco — scan próprio (independente do scan de Código).
             <DbDimension currentCwd={currentCwd} />
+          ) : active === "debt" ? (
+            // Aba Dívida — tracker dos findings que viraram "corrigir" (independe do scan).
+            <DebtTab currentCwd={currentCwd} />
           ) : error ? (
             <div className="rounded-lg border border-red-400/30 bg-red-400/5 p-4">
               <p className="text-[13px] text-red-400 font-medium">{t("health.scanError", "Falha no scan")}</p>

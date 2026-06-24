@@ -460,20 +460,45 @@ export function Sidebar() {
     return () => window.removeEventListener("omnirift:open-tool", h);
   }, []);
 
-  // "Abrir agente" do painel Saúde do Projeto: spawna o debugger com o relatório da IA
-  // seedado (reusa o padrão do 9d — workerClaudeArgs + addTerminal). Evento do AiReportView.
+  // "Abrir agente" / "corrigir" do painel Saúde do Projeto: spawna o debugger com o
+  // contexto seedado (reusa o padrão do 9d — workerClaudeArgs + addTerminal).
+  // Evento do AiReportView. Dois payloads suportados:
+  //   • por-finding (ações com backup): { target, finding, backupId } → prompt FOCADO
+  //     no achado, com o backupId já criado, mandando aplicar SÓ esse fix via Serena.
+  //   • genérico (antigo): { target, report } → prompt do arquivo inteiro.
   useEffect(() => {
     const h = (e: Event) => {
-      const det = (e as CustomEvent<{ target?: string; report?: { summary?: string; findings?: Array<{ title?: string }> } }>).detail;
+      const det = (e as CustomEvent<{
+        target?: string;
+        report?: { summary?: string; findings?: Array<{ title?: string }> };
+        finding?: { title?: string; suggestion?: string; line?: number | null };
+        backupId?: string;
+      }>).detail;
       if (!det?.target) return;
       const dbg = roles.find((r) => r.id === "debugger");
-      const pts = (det.report?.findings ?? []).map((f) => `- ${f.title ?? ""}`).join("\n");
-      const task = `Analise e conserte o arquivo ${det.target}. Use Serena (find_symbol/get_references) e aplique o fix.\n\nRelatório prévio:\n${det.report?.summary ?? ""}\n${pts}`;
+
+      let task: string;
+      if (det.finding) {
+        // Fix focado num único achado (com backup já criado).
+        const f = det.finding;
+        const lineHint = typeof f.line === "number" ? ` (linha ${f.line})` : "";
+        const sug = f.suggestion ? `\nSugestão: ${f.suggestion}` : "";
+        const bk = det.backupId ? `\nJá existe um backup (id ${det.backupId}) — pode aplicar com segurança.` : "";
+        task =
+          `Corrija no arquivo ${det.target}${lineHint}: ${f.title ?? ""}.${sug}${bk}\n\n` +
+          `Use Serena (find_symbol/get_references) e aplique SÓ esse fix — não mexa em mais nada.`;
+      } else {
+        // Caminho antigo: arquivo inteiro a partir do relatório.
+        const pts = (det.report?.findings ?? []).map((f) => `- ${f.title ?? ""}`).join("\n");
+        const bk = det.backupId ? `\n\nJá existe um backup (id ${det.backupId}) — pode aplicar com segurança.` : "";
+        task = `Analise e conserte o arquivo ${det.target}. Use Serena (find_symbol/get_references) e aplique o fix.${bk}\n\nRelatório prévio:\n${det.report?.summary ?? ""}\n${pts}`;
+      }
+
       addTerminal({
         command: "claude",
         args: [...workerClaudeArgs(mcpConfigPath, dbg?.prompt, settingsConfigPath), task],
         role: "claude-code",
-        label: `debug: ${det.target.split("/").pop()}`,
+        label: `${det.finding ? "fix" : "debug"}: ${det.target.split("/").pop()}`,
         compressor: loadDefaultCompressor(),
       });
     };

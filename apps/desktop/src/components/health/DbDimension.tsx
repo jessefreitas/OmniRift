@@ -301,7 +301,9 @@ export function DbDimension({ currentCwd }: Props) {
           {t("health.analysisError", "Análise indisponível")}: {analyzeError}
         </p>
       )}
-      {report && <AiReportView report={report} />}
+      {/* fixable={false}: o alvo do relatório de DB é o repo/schema (diretório),
+          não um arquivo backupável — sem ação de "corrigir" com backup aqui. */}
+      {report && <AiReportView report={report} root={currentCwd} fixable={false} />}
 
       {/* Lista de tabelas */}
       <div>
