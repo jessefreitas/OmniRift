@@ -104,3 +104,12 @@ jobs:
       - name: typecheck apps/desktop (tsc -b)
         working-directory: apps/desktop
         run: npx tsc -b
+
+      # Tipos próprios devem ser .ts, não .d.ts: com skipLibCheck o TS alarga nomes
+      # não-resolvidos em .d.ts pra `any` silenciosamente (ref P2 #13). Único .d.ts
+      # permitido é o vite-env.d.ts (padrão do Vite). Demais → quebra (mova p/ .ts).
+      - name: sem .d.ts próprio
+        run: |
+          found=$(find apps/desktop/src packages -name '*.d.ts' 2>/dev/null | grep -v 'vite-env.d.ts' || true)
+          if [ -n "$found" ]; then echo "❌ .d.ts próprio proibido (use .ts):"; echo "$found"; exit 1; fi
+          echo "✓ sem .d.ts próprio"

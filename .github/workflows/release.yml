@@ -32,6 +32,22 @@ jobs:
           echo "release '${{ github.ref_name }}' isDraft=$draft"
           if [ "$draft" = "false" ]; then echo "published=true" >> "$GITHUB_OUTPUT"; else echo "published=false" >> "$GITHUB_OUTPUT"; fi
 
+      # Recusa release cuja versão NÃO seja estritamente > a última publicada — protege
+      # o auto-update de downgrade acidental (ref P2 #16). Só p/ release novo, não manual.
+      - name: versão > latest
+        if: steps.chk.outputs.published != 'true' && github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          new="${{ github.ref_name }}"; new="${new#v}"
+          latest=$(gh release view -R "${{ github.repository }}" --json tagName -q .tagName 2>/dev/null | sed 's/^v//' || echo "")
+          if [ -z "$latest" ]; then echo "✓ sem release anterior — ok ($new)"; exit 0; fi
+          if [ "$new" != "$latest" ] && [ "$(printf '%s\n%s\n' "$new" "$latest" | sort -V | tail -1)" = "$new" ]; then
+            echo "✓ $new > $latest"
+          else
+            echo "❌ $new não é estritamente > latest $latest — recusado (protege auto-update)"; exit 1
+          fi
+
   build:
     needs: guard
     if: needs.guard.outputs.published != 'true'
