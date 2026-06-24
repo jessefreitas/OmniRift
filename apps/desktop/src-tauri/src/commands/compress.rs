@@ -4,7 +4,7 @@
 
 use serde::Serialize;
 
-use crate::compress::{Compressor, HeadroomProvider, OmnicompressProvider, RtkProvider};
+use crate::compress::{Compressor, HeadroomProvider, OmnicompressProvider, RtkProvider, SavingsReport};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,4 +45,12 @@ pub fn compressor_list() -> Vec<CompressorInfo> {
             }
         })
         .collect()
+}
+
+/// Economia REAL do OmniCompress (badge "▼ X% · Yk tok"). Consulta o `/stats` do
+/// omnicompress-proxy SOB DEMANDA (nunca no boot). Err quando o proxy não está de
+/// pé / não responde 200 — o front trata como "sem dados" (badge oculto), não quebra.
+#[tauri::command]
+pub async fn compressor_savings() -> Result<SavingsReport, String> {
+    crate::compress::fetch_savings().await
 }

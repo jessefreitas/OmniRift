@@ -18,6 +18,7 @@ import { TerminalContextMenu } from "@/components/TerminalContextMenu";
 import { StatusDot } from "@/components/StatusDot";
 import { useProcInfo } from "@/hooks/useProcInfo";
 import { ptyWrite } from "@/lib/pty-client";
+import { compressorSavings, isCompressorEnabled, type SavingsReport } from "@/lib/compress-client";
 import { cn } from "@/lib/cn";
 import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
 
@@ -29,6 +30,13 @@ import "@xterm/xterm/css/xterm.css";
 type TerminalRfNode = Node<TerminalNodeData & Record<string, unknown>, "terminal">;
 
 type TerminalNodeProps = NodeProps<TerminalRfNode>;
+
+/** Formata contagem de tokens compacta: 4321 → "4.3k", 1_200_000 → "1.2M". */
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
 
 function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const t = useT();
@@ -53,6 +61,8 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [inViewport, setInViewport] = useState(true);
   const [dragOver, setDragOver] = useState(false);
+  // Economia do OmniCompress (badge "▼ X% · Yk tok"). Só quando o nativo está ligado.
+  const [savings, setSavings] = useState<SavingsReport | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const homeSlotRef = useRef<HTMLDivElement | null>(null);
@@ -117,6 +127,28 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
       containerRef.current?.removeEventListener("contextmenu", handleCtxMenu);
     };
   }, [isFullscreen, containerRef]);
+
+  // Badge de economia do OmniCompress: poll leve (18s) do /stats do proxy, só
+  // quando o nativo está ligado e o node está vivo + visível (não desperdiça em
+  // node oculto/morto). `null` (proxy fora do ar / sem /stats) → badge some.
+  useEffect(() => {
+    if (!isCompressorEnabled("omnicompress") || termStatus === "dead" || !inViewport) {
+      setSavings(null);
+      return;
+    }
+    let alive = true;
+    const tick = () => {
+      void compressorSavings().then((r) => {
+        if (alive) setSavings(r);
+      });
+    };
+    tick(); // fetch imediato ao montar/focar
+    const iv = window.setInterval(tick, 18_000);
+    return () => {
+      alive = false;
+      window.clearInterval(iv);
+    };
+  }, [termStatus, inViewport]);
 
   function commitRename() {
     const label = draft.trim() || data.command;
@@ -323,6 +355,17 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
               className="text-[8px] uppercase tracking-wide px-1 rounded bg-brand/15 text-brand shrink-0"
             >
               ⚡{data.compressor}
+            </span>
+          )}
+
+          {/* Economia REAL do OmniCompress (vinda do /stats do proxy). Some quando
+              o proxy não responde (savings === null) — fail-open, não quebra a UI. */}
+          {savings && savings.tokensBefore > 0 && (
+            <span
+              title={`OmniCompress: ${savings.tokensBefore.toLocaleString()} → ${savings.tokensAfter.toLocaleString()} tokens (${(savings.tokensBefore - savings.tokensAfter).toLocaleString()} economizados)`}
+              className="text-[9px] font-mono tabular-nums px-1 rounded bg-green-500/15 text-green-400 shrink-0"
+            >
+              ▼{savings.pct.toFixed(0)}% · {formatTokens(savings.tokensBefore - savings.tokensAfter)} tok
             </span>
           )}
 

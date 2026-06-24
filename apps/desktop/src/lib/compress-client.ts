@@ -25,6 +25,29 @@ export async function compressorList(): Promise<CompressorInfo[]> {
   return invoke<CompressorInfo[]>("compressor_list");
 }
 
+// ── Economia de tokens (badge do OmniCompress) ───────────────────────────────
+/** Relatório de economia vindo do `/stats` do omnicompress-proxy (números reais). */
+export interface SavingsReport {
+  tokensBefore: number;
+  tokensAfter: number;
+  pct: number;
+  /** true = counterfactual; false = número real do proxy. */
+  estimated: boolean;
+}
+
+/**
+ * Economia real do OmniCompress (sob demanda). `null` em erro — o proxy pode não
+ * estar de pé (BYO) ou ainda não expor `/stats`: o chamador esconde o badge, não
+ * quebra. Fail-open de ponta a ponta.
+ */
+export async function compressorSavings(): Promise<SavingsReport | null> {
+  try {
+    return await invoke<SavingsReport>("compressor_savings");
+  } catch {
+    return null;
+  }
+}
+
 // ── Liga/desliga por compressor ──────────────────────────────────────────────
 const ENABLED_KEY = "omnirift-compressors-enabled";
 // Proxies llm são mutuamente exclusivos (ambos mexem em BASE_URL).

@@ -21,7 +21,7 @@ use commands::dbnode::db_query;
 use commands::debug::debug_request;
 use commands::diagnostics::collect_diagnostics;
 use commands::metrics::metrics_snapshot;
-use commands::compress::compressor_list;
+use commands::compress::{compressor_list, compressor_savings};
 use commands::editor::{detect_editors, open_in_editor};
 use commands::fsinfo::{fs_cow_info, reflink_clone};
 use commands::explain::whatis_lookup;
@@ -332,6 +332,7 @@ pub fn run() {
             debug_request,
             metrics_snapshot,
             compressor_list,
+            compressor_savings,
             serena_ensure_project,
             serena_health,
             scheduler_install,
