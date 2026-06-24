@@ -5,9 +5,10 @@
 
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Search, X } from "lucide-react";
+import { BookOpen, MessageCircle, Search, X } from "lucide-react";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 
-import { HELP_TOPICS } from "@/lib/help-content";
+import { HELP_TOPICS, WHATSAPP_GROUP } from "@/lib/help-content";
 import { renderMarkdown } from "@/lib/preview-client";
 import { cn } from "@/lib/cn";
 import { useT, useI18n } from "@/lib/i18n";
@@ -97,11 +98,29 @@ export function HelpModal({ onClose }: Props) {
               className="md-preview text-text text-[13px] leading-relaxed"
               dangerouslySetInnerHTML={{ __html: html }}
             />
+            {active?.id === "suporte" && (
+              <button
+                onClick={() => void openExternal(WHATSAPP_GROUP).catch(() => {})}
+                className="mt-4 inline-flex items-center gap-2 px-3 py-2 rounded-md bg-brand text-bg text-[12px] font-medium hover:opacity-90 transition-opacity"
+              >
+                <MessageCircle size={14} /> {t("help.whatsappBtn", "Entrar no grupo do WhatsApp")}
+              </button>
+            )}
           </div>
         </div>
 
-        <footer className="px-4 py-2 border-t border-border text-[10px] text-textMuted opacity-60 shrink-0">
-          {t("help.footer1", "Cada node também tem um ícone")} <b>?</b> {t("help.footer2", "no cabeçalho com ajuda contextual.")}
+        <footer className="flex items-center gap-3 px-4 py-2 border-t border-border shrink-0">
+          <span className="text-[10px] text-textMuted opacity-60 truncate">
+            {t("help.footer1", "Cada node também tem um ícone")} <b>?</b> {t("help.footer2", "no cabeçalho com ajuda contextual.")}
+          </span>
+          <div className="flex-1" />
+          <button
+            onClick={() => void openExternal(WHATSAPP_GROUP).catch(() => {})}
+            className="inline-flex items-center gap-1.5 shrink-0 text-[11px] text-brand hover:underline"
+            title={t("help.whatsappTitle", "Grupo de dúvidas no WhatsApp")}
+          >
+            <MessageCircle size={13} /> {t("help.whatsapp", "Dúvidas? Entre no grupo do WhatsApp →")}
+          </button>
         </footer>
       </div>
     </div>,
