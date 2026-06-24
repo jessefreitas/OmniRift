@@ -3,6 +3,7 @@ pub mod commands;
 pub mod compress;
 pub mod db;
 pub mod git;
+pub mod health;
 pub mod mcp;
 pub mod memory;
 pub mod metrics;
@@ -29,6 +30,9 @@ use commands::fs::{list_dir, read_file, write_file};
 use commands::gitremote::{git_clone, git_list_repos};
 use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
+use health::ai::health_analyze_file;
+use health::scan::project_scan;
+use health::HealthCache;
 use commands::license::{license_activate, license_status, license_store_meta, license_stored_key, license_was_beta};
 use commands::llm::{llm_chat, llm_list_models};
 use commands::review_cfg::{
@@ -212,6 +216,9 @@ pub fn run() {
         .manage(floor_mirror)
         .manage(claims_registry)
         .manage(CodeWatchers::default())
+        // Cache do painel "Saúde do Projeto" (Fase A) — state PURO (Mutex<HashMap>),
+        // sem thread/IO no construtor: app.manage disto no boot nunca panica.
+        .manage(HealthCache::default())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
@@ -329,6 +336,8 @@ pub fn run() {
             code_watch,
             code_unwatch,
             code_metrics,
+            project_scan,
+            health_analyze_file,
             debug_request,
             metrics_snapshot,
             compressor_list,

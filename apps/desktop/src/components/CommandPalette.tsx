@@ -91,6 +91,7 @@ export function CommandPalette() {
       { id: "open-connections", label: t("palette.openConnections", "Abrir: Conexões de memória"), category: t("palette.catOpen", "Abrir"), run: openTool("connections") },
       { id: "open-review-ai", label: t("palette.openReviewAi", "Abrir: Code Review IA"), category: t("palette.catOpen", "Abrir"), run: openTool("review-ai") },
       { id: "open-git", label: t("palette.openGit", "Abrir: Repositórios Git"), category: t("palette.catOpen", "Abrir"), run: openTool("git") },
+      { id: "open-health", label: t("palette.openHealth", "Abrir: Saúde do Projeto"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("project-health") },
     ];
     return [...create, ...floorCmds, ...openCmds];
   }, [open, t]);

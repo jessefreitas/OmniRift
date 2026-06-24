@@ -1,6 +1,6 @@
 [package]
 name = "omnirift"
-version = "0.1.21"
+version = "0.1.22"
 description = "OmniRift - canvas infinito para orquestrar agentes de IA, terminais e notas"
 authors = ["OmniForge <contato@omniforge.com.br>"]
 license = "MIT"
@@ -74,6 +74,9 @@ tree-sitter-typescript = "0.23"
 tree-sitter-python = "0.23"
 notify = "8"
 notify-debouncer-mini = "0.6"
+# Painel "Saúde do Projeto" (Fase A) — caminhada de diretório respeitando `.gitignore`
+# (mesmo motor do ripgrep): pula node_modules/target/dist/.git automaticamente.
+ignore = "0.4"
 # Monitor de recursos (CPU/RAM/disco/rede) — sub-fase A. GPU (NVML) entra na fase C.
 sysinfo = "0.33"
 # Datas: cutoff do filtro por período + carimbo do ledger nativo (RFC3339 comparável

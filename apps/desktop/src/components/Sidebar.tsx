@@ -115,6 +115,7 @@ const ReviewPolicyModal = lazy(() => import("@/components/ReviewPolicyModal").th
 const ReviewSettingsModal = lazy(() => import("@/components/ReviewSettingsModal").then((m) => ({ default: m.ReviewSettingsModal })));
 const SkillLaunchPickerModal = lazy(() => import("@/components/SkillLaunchPicker").then((m) => ({ default: m.SkillLaunchPicker })));
 const DiagnosticsModal = lazy(() => import("@/components/DiagnosticsModal").then((m) => ({ default: m.DiagnosticsModal })));
+const ProjectHealthPanel = lazy(() => import("@/components/health/ProjectHealthPanel").then((m) => ({ default: m.ProjectHealthPanel })));
 import { loadPolicy } from "@/lib/review-policy";
 import { loadDefaultCompressor } from "@/lib/compress-client";
 import { loadLlmConfig } from "@/lib/llm-client";
@@ -377,6 +378,7 @@ export function Sidebar() {
   const [showLlmConfig, setShowLlmConfig] = useState(false);
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showReviewAi, setShowReviewAi] = useState(false);
+  const [showHealth, setShowHealth] = useState(false);
   const [showAppearance, setShowAppearance] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
   const [showGitRepos, setShowGitRepos] = useState(false);
@@ -446,6 +448,7 @@ export function Sidebar() {
         case "history": setShowHistory(true); break;
         case "connections": setShowConnections(true); break;
         case "review-ai": setShowReviewAi(true); break;
+        case "project-health": setShowHealth(true); break;
         case "appearance": setShowAppearance(true); break;
         case "usage": setShowUsage(true); break;
         case "git": setShowGitRepos(true); break;
@@ -456,6 +459,27 @@ export function Sidebar() {
     window.addEventListener("omnirift:open-tool", h);
     return () => window.removeEventListener("omnirift:open-tool", h);
   }, []);
+
+  // "Abrir agente" do painel Saúde do Projeto: spawna o debugger com o relatório da IA
+  // seedado (reusa o padrão do 9d — workerClaudeArgs + addTerminal). Evento do AiReportView.
+  useEffect(() => {
+    const h = (e: Event) => {
+      const det = (e as CustomEvent<{ target?: string; report?: { summary?: string; findings?: Array<{ title?: string }> } }>).detail;
+      if (!det?.target) return;
+      const dbg = roles.find((r) => r.id === "debugger");
+      const pts = (det.report?.findings ?? []).map((f) => `- ${f.title ?? ""}`).join("\n");
+      const task = `Analise e conserte o arquivo ${det.target}. Use Serena (find_symbol/get_references) e aplique o fix.\n\nRelatório prévio:\n${det.report?.summary ?? ""}\n${pts}`;
+      addTerminal({
+        command: "claude",
+        args: [...workerClaudeArgs(mcpConfigPath, dbg?.prompt, settingsConfigPath), task],
+        role: "claude-code",
+        label: `debug: ${det.target.split("/").pop()}`,
+        compressor: loadDefaultCompressor(),
+      });
+    };
+    window.addEventListener("omnirift:health-spawn-agent", h);
+    return () => window.removeEventListener("omnirift:health-spawn-agent", h);
+  }, [roles, mcpConfigPath, settingsConfigPath]);
 
   // Esconde/mostra a barra inteira (persiste).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -2005,6 +2029,7 @@ export function Sidebar() {
       {showGitRepos && <GitReposModal onClose={() => setShowGitRepos(false)} />}
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
       {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
+      {showHealth && <ProjectHealthPanel onClose={() => setShowHealth(false)} />}
       {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}
       {showUsage && <UsageModal onClose={() => setShowUsage(false)} activeProject={currentCwd} />}
       </Suspense>
