@@ -261,7 +261,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
           <div className="relative flex-1 bg-bg">
             <div
               ref={fullscreenSlotRef}
-              className="terminal absolute inset-0"
+              className="terminal nowheel absolute inset-0"
               onPointerDown={(e) => e.stopPropagation()}
             />
           </div>
@@ -430,7 +430,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
         >
           <div
             ref={containerRef}
-            className="terminal absolute inset-0"
+            className="terminal nowheel absolute inset-0"
             style={{ visibility: isOrch || inViewport ? "visible" : "hidden" }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={fit}

@@ -572,7 +572,7 @@ export function Sidebar() {
   const sectionTitle = (key: string, label: string) => (
     <button
       onClick={() => toggleSection(key)}
-      className="flex items-center gap-1 text-[11px] uppercase tracking-wider text-textMuted hover:text-text transition-colors"
+      className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-textMuted/90 hover:text-text transition-colors"
     >
       {isOpen(key) ? (
         <ChevronDown size={10} className="opacity-60" />
@@ -1272,10 +1272,10 @@ export function Sidebar() {
 
       <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
       {/* Floors */}
-      <div className="px-2 py-2 border-b border-border" style={secStyle("floors")}>
-        <div className="flex items-center justify-between px-2 mb-1">
+      <div className="px-2 py-2.5 border-b border-border" style={secStyle("floors")}>
+        <div className="flex items-center justify-between px-2 mb-1.5">
           <div className="flex items-center gap-1.5">
-            <p className="text-[11px] uppercase tracking-wider text-textMuted">{tr("section.parallels")}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-textMuted/90">{tr("section.parallels")}</p>
             <Tooltip
               label={`${tr("sidebar.parallelsGitTip", "Paralelos = branches git (worktree): objetos compartilhados (~zero disco), git-native, cross-platform.")}${cow ? ` FS ${cow.fs}${cow.reflink ? ` · ${tr("sidebar.cowInstant", "CoW/instantâneo ⚡")}` : ""}` : ""}`}
               side="bottom"
@@ -1314,7 +1314,7 @@ export function Sidebar() {
             </Tooltip>
           </div>
         </div>
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           {floors.map((f, i) => {
             const ready = isReadyToLand(f);
             return (
@@ -1437,10 +1437,10 @@ export function Sidebar() {
       </div>
 
       {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
-      <div className="px-2 py-2 border-b border-border" style={secStyle("tools")}>
-        <div className="px-2 mb-1">{sectionTitle("tools", tr("section.tools"))}</div>
+      <div className="px-2 py-2.5 border-b border-border" style={secStyle("tools")}>
+        <div className="px-2 mb-1.5">{sectionTitle("tools", tr("section.tools"))}</div>
         {isOpen("tools") && (
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             {tools.order.map((id) => {
               const def = TOOL_DEFS.find((t) => t.id === id);
               if (!def) return null;
@@ -1467,8 +1467,8 @@ export function Sidebar() {
       </div>
 
       {/* Workspace */}
-      <div className="px-2 py-2 border-b border-border space-y-1" style={secStyle("workspace")}>
-        <p className="px-2 text-[11px] uppercase tracking-wider text-textMuted mb-1">
+      <div className="px-2 py-2.5 border-b border-border space-y-1" style={secStyle("workspace")}>
+        <p className="px-2 text-[11px] font-semibold uppercase tracking-wider text-textMuted/90 mb-1.5">
           {tr("section.workspace")}
         </p>
         <input
@@ -1507,8 +1507,8 @@ export function Sidebar() {
       </div>
 
       {/* Seletor de pasta do projeto */}
-      <div className="px-2 py-2 border-b border-border" style={secStyle("project")}>
-        <p className="px-2 text-[11px] uppercase tracking-wider text-textMuted mb-1">
+      <div className="px-2 py-2.5 border-b border-border" style={secStyle("project")}>
+        <p className="px-2 text-[11px] font-semibold uppercase tracking-wider text-textMuted/90 mb-1.5">
           {tr("section.project")}
         </p>
         <div
@@ -1581,7 +1581,7 @@ export function Sidebar() {
         style={secStyle("agents")}
         className="px-2 py-3 space-y-1 shrink-0"
       >
-        <div className="px-2 mb-1 sticky -top-3 z-10 bg-surface1 pt-3 pb-1 flex items-center justify-between">
+        <div className="px-2 mb-1.5 sticky -top-3 z-10 bg-surface1 pt-3 pb-1 flex items-center justify-between">
           {sectionTitle("agents", tr("section.agents"))}
           {isOpen("agents") && (
             <Tooltip label={tr("sidebar.addCustomCli", "Adicionar um CLI personalizado")} side="bottom">
@@ -1730,7 +1730,7 @@ export function Sidebar() {
       </section>
 
       {/* Roles — personas de agente (--append-system-prompt) */}
-      <div className="px-2 py-2 border-t border-border" style={secStyle("roles")}>
+      <div className="px-2 py-2.5 border-t border-border" style={secStyle("roles")}>
         <div className="flex items-center justify-between px-2 mb-1.5">
           {sectionTitle("roles", tr("section.roles"))}
           <div className="flex items-center gap-0.5">
@@ -1755,7 +1755,7 @@ export function Sidebar() {
           </div>
         </div>
         {isOpen("roles") && (
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             {roles.map((r) => (
               <div
                 key={r.id}
@@ -1817,7 +1817,7 @@ export function Sidebar() {
       </div>
 
       {/* MCP Agents */}
-      <div className="px-2 py-2 border-t border-border" style={secStyle("mcp")}>
+      <div className="px-2 py-2.5 border-t border-border" style={secStyle("mcp")}>
         <div className="flex items-center justify-between px-2 mb-1.5 gap-2">
           {sectionTitle("mcp", tr("section.mcp"))}
           <div className="flex items-center gap-2 shrink-0">
@@ -1955,7 +1955,7 @@ export function Sidebar() {
       </div>
 
       {/* Specs — ciclo de vida + dispatch (Fase C) */}
-      <div className="px-2 py-2 border-t border-border" style={secStyle("specs")}>
+      <div className="px-2 py-2.5 border-t border-border" style={secStyle("specs")}>
         <div className="px-2 mb-1.5 flex items-center gap-1">
           <div className="flex-1">{sectionTitle("specs", tr("section.specs"))}</div>
           <button onClick={() => void newDoc("spec")} disabled={!currentCwd} title={tr("sidebar.newSpecDesign", "Nova spec (design)")} className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FileText size={12} /></button>
@@ -1968,7 +1968,7 @@ export function Sidebar() {
           ) : specs.length === 0 ? (
             <p className="px-2 text-[10px] text-textMuted opacity-60">{tr("sidebar.noSpecs", "Nenhuma spec. Crie com + ou adicione uma pasta.")}</p>
           ) : (
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {activeSpecs.map(renderSpecRow)}
               {deadSpecs.length > 0 && (
                 <>

@@ -116,7 +116,7 @@ export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) 
           <X size={12} />
         </button>
       </header>
-      <div className="flex-1 overflow-auto py-1" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="nowheel flex-1 overflow-auto py-1" onPointerDown={(e) => e.stopPropagation()}>
         {error ? (
           <p className="px-2 text-[10px] text-danger">{error}</p>
         ) : roots === null ? (

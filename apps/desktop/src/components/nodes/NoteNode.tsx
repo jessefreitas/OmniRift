@@ -80,7 +80,7 @@ export function NoteNode({ id, data, selected }: NodeProps<NoteRfNode>) {
         }}
         onPointerDown={(e) => e.stopPropagation()}
         placeholder={t("note.placeholder", "Anotação…")}
-        className="flex-1 bg-transparent resize-none px-2 py-1.5 text-sm text-black/80 placeholder:text-black/30 focus:outline-none"
+        className="nowheel flex-1 bg-transparent resize-none px-2 py-1.5 text-sm text-black/80 placeholder:text-black/30 focus:outline-none"
       />
     </div>
   );
