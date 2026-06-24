@@ -12,6 +12,9 @@ import { signupBeta, renewBeta, listBeta } from "./beta";
 
 export interface Env {
   DB: D1Database;
+  // Espelho de releases no R2 (ponteiro estável releases/latest/<so>). Bucket privado;
+  // o /download faz stream pelo Worker. Ausente/erro → fallback GitHub (fail-open).
+  RELEASES: R2Bucket;
   // secrets
   ED25519_PRIVATE_KEY: string; // = conteúdo de tools/.omnirift-license.key (pkcs8 b64)
   ASAAS_API_KEY: string;
@@ -54,6 +57,21 @@ export interface Env {
 
 const now = () => Math.floor(Date.now() / 1000);
 const REFRESH_DAYS = 30;
+
+// Espelho de releases no R2 — ponteiro estável por SO (o CI sobe releases/latest/<key>).
+// key = o que o Worker lê do bucket; filename = nome amigável no Content-Disposition.
+const R2_LATEST = {
+  windows: {
+    key: "releases/latest/windows-setup.exe",
+    filename: "OmniRift-setup.exe",
+    contentType: "application/octet-stream",
+  },
+  linux: {
+    key: "releases/latest/linux.AppImage",
+    filename: "OmniRift.AppImage",
+    contentType: "application/octet-stream",
+  },
+} as const;
 
 // Email single-line (sem CR/LF → barra SMTP header injection) + formato simples.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -311,6 +329,25 @@ app.get("/download/:platform?", async (c) => {
     else if (/linux/i.test(ua) && !/android/i.test(ua)) platform = "linux";
   }
   if (platform !== "windows" && platform !== "linux") return c.redirect(releasesPage, 302);
+
+  // ── R2 PRIMEIRO: serve o ponteiro estável releases/latest/<so> direto do bucket
+  // (egress zero, sem rate limit do GitHub API). Objeto ausente OU erro → fallback
+  // pro fluxo do GitHub abaixo (fail-open: nunca quebra o download).
+  try {
+    const r2 = platform === "windows" ? R2_LATEST.windows : R2_LATEST.linux;
+    const obj = await env.RELEASES.get(r2.key);
+    if (obj) {
+      return new Response(obj.body, {
+        headers: {
+          "content-type": r2.contentType,
+          "content-disposition": `attachment; filename="${r2.filename}"`,
+          "cache-control": "public, max-age=300",
+        },
+      });
+    }
+  } catch {
+    // cai no fluxo do GitHub
+  }
 
   try {
     const cache = caches.default;

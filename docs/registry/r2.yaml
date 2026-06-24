@@ -1,0 +1,34 @@
+# Registry canônico — Cloudflare R2 (OmniRift)
+# Esteira de download: instaladores espelhados do GitHub Release pro R2, servidos
+# pelo license-worker (binding privado, stream) com fallback GitHub. Ver spec:
+# docs/superpowers/specs/2026-06-24-r2-release-mirror-design.md
+
+buckets:
+  omnirift-releases:
+    description: "Instaladores do OmniRift (Win/Linux) espelhados do GitHub Release."
+    account_id: "0245b00ef3744d9e0e07f785971bb90a"   # conta CF OmniForge (Jesse)
+    created: "2026-06-24"
+    access: "privado (sem domínio público) — lido só pelo Worker via binding RELEASES"
+    worker_binding: "RELEASES"                         # services/license-worker/wrangler.toml
+    served_by: "https://omnirift-license-worker.jesse-vieira-freitas.workers.dev/download/<so>"
+    key_convention:
+      por_tag: "releases/<tag>/<nome-original>"        # ex: releases/v0.1.27/OmniRift_0.1.27_x64-setup.exe
+      ponteiro_estavel:                                # o que o Worker lê
+        windows: "releases/latest/windows-setup.exe"
+        windows_msi: "releases/latest/windows.msi"
+        linux: "releases/latest/linux.AppImage"
+        linux_deb: "releases/latest/linux.deb"
+    upload_por: ".github/workflows/release.yml (job 'mirror', needs build, em push de tag v*)"
+
+credentials:
+  # NÃO guardar valores aqui — só ponteiros pro cofre OmniMemory (global, project="").
+  cloudflare_api_token: "cofre: credential.cloudflare.api_token (Workers:Edit + R2 + DNS + AI)"
+  cloudflare_account_id: "cofre: credential.cloudflare.account_id"
+  github_actions_secrets:                              # setados no repo jessefreitas/OmniRift
+    - CLOUDFLARE_API_TOKEN
+    - CLOUDFLARE_ACCOUNT_ID
+
+notes:
+  - "remote é o DEFAULT do `wrangler r2 object put` (--local é o opt-in); NÃO passar --remote (não existe na 3.114.x)."
+  - "Worker tenta R2 primeiro; se o objeto não existe → fallback 302 pro GitHub Release (fail-open)."
+  - "Updater do Tauri continua lendo latest.json/.sig do GitHub Release (híbrido)."
