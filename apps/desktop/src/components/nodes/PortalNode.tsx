@@ -8,7 +8,9 @@ import { useNodeMaximize } from "@/hooks/useNodeMaximize";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
 import { normalizeUrl, browserShot } from "@/lib/portal-client";
-import { attachGrabMode, payloadToMarkdown, type GrabHandle, type GrabPayload } from "@/lib/portal-grab";
+import { formatGrabAsMarkdown } from "@/lib/grab/format";
+import { clampPayload } from "@/lib/grab/payload";
+import { useGrabMode } from "@/hooks/useGrabMode";
 import type { PortalNode as PortalNodeData } from "@/types/canvas";
 
 type PortalRfNode = Node<PortalNodeData & Record<string, unknown>, "portal">;
@@ -28,12 +30,16 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
   const [shot, setShot] = useState<string | null>(null);
   const [shooting, setShooting] = useState(false);
   const [shotErr, setShotErr] = useState<string | null>(null);
-  // Design Mode "grab": captura de elemento same-origin/localhost (ref teardown §3.5).
+  // Design Mode "grab": captura de elemento same-origin/localhost (ref RE 06 §7).
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const grabHandleRef = useRef<GrabHandle | null>(null);
-  const [grabbing, setGrabbing] = useState(false);
-  const [grabbed, setGrabbed] = useState<GrabPayload | null>(null);
-  const [grabErr, setGrabErr] = useState<string | null>(null);
+  const grabCrossOriginMsg = t(
+    "portal.grabCrossOrigin",
+    "Captura só funciona em conteúdo localhost/same-origin. Sites externos bloqueiam o acesso ao DOM (grab indisponível nesta origem).",
+  );
+  const grab = useGrabMode(grabCrossOriginMsg);
+  const grabbing = grab.state === "armed" || grab.state === "awaiting";
+  const grabbed = grab.state === "confirming" ? grab.payload : null;
+  const grabErr = grab.state === "error" ? grab.error : null;
   const [grabSent, setGrabSent] = useState<"copied" | "agent" | null>(null);
   // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
   const [hovered, setHovered] = useState(false);
@@ -43,49 +49,24 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
 
   function go() {
     const u = normalizeUrl(urlInput);
-    if (u) { patchNode(id, { url: u }); setShot(null); setShotErr(null); stopGrab(); }
+    if (u) { patchNode(id, { url: u }); setShot(null); setShotErr(null); grab.reset(); }
   }
 
   // Liga/desliga o modo de captura. Só funciona em conteúdo same-origin/localhost
-  // (cross-origin barra contentDocument → avisamos o user). Ver portal-grab.ts.
-  function startGrab() {
-    setGrabErr(null);
-    setGrabbed(null);
-    setGrabSent(null);
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    const handle = attachGrabMode(iframe, (p) => {
-      setGrabbed(p);
-      stopGrab();
-    });
-    if (!handle) {
-      // Cross-origin / doc inacessível: limitação fundamental do iframe.
-      setGrabErr(t("portal.grabCrossOrigin", "Captura só funciona em conteúdo localhost/same-origin. Sites externos bloqueiam o acesso ao DOM."));
-      return;
-    }
-    grabHandleRef.current = handle;
-    setGrabbing(true);
-  }
-
-  function stopGrab() {
-    grabHandleRef.current?.detach();
-    grabHandleRef.current = null;
-    setGrabbing(false);
-  }
-
+  // (cross-origin barra contentDocument → useGrabMode entra em `error` com a msg de
+  // degradação). Ver lib/grab/guest-script.ts.
   function toggleGrab() {
-    if (grabbing) stopGrab();
-    else startGrab();
+    setGrabSent(null);
+    grab.toggle(iframeRef.current);
   }
 
-  // Limpa listeners do iframe ao desmontar / trocar de URL.
-  useEffect(() => () => stopGrab(), []);
-  useEffect(() => { stopGrab(); setGrabbed(null); setGrabErr(null); }, [url, reloadKey]);
+  // Limpa o grab ao trocar de URL / recarregar (o hook já limpa ao desmontar).
+  useEffect(() => { grab.reset(); }, [url, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function copyGrab() {
     if (!grabbed) return;
     try {
-      await navigator.clipboard.writeText(payloadToMarkdown(grabbed));
+      await navigator.clipboard.writeText(formatGrabAsMarkdown(clampPayload(grabbed)));
       setGrabSent("copied");
       setTimeout(() => setGrabSent(null), 1500);
     } catch { /* clipboard off */ }
@@ -93,14 +74,15 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
 
   function sendGrabToAgent() {
     if (!grabbed) return;
-    const markdown = payloadToMarkdown(grabbed);
+    // Re-clamp/re-redação no app (defesa em profundidade) antes de formatar.
+    const markdown = formatGrabAsMarkdown(clampPayload(grabbed));
     // Mesmo padrão do AiReportView → listener na Sidebar spawna/injeta no agente.
-    window.dispatchEvent(new CustomEvent("omnirift:portal-grab", { detail: { markdown, url: grabbed.url } }));
+    window.dispatchEvent(new CustomEvent("omnirift:portal-grab", { detail: { markdown, url: grabbed.page.url } }));
     // Também copia pro clipboard como fallback (caso o wiring de spawn não pegue).
     navigator.clipboard.writeText(markdown).catch(() => {});
     setGrabSent("agent");
     setTimeout(() => setGrabSent(null), 1500);
-    setGrabbed(null);
+    grab.reset();
   }
 
   async function snapshot() {
@@ -192,8 +174,8 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
         {/* Elemento capturado: barra de ação (enviar pro agente / copiar markdown). */}
         {grabbed && (
           <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-1.5 bg-surface2/95 border border-border rounded px-2 py-1.5 text-[10px] text-text">
-            <span className="flex-1 min-w-0 truncate font-mono text-textMuted" title={grabbed.selector}>
-              {t("portal.grabbed", "Capturado")}: <span className="text-text">&lt;{grabbed.tag}&gt;</span> {grabbed.selector}
+            <span className="flex-1 min-w-0 truncate font-mono text-textMuted" title={grabbed.target.selector}>
+              {t("portal.grabbed", "Capturado")}: <span className="text-text">&lt;{grabbed.target.tag}&gt;</span> {grabbed.target.selector}
             </span>
             <button onClick={(e) => { e.stopPropagation(); sendGrabToAgent(); }} title={t("portal.grabSend", "Enviar pro agente")} className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-brand text-white hover:opacity-90 shrink-0">
               <Send size={10} /> {grabSent === "agent" ? t("portal.grabSent", "Enviado!") : t("portal.grabSend", "Enviar pro agente")}
@@ -201,7 +183,7 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
             <button onClick={(e) => { e.stopPropagation(); void copyGrab(); }} title={t("portal.grabCopy", "Copiar markdown")} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-border hover:text-text shrink-0">
               <Copy size={10} /> {grabSent === "copied" ? t("portal.grabCopied", "Copiado!") : t("portal.grabCopy", "Copiar")}
             </button>
-            <button onClick={(e) => { e.stopPropagation(); setGrabbed(null); }} title={t("portal.grabDismiss", "Descartar")} className="hover:text-danger shrink-0">
+            <button onClick={(e) => { e.stopPropagation(); grab.reset(); }} title={t("portal.grabDismiss", "Descartar")} className="hover:text-danger shrink-0">
               <X size={11} />
             </button>
           </div>
