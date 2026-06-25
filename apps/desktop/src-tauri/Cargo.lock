@@ -3536,7 +3536,7 @@ dependencies = [
 
 [[package]]
 name = "omnirift"
-version = "0.1.36"
+version = "0.1.37"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -3593,7 +3593,7 @@ dependencies = [
 
 [[package]]
 name = "omnirift-cli"
-version = "0.1.36"
+version = "0.1.37"
 dependencies = [
  "serde",
  "serde_json",
