@@ -71,7 +71,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const fullscreenSlotRef = useRef<HTMLDivElement | null>(null);
   const nodeWrapRef = useRef<HTMLDivElement>(null);
 
-  const { containerRef, ready, error, fit, getSelection, reconnect } =
+  const { containerRef, ready, error, fit, getSelection, reconnect, setActive } =
     useTerminalSession({
       sessionId: data.session_id,
       config: {
@@ -109,6 +109,15 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
     obs.observe(el);
     return () => obs.disconnect();
   }, [fit]);
+
+  // Scheduler de saída backend-owned (ref P0 #2): foreground (escreve ao vivo) quando
+  // o terminal está realmente visível — no viewport, OU em fullscreen, OU é o
+  // Orquestrador (que fica visível no dock mesmo fora do viewport). Caso contrário,
+  // background → a saída é enfileirada/dropada e re-hidratada via snapshot no retorno.
+  // Espelha a mesma condição do `visibility` do container do xterm abaixo.
+  useEffect(() => {
+    setActive(isFullscreen || isOrch || inViewport);
+  }, [isFullscreen, isOrch, inViewport, setActive]);
 
   // ESC fecha o fullscreen + context menu via DOM nativo no canvas movido
   useEffect(() => {

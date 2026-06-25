@@ -74,7 +74,11 @@ impl PtyManager {
         // que o read-loop já publica. Feeder em `tauri::async_runtime::spawn` (não
         // `tokio::spawn`): `spawn` é comando Tauri SÍNCRONO, fora do runtime tokio —
         // mesma razão do StateDetector. Encerra sozinho no `Closed` do broadcast (EOF).
-        let emulator = Arc::new(Mutex::new(TermEmulator::new(cols, rows)));
+        // `new_with_seq`: o emulador COMPARTILHA o `seq` atômico do `PtySession`. Assim
+        // o feeder (abaixo) incrementa-o por chunk pintado E o thread de emit do
+        // `pty://output` (em session.rs) lê o mesmo valor pra estampar cada evento ao
+        // vivo → `pty://output.seq` e `snapshot.seq` na MESMA escala (dedup do front).
+        let emulator = Arc::new(Mutex::new(TermEmulator::new_with_seq(cols, rows, session.seq_arc())));
         self.emulators.insert(id.clone(), emulator.clone());
         let mut feed_rx = session.subscribe();
         tauri::async_runtime::spawn(async move {

@@ -28,6 +28,8 @@ use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Rgb};
 
 use serde::Serialize;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Scrollback máximo retido pelo emulador (linhas). Bounded de propósito: um agente
 /// em loop não pode pinnizar GBs no backend. Casa com o `scrollback: 10000` do xterm.
@@ -76,26 +78,40 @@ impl Dimensions for EmuSize {
 pub struct TermEmulator {
     term: Term<VoidListener>,
     parser: Processor,
-    seq: u64,
+    /// `seq` monotônico por sessão, em `Arc<AtomicU64>` pra ser COMPARTILHADO com o
+    /// thread de emit do `pty://output` (em `session.rs`) — assim o evento ao vivo
+    /// carrega o MESMO seq que o emulador pintou, e o front deduplica os chunks ao
+    /// vivo contra `snapshot.seq` (descarta `seq <= snapshot.seq` → mata o scrollback
+    /// dobrado). Sem o Arc, o emit (outro thread, outra fronteira de chunk) não teria
+    /// como saber o seq atual do grid.
+    seq: Arc<AtomicU64>,
     cols: u16,
     rows: u16,
 }
 
 impl TermEmulator {
     /// Cria o emulador nas dimensões iniciais da sessão, com scrollback bounded.
+    /// O `seq` é interno (não compartilhado) — usado em testes e no path standalone.
     pub fn new(cols: u16, rows: u16) -> Self {
+        Self::new_with_seq(cols, rows, Arc::new(AtomicU64::new(0)))
+    }
+
+    /// Como `new`, mas reutiliza um `seq` compartilhado (vindo do `PtySession`), pro
+    /// thread de emit do `pty://output` estampar cada evento com o seq do grid. Aditivo:
+    /// o caminho de produção usa esta; `new` (seq próprio) cobre testes/standalone.
+    pub fn new_with_seq(cols: u16, rows: u16, seq: Arc<AtomicU64>) -> Self {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let config = Config { scrolling_history: SCROLLBACK_LIMIT, ..Config::default() };
         let size = EmuSize { cols: cols as usize, rows: rows as usize };
         let term = Term::new(config, &size, VoidListener);
-        Self { term, parser: Processor::new(), seq: 0, cols, rows }
+        Self { term, parser: Processor::new(), seq, cols, rows }
     }
 
     /// Alimenta bytes do PTY no grid. `seq += 1` por chamada (1 chunk pintado). O
     /// `VoidListener` garante que nenhuma resposta de query saia daqui (só o grid muda).
     pub fn feed(&mut self, bytes: &[u8]) {
         self.parser.advance(&mut self.term, bytes);
-        self.seq += 1;
+        self.seq.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Redimensiona o grid (o read-loop chama junto com o resize do PTY master).
@@ -108,7 +124,7 @@ impl TermEmulator {
 
     /// Seq atual (último chunk pintado). Exposto pra testes/diagnóstico.
     pub fn seq(&self) -> u64 {
-        self.seq
+        self.seq.load(Ordering::SeqCst)
     }
 
     /// Serializa scrollback (até `scrollback_rows`) + viewport em ANSI re-hidratado.
@@ -159,19 +175,16 @@ impl TermEmulator {
 
         // Junta com `\r\n` como SEPARADOR (não terminador) — sem `\r\n` no fim, pra o
         // replay não rolar a tela além do conteúdo.
+        // Cap por LINHAS, não por bytes: cortar no meio de uma sequência ANSI (ex.: \x1b[31m)
+        // corromperia o SGR no front (is_char_boundary protege UTF-8, não escape). Remove as
+        // linhas mais antigas até caber. (+2 ≈ o \r\n separador.) [GLM-audit #2]
+        let mut total: usize = lines.iter().map(|l| l.len() + 2).sum();
+        while total > SNAPSHOT_MAX_BYTES && lines.len() > 1 {
+            total -= lines.remove(0).len() + 2;
+        }
         out.push_str(&lines.join("\r\n"));
 
-        // Cap final: se estourou, corta o começo (linhas mais antigas) preservando o fim.
-        if out.len() > SNAPSHOT_MAX_BYTES {
-            let cut = out.len() - SNAPSHOT_MAX_BYTES;
-            let mut idx = cut;
-            while idx < out.len() && !out.is_char_boundary(idx) {
-                idx += 1;
-            }
-            out = out[idx..].to_string();
-        }
-
-        PtySnapshot { data: out, cols: self.cols, rows: self.rows, seq: self.seq }
+        PtySnapshot { data: out, cols: self.cols, rows: self.rows, seq: self.seq.load(Ordering::SeqCst) }
     }
 }
 
@@ -184,7 +197,13 @@ fn render_line(cells: &[Cell]) -> String {
     // Última coluna com conteúdo (char não-espaço OU bg não-default).
     let mut last_idx: isize = -1;
     for (i, c) in cells.iter().enumerate() {
-        if c.c != ' ' || c.bg != Color::Named(NamedColor::Background) {
+        // Conteúdo OU bg/fg/flags não-default — um espaço sublinhado/colorido na cauda
+        // NÃO é "vazio" e não pode ser podado. [GLM-audit #3]
+        if c.c != ' '
+            || c.bg != Color::Named(NamedColor::Background)
+            || c.fg != Color::Named(NamedColor::Foreground)
+            || !c.flags.is_empty()
+        {
             last_idx = i as isize;
         }
     }
@@ -196,6 +215,11 @@ fn render_line(cells: &[Cell]) -> String {
     let mut last_sgr: Option<String> = None;
     let mut styled = false;
     for c in cells.iter().take((last_idx + 1) as usize) {
+        // Célula spacer de um wide char (emoji/CJK): o char largo já saiu na célula
+        // líder; emitir o placeholder aqui empurraria a linha 1 coluna. [GLM-audit #4]
+        if c.flags.contains(Flags::WIDE_CHAR_SPACER) {
+            continue;
+        }
         let sgr = sgr_for(c);
         if last_sgr.as_deref() != Some(sgr.as_str()) {
             out.push_str(&sgr);

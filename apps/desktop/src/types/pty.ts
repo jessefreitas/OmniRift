@@ -20,6 +20,22 @@ export interface PtySpawnConfig {
 export interface PtyOutputEvent {
   session_id: SessionId;
   data: string;
+  /**
+   * Seq monotônico do emulador VT no backend no momento do emit (ref P0 #2).
+   * O scheduler do front usa pra deduplicar os chunks ao vivo contra `snapshot.seq`
+   * (descarta `seq <= snapshot.seq` → mata o scrollback dobrado). Opcional por
+   * robustez (eventos legados/sem emulador): trate `undefined` como "sem dedup".
+   */
+  seq?: number;
+}
+
+/** Snapshot serializado do emulador VT headless (ref P0 #2). `data` = ANSI re-hidratado
+ *  (SGR por célula + reentra alt-screen). `seq` = chave do dedup dos chunks ao vivo. */
+export interface PtySnapshot {
+  data: string;
+  cols: number;
+  rows: number;
+  seq: number;
 }
 
 /** Evento emitido quando o processo do PTY morre. */

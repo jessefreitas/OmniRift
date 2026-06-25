@@ -3,6 +3,7 @@ use parking_lot::Mutex;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -113,6 +114,11 @@ fn win_argv_quote(arg: &str) -> String {
 pub struct PtyOutputEvent {
     pub session_id: SessionId,
     pub data: String,
+    /// Seq monotônico do emulador VT no momento do emit (ref P0 #2). ADITIVO: o front
+    /// usa pra deduplicar os chunks ao vivo contra `snapshot.seq` (descarta `seq <=
+    /// snapshot.seq` → mata o scrollback dobrado). Consumidores que só leem `data`
+    /// continuam funcionando — o campo é só metadado a mais no payload.
+    pub seq: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -130,6 +136,12 @@ pub struct PtySession {
     /// Emulador de tela: reconstrói a tela visível processando cursor/clears/etc.
     /// (line-mode não funciona para TUIs full-screen como Claude Code).
     parser: Arc<Mutex<vt100::Parser>>,
+    /// Seq monotônico do emulador VT headless (ref P0 #2). COMPARTILHADO com o
+    /// `TermEmulator` (via `new_with_seq` no manager): o feeder do emulador o
+    /// incrementa por chunk pintado; o thread de emit do `pty://output` lê o valor
+    /// atual pra estampar cada evento ao vivo. Assim `pty://output.seq` e
+    /// `snapshot.seq` falam a MESMA escala → o front deduplica corretamente.
+    seq: Arc<AtomicU64>,
 }
 
 impl PtySession {
@@ -161,6 +173,16 @@ impl PtySession {
         // Canal std (não precisa de runtime tokio): debounce de 16ms antes de emitir evento Tauri
         let (emit_tx, emit_rx) = mpsc::channel::<Vec<u8>>();
 
+        // Seq compartilhado com o emulador VT (ref P0 #2). O emulador (no manager) é
+        // criado via `new_with_seq` com ESTE Arc; o feeder dele o incrementa por chunk
+        // pintado. Aqui, no thread de emit, lemos o valor atual pra estampar o
+        // `pty://output`. Como o emit é debounced (16ms) e o feeder consome o broadcast
+        // cru imediato, o emulador está sempre à frente OU em dia com os bytes que
+        // estamos emitindo → o snapshot tirado nesse instante já contém esses bytes,
+        // então o front pode descartar com segurança os live com `seq <= snapshot.seq`.
+        let seq = Arc::new(AtomicU64::new(0));
+        let seq_for_emit = Arc::clone(&seq);
+
         let id_for_emit = id.clone();
         let app_for_emit = app.clone();
         std::thread::spawn(move || {
@@ -175,7 +197,9 @@ impl PtySession {
                         if !pending.is_empty() {
                             let text = String::from_utf8_lossy(&pending).to_string();
                             let _ = app_for_emit.emit("pty://output", PtyOutputEvent {
-                                session_id: id_for_emit.clone(), data: text,
+                                session_id: id_for_emit.clone(),
+                                data: text,
+                                seq: seq_for_emit.load(Ordering::SeqCst),
                             });
                         }
                         break;
@@ -193,7 +217,9 @@ impl PtySession {
                 }
                 let text = String::from_utf8_lossy(&pending).to_string();
                 let _ = app_for_emit.emit("pty://output", PtyOutputEvent {
-                    session_id: id_for_emit.clone(), data: text,
+                    session_id: id_for_emit.clone(),
+                    data: text,
+                    seq: seq_for_emit.load(Ordering::SeqCst),
                 });
                 pending.clear();
             }
@@ -221,7 +247,7 @@ impl PtySession {
             }
         });
 
-        Ok(Self { id, master, writer, output_tx, root_pid, parser })
+        Ok(Self { id, master, writer, output_tx, root_pid, parser, seq })
     }
 
     pub fn write(&self, data: &[u8]) -> Result<()> {
@@ -262,6 +288,14 @@ impl PtySession {
 
     pub(crate) fn screen_arc(&self) -> Arc<Mutex<vt100::Parser>> {
         Arc::clone(&self.parser)
+    }
+
+    /// Seq monotônico do emulador VT (ref P0 #2). O manager passa este Arc pro
+    /// `TermEmulator::new_with_seq` — assim o feeder do emulador e o thread de emit do
+    /// `pty://output` compartilham o MESMO contador, e o front deduplica os chunks ao
+    /// vivo contra `snapshot.seq`.
+    pub(crate) fn seq_arc(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.seq)
     }
 }
 

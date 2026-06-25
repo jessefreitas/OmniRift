@@ -13,6 +13,7 @@ import type {
   AgentStatusEvent,
   PtyExitEvent,
   PtyOutputEvent,
+  PtySnapshot,
   PtySpawnConfig,
   SessionId,
 } from "@/types/pty";
@@ -53,16 +54,30 @@ export async function ptyList(): Promise<SessionId[]> {
 }
 
 /**
+ * Snapshot serializado (scrollback+viewport em ANSI re-hidratado) do emulador VT
+ * headless de uma sessão (ref P0 #2). O front chama no retorno-de-oculto / overflow
+ * pra re-hidratar a view e dedupar os chunks ao vivo por `seq`. Rejeita se a sessão
+ * não tem emulador → o caller faz fail-open (mantém o term como está).
+ */
+export async function ptySnapshot(sessionId: SessionId): Promise<PtySnapshot> {
+  return invoke<PtySnapshot>("pty_snapshot", { sessionId });
+}
+
+/**
  * Inscreve um listener para os outputs de UMA sessão específica.
  * Filtra na borda — o Rust emite globalmente, mas o consumidor só vê o que importa.
+ *
+ * O `seq` (monotônico do emulador VT, opcional) vai no segundo argumento do handler —
+ * é o que o scheduler usa pra deduplicar contra o snapshot. Consumidores antigos que
+ * só leem `data` (1º arg) seguem funcionando: o `seq` é additivo.
  */
 export async function listenPtyOutput(
   sessionId: SessionId,
-  handler: (data: string) => void,
+  handler: (data: string, seq: number | undefined) => void,
 ): Promise<UnlistenFn> {
   return listen<PtyOutputEvent>("pty://output", (event) => {
     if (event.payload.session_id === sessionId) {
-      handler(event.payload.data);
+      handler(event.payload.data, event.payload.seq);
     }
   });
 }
