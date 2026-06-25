@@ -6,7 +6,7 @@
 //    (1x/dia, dedupe por dia local). Re-arma quando a lista muda.
 
 import { useEffect } from "react";
-import { loadRoutines, runRoutine, ROUTINES_CHANGED } from "@/lib/routines";
+import { loadRoutines, refreshRoutines, runRoutine, ROUTINES_CHANGED } from "@/lib/routines";
 
 function localYmd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -44,6 +44,9 @@ export function useRoutines(): void {
     };
 
     armIntervals();
+    // Carrega do backend (SQLite) pro cache + migração one-shot do localStorage.
+    // Dispara ROUTINES_CHANGED → re-arma os intervalos com a lista já carregada.
+    void refreshRoutines();
     const dailyTimer = window.setInterval(tickDaily, 30_000);
     window.addEventListener(ROUTINES_CHANGED, armIntervals);
     return () => {

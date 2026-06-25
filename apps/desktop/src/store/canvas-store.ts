@@ -91,6 +91,9 @@ interface CanvasState {
      *  spawn normal (ausente) herda `currentCwd` (comportamento idêntico ao anterior).
      *  No attach, vem do PTY que o backend já criou. */
     cwd?: string;
+    /** Floor onde o terminal nasce (routines "Rodar em"). undefined = floor ativo
+     *  (comportamento idêntico ao anterior). NÃO troca o floor ativo. */
+    targetFloorId?: string;
   }) => TerminalNode | null;
   addNote: (params?: { position?: { x: number; y: number }; content?: string; color?: string }) => NoteNode;
   addGroup: (params?: { position?: { x: number; y: number }; label?: string }) => GroupNode;
@@ -301,7 +304,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       return { dirtyFiles: next };
     }),
 
-  addTerminal: ({ command, args, role = "shell", position, label, id, compressor, env: extraEnv, executionHost, attach, cwd: cwdArg }) => {
+  addTerminal: ({ command, args, role = "shell", position, label, id, compressor, env: extraEnv, executionHost, attach, cwd: cwdArg, targetFloorId }) => {
     // Gate de licença: community = máx 5 agentes (terminais). 0 = ilimitado.
     const lic = useLicenseStore.getState();
     if (!withinLimit(lic.limits.agents, get().allTerminalNodes().length)) {
@@ -319,14 +322,19 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     }
     _spawnTimes.push(_now);
     const nodeId = id ?? nanoid();
-    // cwd explícito (attach: vem do PTY já criado) tem prioridade; senão herda o
-    // cwd do floor ativo (spawn normal — comportamento idêntico ao anterior).
-    const cwd = cwdArg ?? get().currentCwd ?? undefined;
-    // Host de execução (ref §3.1): explícito do caller (dropdown) OU herda o host do
-    // floor ativo. "local"/ausente → não decora o node (comportamento idêntico).
     const s0host = get();
-    const activeFloor = s0host.floors.find((f) => f.id === s0host.activeFloorId);
-    const resolvedHost = executionHost ?? activeFloor?.hostId ?? LOCAL_HOST_ID;
+    // Floor alvo: explícito (routines "Rodar em") OU floor ativo (default — idêntico
+    // ao anterior). NÃO troca o floor ativo: o terminal nasce no destino em background.
+    const explicitFloor = targetFloorId ? s0host.floors.find((f) => f.id === targetFloorId) : undefined;
+    const targetFloorIdResolved = explicitFloor?.id ?? s0host.activeFloorId;
+    const isActiveFloor = targetFloorIdResolved === s0host.activeFloorId;
+    // cwd explícito (attach: vem do PTY já criado) tem prioridade; senão herda o cwd do
+    // floor alvo (no floor ativo = currentCwd, byte-idêntico ao anterior).
+    const cwd = cwdArg ?? (isActiveFloor ? get().currentCwd : explicitFloor?.cwd ?? null) ?? undefined;
+    // Host de execução (ref §3.1): explícito do caller (dropdown) OU herda o host do
+    // floor alvo. "local"/ausente → não decora o node (comportamento idêntico).
+    const baseFloor = explicitFloor ?? s0host.floors.find((f) => f.id === s0host.activeFloorId);
+    const resolvedHost = executionHost ?? baseFloor?.hostId ?? LOCAL_HOST_ID;
     // Compõe a env de todos os compressores ligados (OmniCompress nativo entra por
     // padrão) + o override do role, se houver. Proxy só injeta se está de pé.
     // Env extra do caller (ex: CODEX_HOME de skills) vai na frente; compressor tem prioridade.
@@ -356,7 +364,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 520, height: 320 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    // Insere no floor alvo (= ativo quando targetFloorId ausente → idêntico a mapActiveNodes).
+    set((s) => ({
+      floors: s.floors.map((f) => (f.id === targetFloorIdResolved ? { ...f, nodes: [...f.nodes, node] } : f)),
+    }));
     return node;
   },
 

@@ -54,6 +54,9 @@ use commands::review_cfg::{
 };
 use commands::review_history::{review_history_add, review_history_list};
 use commands::role_import::{role_import_file, role_template, role_template_save};
+use commands::routines::{
+    routines_delete, routines_list, routines_record_run, routines_runs, routines_upsert,
+};
 use commands::mcp_servers::{
     mcp_server_remove, mcp_server_set_enabled, mcp_server_upsert, mcp_servers_list,
 };
@@ -411,6 +414,11 @@ pub fn run() {
             scheduler_install,
             scheduler_uninstall,
             scheduler_list,
+            routines_list,
+            routines_upsert,
+            routines_delete,
+            routines_record_run,
+            routines_runs,
             license_status,
             license_activate,
             license_store_meta,
