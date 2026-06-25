@@ -125,7 +125,7 @@ export function RolesSection({
       <div className="flex items-center justify-between px-2 mb-1.5">
         {sectionTitle("roles", tr("section.roles"))}
         <div className="flex items-center gap-0.5">
-          <Tooltip label={tr("roles.importFromFile", "Importar agente de arquivo (.toml Codex / .md Claude)")} side="bottom">
+          <Tooltip label={tr("roles.importFromFile", "Importar agente de arquivo (.toml Codex / .md Claude)")} side="bottom" wide>
             <button
               onClick={() => void importFromFile()}
               className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
@@ -135,7 +135,7 @@ export function RolesSection({
           </Tooltip>
           <DownloadTemplateButton onPick={(k) => void downloadTemplate(k)} tr={tr} />
           {currentCwd && (
-            <Tooltip label={tr("sidebar.discoverProjectRoles", "Descobrir roles do projeto (.claude/agents)")} side="bottom">
+            <Tooltip label={tr("sidebar.discoverProjectRoles", "Descobrir roles do projeto (.claude/agents)")} side="bottom" wide>
               <button
                 onClick={() => void discoverProjectRoles()}
                 className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"

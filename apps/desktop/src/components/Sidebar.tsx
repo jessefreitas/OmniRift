@@ -572,6 +572,25 @@ export function Sidebar() {
       return n;
     });
 
+  // Largura arrastável da barra (persiste). Arraste a borda direita pra alargar (200–560px).
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try { return Math.min(560, Math.max(200, parseInt(localStorage.getItem("omnirift-sidebar-width") || "240", 10) || 240)); }
+    catch { return 240; }
+  });
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.min(560, Math.max(200, ev.clientX)));
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      setSidebarWidth((w) => { try { localStorage.setItem("omnirift-sidebar-width", String(w)); } catch { /* ignore */ } return w; });
+    };
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
   // Seções recolhíveis (accordion) — guarda as FECHADAS (persiste).
   const [closedSections, setClosedSections] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("omnirift-sidebar-closed") ?? "[]")); } catch { return new Set(); }
@@ -1244,9 +1263,10 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex flex-col w-60 shrink-0 border-r border-border bg-surface1",
+        "relative flex flex-col shrink-0 border-r border-border bg-surface1",
         "text-text",
       )}
+      style={{ width: sidebarWidth }}
     >
       <header className="px-4 py-3 border-b border-border">
         <div className="flex items-start justify-between">
@@ -1927,6 +1947,12 @@ export function Sidebar() {
           onCancel={() => setNewDocKind(null)}
         />
       )}
+      {/* Handle de arrasto na borda direita — alarga/estreita a barra (persiste). */}
+      <div
+        onMouseDown={startResize}
+        title={tr("sidebar.dragToResize", "Arraste pra ajustar a largura da barra")}
+        className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-brand/40 active:bg-brand/60 transition-colors z-20"
+      />
     </aside>
   );
 }
