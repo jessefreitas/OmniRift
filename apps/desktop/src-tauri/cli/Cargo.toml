@@ -1,0 +1,20 @@
+[package]
+name = "omnirift-cli"
+version = "0.1.34"
+description = "CLI fina do OmniRift (ref #8B) — pilota o app via socket RPC local."
+authors = ["OmniForge <contato@omniforge.com.br>"]
+license = "MIT"
+repository = "https://git.omnimemory.com.br/jesse_freitas/maestri_linux"
+edition = "2021"
+rust-version = "1.77.2"
+
+# Binário `omnirift`: casca fina que descobre o app rodando (runtime.json), conecta o
+# socket Unix do registro RPC (#8A) e formata a resposta. NÃO depende do tauri — só
+# serde/serde_json + std (UnixStream). One-shot: sem tokio.
+[[bin]]
+name = "omnirift"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

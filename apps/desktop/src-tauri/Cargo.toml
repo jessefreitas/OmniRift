@@ -1,3 +1,14 @@
+# Workspace — este pacote (o app Tauri) é a raiz; o CLI fino (ref #8B) é membro.
+# Mantém o `target/` aqui (build do Tauri intocado) e deixa `cargo build -p omnirift-cli`
+# compartilhar a resolução de deps. O CLI vive em `cli/` (NÃO depende do tauri); fica
+# sob src-tauri porque o Cargo exige membros hierarquicamente abaixo da raiz.
+[workspace]
+members = ["cli"]
+# A CLI (omnirift) é membro mas NÃO entra nos comandos default (test/xwin check sem -p) —
+# ela é Linux-only (UnixStream; named-pipe Windows = fase 2), então fica fora do
+# `cargo xwin check` Windows da CI (que roda no manifesto raiz). Testa-se via `-p omnirift-cli`.
+default-members = ["."]
+
 [package]
 name = "omnirift"
 version = "0.1.34"
