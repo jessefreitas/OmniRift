@@ -7,12 +7,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { Download, FileUp, Sparkles, X } from "lucide-react";
 
-import { ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
+import { ROLE_CLIS, type AgentRoleDef, type ImportedRole } from "@/lib/agent-roles";
 import { skillsList, skillsImportMd, skillsImportGithub, type SkillInfo } from "@/lib/skills-client";
 import { loadGitProviders } from "@/lib/git-providers";
 import { isCompressorEnabled } from "@/lib/compress-client";
+import { PromptModal } from "@/components/PromptModal";
 import { useT } from "@/lib/i18n";
 
 interface Props {
@@ -35,6 +37,8 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
   const [selfSystemPrompt, setSelfSystemPrompt] = useState(role.selfSystemPrompt ?? false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  // window.prompt é no-op no WebKitGTK → modal próprio pra pedir a URL do repo.
+  const [askGithub, setAskGithub] = useState(false);
   const isShell = cli === "shell";
   const omniOn = isCompressorEnabled("omnicompress"); // nativo, global (Ferramentas → Compressores)
 
@@ -64,10 +68,16 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
   }
 
   // Importa todos os SKILL.md de um repo GitHub (público dispensa token).
-  async function importGithub() {
+  // Abre o modal de input (window.prompt não funciona no WebKitGTK).
+  function importGithub() {
     if (!cwd) { setImportMsg(t("roleEdit.openProjectFirst", "abra um projeto primeiro")); return; }
-    const url = window.prompt(t("roleEdit.githubRepoPrompt", "URL do repo GitHub com SKILL.md (ex.: github.com/owner/repo):"));
-    if (!url?.trim()) return;
+    setAskGithub(true);
+  }
+
+  // Roda após o usuário confirmar a URL no PromptModal.
+  async function importGithubSubmit(url: string) {
+    setAskGithub(false);
+    if (!cwd || !url.trim()) return;
     setImporting(true); setImportMsg(null);
     try {
       const token = loadGitProviders().find((p) => p.kind === "github")?.token;
@@ -79,6 +89,20 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
     finally { setImporting(false); }
   }
 
+  // Importa um agente pronto (.toml Codex / .md Claude) e PRÉ-PREENCHE o form
+  // (nome/cli/persona) — o usuário ajusta e salva. Reusa role_import_file (#1).
+  async function importFromFile() {
+    const sel = await openDialog({ multiple: false, filters: [{ name: t("roleEdit.agentFilter", "Agente (.toml/.md)"), extensions: ["toml", "md"] }] });
+    if (typeof sel !== "string") return;
+    setImporting(true); setImportMsg(null);
+    try {
+      const r = await invoke<ImportedRole>("role_import_file", { path: sel });
+      setName(r.name); setCli(r.cli); setPrompt(r.prompt);
+      setImportMsg(`✓ ${r.name} (${r.format})`);
+    } catch (e) { setImportMsg(`✗ ${String(e)}`); }
+    finally { setImporting(false); }
+  }
+
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="w-[560px] max-w-[92vw] max-h-[90vh] rounded-lg border border-border bg-surface1 shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
@@ -86,6 +110,14 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
           <span className="text-sm font-medium text-text flex-1">
             {role.builtin ? `${t("roleEdit.editRole", "Editar role")} · ${role.name}` : role.name ? t("roleEdit.editRole", "Editar role") : t("roleEdit.newRole", "Novo role")}
           </span>
+          <button
+            onClick={() => void importFromFile()}
+            disabled={importing}
+            title={t("roleEdit.importFromFile", "Importar de um arquivo (.toml Codex / .md Claude) — preenche o form")}
+            className="flex items-center gap-1 text-[11px] text-textMuted hover:text-brand disabled:opacity-40"
+          >
+            <FileUp size={13} /> {t("roleEdit.fromFile", "de arquivo")}
+          </button>
           <button onClick={onClose} className="text-textMuted hover:text-text" title={t("common.close", "Fechar")}>
             <X size={16} />
           </button>
@@ -254,6 +286,14 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
           </button>
         </footer>
       </div>
+      {askGithub && (
+        <PromptModal
+          title={t("roleEdit.githubRepoPrompt", "URL do repo GitHub com SKILL.md (ex.: github.com/owner/repo):")}
+          placeholder="github.com/owner/repo"
+          onSubmit={(v) => void importGithubSubmit(v)}
+          onCancel={() => setAskGithub(false)}
+        />
+      )}
     </div>,
     document.body,
   );

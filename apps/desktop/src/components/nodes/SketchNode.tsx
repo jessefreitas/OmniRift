@@ -25,6 +25,8 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
   const editorRef = useRef<Editor | null>(null);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
+  const [hovered, setHovered] = useState(false);
 
   const handleMount = (editor: Editor) => {
     editorRef.current = editor;
@@ -86,10 +88,12 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
   return (
     <>
       <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
         style={{ width: data.size?.width ?? 480, height: data.size?.height ?? 360 }}
       >
-        <NodeResizer isVisible={selected} minWidth={280} minHeight={220} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+        <NodeResizer isVisible={selected || hovered} minWidth={280} minHeight={220} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
         <header className="node-drag-handle flex items-center gap-1.5 px-2 py-1.5 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
           <Pencil size={12} className="text-brand shrink-0" />
           <span className="text-xs font-medium truncate flex-1">{t("sketch.title", "Sketch")}</span>

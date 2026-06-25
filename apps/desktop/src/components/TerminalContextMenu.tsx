@@ -6,7 +6,7 @@
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Copy, Clipboard, BookmarkPlus, Maximize2, X } from "lucide-react";
+import { Copy, Clipboard, BookmarkPlus, Maximize2, X, Zap } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 
@@ -18,6 +18,7 @@ export interface TerminalContextMenuProps {
   onPaste: () => void;
   onCopyAndSave: () => void;
   onFullscreen: () => void;
+  onSendToTurbo: () => void;
   onCloseTerminal: () => void;
 }
 
@@ -64,6 +65,7 @@ export function TerminalContextMenu({
   onPaste,
   onCopyAndSave,
   onFullscreen,
+  onSendToTurbo,
   onCloseTerminal,
 }: TerminalContextMenuProps) {
   const t = useT();
@@ -123,6 +125,11 @@ export function TerminalContextMenu({
         icon={<BookmarkPlus size={12} />}
         label={t("terminalMenu.copyAndSave", "Copiar e Guardar")}
         onClick={() => { onCopyAndSave(); onClose(); }}
+      />
+      <MenuItem
+        icon={<Zap size={12} />}
+        label={t("terminalMenu.sendToTurbo", "Enviar pro TURBO")}
+        onClick={() => { onSendToTurbo(); onClose(); }}
       />
       <Separator />
       <MenuItem

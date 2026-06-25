@@ -40,6 +40,7 @@ import {
   dbIntrospect,
   healthAnalyzeDb,
   healthAnalyzeDbLive,
+  healthDbReportGet,
   type DbScan,
   type DbTable,
   type DbColumn,
@@ -299,8 +300,28 @@ function DbRepoMode({ currentCwd }: { currentCwd: string }) {
         if (scanToken.current === token) setLoading(false);
       });
 
+    // Recarrega a análise de IA salva (sobrevive a trocar de aba / fechar o painel —
+    // o backend persiste sob a key fixa __db_repo__). Se ainda roda, faz poll até concluir.
+    let pollId: ReturnType<typeof setTimeout> | undefined;
+    const reloadReport = () => {
+      healthDbReportGet(currentCwd)
+        .then((saved) => {
+          if (scanToken.current !== token || !saved) return;
+          if (saved.running) {
+            setAnalyzing(true);
+            pollId = setTimeout(reloadReport, 3000);
+          } else {
+            setAnalyzing(false);
+            setReport(saved.report);
+          }
+        })
+        .catch(() => {});
+    };
+    reloadReport();
+
     return () => {
       scanToken.current++;
+      if (pollId) clearTimeout(pollId);
     };
   }, [currentCwd]);
 

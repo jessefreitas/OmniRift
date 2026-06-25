@@ -35,7 +35,7 @@ use commands::fs::{list_dir, read_file, write_file};
 use commands::gitremote::{git_clone, git_list_repos};
 use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
-use health::ai::{health_analyze_file, health_report_get, health_reports_list};
+use health::ai::{health_analyze_file, health_db_report_get, health_report_get, health_reports_list};
 use health::backup::{health_backup, health_backup_list, health_backup_restore};
 use health::db::{db_scan_repo, health_analyze_db};
 use health::db_live::{db_introspect, health_analyze_db_live};
@@ -359,6 +359,7 @@ pub fn run() {
             health_analyze_file,
             health_report_get,
             health_reports_list,
+            health_db_report_get,
             health_backup,
             health_backup_restore,
             health_backup_list,

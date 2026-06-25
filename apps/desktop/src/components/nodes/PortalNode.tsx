@@ -35,6 +35,8 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
   const [grabbed, setGrabbed] = useState<GrabPayload | null>(null);
   const [grabErr, setGrabErr] = useState<string | null>(null);
   const [grabSent, setGrabSent] = useState<"copied" | "agent" | null>(null);
+  // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
+  const [hovered, setHovered] = useState(false);
   const url = normalizeUrl(data.url);
   const { maxBtn, frame } = useNodeMaximize();
   const isExternal = !!url && !/localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]/.test(url);
@@ -211,10 +213,12 @@ function PortalNodeBase({ id, data, selected }: NodeProps<PortalRfNode>) {
   return frame(
     card,
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
       style={{ width: data.size?.width ?? 420, height: data.size?.height ?? 320 }}
     >
-      <NodeResizer isVisible={selected} minWidth={260} minHeight={200} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      <NodeResizer isVisible={selected || hovered} minWidth={260} minHeight={200} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
       {card}
     </div>,
   );

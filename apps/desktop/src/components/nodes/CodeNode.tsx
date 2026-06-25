@@ -90,6 +90,8 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [maximized, setMaximized] = useState(false);
+  // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
+  const [hovered, setHovered] = useState(false);
   const [showSend, setShowSend] = useState(false);
   const [pendingSelection, setPendingSelection] = useState<string | null>(null);
   const [debugging, setDebugging] = useState(false);
@@ -386,10 +388,12 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
 
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
       style={{ width: data.size?.width ?? 800, height: data.size?.height ?? 560 }}
     >
-      <NodeResizer isVisible={selected} minWidth={420} minHeight={300} color="rgb(96 165 250)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      <NodeResizer isVisible={selected || hovered} minWidth={420} minHeight={300} color="rgb(96 165 250)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
       {card}
     </div>
   );

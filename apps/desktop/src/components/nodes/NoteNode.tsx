@@ -18,6 +18,8 @@ export function NoteNode({ id, data, selected }: NodeProps<NoteRfNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [text, setText] = useState(data.content);
   const [saved, setSaved] = useState(false);
+  // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
+  const [hovered, setHovered] = useState(false);
 
   const color = data.color ?? NOTE_COLORS[0];
   const nextColor = NOTE_COLORS[(NOTE_COLORS.indexOf(color) + 1) % NOTE_COLORS.length];
@@ -37,11 +39,13 @@ export function NoteNode({ id, data, selected }: NodeProps<NoteRfNode>) {
 
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       className="flex flex-col rounded-lg shadow-lg overflow-hidden border border-black/10"
       style={{ width: data.size?.width ?? 240, height: data.size?.height ?? 200, background: color }}
     >
       <NodeResizer
-        isVisible={selected}
+        isVisible={selected || hovered}
         minWidth={140}
         minHeight={100}
         color="rgb(41 162 167)"

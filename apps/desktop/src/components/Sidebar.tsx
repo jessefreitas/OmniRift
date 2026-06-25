@@ -62,6 +62,7 @@ import { type SkillWiring } from "@/lib/agent-skills";
 import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { UpdaterButton } from "@/components/UpdaterButton";
+import { PromptModal } from "@/components/PromptModal";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { useLicenseStore } from "@/store/license-store";
 import { openFeedback } from "@/lib/feedback";
@@ -337,6 +338,8 @@ export function Sidebar() {
     [],
   );
   const [specs, setSpecs] = useState<SpecFile[]>([]);
+  // window.prompt é no-op no WebKitGTK → modal próprio pro nome da spec/plano.
+  const [newDocKind, setNewDocKind] = useState<"spec" | "plan" | null>(null);
   const [specRoots, setSpecRoots] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("omnirift-spec-roots") ?? "[]"); } catch { return []; }
   });
@@ -384,6 +387,7 @@ export function Sidebar() {
   const [showReviewAi, setShowReviewAi] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
   const [showTurbo, setShowTurbo] = useState(false);
+  const [turboSeed, setTurboSeed] = useState<string | undefined>(undefined);
   const [showAppearance, setShowAppearance] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
   const [showGitRepos, setShowGitRepos] = useState(false);
@@ -436,6 +440,7 @@ export function Sidebar() {
     compressors: () => setShowCompressors(true),
     snapshots: () => setShowSnapshots(true),
     hooks: () => setShowHooks(true),
+    turbo: () => setShowTurbo(true),
   };
 
   // Abre os modais de ferramenta via Command palette (CustomEvent "omnirift:open-tool").
@@ -464,6 +469,17 @@ export function Sidebar() {
     };
     window.addEventListener("omnirift:open-tool", h);
     return () => window.removeEventListener("omnirift:open-tool", h);
+  }, []);
+
+  // "Enviar pro TURBO" de um agente (CustomEvent "omnirift:turbo-seed" {goal}): abre o
+  // painel TURBO já com o objetivo pré-preenchido (ex.: seleção do terminal do agente).
+  useEffect(() => {
+    const h = (e: Event) => {
+      setTurboSeed((e as CustomEvent<{ goal?: string }>).detail?.goal ?? "");
+      setShowTurbo(true);
+    };
+    window.addEventListener("omnirift:turbo-seed", h);
+    return () => window.removeEventListener("omnirift:turbo-seed", h);
   }, []);
 
   // "Abrir agente" / "corrigir" do painel Saúde do Projeto: spawna o debugger com o
@@ -627,13 +643,16 @@ export function Sidebar() {
     if (typeof sel === "string" && !specRoots.includes(sel)) setSpecRoots((r) => [...r, sel]);
   }
 
-  async function newDoc(kind: "spec" | "plan") {
+  // window.prompt é no-op no WebKitGTK → modal próprio pro nome da spec/plano.
+  function newDoc(kind: "spec" | "plan") {
     if (!currentCwd) return;
-    const raw = window.prompt(
-      kind === "plan" ? tr("sidebar.newDocPlanPrompt", "Nome do plano:") : tr("sidebar.newDocSpecPrompt", "Nome da spec:"),
-      kind === "plan" ? tr("sidebar.newDocPlanDefault", "novo-plano") : tr("sidebar.newDocSpecDefault", "nova-spec"),
-    );
-    if (!raw) return;
+    setNewDocKind(kind);
+  }
+
+  // Cria o arquivo depois que o usuário confirma o nome no PromptModal.
+  async function newDocSubmit(kind: "spec" | "plan", raw: string) {
+    setNewDocKind(null);
+    if (!currentCwd || !raw.trim()) return;
     const slug = raw.trim().replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "") || kind;
     const today = new Date().toISOString().slice(0, 10);
     const sub = kind === "plan" ? "plans" : "specs";
@@ -1896,10 +1915,18 @@ export function Sidebar() {
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
       {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
       {showHealth && <ProjectHealthPanel onClose={() => setShowHealth(false)} />}
-      {showTurbo && <TurboPanel onClose={() => setShowTurbo(false)} />}
+      {showTurbo && <TurboPanel seedGoal={turboSeed} onClose={() => { setShowTurbo(false); setTurboSeed(undefined); }} />}
       {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}
       {showUsage && <UsageModal onClose={() => setShowUsage(false)} activeProject={currentCwd} />}
       </Suspense>
+      {newDocKind && (
+        <PromptModal
+          title={newDocKind === "plan" ? tr("sidebar.newDocPlanPrompt", "Nome do plano:") : tr("sidebar.newDocSpecPrompt", "Nome da spec:")}
+          defaultValue={newDocKind === "plan" ? tr("sidebar.newDocPlanDefault", "novo-plano") : tr("sidebar.newDocSpecDefault", "nova-spec")}
+          onSubmit={(v) => void newDocSubmit(newDocKind, v)}
+          onCancel={() => setNewDocKind(null)}
+        />
+      )}
     </aside>
   );
 }

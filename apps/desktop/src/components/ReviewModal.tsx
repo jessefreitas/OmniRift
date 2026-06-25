@@ -15,6 +15,7 @@ import { reviewSuppressRead, reviewSuppressWrite } from "@/lib/review-meta-clien
 import { detectEditors, loadPreferredEditor, openInEditor } from "@/lib/editor-client";
 import { ReviewSnippet } from "@/components/ReviewSnippet";
 import { ReviewFixConfirm } from "@/components/ReviewFixConfirm";
+import { PromptModal } from "@/components/PromptModal";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -58,6 +59,8 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
   const [fixing, setFixing] = useState<Finding | null>(null);
   const [dispatchNote, setDispatchNote] = useState<string | null>(null);
   const [fixingAgentId, setFixingAgentId] = useState<string | null>(null);
+  // window.prompt é no-op no WebKitGTK → modal próprio pro motivo do "ignorar".
+  const [ignoring, setIgnoring] = useState<Finding | null>(null);
   // Status do agente de auto-fix despachado — pra re-revisar sozinho quando ele terminar.
   const fixAgentStatus = useCanvasStore((s) => (fixingAgentId ? s.terminalStatuses[fixingAgentId] : undefined));
   const fixBusyRef = useRef(false);
@@ -77,9 +80,14 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
     setExpanded((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
   }
 
-  async function ignore(f: Finding) {
-    const reason = window.prompt(`${t("review.ignorePromptPrefix", "Ignorar")} "${f.title}"?\n${t("review.ignorePromptReason", "Motivo (grava em .forgejo/review-suppress.json):")}`, t("review.ignoreDefaultReason", "falso-positivo reconhecido"));
-    if (reason === null) return;
+  // Abre o modal de motivo (window.prompt não funciona no WebKitGTK).
+  function ignore(f: Finding) {
+    setIgnoring(f);
+  }
+
+  // Grava a supressão depois que o usuário confirma o motivo no PromptModal.
+  async function ignoreSubmit(f: Finding, reason: string) {
+    setIgnoring(null);
     const kws = Array.from(new Set((f.title.toLowerCase().match(/[\p{L}0-9]{4,}/gu) ?? []))).slice(0, 4);
     const dir = floor.worktreePath || floor.repoRoot || ".";
     try {
@@ -257,6 +265,15 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
           />
         )}
       </div>
+      {ignoring && (
+        <PromptModal
+          title={`${t("review.ignorePromptPrefix", "Ignorar")} "${ignoring.title}"?\n${t("review.ignorePromptReason", "Motivo (grava em .forgejo/review-suppress.json):")}`}
+          defaultValue={t("review.ignoreDefaultReason", "falso-positivo reconhecido")}
+          multiline
+          onSubmit={(v) => void ignoreSubmit(ignoring, v)}
+          onCancel={() => setIgnoring(null)}
+        />
+      )}
     </div>,
     document.body,
   );

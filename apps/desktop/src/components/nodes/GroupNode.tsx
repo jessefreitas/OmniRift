@@ -18,12 +18,16 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
   const empty = useCanvasStore((s) => !s.floors.some((f) => f.nodes.some((n) => n.parentId === id)));
   const [label, setLabel] = useState(data.label ?? "Grupo");
   const [editing, setEditing] = useState(false);
+  // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
+  const [hovered, setHovered] = useState(false);
 
   const color = data.color ?? GROUP_COLORS[0];
   const nextColor = GROUP_COLORS[(GROUP_COLORS.indexOf(color) + 1) % GROUP_COLORS.length];
 
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       className="flex flex-col rounded-xl"
       style={{
         width: data.size?.width ?? 420,
@@ -33,7 +37,7 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
       }}
     >
       <NodeResizer
-        isVisible={selected}
+        isVisible={selected || hovered}
         minWidth={160}
         minHeight={120}
         color={color}

@@ -479,6 +479,11 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
           onPaste={handlePaste}
           onCopyAndSave={handleCopyAndSave}
           onFullscreen={() => setIsFullscreen(true)}
+          onSendToTurbo={() => {
+            // Seleção do terminal → semeia o objetivo do TURBO (vazio = abre p/ preencher).
+            const goal = getSelection().trim();
+            window.dispatchEvent(new CustomEvent("omnirift:turbo-seed", { detail: { goal } }));
+          }}
           onCloseTerminal={() => removeNode(id)}
         />
       )}

@@ -22,6 +22,8 @@ function HtmlNodeBase({ id, data, selected }: NodeProps<HtmlRfNode>) {
   const t = useT();
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [reloadKey, setReloadKey] = useState(0);
+  // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
+  const [hovered, setHovered] = useState(false);
   const { maxBtn, frame } = useNodeMaximize();
 
   const fileName = data.filePath ? (data.filePath.split(/[/\\]/).filter(Boolean).pop() ?? data.filePath) : "—";
@@ -73,10 +75,12 @@ function HtmlNodeBase({ id, data, selected }: NodeProps<HtmlRfNode>) {
   return frame(
     card,
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
       style={{ width: data.size?.width ?? 720, height: data.size?.height ?? 460 }}
     >
-      <NodeResizer isVisible={selected} minWidth={280} minHeight={200} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      <NodeResizer isVisible={selected || hovered} minWidth={280} minHeight={200} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
       {card}
     </div>,
   );

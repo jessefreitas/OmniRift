@@ -202,6 +202,15 @@ export async function healthReportGet(root: string, path: string): Promise<Saved
 }
 
 /**
+ * Recupera o relatório salvo da dimensão BANCO (key fixa `__db_repo__`). Use ao
+ * montar/voltar de aba: se houver salvo, mostre direto — a análise sobrevive a sair
+ * da tela (mesmo princípio do `healthReportGet` de arquivo). `null` se nunca analisado.
+ */
+export async function healthDbReportGet(root: string): Promise<SavedReport | null> {
+  return invoke<SavedReport | null>("health_db_report_get", { root });
+}
+
+/**
  * Lista todos os relatórios salvos do projeto em `root` (incluindo os que estão
  * `running`). Use ao abrir/escanear pra marcar quais arquivos JÁ têm relatório
  * (badge "✓ analisado" + ts) e quais estão em análise ("analisando…").

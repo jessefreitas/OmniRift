@@ -131,6 +131,8 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
   const [text, setText] = useState(data.text || "");
   const [view, setView] = useState<"text" | "tree" | "graph">("text");
   const [maximized, setMaximized] = useState(false);
+  // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
+  const [hovered, setHovered] = useState(false);
 
   const parsed = useMemo<{ ok: true; value: unknown } | { ok: false; error: string } | null>(() => {
     if (!text.trim()) return null;
@@ -316,10 +318,12 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
 
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
       style={{ width: data.size?.width ?? 460, height: data.size?.height ?? 420 }}
     >
-      <NodeResizer isVisible={selected} minWidth={320} minHeight={280} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      <NodeResizer isVisible={selected || hovered} minWidth={320} minHeight={280} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
       {card}
     </div>
   );

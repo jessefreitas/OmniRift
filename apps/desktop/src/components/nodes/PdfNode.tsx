@@ -50,6 +50,8 @@ function PdfNodeBase({ id, data, selected }: NodeProps<PdfRfNode>) {
   const [scale, setScale] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
+  const [hovered, setHovered] = useState(false);
 
   const fileName = data.filePath ? (data.filePath.split(/[/\\]/).filter(Boolean).pop() ?? data.filePath) : "—";
 
@@ -176,10 +178,12 @@ function PdfNodeBase({ id, data, selected }: NodeProps<PdfRfNode>) {
   return frame(
     card,
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
       style={{ width: data.size?.width ?? 560, height: data.size?.height ?? 720 }}
     >
-      <NodeResizer isVisible={selected} minWidth={280} minHeight={240} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      <NodeResizer isVisible={selected || hovered} minWidth={280} minHeight={240} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
       {card}
     </div>,
   );

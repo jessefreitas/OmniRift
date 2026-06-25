@@ -93,6 +93,8 @@ export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) 
   const [roots, setRoots] = useState<DirEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
+  // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
+  const [hovered, setHovered] = useState(false);
   const { maxBtn, frame } = useNodeMaximize();
 
   const load = useCallback(() => {
@@ -138,10 +140,12 @@ export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) 
   return frame(
     card,
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       className="flex flex-col rounded-lg border border-border bg-surface1 shadow-lg overflow-hidden"
       style={{ width: data.size?.width ?? 280, height: data.size?.height ?? 360 }}
     >
-      <NodeResizer isVisible={selected} minWidth={180} minHeight={160} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
+      <NodeResizer isVisible={selected || hovered} minWidth={180} minHeight={160} color="rgb(41 162 167)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
       {card}
     </div>,
   );

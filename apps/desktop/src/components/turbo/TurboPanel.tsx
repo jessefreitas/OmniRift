@@ -53,12 +53,12 @@ function saveReviewed(map: Record<string, "approved" | "discarded">) {
   }
 }
 
-export function TurboPanel({ onClose }: { onClose: () => void }) {
+export function TurboPanel({ onClose, seedGoal }: { onClose: () => void; seedGoal?: string }) {
   const t = useT();
   const currentCwd = useCanvasStore((s) => s.currentCwd);
 
-  // Form
-  const [goal, setGoal] = useState("");
+  // Form (goal pode vir semeado de um agente via "Enviar pro TURBO")
+  const [goal, setGoal] = useState(seedGoal ?? "");
   const [condition, setCondition] = useState("");
   const [implementerCli, setImplementerCli] = useState("");
   const [verifierCli, setVerifierCli] = useState("");

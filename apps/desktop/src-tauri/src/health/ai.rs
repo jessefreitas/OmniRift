@@ -560,6 +560,15 @@ pub fn db_report_key() -> &'static str {
     DB_REPORT_KEY
 }
 
+/// Carrega o relatório persistido da dimensão Banco (key fixa `__db_repo__`) — pra a UI
+/// RECARREGAR a análise ao reabrir/trocar de aba (mesmo princípio do `health_report_get`
+/// de arquivo). `None` se nunca analisado; `running: true` se há análise em andamento.
+#[tauri::command]
+pub async fn health_db_report_get(root: String) -> Result<Option<SavedReport>, String> {
+    let dir = reports_dir(&root);
+    load_report(&dir, DB_REPORT_KEY, DB_REPORT_KEY)
+}
+
 /// Persiste um `AiReport` da dimensão Banco sob a key fixa `__db_repo__`, MESMO padrão
 /// de `health_analyze_file`. Reusado por `db.rs::health_analyze_db`. Falha de IO é soft
 /// (não derruba a análise já concluída).
