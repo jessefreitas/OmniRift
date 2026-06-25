@@ -227,6 +227,13 @@ fn agent_spawn(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
         .spawn(session_id.clone(), cfg, ctx.app.clone())
         .map_err(|e| RpcError::internal(format!("{e:#}")))?;
 
+    // Registra no AgentRegistry → o agente aparece em `agents.list`/`status` + no orquestrador
+    // (mesmo caminho do spawn via MCP em tools.rs). Sem isto o PTY roda mas fica invisível pra
+    // `omnirift agents`. floor=None (CLI não nasce num floor); description = o command.
+    if let Some(reg) = ctx.app.try_state::<Arc<AgentRegistry>>() {
+        reg.register(label.clone(), session_id.clone(), p.command.clone(), None);
+    }
+
     // Avisa o frontend pra attachar um TerminalNode na sessão JÁ spawnada (não re-spawna).
     // Contrato do evento (camelCase) consumido pelo agente frontend (Fase 2-B):
     //   rpc://agent-spawned {sessionId, label, command, cwd, executionHost}
