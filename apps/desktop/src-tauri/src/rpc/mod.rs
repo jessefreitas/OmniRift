@@ -185,11 +185,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_registry_has_three_mvp_methods() {
+    fn build_registry_has_readonly_and_write_methods() {
         let reg = build_registry();
-        assert_eq!(reg.len(), 3, "MVP = status + agents.list + pty.snapshot");
+        // #8A read-only (3) + Fase 2 escrita (3) = 6.
+        assert_eq!(reg.len(), 6, "3 read-only (#8A) + 3 escrita (Fase 2)");
+        // Read-only (#8A).
         assert!(reg.get("status").is_some());
         assert!(reg.get("agents.list").is_some());
         assert!(reg.get("pty.snapshot").is_some());
+        // Escrita (Fase 2 — registradas no Registry, mas FORA da allowlist mobile).
+        assert!(reg.get("agent.spawn").is_some());
+        assert!(reg.get("agent.send").is_some());
+        assert!(reg.get("agent.kill").is_some());
+    }
+
+    #[test]
+    fn write_methods_are_registered_but_not_mobile_allowed() {
+        // O Registry conhece as mutações (CLI as chama via socket local), mas a allowlist
+        // mobile NÃO — é a fronteira de segurança da Fase 2 (mobile read-only).
+        let reg = build_registry();
+        for m in ["agent.spawn", "agent.send", "agent.kill"] {
+            assert!(reg.get(m).is_some(), "'{m}' deve existir no Registry (CLI/Runtime)");
+            assert!(
+                !allowlist::is_allowed(m, devices::DeviceScope::Mobile),
+                "'{m}' NUNCA pode ser permitida p/ mobile"
+            );
+        }
     }
 }

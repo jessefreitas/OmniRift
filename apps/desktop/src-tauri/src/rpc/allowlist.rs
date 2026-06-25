@@ -52,6 +52,25 @@ mod tests {
     }
 
     #[test]
+    fn mobile_forbids_the_phase2_write_methods() {
+        // SEGURANÇA (Fase 2): as 3 mutações (agent.spawn/send/kill) NÃO entram na allowlist
+        // mobile — só rodam pelo socket local (CLI = escopo Runtime). Mobile segue read-only.
+        // Este teste é o guard explícito pedido no design (RE: "is_allowed == false").
+        for m in ["agent.spawn", "agent.send", "agent.kill"] {
+            assert!(
+                !is_allowed(m, DeviceScope::Mobile),
+                "MUTAÇÃO '{m}' NUNCA pode ser permitida p/ mobile (read-only no MVP)"
+            );
+            // ...e o Runtime (CLI/socket local) PODE — é o único caminho das mutações.
+            assert!(is_allowed(m, DeviceScope::Runtime), "'{m}' deve rodar via socket local");
+        }
+        // Belt-and-suspenders: a constante literalmente não contém nenhum dos 3.
+        for m in ["agent.spawn", "agent.send", "agent.kill"] {
+            assert!(!MOBILE_RPC_METHOD_ALLOWLIST.contains(&m), "'{m}' vazou pra allowlist!");
+        }
+    }
+
+    #[test]
     fn runtime_scope_allows_anything() {
         assert!(is_allowed("pty.kill", DeviceScope::Runtime));
         assert!(is_allowed("status", DeviceScope::Runtime));

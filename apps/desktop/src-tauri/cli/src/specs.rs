@@ -30,6 +30,10 @@ pub struct CommandSpec {
     pub allowed_flags: &'static [&'static str],
     /// Args posicionais, em ordem (nomes p/ o help e p/ casar no handler).
     pub positionals: &'static [&'static str],
+    /// Se `true`, o ÚLTIMO posicional declarado é **variádico**: aceita 1+ tokens, que o
+    /// handler junta (ex.: `send <sessionId> <texto...>` → o texto pode ter vários tokens).
+    /// `false` (default das specs antigas) = exatamente os declarados, nem a mais nem a menos.
+    pub variadic_tail: bool,
     /// Exemplos pro help.
     pub examples: &'static [&'static str],
 }
@@ -44,6 +48,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
             usage: "omnirift status [--json]",
             allowed_flags: &[],
             positionals: &[],
+            variadic_tail: false,
             examples: &["omnirift status", "omnirift status --json"],
         },
         CommandSpec {
@@ -52,6 +57,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
             usage: "omnirift agents [--json]",
             allowed_flags: &[],
             positionals: &[],
+            variadic_tail: false,
             examples: &["omnirift agents", "omnirift agents --json"],
         },
         CommandSpec {
@@ -60,11 +66,47 @@ pub fn command_specs() -> &'static [CommandSpec] {
             usage: "omnirift snapshot <sessionId> [--rows N] [--json]",
             allowed_flags: &["rows"],
             positionals: &["sessionId"],
+            variadic_tail: false,
             examples: &[
                 "omnirift snapshot abc123",
                 "omnirift snapshot abc123 --rows 40",
                 "omnirift snapshot abc123 --json",
             ],
+        },
+        // --- Fase 2: mutações (só socket local) ---
+        CommandSpec {
+            name: "spawn",
+            summary: "Cria um agente (PTY) e o attacha ao canvas.",
+            usage: "omnirift spawn <command> [--args \"a b c\"] [--cwd P] [--label L] [--json]",
+            allowed_flags: &["args", "cwd", "label"],
+            positionals: &["command"],
+            variadic_tail: false,
+            examples: &[
+                "omnirift spawn bash",
+                "omnirift spawn claude --label alpha --cwd /tmp/work",
+                "omnirift spawn claude --args \"--dangerously-skip-permissions\"",
+            ],
+        },
+        CommandSpec {
+            name: "send",
+            summary: "Envia input (texto + Enter) p/ um agente.",
+            usage: "omnirift send <sessionId> <texto...> [--json]",
+            allowed_flags: &[],
+            positionals: &["sessionId", "texto"],
+            variadic_tail: true, // <texto...> aceita vários tokens (junta com espaço).
+            examples: &[
+                "omnirift send abc123 /help",
+                "omnirift send abc123 implemente a feature X",
+            ],
+        },
+        CommandSpec {
+            name: "kill",
+            summary: "Mata um agente (PTY). Idempotente.",
+            usage: "omnirift kill <sessionId> [--json]",
+            allowed_flags: &[],
+            positionals: &["sessionId"],
+            variadic_tail: false,
+            examples: &["omnirift kill abc123"],
         },
     ];
     SPECS
@@ -229,14 +271,16 @@ pub fn validate(parsed: &ParsedArgs) -> Result<&'static CommandSpec, ArgError> {
         }
     }
 
-    // Posicionais: o MVP exige exatamente os declarados (nem a mais, nem a menos).
+    // Posicionais: exige ao menos os declarados. Sem `variadic_tail`, exige EXATAMENTE os
+    // declarados (nem a mais); com `variadic_tail`, o último aceita 1+ tokens (ex.: texto
+    // do `send` com espaços). Faltar qualquer um → erro nominal (qual falta).
     let need = spec.positionals.len();
     let got = parsed.positionals.len();
     if got < need {
         let missing = spec.positionals[got];
         return Err(ArgError(format!("falta o argumento <{missing}>. Uso: {}", spec.usage)));
     }
-    if got > need {
+    if got > need && !spec.variadic_tail {
         return Err(ArgError(format!(
             "argumentos demais para '{name}' (esperado {need}). Uso: {}",
             spec.usage
@@ -384,5 +428,103 @@ mod tests {
         let h = render_command_help(spec);
         assert!(h.contains(spec.usage));
         assert!(h.contains("--rows"));
+    }
+
+    // --- Fase 2: as 3 mutações existem e validam ---
+    #[test]
+    fn phase2_commands_have_specs() {
+        for name in ["spawn", "send", "kill"] {
+            assert!(find_spec(name).is_some(), "spec de '{name}' deve existir");
+        }
+    }
+
+    #[test]
+    fn help_lists_phase2_commands() {
+        let h = render_help();
+        for name in ["spawn", "send", "kill"] {
+            assert!(h.contains(name), "help deve listar '{name}'");
+        }
+    }
+
+    #[test]
+    fn spawn_validates_with_command_and_flags() {
+        let p = parse_args(&[
+            "spawn".into(),
+            "claude".into(),
+            "--label".into(),
+            "alpha".into(),
+            "--cwd".into(),
+            "/tmp".into(),
+        ])
+        .unwrap();
+        let spec = validate(&p).unwrap();
+        assert_eq!(spec.name, "spawn");
+    }
+
+    #[test]
+    fn spawn_missing_command_rejected() {
+        let p = parse_args(&["spawn".into()]).unwrap();
+        let err = validate(&p).unwrap_err();
+        assert!(err.0.contains("command"), "msg: {}", err.0);
+    }
+
+    #[test]
+    fn spawn_rejects_unknown_flag() {
+        let p = parse_args(&["spawn".into(), "bash".into(), "--nope".into(), "x".into()]).unwrap();
+        let err = validate(&p).unwrap_err();
+        assert!(err.0.contains("flag desconhecida"), "msg: {}", err.0);
+    }
+
+    // send: variádico — sessionId + 1+ tokens de texto.
+    #[test]
+    fn send_accepts_variadic_text() {
+        let p = parse_args(&["send".into(), "s1".into(), "oi".into(), "tudo".into(), "bem".into()])
+            .unwrap();
+        let spec = validate(&p).unwrap();
+        assert_eq!(spec.name, "send");
+        assert!(spec.variadic_tail, "send é variádico");
+        assert_eq!(p.positionals.len(), 4);
+    }
+
+    #[test]
+    fn send_single_text_token_ok() {
+        let p = parse_args(&["send".into(), "s1".into(), "/help".into()]).unwrap();
+        assert!(validate(&p).is_ok());
+    }
+
+    #[test]
+    fn send_missing_text_rejected() {
+        // só sessionId, sem texto → falta <texto>.
+        let p = parse_args(&["send".into(), "s1".into()]).unwrap();
+        let err = validate(&p).unwrap_err();
+        assert!(err.0.contains("texto"), "msg: {}", err.0);
+    }
+
+    #[test]
+    fn send_missing_session_id_rejected() {
+        let p = parse_args(&["send".into()]).unwrap();
+        let err = validate(&p).unwrap_err();
+        assert!(err.0.contains("sessionId"), "msg: {}", err.0);
+    }
+
+    // kill: exatamente <sessionId> (não-variádico).
+    #[test]
+    fn kill_validates_with_session_id() {
+        let p = parse_args(&["kill".into(), "s1".into()]).unwrap();
+        assert_eq!(validate(&p).unwrap().name, "kill");
+    }
+
+    #[test]
+    fn kill_too_many_positionals_rejected() {
+        let p = parse_args(&["kill".into(), "s1".into(), "extra".into()]).unwrap();
+        let err = validate(&p).unwrap_err();
+        assert!(err.0.contains("demais"), "msg: {}", err.0);
+    }
+
+    #[test]
+    fn kill_missing_session_id_rejected() {
+        let p = parse_args(&["kill".into()]).unwrap();
+        let err = validate(&p).unwrap_err();
+        assert!(err.0.contains("sessionId"), "msg: {}", err.0);
     }
 }
