@@ -1,11 +1,13 @@
 pub mod claims;
 pub mod client;
+pub mod groups;
 pub mod registry;
 pub mod serena_pool;
 pub mod server;
 pub mod tools;
 
 pub use claims::ClaimsRegistry;
+pub use groups::{resolve_group, AgentInfo};
 pub use registry::AgentRegistry;
 pub use serena_pool::SerenaPool;
 pub use server::mcp_router;

@@ -13,6 +13,7 @@ pub mod fs;
 pub mod git;
 pub mod github_auth;
 pub mod gitremote;
+pub mod hosts;
 pub mod http;
 pub mod license;
 pub mod llm;

@@ -70,6 +70,7 @@ use commands::mcp::{
 use commands::memory::{
     memory_active, memory_connect, memory_providers_list, memory_set_active, memory_test,
 };
+use commands::hosts::{hosts_add, hosts_list, hosts_remove};
 use commands::pty::{
     pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
     pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_write,
@@ -413,6 +414,9 @@ pub fn run() {
             cli_uninstall,
             cli_validate,
             collect_diagnostics,
+            hosts_list,
+            hosts_add,
+            hosts_remove,
         ])
         .build(tauri::generate_context!())
         .expect("erro fatal construindo OmniRift")

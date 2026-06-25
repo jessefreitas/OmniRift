@@ -14,6 +14,13 @@ export interface PtySpawnConfig {
   env?: Array<[string, string]>;
   cols?: number;
   rows?: number;
+  /**
+   * Onde o agente executa (ref §3.1 — executionHostId). `undefined`/`"local"` =
+   * máquina atual (default; comportamento idêntico). `"ssh:<encoded-target>"` → o
+   * backend embrulha o comando em `ssh -tt -o BatchMode=yes ... -- <cmd>`. Campo
+   * único string tagged-union — espelha o enum Rust `ExecutionHost`.
+   */
+  execution_host?: string;
 }
 
 /** Evento emitido pelo Rust quando o PTY produz output. */

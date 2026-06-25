@@ -79,6 +79,9 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
         args: data.args,
         cwd: data.cwd,
         env: data.env,
+        // Onde executa (ref §3.1). undefined = local; "ssh:<host>" → o backend
+        // embrulha em ssh. snake_case: é o que o Rust desserializa.
+        execution_host: data.executionHost,
       },
     });
 

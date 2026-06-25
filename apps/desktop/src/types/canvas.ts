@@ -5,6 +5,27 @@
 
 import type { AgentRole, SessionId } from "./pty";
 
+/**
+ * Id de host de execução (ref §3.1) — espelha o enum Rust `ExecutionHost`
+ * (`pty/host.rs`). `"local"` = máquina atual; `"ssh:<encoded-target>"` = host SSH
+ * remoto (target percent-encoded pra sobreviver `:`/`@`/`/`). `runtime:<id>` =
+ * fase 2 (fora do MVP). Único campo que carrega o transporte — o resto do código
+ * não ramifica por ele.
+ */
+export type ExecutionHostId = "local" | `ssh:${string}`;
+
+/** O id canônico do host local. */
+export const LOCAL_EXECUTION_HOST: ExecutionHostId = "local";
+
+/**
+ * Constrói o `executionHostId` de um sshTarget. Espelha `ExecutionHost::Ssh(t).id()`
+ * do Rust: `"ssh:" + percent-encode(target)`. `encodeURIComponent` cobre `:`/`@`/`/`
+ * (RFC3986-unreserved sobrevive) — round-trip exato com o `parse` do backend.
+ */
+export function toSshHostId(sshTarget: string): ExecutionHostId {
+  return `ssh:${encodeURIComponent(sshTarget)}`;
+}
+
 export type NodeKind =
   | "terminal"
   | "note"
@@ -51,6 +72,12 @@ export interface TerminalNode extends BaseCanvasNode {
   env?: Array<[string, string]>;
   /** Compressor de token ativo neste agente (kind: "rtk"|"headroom"|"none"). */
   compressor?: string;
+  /**
+   * Onde este agente executa (ref §3.1). `undefined`/`"local"` = máquina atual.
+   * `"ssh:<encoded-target>"` → o backend embrulha o comando em ssh. Capturado no
+   * spawn a partir do dropdown de host (default = host do floor). Ver ExecutionHostId.
+   */
+  executionHost?: ExecutionHostId;
 }
 
 export interface NoteNode extends BaseCanvasNode {
