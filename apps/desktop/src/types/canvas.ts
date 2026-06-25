@@ -78,6 +78,12 @@ export interface TerminalNode extends BaseCanvasNode {
    * spawn a partir do dropdown de host (default = host do floor). Ver ExecutionHostId.
    */
   executionHost?: ExecutionHostId;
+  /**
+   * Attach (Fase 2 do #8): o PTY desta sessão já nasceu no backend (CLI
+   * `omnirift spawn` → `agent.spawn` → evento `rpc://agent-spawned`). O hook PULA o
+   * spawn e re-hidrata via snapshot. `undefined`/`false` = node de spawn normal.
+   */
+  attach?: boolean;
 }
 
 export interface NoteNode extends BaseCanvasNode {

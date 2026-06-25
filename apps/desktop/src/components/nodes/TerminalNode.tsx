@@ -82,6 +82,9 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
         // Onde executa (ref §3.1). undefined = local; "ssh:<host>" → o backend
         // embrulha em ssh. snake_case: é o que o Rust desserializa.
         execution_host: data.executionHost,
+        // Attach (Fase 2 do #8): true quando o PTY já nasceu no backend (CLI
+        // `omnirift spawn` → `rpc://agent-spawned`). O hook anexa em vez de spawnar.
+        attach: data.attach,
       },
     });
 

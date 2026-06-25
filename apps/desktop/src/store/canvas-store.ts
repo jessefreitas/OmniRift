@@ -82,6 +82,15 @@ interface CanvasState {
     /** Host de execução (ref §3.1). undefined/"local" = local; "ssh:<host>" = remoto.
      *  Default: host do floor ativo. Ver ExecutionHostId. */
     executionHost?: string;
+    /** Attach (Fase 2 do #8): o PTY já existe no backend (CLI `omnirift spawn` →
+     *  `rpc://agent-spawned`). O node nasce com `attach: true` → o hook anexa à
+     *  sessão (re-hidrata via snapshot) em vez de re-spawnar. `id` deve ser o
+     *  `sessionId` que o backend já criou. undefined/false = spawn normal. */
+    attach?: boolean;
+    /** cwd explícito do node (display/file-drop). Só usado quando fornecido — no
+     *  spawn normal (ausente) herda `currentCwd` (comportamento idêntico ao anterior).
+     *  No attach, vem do PTY que o backend já criou. */
+    cwd?: string;
   }) => TerminalNode | null;
   addNote: (params?: { position?: { x: number; y: number }; content?: string; color?: string }) => NoteNode;
   addGroup: (params?: { position?: { x: number; y: number }; label?: string }) => GroupNode;
@@ -292,7 +301,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       return { dirtyFiles: next };
     }),
 
-  addTerminal: ({ command, args, role = "shell", position, label, id, compressor, env: extraEnv, executionHost }) => {
+  addTerminal: ({ command, args, role = "shell", position, label, id, compressor, env: extraEnv, executionHost, attach, cwd: cwdArg }) => {
     // Gate de licença: community = máx 5 agentes (terminais). 0 = ilimitado.
     const lic = useLicenseStore.getState();
     if (!withinLimit(lic.limits.agents, get().allTerminalNodes().length)) {
@@ -310,7 +319,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     }
     _spawnTimes.push(_now);
     const nodeId = id ?? nanoid();
-    const cwd = get().currentCwd ?? undefined;
+    // cwd explícito (attach: vem do PTY já criado) tem prioridade; senão herda o
+    // cwd do floor ativo (spawn normal — comportamento idêntico ao anterior).
+    const cwd = cwdArg ?? get().currentCwd ?? undefined;
     // Host de execução (ref §3.1): explícito do caller (dropdown) OU herda o host do
     // floor ativo. "local"/ausente → não decora o node (comportamento idêntico).
     const s0host = get();
@@ -339,6 +350,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
         resolvedHost && resolvedHost !== LOCAL_HOST_ID
           ? (resolvedHost as TerminalNode["executionHost"])
           : undefined,
+      // Attach (Fase 2 do #8): só decora quando true (node de spawn normal fica
+      // byte-idêntico ao anterior — `attach` ausente).
+      attach: attach ? true : undefined,
       position: position ?? defaultPosition(),
       size: { width: 520, height: 320 },
     };

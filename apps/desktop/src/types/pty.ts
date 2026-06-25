@@ -21,6 +21,14 @@ export interface PtySpawnConfig {
    * único string tagged-union — espelha o enum Rust `ExecutionHost`.
    */
   execution_host?: string;
+  /**
+   * Modo "attach" (Fase 2 do #8): o PTY desta sessão JÁ existe no backend (ex.: a
+   * CLI rodou `omnirift spawn <cmd>` → `agent.spawn` spawnou o PTY e emitiu
+   * `rpc://agent-spawned`). Quando `true`, o hook PULA o `ptySpawn` e em vez disso
+   * re-hidrata a view via `pty_snapshot`, montando os listeners normalmente. Ramo
+   * ADITIVO — `undefined`/`false` = caminho de spawn original, intocado.
+   */
+  attach?: boolean;
 }
 
 /** Evento emitido pelo Rust quando o PTY produz output. */

@@ -167,6 +167,62 @@ mod tests {
         }
     }
 
+    // --- Fase 2: help dos 3 comandos novos (das specs, sem socket) ---
+    #[test]
+    fn general_help_lists_phase2_commands() {
+        let out = run(&[]).unwrap();
+        for c in ["spawn", "send", "kill"] {
+            assert!(out.contains(c), "help geral deve listar '{c}'");
+        }
+    }
+
+    #[test]
+    fn help_for_spawn_shows_usage() {
+        let out = run(&argv(&["help", "spawn"])).unwrap();
+        assert!(out.contains("spawn <command>"));
+        assert!(out.contains("--label"));
+    }
+
+    #[test]
+    fn help_for_send_shows_variadic_usage() {
+        let out = run(&argv(&["help", "send"])).unwrap();
+        assert!(out.contains("send <sessionId> <texto...>"));
+    }
+
+    #[test]
+    fn help_for_kill_shows_usage() {
+        let out = run(&argv(&["kill", "--help"])).unwrap();
+        assert!(out.contains("kill <sessionId>"));
+    }
+
+    // --- Fase 2: erros de uso (antes do socket) ---
+    #[test]
+    fn spawn_without_command_is_usage_error() {
+        let err = run(&argv(&["spawn"])).unwrap_err();
+        match err {
+            Exit::Usage(m) => assert!(m.contains("command")),
+            Exit::Runtime(_) => panic!("spawn sem command = erro de uso"),
+        }
+    }
+
+    #[test]
+    fn send_without_text_is_usage_error() {
+        let err = run(&argv(&["send", "s1"])).unwrap_err();
+        match err {
+            Exit::Usage(m) => assert!(m.contains("texto")),
+            Exit::Runtime(_) => panic!("send sem texto = erro de uso"),
+        }
+    }
+
+    #[test]
+    fn kill_without_session_id_is_usage_error() {
+        let err = run(&argv(&["kill"])).unwrap_err();
+        match err {
+            Exit::Usage(m) => assert!(m.contains("sessionId")),
+            Exit::Runtime(_) => panic!("kill sem sessionId = erro de uso"),
+        }
+    }
+
     // Comando válido SEM app rodando → erro de runtime (não de uso). Garante que a
     // descoberta corre só depois da validação. Usa HOME isolado p/ não achar um
     // runtime.json real da máquina.

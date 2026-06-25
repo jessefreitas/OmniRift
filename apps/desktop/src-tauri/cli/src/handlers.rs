@@ -26,6 +26,10 @@ pub fn build_call(command: &str, args: &ParsedArgs) -> Result<CallPlan, ArgError
         "status" => Ok(CallPlan { method: "status", params: Value::Null }),
         "agents" => Ok(CallPlan { method: "agents.list", params: Value::Null }),
         "snapshot" => build_snapshot(args),
+        // Fase 2 — mutações.
+        "spawn" => build_spawn(args),
+        "send" => build_send(args),
+        "kill" => build_kill(args),
         other => Err(ArgError(format!("sem handler para '{other}' (bug de wiring)"))),
     }
 }
@@ -47,6 +51,59 @@ fn build_snapshot(args: &ParsedArgs) -> Result<CallPlan, ArgError> {
     Ok(CallPlan { method: "pty.snapshot", params })
 }
 
+/// `spawn <command> [--args "a b c"] [--cwd P] [--label L]` → params
+/// `{command, args?, cwd?, label?}` (contrato do `agent.spawn` da Fase 2). `--args` é uma
+/// string única split por espaços (token a token); ausente = sem args.
+fn build_spawn(args: &ParsedArgs) -> Result<CallPlan, ArgError> {
+    let command = args
+        .positionals
+        .first()
+        .ok_or_else(|| ArgError("spawn exige <command>".into()))?;
+    let mut params = json!({ "command": command });
+    if let Some(raw) = args.flag_str("args") {
+        // "build test lint" → ["build","test","lint"]. Vazio/só-espaços → [] (sem args).
+        let argv: Vec<&str> = raw.split_whitespace().collect();
+        params["args"] = json!(argv);
+    }
+    if let Some(cwd) = args.flag_str("cwd") {
+        params["cwd"] = json!(cwd);
+    }
+    if let Some(label) = args.flag_str("label") {
+        params["label"] = json!(label);
+    }
+    Ok(CallPlan { method: "agent.spawn", params })
+}
+
+/// `send <sessionId> <texto...>` → params `{sessionId, input}`. O texto é variádico: junta
+/// os posicionais a partir do 2º com espaço único (`send s oi tudo bem` → input "oi tudo bem").
+fn build_send(args: &ParsedArgs) -> Result<CallPlan, ArgError> {
+    let session_id = args
+        .positionals
+        .first()
+        .ok_or_else(|| ArgError("send exige <sessionId>".into()))?;
+    let rest = &args.positionals[1..];
+    if rest.is_empty() {
+        return Err(ArgError("send exige <texto...> (a mensagem a enviar)".into()));
+    }
+    let input = rest.join(" ");
+    Ok(CallPlan {
+        method: "agent.send",
+        params: json!({ "sessionId": session_id, "input": input }),
+    })
+}
+
+/// `kill <sessionId>` → params `{sessionId}` (contrato do `agent.kill` — idempotente).
+fn build_kill(args: &ParsedArgs) -> Result<CallPlan, ArgError> {
+    let session_id = args
+        .positionals
+        .first()
+        .ok_or_else(|| ArgError("kill exige <sessionId>".into()))?;
+    Ok(CallPlan {
+        method: "agent.kill",
+        params: json!({ "sessionId": session_id }),
+    })
+}
+
 /// Formata o `result` de um comando: `--json` → JSON cru (pretty); senão, texto humano
 /// por comando. Puro: result + flag → string.
 pub fn format_result(command: &str, result: &Value, json: bool) -> String {
@@ -57,6 +114,9 @@ pub fn format_result(command: &str, result: &Value, json: bool) -> String {
         "status" => format_status(result),
         "agents" => format_agents(result),
         "snapshot" => format_snapshot(result),
+        "spawn" => format_spawn(result),
+        "send" => format_ok(result, "enviado"),
+        "kill" => format_ok(result, "encerrado"),
         // Comando sem formatador humano dedicado → JSON pretty (degrade seguro).
         _ => serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string()),
     }
@@ -97,6 +157,23 @@ fn format_snapshot(r: &Value) -> String {
     match r.get("data").and_then(|v| v.as_str()) {
         Some(data) => data.to_string(),
         None => serde_json::to_string_pretty(r).unwrap_or_else(|_| r.to_string()),
+    }
+}
+
+/// `agent.spawn` retorna `{sessionId, label}`. Em texto: confirma a criação com os dois.
+fn format_spawn(r: &Value) -> String {
+    let session = r.get("sessionId").and_then(|v| v.as_str()).unwrap_or("?");
+    let label = r.get("label").and_then(|v| v.as_str()).unwrap_or(session);
+    format!("agente criado: {label} ({session})")
+}
+
+/// `agent.send`/`agent.kill` retornam `{ok:true}`. Em texto: uma linha de confirmação
+/// (`verbo`). Se `ok` não vier true, reporta o JSON cru (degrade — algo inesperado).
+fn format_ok(r: &Value, verb: &str) -> String {
+    if r.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+        format!("✓ {verb}")
+    } else {
+        serde_json::to_string_pretty(r).unwrap_or_else(|_| r.to_string())
     }
 }
 
@@ -213,5 +290,81 @@ mod tests {
     fn describe_runtime_error_passes_message() {
         let e = ClientError::Rpc("not_found: x".into());
         assert_eq!(describe_runtime_error(&e), "not_found: x");
+    }
+
+    // --- Fase 2: spawn / send / kill build_call ---
+    #[test]
+    fn spawn_builds_command_param() {
+        let plan = build_call("spawn", &parse(&["spawn", "bash"])).unwrap();
+        assert_eq!(plan.method, "agent.spawn");
+        assert_eq!(plan.params, json!({ "command": "bash" }));
+    }
+
+    #[test]
+    fn spawn_with_all_flags() {
+        let plan = build_call(
+            "spawn",
+            &parse(&["spawn", "claude", "--label", "alpha", "--cwd", "/tmp/w", "--args", "a b c"]),
+        )
+        .unwrap();
+        assert_eq!(plan.method, "agent.spawn");
+        assert_eq!(
+            plan.params,
+            json!({ "command": "claude", "label": "alpha", "cwd": "/tmp/w", "args": ["a", "b", "c"] })
+        );
+    }
+
+    #[test]
+    fn spawn_args_flag_splits_on_whitespace() {
+        let plan = build_call("spawn", &parse(&["spawn", "x", "--args", "  one   two "])).unwrap();
+        assert_eq!(plan.params["args"], json!(["one", "two"]));
+    }
+
+    #[test]
+    fn send_joins_variadic_text_into_input() {
+        let plan = build_call("send", &parse(&["send", "s1", "oi", "tudo", "bem"])).unwrap();
+        assert_eq!(plan.method, "agent.send");
+        assert_eq!(plan.params, json!({ "sessionId": "s1", "input": "oi tudo bem" }));
+    }
+
+    #[test]
+    fn send_single_word_input() {
+        let plan = build_call("send", &parse(&["send", "s1", "/help"])).unwrap();
+        assert_eq!(plan.params, json!({ "sessionId": "s1", "input": "/help" }));
+    }
+
+    #[test]
+    fn kill_builds_session_id_param() {
+        let plan = build_call("kill", &parse(&["kill", "s9"])).unwrap();
+        assert_eq!(plan.method, "agent.kill");
+        assert_eq!(plan.params, json!({ "sessionId": "s9" }));
+    }
+
+    // --- Fase 2: formatters ---
+    #[test]
+    fn spawn_human_format_shows_label_and_session() {
+        let r = json!({ "sessionId": "abc123", "label": "alpha" });
+        let out = format_result("spawn", &r, false);
+        assert!(out.contains("alpha"));
+        assert!(out.contains("abc123"));
+    }
+
+    #[test]
+    fn send_human_format_confirms() {
+        let out = format_result("send", &json!({ "ok": true }), false);
+        assert!(out.contains("enviado"), "msg: {out}");
+    }
+
+    #[test]
+    fn kill_human_format_confirms() {
+        let out = format_result("kill", &json!({ "ok": true }), false);
+        assert!(out.contains("encerrado"), "msg: {out}");
+    }
+
+    #[test]
+    fn write_commands_json_flag_keeps_raw() {
+        let r = json!({ "sessionId": "abc", "label": "l" });
+        let out = format_result("spawn", &r, true);
+        assert!(out.contains("\"sessionId\""));
     }
 }

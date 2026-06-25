@@ -175,11 +175,24 @@ export function useTerminalSession({
         try { fitAddon.fit(); } catch { /* container ainda sem dimensões */ }
 
         const { cols, rows } = term;
-        await ptySpawn(sessionId, {
-          ...config,
-          cols: config.cols ?? cols,
-          rows: config.rows ?? rows,
-        });
+        // Attach (Fase 2 do #8): o PTY desta sessão JÁ nasceu no backend (CLI
+        // `omnirift spawn` → `agent.spawn`). PULAMOS o `ptySpawn` — re-spawnar
+        // criaria um 2º processo e mataria o estado vivo. O resto (session
+        // recorder, listeners, stdin, resize) é IDÊNTICO ao spawn normal; a view é
+        // re-hidratada via `replayFromSnapshot` (mesmo caminho do retorno-de-oculto
+        // do #6) logo após os listeners estarem montados. Sem attach → spawn normal
+        // intocado.
+        if (!config.attach) {
+          await ptySpawn(sessionId, {
+            ...config,
+            cols: config.cols ?? cols,
+            rows: config.rows ?? rows,
+          });
+        } else {
+          // Ajusta o PTY existente às dimensões reais deste xterm (o backend nasceu
+          // em 80×24 no agent.spawn). Fire-and-forget — falha não bloqueia o attach.
+          ptyResize(sessionId, cols, rows).catch(() => {});
+        }
 
         // Session recorder — registra a sessão no SQLite (durável). Pega o
         // contexto de floor/role do store; fire-and-forget (nunca quebra o PTY).
@@ -291,6 +304,15 @@ export function useTerminalSession({
             console.error("[omni-canvas] pty_resize falhou:", e);
           });
         });
+
+        // Attach (Fase 2 do #8): com os listeners já montados, re-hidrata a view do
+        // estado ATUAL do PTY via snapshot — reusa EXATAMENTE o caminho do #6
+        // (replayFromSnapshot): marca snapshot-em-voo (o listener de output bufferiza
+        // os chunks ao vivo), escreve o snapshot, drena o buffer dedupado por seq.
+        // No spawn normal NÃO roda (o PTY nasce vazio; o output ao vivo já cobre tudo).
+        if (config.attach && !disposed) {
+          void replayFromSnapshot();
+        }
 
         if (!disposed) {
           setReady(true);
