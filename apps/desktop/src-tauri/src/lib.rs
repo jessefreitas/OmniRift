@@ -86,6 +86,8 @@ use db::{
 };
 use mcp::{mcp_router, serena_health, AgentRegistry, ClaimsRegistry, MCP_PORT};
 use pty::PtyManager;
+// Comandos do relay mobile (ref #9 — Área de Conexões / Mobile).
+use rpc::{mobile_devices_list, mobile_pairing_offer, mobile_revoke};
 use std::sync::Arc;
 use tauri::Manager;
 
@@ -220,6 +222,16 @@ pub fn run() {
                 crate::rpc::start(rpc_handle);
             });
 
+            // Relay mobile (ref #9): servidor WebSocket de LAN (0.0.0.0:6768) com E2EE
+            // NaCl box + token-por-dispositivo + allowlist read-only, reusando o Registry
+            // do #8A. Dentro de async_runtime::spawn (o ws::spawn_server usa
+            // tauri::async_runtime::spawn no accept-loop — NUNCA tokio::spawn). Degrade
+            // limpo: keypair/bind falham só logam; o app continua de pé.
+            let relay_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                crate::rpc::start_mobile_relay(relay_handle);
+            });
+
             // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente.
             tauri::async_runtime::spawn(async move {
                 let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry, max_agents, mcp_claims);
@@ -282,6 +294,9 @@ pub fn run() {
             pty_read_screen,
             pty_proc_info,
             pty_snapshot,
+            mobile_pairing_offer,
+            mobile_devices_list,
+            mobile_revoke,
             workspace_save,
             workspace_load,
             mcp_register_agent,

@@ -110,6 +110,21 @@ tokio-postgres-rustls = "0.13"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # Monitor de recursos (CPU/RAM/disco/rede) — sub-fase A. GPU (NVML) entra na fase C.
 sysinfo = "0.33"
+# --- Mobile companion (relay LAN + E2EE) — ref #9 (rpc/ws.rs, rpc/e2ee.rs) ---
+# Servidor WebSocket de LAN embutido (ws:// cru; a confidencialidade é E2EE de app,
+# não TLS — RN não pina cert). default-features = false: SEM TLS (não puxa native-tls
+# nem duplicar rustls); só o transporte WS plain sobre tokio.
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+# E2EE NaCl box (X25519 ECDH + XSalsa20-Poly1305) — interop byte-a-byte com tweetnacl
+# do app Expo/RN (fase 2). `SalsaBox` = exatamente o `nacl.box`. rand_core 0.6 (alinhado
+# com o curve25519-dalek já no tree via ed25519-dalek).
+crypto_box = { version = "0.9", features = ["std"] }
+# RNG do SO p/ nonce E2EE (24B único por frame) + device token (24B hex). rand 0.8 já
+# está no tree (compatível com o rand_core 0.6 do crypto_box).
+rand = "0.8"
+# Descoberta do IP de LAN do desktop p/ o endpoint do pairing offer (ws://<lan-ip>:6768).
+# Leve, sem deps pesadas; degrada p/ 127.0.0.1 se não achar interface.
+local-ip-address = "0.6"
 # Datas: cutoff do filtro por período + carimbo do ledger nativo (RFC3339 comparável
 # aos timestamps ISO das sessões dos CLIs). default-features off + clock = leve.
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
