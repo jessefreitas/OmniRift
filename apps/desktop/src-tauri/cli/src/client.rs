@@ -62,9 +62,11 @@ pub enum ClientError {
     BadResponse(String),
     /// O método retornou `{ok:false, error}` — repassa o `error` cru do app.
     Rpc(String),
-    /// Plataforma sem socket Unix (Windows = fase 2). Só construído no `send_frame`
-    /// stub `#[cfg(not(unix))]`; em Unix o dead-code analyzer o vê como inerte.
-    #[cfg_attr(unix, allow(dead_code))]
+    /// Plataforma sem transporte local suportado. Não é mais construído (Unix usa o
+    /// socket, Windows usa o named pipe) — mantido na enum por estabilidade do contrato
+    /// (e como ponto de extensão p/ um futuro alvo sem transporte). `allow(dead_code)`
+    /// incondicional: a variante existe sem ser construída em nenhuma plataforma.
+    #[allow(dead_code)]
     Unsupported(String),
 }
 
@@ -232,12 +234,66 @@ pub fn send_frame(socket_path: &str, frame: &str) -> Result<String, ClientError>
     Ok(line)
 }
 
-/// Stub Windows — named-pipe é fase 2 (mesmo corte que o transporte do #8A).
-#[cfg(not(unix))]
-pub fn send_frame(_socket_path: &str, _frame: &str) -> Result<String, ClientError> {
-    Err(ClientError::Unsupported(
-        "CLI via named-pipe no Windows é fase 2 — por ora o RPC local só roda em Unix".into(),
-    ))
+/// Transporte **named pipe** (Windows). O `socket_path` aqui é o NOME DO PIPE
+/// (`\\.\pipe\omnirift-<id>`, gravado no runtime.json pelo app — ver #8A `rpc/socket.rs`).
+/// O named pipe do Windows é file-like: abre como arquivo (`read(true).write(true)`),
+/// escreve `frame\n`, lê 1 linha de resposta com TETO de tamanho (igual o Unix). CLI
+/// segue sync (sem tokio). Erro claro se o pipe não existe (app não está rodando).
+#[cfg(windows)]
+pub fn send_frame(socket_path: &str, frame: &str) -> Result<String, ClientError> {
+    use std::io::{BufRead, BufReader, Read, Write};
+
+    // Abre o pipe como arquivo. NotFound = pipe não existe → app não está rodando.
+    // ERROR_PIPE_BUSY (todas as instâncias ocupadas) também vira "tente de novo".
+    let pipe = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(socket_path)
+        .map_err(|e| {
+            // ERROR_PIPE_BUSY = 231 (raw OS error): todas as instâncias estão ocupadas.
+            if e.raw_os_error() == Some(231) {
+                ClientError::Transport(format!(
+                    "pipe {socket_path} ocupado (todas as instâncias em uso) — tente de novo"
+                ))
+            } else if e.kind() == std::io::ErrorKind::NotFound {
+                ClientError::NotRunning(format!(
+                    "pipe {socket_path} não existe (o app pode estar fechado)"
+                ))
+            } else {
+                ClientError::Transport(format!("abrir pipe {socket_path}: {e}"))
+            }
+        })?;
+
+    // O named pipe é bidirecional na mesma handle; clona pra ter um writer e um reader
+    // independentes (try_clone duplica a handle do SO apontando pra mesma instância).
+    let mut writer = pipe;
+    let reader_handle = writer
+        .try_clone()
+        .map_err(|e| ClientError::Transport(format!("duplicar handle do pipe: {e}")))?;
+
+    let mut out = frame.to_string();
+    out.push('\n');
+    writer
+        .write_all(out.as_bytes())
+        .map_err(|e| ClientError::Transport(format!("escrita no pipe: {e}")))?;
+    writer
+        .flush()
+        .map_err(|e| ClientError::Transport(format!("flush no pipe: {e}")))?;
+
+    // Lê 1 linha (1 frame), com TETO de tamanho (anti-OOM se vier lixo sem \n). [GLM-audit]
+    const MAX_RESP: u64 = 16 * 1024 * 1024;
+    let mut reader = BufReader::new(reader_handle.take(MAX_RESP));
+    let mut line = String::new();
+    let n = reader
+        .read_line(&mut line)
+        .map_err(|e| ClientError::Transport(format!("leitura do pipe: {e}")))?;
+    if n == 0 {
+        return Err(ClientError::BadResponse("o app fechou a conexão sem responder".into()));
+    }
+    if !line.ends_with('\n') {
+        return Err(ClientError::BadResponse("resposta excedeu o teto de tamanho".into()));
+    }
+    Ok(line)
 }
 
 #[cfg(test)]
