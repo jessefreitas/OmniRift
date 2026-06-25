@@ -5,6 +5,8 @@
 // Frontend-only: roda num terminal no floor ativo (reusa addTerminal), agenda
 // no useRoutines, persiste em localStorage.
 
+import { invoke } from "@tauri-apps/api/core";
+
 import { useCanvasStore } from "@/store/canvas-store";
 
 export interface Routine {
@@ -17,6 +19,21 @@ export interface Routine {
   /** Horário diário "HH:MM" local — roda 1x/dia enquanto o app estiver aberto (null = não). */
   atTime: string | null;
   enabled: boolean;
+  /** Floor onde a routine roda (null/undefined = floor ativo). Backend: target_floor. */
+  targetFloor?: string | null;
+  /** Epoch (segundos) — preenchido pelo backend (ignorado na entrada). */
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+/** Uma linha do histórico de execução (espelha RunRow do backend). */
+export interface RunRow {
+  id: string;
+  routineId: string;
+  /** Epoch (segundos) do disparo. */
+  startedAt: number;
+  exitCode?: number | null;
+  status: string;
 }
 
 const KEY = "omnirift-routines-v1";
@@ -32,10 +49,25 @@ function normalize(r: Partial<Routine>): Routine {
     intervalMin: r.intervalMin ?? null,
     atTime: r.atTime ?? null,
     enabled: Boolean(r.enabled),
+    targetFloor: r.targetFloor ?? null,
+    createdAt: r.createdAt ?? undefined,
+    updatedAt: r.updatedAt ?? undefined,
   };
 }
 
-export function loadRoutines(): Routine[] {
+// ── Persistência: SQLite via Tauri (com cache em memória) ────────────────────
+// O backend (commands/routines.rs) é a fonte de verdade. Mantemos um cache
+// SÍNCRONO pro scheduler (useRoutines) e pro init do modal lerem sem await.
+// Sem Tauri (browser/dev/test) cai pro localStorage — comportamento original.
+
+let _cache: Routine[] = [];
+let _migrationDone = false;
+
+function hasTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+function readLegacyLocalStorage(): Routine[] {
   try {
     const arr = JSON.parse(localStorage.getItem(KEY) || "[]");
     return Array.isArray(arr) ? arr.map(normalize) : [];
@@ -44,9 +76,91 @@ export function loadRoutines(): Routine[] {
   }
 }
 
-export function saveRoutines(rs: Routine[]): void {
-  localStorage.setItem(KEY, JSON.stringify(rs));
+function sameRoutine(a: Routine, b: Routine): boolean {
+  return (
+    a.name === b.name &&
+    a.command === b.command &&
+    a.intervalMin === b.intervalMin &&
+    a.atTime === b.atTime &&
+    a.enabled === b.enabled &&
+    (a.targetFloor ?? null) === (b.targetFloor ?? null)
+  );
+}
+
+/** Lê a lista de forma SÍNCRONA (cache em memória). Sem Tauri, lê o localStorage
+ *  direto (fonte original). O cache é populado por refreshRoutines(). */
+export function loadRoutines(): Routine[] {
+  if (!hasTauri()) {
+    _cache = readLegacyLocalStorage();
+    return _cache;
+  }
+  return _cache;
+}
+
+/** Carrega do backend pro cache (async) + migração one-shot do localStorage.
+ *  Dispara ROUTINES_CHANGED pro scheduler re-armar. Chamar no boot (useRoutines)
+ *  e ao abrir o modal. Sem Tauri, devolve o localStorage (sem migrar). */
+export async function refreshRoutines(): Promise<Routine[]> {
+  if (!hasTauri()) return loadRoutines();
+  try {
+    let rows = (await invoke<Routine[]>("routines_list")).map(normalize);
+    // Migração one-shot: backend vazio + localStorage com routines legadas → importa 1x.
+    if (rows.length === 0 && !_migrationDone) {
+      _migrationDone = true;
+      const legacy = readLegacyLocalStorage();
+      if (legacy.length > 0) {
+        let allOk = true;
+        for (const r of legacy) {
+          try {
+            await invoke<Routine>("routines_upsert", { routine: r });
+          } catch (e) {
+            // [GLM-audit] NÃO engole: se uma routine legada falhar, NÃO apaga o localStorage
+            // (senão perde o dado) — loga e marca p/ retentar a migração na próxima subida.
+            allOk = false;
+            console.error("[routines] migração falhou p/", r.id, e);
+          }
+        }
+        if (allOk) {
+          localStorage.removeItem(KEY); // só remove se TUDO migrou (1x)
+        } else {
+          _migrationDone = false; // mantém o localStorage + retenta no próximo boot
+        }
+        rows = (await invoke<Routine[]>("routines_list")).map(normalize);
+      }
+    }
+    _cache = rows;
+    window.dispatchEvent(new Event(ROUTINES_CHANGED));
+    return _cache;
+  } catch {
+    // Backend indisponível → mantém o cache atual (não derruba o scheduler).
+    return _cache;
+  }
+}
+
+/** Persiste a lista. Atualiza o cache (síncrono) e propaga pro backend por diff:
+ *  upsert dos novos/alterados + delete dos removidos. Sem Tauri, localStorage.
+ *  Fire-and-forget (não bloqueia a UI); ROUTINES_CHANGED re-arma o scheduler. */
+export function saveRoutines(next: Routine[]): void {
+  const prev = _cache;
+  _cache = next.map(normalize);
   window.dispatchEvent(new Event(ROUTINES_CHANGED));
+  if (!hasTauri()) {
+    localStorage.setItem(KEY, JSON.stringify(_cache));
+    return;
+  }
+  const nextIds = new Set(_cache.map((r) => r.id));
+  const prevById = new Map(prev.map((r) => [r.id, r]));
+  for (const r of prev) {
+    // [GLM-audit] loga em vez de engolir — falha de persistência some no refresh; ao menos fica no log.
+    if (!nextIds.has(r.id))
+      void invoke("routines_delete", { id: r.id }).catch((e) => console.error("[routines] delete falhou", r.id, e));
+  }
+  for (const r of _cache) {
+    const before = prevById.get(r.id);
+    if (!before || !sameRoutine(before, r)) {
+      void invoke<Routine>("routines_upsert", { routine: r }).catch((e) => console.error("[routines] upsert falhou", r.id, e));
+    }
+  }
 }
 
 function detectShell(): string {
@@ -56,7 +170,8 @@ function detectShell(): string {
   return "bash";
 }
 
-/** Roda a routine: abre um terminal no floor ativo executando o comando. */
+/** Roda a routine: abre um terminal no floor alvo (targetFloor) ou no ativo,
+ *  executando o comando, e registra o disparo no histórico (status "started"). */
 export function runRoutine(r: Routine): void {
   const sh = detectShell();
   useCanvasStore.getState().addTerminal({
@@ -64,7 +179,27 @@ export function runRoutine(r: Routine): void {
     args: ["-lc", `${r.command}; exec ${sh}`],
     role: "shell",
     label: `routine: ${r.name}`,
+    targetFloorId: r.targetFloor ?? undefined, // undefined = floor ativo (default)
   });
+  // Histórico (MVP): o exit do terminal não é capturável fácil daqui, então
+  // "started" basta. Fire-and-forget — não bloqueia o run nem quebra sem Tauri.
+  if (hasTauri() && r.id) {
+    void invoke<RunRow>("routines_record_run", {
+      routineId: r.id,
+      exitCode: null,
+      status: "started",
+    }).catch(() => {});
+  }
+}
+
+/** Histórico de uma routine (mais recentes primeiro; default 50). [] sem Tauri/erro. */
+export async function routineRuns(routineId: string, limit = 50): Promise<RunRow[]> {
+  if (!hasTauri() || !routineId) return [];
+  try {
+    return await invoke<RunRow[]>("routines_runs", { routineId, limit });
+  } catch {
+    return [];
+  }
 }
 
 // ── Modelos prontos ─────────────────────────────────────────────────────────

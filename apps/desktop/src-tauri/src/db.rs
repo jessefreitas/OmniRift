@@ -321,6 +321,16 @@ impl Db {
         Ok(Self(Mutex::new(conn)))
     }
 
+    /// Executa `f` com a conexão SQLite sob lock. Permite que módulos de feature
+    /// (ex.: `commands/routines.rs`) mantenham a PRÓPRIA camada de SQL reusando a
+    /// MESMA conexão/arquivo deste `Db` — sem criar outro DB nem expor o guard.
+    pub fn with_conn<T>(
+        &self,
+        f: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+    ) -> rusqlite::Result<T> {
+        f(&self.0.lock())
+    }
+
     /// Grava o doc do canvas (UPSERT no row id=1).
     pub fn save(&self, doc: &str) -> Result<()> {
         self.0.lock().execute(

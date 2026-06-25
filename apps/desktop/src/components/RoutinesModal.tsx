@@ -3,7 +3,7 @@
 // CRUD das Routines + rodar manualmente. Ações automatizadas (comando shell)
 // com trigger manual ou por intervalo. Persiste em localStorage.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { nanoid } from "nanoid";
 import { CalendarClock, Clock, LayoutTemplate, Play, Plus, Repeat, Trash2, X } from "lucide-react";
@@ -11,6 +11,8 @@ import { CalendarClock, Clock, LayoutTemplate, Play, Plus, Repeat, Trash2, X } f
 import {
   loadRoutines,
   saveRoutines,
+  refreshRoutines,
+  routineRuns,
   runRoutine,
   ROUTINE_TEMPLATES,
   ROUTINE_CATEGORIES,
@@ -18,7 +20,14 @@ import {
   type RoutineTemplate,
 } from "@/lib/routines";
 import { osSlug, schedulerInstall, schedulerUninstall, schedulerList } from "@/lib/scheduler-client";
+import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
+
+/** "HH:MM" local a partir de epoch (segundos) — pro chip "última: HH:MM". */
+function fmtHHMM(secs: number): string {
+  const d = new Date(secs * 1000);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
 
 interface Props {
   onClose: () => void;
@@ -40,16 +49,61 @@ export function RoutinesModal({ onClose, cwd }: Props) {
   const [showTemplates, setShowTemplates] = useState(false);
   const [installed, setInstalled] = useState<Set<string>>(new Set());
   const [schedErr, setSchedErr] = useState<string | null>(null);
+  /** routineId → epoch (segundos) do último disparo (chip "última: HH:MM"). */
+  const [lastRuns, setLastRuns] = useState<Record<string, number>>({});
+
+  // Floors do projeto ativo (alvo "Rodar em"). Seleciona arrays crus e deriva com
+  // useMemo (selector com .filter retornaria ref nova a cada render → loop no zustand).
+  const floors = useCanvasStore((s) => s.floors);
+  const activeProjectId = useCanvasStore((s) => s.activeProjectId);
+  const projectFloors = useMemo(
+    () => floors.filter((f) => f.projectId === activeProjectId),
+    [floors, activeProjectId],
+  );
+
+  async function refreshLastRuns(list: Routine[]) {
+    const entries = await Promise.all(
+      list.map(async (r) => {
+        const runs = await routineRuns(r.id, 1);
+        return [r.id, runs[0]?.startedAt ?? 0] as const;
+      }),
+    );
+    setLastRuns((prev) => {
+      const nextMap = { ...prev };
+      for (const [rid, ts] of entries) if (ts > 0) nextMap[rid] = ts;
+      return nextMap;
+    });
+  }
+
+  // Carrega do backend (SQLite) ao abrir + migração one-shot do localStorage.
+  useEffect(() => {
+    let alive = true;
+    void refreshRoutines().then((rs) => {
+      if (!alive) return;
+      setRoutines(rs);
+      void refreshLastRuns(rs);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   function persist(next: Routine[]) {
     setRoutines(next);
     saveRoutines(next);
   }
 
+  /** Roda e atualiza o chip de histórico (otimista + reconcilia com o backend). */
+  function run(r: Routine) {
+    runRoutine(r);
+    setLastRuns((prev) => ({ ...prev, [r.id]: Math.floor(Date.now() / 1000) }));
+    setTimeout(() => void refreshLastRuns([r]), 300);
+  }
+
   function add() {
     persist([
       ...routines,
-      { id: nanoid(), name: t("routines.newRoutineName", "Nova routine"), command: "", intervalMin: null, atTime: null, enabled: false },
+      { id: nanoid(), name: t("routines.newRoutineName", "Nova routine"), command: "", intervalMin: null, atTime: null, enabled: false, targetFloor: null },
     ]);
   }
 
@@ -62,6 +116,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
         command: t.command,
         intervalMin: t.intervalMin ?? null,
         atTime: t.atTime ?? null,
+        targetFloor: null, // floor ativo por padrão
         enabled: false, // entra desativada: revise o comando e ligue o "ativa"
       },
     ]);
@@ -171,7 +226,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                     className="flex-1 px-2 py-1 rounded text-[12px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
                   />
                   <button
-                    onClick={() => runRoutine(r)}
+                    onClick={() => run(r)}
                     disabled={!r.command.trim()}
                     title={t("routines.runNow", "Rodar agora")}
                     className="flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40"
@@ -225,6 +280,24 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                       className="px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
                     />
                   </label>
+                  <label className="flex items-center gap-1.5">
+                    {t("routines.runIn", "rodar em")}
+                    <select
+                      value={r.targetFloor ?? ""}
+                      onChange={(e) => patch(r.id, { targetFloor: e.target.value || null })}
+                      className="px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
+                    >
+                      <option value="">{t("routines.activeFloor", "floor ativo")}</option>
+                      {projectFloors.map((f) => (
+                        <option key={f.id} value={f.id}>{f.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {lastRuns[r.id] ? (
+                    <span className="text-[10px] text-textMuted opacity-70">
+                      {t("routines.last", "última")}: {fmtHHMM(lastRuns[r.id])}
+                    </span>
+                  ) : null}
                   <span className="ml-auto text-[10px] text-brand opacity-80">{localScheduleLabel(r)}</span>
                 </div>
               </div>
