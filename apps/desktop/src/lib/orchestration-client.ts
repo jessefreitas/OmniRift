@@ -9,6 +9,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { floorMirrorSet, agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
 import { floorGitCreate } from "@/lib/git-client";
 import { workerClaudeArgs } from "@/lib/agent-contract";
+import { ROLE_CLIS } from "@/lib/agent-roles";
 import type { AgentRole } from "@/types/pty";
 
 interface SpawnRequest {
@@ -24,6 +25,25 @@ const VALID_ROLES: AgentRole[] = ["shell", "claude-code", "codex", "opencode", "
 
 function asRole(role?: string): AgentRole {
   return (VALID_ROLES as string[]).includes(role ?? "") ? (role as AgentRole) : "shell";
+}
+
+/** Infere o role a partir do 1º token do comando (ex.: "claude -p ..." → claude-code).
+ *  Usado no attach da CLI, onde o evento `rpc://agent-spawned` não carrega role.
+ *  Casa pelo basename do executável; sem match → "shell". */
+function roleFromCommand(command: string): AgentRole {
+  const bin = (command.trim().split(/\s+/)[0] ?? "").split(/[\\/]/).pop() ?? "";
+  const hit = ROLE_CLIS.find((c) => c.command === bin || `${c.command}.exe` === bin);
+  return hit?.role ?? "shell";
+}
+
+/** Payload (camelCase) de `rpc://agent-spawned` — espelha o emit do backend
+ *  (`rpc/methods.rs`). O PTY desta sessão JÁ existe; o front só anexa o node. */
+interface AgentSpawnedEvent {
+  sessionId: string;
+  label: string;
+  command: string;
+  cwd: string | null;
+  executionHost: string | null;
 }
 
 /** Registra os listeners de orquestração (spawn + floors) e o sync do espelho. */
@@ -55,6 +75,26 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
       label: p.label,
       role,
       position: p.position ?? undefined,
+    });
+  });
+
+  // Attach (Fase 2 do #8): a CLI rodou `omnirift spawn <cmd>` → o backend
+  // (`agent.spawn`) JÁ spawnou o PTY e emitiu `rpc://agent-spawned`. Aqui só
+  // ANEXAMOS um TerminalNode à sessão existente — `attach: true` faz o hook PULAR o
+  // re-spawn (re-spawnar criaria um 2º processo) e re-hidratar via snapshot. `id` =
+  // o `sessionId` que o backend já gerou. Sem `args` (o command já está no PTY); o
+  // role é inferido do comando (status/file-drop corretos). Posição auto não-sobreposta.
+  const unAttach = await listen<AgentSpawnedEvent>("rpc://agent-spawned", (event) => {
+    const p = event.payload;
+    if (!p?.sessionId) return;
+    store().addTerminal({
+      id: p.sessionId,
+      command: p.command,
+      label: p.label,
+      role: roleFromCommand(p.command),
+      cwd: p.cwd ?? undefined,
+      executionHost: p.executionHost ?? undefined,
+      attach: true,
     });
   });
 
@@ -125,6 +165,7 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
 
   return () => {
     unSpawn();
+    unAttach();
     unSpawnFloor();
     unCreate();
     unFocus();
