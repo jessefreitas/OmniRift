@@ -13,6 +13,10 @@ pub mod pty;
 // nunca no blackboard local. Módulo puro (regex compiladas lazy via OnceLock):
 // boot-safe, sem IO no load. Ver redactor.rs para a fronteira local vs sai-da-máquina.
 pub mod redactor;
+// Registro RPC central (ref #8) — substrato CLI/mobile: socket local + token por
+// sessão + 3 métodos (status / agents.list / pty.snapshot). Subido no setup() via
+// tauri::async_runtime::spawn; degrade limpo se o socket não bindar.
+pub mod rpc;
 pub mod spec;
 pub mod turbo;
 
@@ -205,6 +209,15 @@ pub fn run() {
             let sampler = Arc::new(crate::metrics::sampler::Sampler::new());
             sampler.start(app.handle().clone(), std::time::Duration::from_secs(1), sampler_pm);
             app.manage(sampler);
+
+            // Substrato RPC (ref #8): sobe o socket local + grava runtime.json pro
+            // CLI. Dentro de async_runtime::spawn porque o accept-loop do socket usa
+            // tauri::async_runtime::spawn (NUNCA tokio::spawn — quebrou o v0.1.15:
+            // panica fora do reactor do Tauri). Degrade limpo: falha só loga.
+            let rpc_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                crate::rpc::start(rpc_handle);
+            });
 
             // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente.
             tauri::async_runtime::spawn(async move {
@@ -408,6 +421,8 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 use tauri::Manager;
                 app_handle.state::<crate::compress::OmnicompressProxies>().stop();
+                // Remove o runtime.json (ref #8) — CLI futuro não tenta socket morto.
+                crate::rpc::shutdown();
             }
         });
 }
