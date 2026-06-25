@@ -285,6 +285,11 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
             json!({ "content": [{ "type": "text", "text": text }] })
         }
 
+        t if t.starts_with("orchestration_") => {
+            let text = crate::mcp::tools::orchestration_dispatch(&state, t, args).await;
+            json!({ "content": [{ "type": "text", "text": text }] })
+        }
+
         // spec_path_conflicts é cross-spec/claims — roteado pelo claim_dispatch.
         "spec_path_conflicts" => {
             let text = crate::mcp::tools::claim_dispatch(&state, tool, args);

@@ -72,6 +72,8 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 const BETA_WHATSAPP_GROUP = "https://chat.whatsapp.com/D8jBZtQd70k2VponOHvETX";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { clisList, type CliInfo } from "@/lib/clis-client";
+import { hostsList, type SshHostEntry } from "@/lib/hosts-client";
+import { LOCAL_EXECUTION_HOST, toSshHostId } from "@/types/canvas";
 import { loadCustomClis, saveCustomClis, type CustomCli } from "@/lib/custom-clis";
 import { getVersion } from "@tauri-apps/api/app";
 
@@ -367,6 +369,19 @@ export function Sidebar() {
   const [showClis, setShowClis] = useState(false);
   const [showCompressors, setShowCompressors] = useState(false);
   const [showDiag, setShowDiag] = useState(false);
+  // Host de execução do "novo agente" (ref §3.1). "local" = máquina atual (default);
+  // outros = ids do registry SSH (~/.omnirift/hosts.json). Injetado no addTerminal.
+  const [sshHosts, setSshHosts] = useState<SshHostEntry[]>([]);
+  const [selectedHost, setSelectedHost] = useState<string>(LOCAL_EXECUTION_HOST);
+  useEffect(() => {
+    hostsList().then(setSshHosts).catch(() => setSshHosts([]));
+  }, []);
+  // Resolve o id do host selecionado → executionHostId ("local" | "ssh:<encoded>").
+  const resolveExecutionHost = useCallback((): string | undefined => {
+    if (selectedHost === LOCAL_EXECUTION_HOST) return undefined; // local = sem decoração
+    const h = sshHosts.find((x) => x.id === selectedHost);
+    return h ? toSshHostId(h.sshTarget) : undefined;
+  }, [selectedHost, sshHosts]);
   // Lista "Novo agente" automática: CLIs instalados do catálogo + CLIs personalizados.
   const [catalogClis, setCatalogClis] = useState<CliInfo[]>([]);
   const [customClis, setCustomClis] = useState<CustomCli[]>(() => loadCustomClis());
@@ -1662,6 +1677,28 @@ export function Sidebar() {
           </div>
         )}
 
+        {/* Host de execução (ref §3.1): onde o próximo agente roda. Aparece só quando
+            há host SSH configurado em ~/.omnirift/hosts.json — local-only não vê nada
+            novo. Default "local" = máquina atual (comportamento idêntico). */}
+        {isOpen("agents") && sshHosts.length > 0 && (
+          <div className="px-2 py-1.5 flex items-center gap-2">
+            <span className="text-[10px] text-textMuted shrink-0">
+              {tr("sidebar.executionHost", "Executar em")}
+            </span>
+            <select
+              value={selectedHost}
+              onChange={(e) => setSelectedHost(e.target.value)}
+              className="flex-1 min-w-0 bg-surface2 text-xs rounded px-1.5 py-1 border border-border"
+              title={tr("sidebar.executionHostHint", "Host onde os novos agentes executam (SSH key-auth)")}
+            >
+              <option value={LOCAL_EXECUTION_HOST}>{tr("sidebar.hostLocal", "Local (esta máquina)")}</option>
+              {sshHosts.map((h) => (
+                <option key={h.id} value={h.id}>{h.label} · ssh</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {isOpen("agents") &&
           agentList.map((preset) => {
           const Icon = preset.icon;
@@ -1675,6 +1712,7 @@ export function Sidebar() {
               <button
                 onClick={() => {
                   if (isOrch) { void spawnOrchestrator(orchCli); return; }
+                  const executionHost = resolveExecutionHost();
                   void argsWithMcp(preset).then((args) =>
                     addTerminal({
                       command: preset.command,
@@ -1682,6 +1720,7 @@ export function Sidebar() {
                       role: preset.role,
                       label: preset.label,
                       compressor: loadDefaultCompressor(),
+                      executionHost,
                     }),
                   );
                 }}

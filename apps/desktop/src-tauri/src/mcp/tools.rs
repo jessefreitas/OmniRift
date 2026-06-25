@@ -221,6 +221,16 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "dir": { "type": "string", "description": "Raiz do projeto (onde vivem docs/superpowers)." },
                 "extra_roots": { "type": "array", "items": { "type": "string" }, "description": "Raízes extras de spec (opcional)." } },
                 "required": ["dir"] } }),
+        json!({ "name": "orchestration_send",
+            "description": "FAN-OUT: injeta a mesma mensagem no PTY de um GRUPO de agentes de uma vez. \
+                `group` é um endereço: @all (todos), @idle (só os ociosos), @worktree:<floor> (os de um Floor/branch), \
+                ou @<role-ou-label> (ex: @claude, @Backend — casa por role/label, fronteira de palavra). \
+                Resolve o grupo → escreve a mensagem + Enter em cada alvo → devolve quem recebeu. \
+                Use pra mandar uma instrução pra vários agentes sem repetir terminal_run N vezes.",
+            "inputSchema": { "type": "object", "properties": {
+                "group": { "type": "string", "description": "Endereço do grupo: @all | @idle | @worktree:<floor> | @<role-ou-label>." },
+                "message": { "type": "string", "description": "Texto a injetar (seguido de Enter) em cada agente do grupo." } },
+                "required": ["group", "message"] } }),
     ]
 }
 
@@ -875,6 +885,92 @@ pub async fn workspace_dispatch(state: &McpState, tool: &str, args: Value) -> St
             format!("solicitado: fechar floor '{id}'")
         }
         other => format!("❌ tool de workspace desconhecida: {other}"),
+    }
+}
+
+// ── orchestration_send: fan-out de grupo (Parte B do #7) ─────────────────────────
+
+/// Snapshot dos agentes endereçáveis: AgentRegistry (label/floor/session) +
+/// AgentStateMap (estado via PtyManager). `role` não é persistido no registry
+/// hoje → fica `None` (o match `@<token>` cai no label). Quando o registry passar
+/// a guardar role, basta preencher aqui — `resolve_group` já consulta os dois.
+fn agent_snapshot(state: &McpState) -> Vec<crate::mcp::AgentInfo> {
+    state
+        .agent_registry
+        .list()
+        .into_iter()
+        .map(|(label, entry)| {
+            let st = state
+                .pty_manager
+                .agent_state(&entry.session_id)
+                .unwrap_or(crate::pty::AgentState::Idle);
+            crate::mcp::AgentInfo {
+                session_id: entry.session_id,
+                label,
+                role: None,
+                floor: entry.floor,
+                state: st,
+            }
+        })
+        .collect()
+}
+
+/// Despacha `orchestration_send`: resolve o grupo e injeta a mensagem no PTY de
+/// cada alvo. REUSA o mecanismo de envio do `do_send_task`/`terminal_run` — escreve
+/// o texto e, ~200ms depois, o Enter sozinho (TUIs raw-mode tratam texto+\r colado
+/// como paste e às vezes NÃO submetem). Devolve a lista de quem recebeu.
+pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    match tool {
+        "orchestration_send" => {
+            let group = arg_str(&args, "group");
+            let message = arg_str(&args, "message");
+            if group.is_empty() || message.is_empty() {
+                return "❌ 'group' e 'message' são obrigatórios".into();
+            }
+            let agents = agent_snapshot(state);
+            let targets = crate::mcp::resolve_group(&group, &agents);
+            if targets.is_empty() {
+                return format!(
+                    "Nenhum agente casou '{group}'. Endereços: @all | @idle | @worktree:<floor> | @<role-ou-label>. \
+                     Veja terminal_list pra os agentes ativos."
+                );
+            }
+            // session_id → label (pra reportar quem recebeu de forma legível).
+            let label_of = |sid: &str| -> String {
+                agents
+                    .iter()
+                    .find(|a| a.session_id == sid)
+                    .map(|a| a.label.clone())
+                    .unwrap_or_else(|| sid.to_string())
+            };
+
+            let mut delivered: Vec<String> = Vec::new();
+            let mut failed: Vec<String> = Vec::new();
+            for sid in &targets {
+                // Mesmo padrão do do_send_task: texto, pausa, Enter sozinho.
+                match state.pty_manager.write(sid, message.as_bytes()) {
+                    Ok(()) => {
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        match state.pty_manager.write(sid, b"\r") {
+                            Ok(()) => delivered.push(label_of(sid)),
+                            Err(e) => failed.push(format!("{} ({e})", label_of(sid))),
+                        }
+                    }
+                    Err(e) => failed.push(format!("{} ({e})", label_of(sid))),
+                }
+            }
+
+            let mut s = format!(
+                "✅ fan-out '{group}' → {} agente(s): {}",
+                delivered.len(),
+                delivered.join(", ")
+            );
+            if !failed.is_empty() {
+                s.push_str(&format!("\n⚠️ falhou em {}: {}", failed.len(), failed.join(", ")));
+            }
+            s
+        }
+        other => format!("❌ tool de orquestração desconhecida: {other}"),
     }
 }
 

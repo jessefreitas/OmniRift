@@ -1,4 +1,5 @@
 use crate::pty::detector::{AgentState, AgentStateMap, StateDetector};
+use crate::pty::emulator::{PtySnapshot, TermEmulator};
 use crate::pty::profile::profile_for;
 use crate::pty::session::{PtySession, PtySpawnConfig, SessionId};
 use anyhow::{anyhow, Result};
@@ -34,6 +35,10 @@ pub struct PtyManager {
     pipes: Arc<Mutex<HashMap<(SessionId, SessionId), JoinHandle<()>>>>,
     state_map: AgentStateMap,
     state_tx: broadcast::Sender<(SessionId, AgentState)>,
+    /// Emulador VT headless por sessão (ref P0 #2): a fonte da verdade do scrollback
+    /// no backend. Alimentado por uma feeder task que assina o broadcast do PTY; o
+    /// front re-hidrata via `pty_snapshot`. **Aditivo** — o emit ao vivo é intocado.
+    emulators: Arc<DashMap<SessionId, Arc<Mutex<TermEmulator>>>>,
 }
 
 impl Default for PtyManager {
@@ -44,6 +49,7 @@ impl Default for PtyManager {
             pipes: Arc::new(Mutex::new(HashMap::new())),
             state_map: Arc::new(DashMap::new()),
             state_tx,
+            emulators: Arc::default(),
         }
     }
 }
@@ -58,10 +64,33 @@ impl PtyManager {
             return Err(anyhow!("sessão {id} já existe"));
         }
         let profile = profile_for(&cfg.command);
+        let (cols, rows) = (cfg.cols, cfg.rows);
         let session = Arc::new(PtySession::spawn(id.clone(), cfg, app.clone())?);
         self.sessions.insert(id.clone(), session.clone());
         // Estado inicial explícito: agent_state nunca devolve None (sem "unknown").
         self.state_map.insert(id.clone(), AgentState::Idle);
+
+        // Emulador VT headless: cria nas dims iniciais e alimenta-o do MESMO broadcast
+        // que o read-loop já publica. Feeder em `tauri::async_runtime::spawn` (não
+        // `tokio::spawn`): `spawn` é comando Tauri SÍNCRONO, fora do runtime tokio —
+        // mesma razão do StateDetector. Encerra sozinho no `Closed` do broadcast (EOF).
+        // `new_with_seq`: o emulador COMPARTILHA o `seq` atômico do `PtySession`. Assim
+        // o feeder (abaixo) incrementa-o por chunk pintado E o thread de emit do
+        // `pty://output` (em session.rs) lê o mesmo valor pra estampar cada evento ao
+        // vivo → `pty://output.seq` e `snapshot.seq` na MESMA escala (dedup do front).
+        let emulator = Arc::new(Mutex::new(TermEmulator::new_with_seq(cols, rows, session.seq_arc())));
+        self.emulators.insert(id.clone(), emulator.clone());
+        let mut feed_rx = session.subscribe();
+        tauri::async_runtime::spawn(async move {
+            use tokio::sync::broadcast::error::RecvError;
+            loop {
+                match feed_rx.recv().await {
+                    Ok(bytes) => emulator.lock().feed(&bytes),
+                    Err(RecvError::Lagged(_)) => {} // perdeu chunks: snapshot só fica defasado
+                    Err(RecvError::Closed) => break, // PTY EOF → fim do feeder
+                }
+            }
+        });
 
         StateDetector::spawn(
             id.clone(),
@@ -85,6 +114,10 @@ impl PtyManager {
     }
 
     pub fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<()> {
+        // Redimensiona o emulador junto (aditivo; se não houver, ignora — degrade limpo).
+        if let Some(emu) = self.emulators.get(id) {
+            emu.lock().resize(cols, rows);
+        }
         self.sessions
             .get(id)
             .ok_or_else(|| anyhow!("sessão {id} não encontrada"))?
@@ -96,7 +129,29 @@ impl PtyManager {
             .remove(id)
             .ok_or_else(|| anyhow!("sessão {id} não encontrada"))?;
         self.state_map.remove(id);
+        // Remove o emulador: o feeder task encerra sozinho no `Closed` do broadcast.
+        self.emulators.remove(id);
         Ok(())
+    }
+
+    /// Snapshot serializado (scrollback+viewport em ANSI) do emulador de uma sessão.
+    /// Erro claro se a sessão não tem emulador → o front degrada pro fluxo ao vivo atual.
+    pub fn snapshot(&self, id: &str, scrollback_rows: usize) -> Result<PtySnapshot> {
+        let emu = self
+            .emulators
+            .get(id)
+            .ok_or_else(|| anyhow!("sessão {id} sem emulador (sem snapshot — degrade pro fluxo ao vivo)"))?;
+        let snap = emu.lock().snapshot(scrollback_rows);
+        Ok(snap)
+    }
+
+    /// Insere um emulador já alimentado direto no mapa — só pra testar a leitura do
+    /// `snapshot` sem spawnar um PTY real (que exige AppHandle + processo). O caminho
+    /// de produção cria o emulador em `spawn` e o alimenta pela feeder task.
+    #[cfg(test)]
+    pub(crate) fn insert_emulator_for_test(&self, id: &str, emu: TermEmulator) {
+        self.emulators
+            .insert(id.to_string(), Arc::new(Mutex::new(emu)));
     }
 
     /// PID raiz + RSS de uma sessão (process mgmt na UI). None se a sessão sumiu.
@@ -319,6 +374,7 @@ pub(crate) async fn relay_task(
 mod tests {
     use super::*;
     use crate::pty::detector::AgentState;
+    use crate::pty::emulator::SCROLLBACK_LIMIT;
 
     #[test]
     fn state_map_starts_empty_and_is_subscribable() {
@@ -326,5 +382,32 @@ mod tests {
         assert!(m.agent_state("nope").is_none());
         let _ = AgentState::Idle; // referência ao tipo do contrato
         let _rx = m.subscribe_state();
+    }
+
+    #[test]
+    fn snapshot_returns_fed_content_and_seq() {
+        // Espelha o caminho de produção (feeder alimenta o emulador) sem PTY real:
+        // alimenta um emulador, insere no manager, e checa que `snapshot` devolve o
+        // conteúdo + o seq pintado.
+        let m = PtyManager::new();
+        let mut emu = TermEmulator::new(80, 24);
+        emu.feed(b"hello\r\nworld");
+        let expected_seq = emu.seq();
+        m.insert_emulator_for_test("s1", emu);
+
+        let snap = m.snapshot("s1", SCROLLBACK_LIMIT).expect("snapshot ok");
+        assert!(snap.data.contains("hello"), "snapshot deve conter hello: {:?}", snap.data);
+        assert!(snap.data.contains("world"), "snapshot deve conter world: {:?}", snap.data);
+        assert_eq!(snap.seq, expected_seq, "seq do snapshot = seq pintado");
+        assert_eq!(snap.cols, 80);
+        assert_eq!(snap.rows, 24);
+    }
+
+    #[test]
+    fn snapshot_missing_emulator_errors_cleanly() {
+        // Degrade limpo: sessão sem emulador → erro (não panic) → o front cai pro fluxo ao vivo.
+        let m = PtyManager::new();
+        let err = m.snapshot("nope", SCROLLBACK_LIMIT).unwrap_err();
+        assert!(err.to_string().contains("sem emulador"), "erro claro: {err}");
     }
 }

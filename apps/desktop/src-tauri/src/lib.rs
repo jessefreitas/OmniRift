@@ -13,6 +13,10 @@ pub mod pty;
 // nunca no blackboard local. Módulo puro (regex compiladas lazy via OnceLock):
 // boot-safe, sem IO no load. Ver redactor.rs para a fronteira local vs sai-da-máquina.
 pub mod redactor;
+// Registro RPC central (ref #8) — substrato CLI/mobile: socket local + token por
+// sessão + 3 métodos (status / agents.list / pty.snapshot). Subido no setup() via
+// tauri::async_runtime::spawn; degrade limpo se o socket não bindar.
+pub mod rpc;
 pub mod spec;
 pub mod turbo;
 
@@ -66,9 +70,10 @@ use commands::mcp::{
 use commands::memory::{
     memory_active, memory_connect, memory_providers_list, memory_set_active, memory_test,
 };
+use commands::hosts::{hosts_add, hosts_list, hosts_remove};
 use commands::pty::{
     pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
-    pty_read_screen, pty_resize, pty_spawn, pty_write,
+    pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_write,
 };
 use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
 use turbo::commands::{turbo_list, turbo_start, turbo_status, turbo_stop};
@@ -81,6 +86,8 @@ use db::{
 };
 use mcp::{mcp_router, serena_health, AgentRegistry, ClaimsRegistry, MCP_PORT};
 use pty::PtyManager;
+// Comandos do relay mobile (ref #9 — Área de Conexões / Mobile).
+use rpc::{mobile_devices_list, mobile_pairing_offer, mobile_revoke};
 use std::sync::Arc;
 use tauri::Manager;
 
@@ -206,6 +213,25 @@ pub fn run() {
             sampler.start(app.handle().clone(), std::time::Duration::from_secs(1), sampler_pm);
             app.manage(sampler);
 
+            // Substrato RPC (ref #8): sobe o socket local + grava runtime.json pro
+            // CLI. Dentro de async_runtime::spawn porque o accept-loop do socket usa
+            // tauri::async_runtime::spawn (NUNCA tokio::spawn — quebrou o v0.1.15:
+            // panica fora do reactor do Tauri). Degrade limpo: falha só loga.
+            let rpc_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                crate::rpc::start(rpc_handle);
+            });
+
+            // Relay mobile (ref #9): servidor WebSocket de LAN (0.0.0.0:6768) com E2EE
+            // NaCl box + token-por-dispositivo + allowlist read-only, reusando o Registry
+            // do #8A. Dentro de async_runtime::spawn (o ws::spawn_server usa
+            // tauri::async_runtime::spawn no accept-loop — NUNCA tokio::spawn). Degrade
+            // limpo: keypair/bind falham só logam; o app continua de pé.
+            let relay_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                crate::rpc::start_mobile_relay(relay_handle);
+            });
+
             // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente.
             tauri::async_runtime::spawn(async move {
                 let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry, max_agents, mcp_claims);
@@ -267,6 +293,10 @@ pub fn run() {
             pty_pipe_list,
             pty_read_screen,
             pty_proc_info,
+            pty_snapshot,
+            mobile_pairing_offer,
+            mobile_devices_list,
+            mobile_revoke,
             workspace_save,
             workspace_load,
             mcp_register_agent,
@@ -399,6 +429,9 @@ pub fn run() {
             cli_uninstall,
             cli_validate,
             collect_diagnostics,
+            hosts_list,
+            hosts_add,
+            hosts_remove,
         ])
         .build(tauri::generate_context!())
         .expect("erro fatal construindo OmniRift")
@@ -407,6 +440,8 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 use tauri::Manager;
                 app_handle.state::<crate::compress::OmnicompressProxies>().stop();
+                // Remove o runtime.json (ref #8) — CLI futuro não tenta socket morto.
+                crate::rpc::shutdown();
             }
         });
 }

@@ -22,6 +22,7 @@ import {
   listenPtyOutput,
   ptyKill,
   ptyResize,
+  ptySnapshot,
   ptySpawn,
   ptyWrite,
 } from "@/lib/pty-client";
@@ -43,7 +44,21 @@ interface UseTerminalSessionReturn {
   getSelection: () => string;
   /** Mata o PTY atual e re-spawna com a mesma config, sem recriar o xterm.js. */
   reconnect: () => Promise<void>;
+  /**
+   * Liga (foreground) / desliga (background) a escrita ao vivo no xterm (ref P0 #2).
+   * O `TerminalNode` chama com o `inViewport`/visibilidade. Em background a saída é
+   * enfileirada com cap; estourando o cap, dropa a fila + marca stale → no retorno a
+   * foreground re-hidrata via `pty_snapshot` (em vez de reter MB que crashariam).
+   */
+  setActive: (visible: boolean) => void;
 }
+
+/**
+ * Cap do buffer de saída em background (chars). Acima disso, o backlog é DESCARTADO e
+ * a view marcada stale — o snapshot do backend re-hidrata no retorno. É o que mata o
+ * crash: um agente barulhento + nó oculto não pode mais reter MB no renderer.
+ */
+const MAX_BG_CHARS = 2 * 1024 * 1024;
 
 export function useTerminalSession({
   sessionId,
@@ -57,6 +72,30 @@ export function useTerminalSession({
   // Session recorder: último estado logado + guarda pra encerrar só uma vez.
   const lastStateRef = useRef<string | null>(null);
   const sessionEndedRef = useRef(false);
+
+  // --- Output scheduler (ref P0 #2) -----------------------------------
+  // foreground (visível) escreve ao vivo; background enfileira com cap.
+  const activeRef = useRef(true);
+  // Backlog de background: chunks pendentes + contagem de chars (pro cap).
+  const bgQueueRef = useRef<string[]>([]);
+  const bgQueueCharsRef = useRef(0);
+  // View "stale": o backlog estourou o cap e foi descartado → precisa re-hidratar
+  // via snapshot no próximo retorno a foreground.
+  const staleRef = useRef(false);
+  // Dedup por seq: último seq aplicado (do snapshot OU do último write ao vivo). Live
+  // com `seq <= lastSeqRef` é descartado (mata o scrollback dobrado). -1 = nada aplicado
+  // ainda (antes de qualquer snapshot, nada é dropado).
+  const lastSeqRef = useRef(-1);
+  // Durante o await do `pty_snapshot`, os chunks ao vivo que chegarem são bufferizados
+  // aqui e reaplicados (com o mesmo filtro de seq) quando o snapshot resolver.
+  const snapshotInFlightRef = useRef(false);
+  const pendingDuringSnapshotRef = useRef<Array<{ data: string; seq: number | undefined }>>([]);
+  // [GLM-audit] reconnect: ignora o exit do PTY morto no reconnect; aborta o re-spawn se desmontou.
+  const reconnectingRef = useRef(false);
+  const disposedRef = useRef(false);
+  // Ponte pro `applyChunk` (definido dentro do effect, onde o `term` está em escopo):
+  // o `setActive`/replay (fora do effect) reutilizam o MESMO caminho de aplicação.
+  const applyChunkRef = useRef<((data: string, seq: number | undefined) => void) | null>(null);
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +161,7 @@ export function useTerminalSession({
     let unlistenStatus: UnlistenFn | null = null;
     let unlistenExit: UnlistenFn | null = null;
     let disposed = false;
+    disposedRef.current = false; // reset no (re)mount [GLM-audit #3]
     let dataDisposable: { dispose: () => void } | null = null;
 
     // --- Pipeline assíncrono: fit → spawn → listeners → stdin -----------
@@ -166,9 +206,52 @@ export function useTerminalSession({
           }).catch(() => {});
         }
 
-        unlistenOutput = await listenPtyOutput(sessionId, (data) => {
+        // --- Scheduler de saída (ref P0 #2) ----------------------------
+        // Escreve um chunk ao vivo + avança o seq aplicado. Single entrypoint pro
+        // term.write ao vivo (foreground / flush de backlog / drain pós-snapshot).
+        const writeLive = (data: string, seq: number | undefined) => {
           term.write(data);
+          if (seq !== undefined && seq > lastSeqRef.current) lastSeqRef.current = seq;
+        };
+
+        // Aplica um chunk respeitando dedup + foreground/background. Reusado pelo
+        // listener ao vivo E pelo drain do buffer pós-snapshot.
+        const applyChunk = (data: string, seq: number | undefined) => {
+          // Dedup: já coberto por um snapshot (ou write) anterior → descarta.
+          if (seq !== undefined && seq <= lastSeqRef.current) return;
+          // Stale (backlog estourou em background): dropa TUDO até o replay re-hidratar —
+          // senão a fila re-enche/esvazia 2MB em loop (CPU thrashing). [GLM-audit #2]
+          if (staleRef.current) return;
+          if (activeRef.current) {
+            writeLive(data, seq);
+            return;
+          }
+          // Background: enfileira até o cap. Estourou → dropa tudo + marca stale (o
+          // snapshot re-hidrata no retorno). Mesmo o chunk atual é descartado: a fonte
+          // da verdade é o backend, não este backlog.
+          if (bgQueueCharsRef.current + data.length > MAX_BG_CHARS) {
+            bgQueueRef.current = [];
+            bgQueueCharsRef.current = 0;
+            staleRef.current = true;
+            return;
+          }
+          bgQueueRef.current.push(data);
+          bgQueueCharsRef.current += data.length;
+          // Mesmo enfileirando, mantém o seq aplicado monotônico pra não perder o
+          // dedup quando esse backlog for flushado depois.
+          if (seq !== undefined && seq > lastSeqRef.current) lastSeqRef.current = seq;
+        };
+
+        unlistenOutput = await listenPtyOutput(sessionId, (data, seq) => {
+          // Durante o await do snapshot, bufferiza — reaplica com o mesmo filtro de
+          // seq quando o snapshot resolver (anti-corrida snapshot×live).
+          if (snapshotInFlightRef.current) {
+            pendingDuringSnapshotRef.current.push({ data, seq });
+            return;
+          }
+          applyChunk(data, seq);
         });
+        applyChunkRef.current = applyChunk;
 
         unlistenStatus = await listenAgentStatus(sessionId, (state) => {
           setTerminalStatus(sessionId, state);
@@ -179,6 +262,9 @@ export function useTerminalSession({
         });
 
         unlistenExit = await listenPtyExit(sessionId, (code) => {
+          // Exit do PTY morto DURANTE reconnect → ignora (o novo PTY assume; não marca a
+          // sessão como encerrada, senão o exit real futuro seria engolido). [GLM-audit #1]
+          if (reconnectingRef.current) return;
           term.write(
             `\r\n\x1b[2;37m[processo encerrou — código ${code ?? "?"}]\x1b[0m\r\n`,
           );
@@ -221,7 +307,14 @@ export function useTerminalSession({
     return () => {
       ro.disconnect();
       disposed = true;
+      disposedRef.current = true; // visível pro reconnect() abortar o re-spawn [GLM-audit #3]
       spawnedRef.current = false; // Permite remount (React StrictMode faz double-mount em dev)
+      // Zera o scheduler: o applyChunk fecha sobre o `term` que vamos dispose abaixo.
+      applyChunkRef.current = null;
+      bgQueueRef.current = [];
+      bgQueueCharsRef.current = 0;
+      snapshotInFlightRef.current = false;
+      pendingDuringSnapshotRef.current = [];
       dataDisposable?.dispose();
       unlistenOutput?.();
       unlistenStatus?.();
@@ -268,23 +361,110 @@ export function useTerminalSession({
     term.reset();
     term.write("\r\n\x1b[2;37m[reconectando…]\x1b[0m\r\n");
 
+    // O novo PTY nasce com um emulador novo (seq reinicia em 0) → zera o estado do
+    // scheduler pra não dedupar contra o seq do PTY anterior nem flushar backlog velho.
+    lastSeqRef.current = -1;
+    bgQueueRef.current = [];
+    bgQueueCharsRef.current = 0;
+    staleRef.current = false;
+    snapshotInFlightRef.current = false;
+    pendingDuringSnapshotRef.current = [];
+
+    reconnectingRef.current = true; // ignora o exit do PTY que vamos matar [GLM-audit #1]
     try { await ptyKill(sessionId); } catch { /* já morreu */ }
 
     // Pequeno delay para o Rust liberar a sessão antes de re-spawnar
     await new Promise<void>((r) => setTimeout(r, 200));
 
+    // Desmontou durante o delay → não cria PTY órfão nem setState em componente morto. [GLM-audit #3]
+    if (disposedRef.current || !terminalRef.current) { reconnectingRef.current = false; return; }
+
     try {
       fitAddon?.fit();
       const { cols, rows } = term;
       await ptySpawn(sessionId, { ...config, cols, rows });
-      // Os listeners de output/exit do useEffect continuam ativos
-      // e vão capturar os eventos do novo PTY (mesmo sessionId)
+      // Novo PTY (mesmo sessionId): os listeners de output/exit do useEffect seguem ativos.
+      sessionEndedRef.current = false; // exit REAL do novo PTY volta a contar [GLM-audit #1]
+      reconnectingRef.current = false;
       setReady(true);
     } catch (e) {
+      reconnectingRef.current = false;
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
     }
   }, [sessionId, config, setTerminalStatus]);
 
-  return { containerRef, ready, error, fit, getSelection, reconnect };
+  // Re-hidrata a view via snapshot do backend e retoma os writes ao vivo dedupados por
+  // seq (ref P0 #2). Chamado no retorno-a-foreground COM stale. Fail-open: erro no
+  // snapshot mantém o term como está (não limpa).
+  const replayFromSnapshot = useCallback(async () => {
+    const term = terminalRef.current;
+    if (!term) return;
+    // Já tem snapshot em voo → não dispara outro (evita reset duplo).
+    if (snapshotInFlightRef.current) return;
+
+    // Entra no modo "em voo": os chunks ao vivo que chegarem agora são bufferizados
+    // e reaplicados depois com o mesmo filtro de seq. Limpa o backlog de background
+    // (vamos re-hidratar do zero) e a flag stale.
+    snapshotInFlightRef.current = true;
+    bgQueueRef.current = [];
+    bgQueueCharsRef.current = 0;
+    staleRef.current = false;
+
+    try {
+      const snap = await ptySnapshot(sessionId);
+      term.reset();
+      term.write(snap.data);
+      lastSeqRef.current = snap.seq;
+    } catch {
+      // Fail-open: backend sem emulador / erro → mantém o term como está (não limpa).
+      // O lastSeqRef fica como estava; os live seguintes continuam aplicando.
+    } finally {
+      snapshotInFlightRef.current = false;
+      // Drena o que chegou durante o await, com o MESMO filtro de seq (descarta os já
+      // cobertos pelo snapshot; escreve os novos). `applyChunk` respeita active/bg.
+      const pending = pendingDuringSnapshotRef.current;
+      pendingDuringSnapshotRef.current = [];
+      const apply = applyChunkRef.current;
+      if (apply) {
+        for (const { data, seq } of pending) apply(data, seq);
+      }
+    }
+  }, [sessionId]);
+
+  // Foreground (visível) / background (oculto) — vem do `inViewport` do TerminalNode.
+  const setActive = useCallback(
+    (visible: boolean) => {
+      if (visible) {
+        // Volta a foreground.
+        if (staleRef.current) {
+          // Backlog estourou enquanto oculto → re-hidrata via snapshot (não há backlog
+          // confiável pra flushar). activeRef liga ANTES pra o drain pós-snapshot
+          // escrever ao vivo.
+          activeRef.current = true;
+          void replayFromSnapshot();
+          return;
+        }
+        // Sem stale: flusha o backlog acumulado (sob o cap) ao vivo, dedupado por seq.
+        activeRef.current = true;
+        // Snapshot em voo cuida da reaplicação (pendingDuringSnapshot) — não flushe junto. [GLM-audit #4]
+        if (snapshotInFlightRef.current) return;
+        const queue = bgQueueRef.current;
+        bgQueueRef.current = [];
+        bgQueueCharsRef.current = 0;
+        const apply = applyChunkRef.current;
+        if (apply) {
+          // O seq já foi acompanhado no enqueue; passamos `undefined` no flush pra não
+          // re-dedupar contra ele mesmo (o conteúdo do backlog é novo, ainda não escrito).
+          for (const data of queue) apply(data, undefined);
+        }
+      } else {
+        // Vai pra background: os próximos chunks são enfileirados (até o cap).
+        activeRef.current = false;
+      }
+    },
+    [replayFromSnapshot],
+  );
+
+  return { containerRef, ready, error, fit, getSelection, reconnect, setActive };
 }

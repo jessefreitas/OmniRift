@@ -1,8 +1,10 @@
+use crate::pty::host::{self, ExecutionHost};
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -23,6 +25,12 @@ pub struct PtySpawnConfig {
     pub cols: u16,
     #[serde(default = "default_rows")]
     pub rows: u16,
+    /// Onde o agente executa (ref §3.1). `None`/`Some("local")` = máquina atual
+    /// (comportamento idêntico ao anterior — nenhum wrap). `Some("ssh:<encoded>")`
+    /// → o comando nasce embrulhado em `ssh -tt ... -- <cmd-remoto>`. Campo único
+    /// pra o resto do código não ramificar por transporte; só `build_command` lê.
+    #[serde(default)]
+    pub execution_host: Option<String>,
 }
 
 fn default_cols() -> u16 { 80 }
@@ -113,6 +121,11 @@ fn win_argv_quote(arg: &str) -> String {
 pub struct PtyOutputEvent {
     pub session_id: SessionId,
     pub data: String,
+    /// Seq monotônico do emulador VT no momento do emit (ref P0 #2). ADITIVO: o front
+    /// usa pra deduplicar os chunks ao vivo contra `snapshot.seq` (descarta `seq <=
+    /// snapshot.seq` → mata o scrollback dobrado). Consumidores que só leem `data`
+    /// continuam funcionando — o campo é só metadado a mais no payload.
+    pub seq: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -130,6 +143,12 @@ pub struct PtySession {
     /// Emulador de tela: reconstrói a tela visível processando cursor/clears/etc.
     /// (line-mode não funciona para TUIs full-screen como Claude Code).
     parser: Arc<Mutex<vt100::Parser>>,
+    /// Seq monotônico do emulador VT headless (ref P0 #2). COMPARTILHADO com o
+    /// `TermEmulator` (via `new_with_seq` no manager): o feeder do emulador o
+    /// incrementa por chunk pintado; o thread de emit do `pty://output` lê o valor
+    /// atual pra estampar cada evento ao vivo. Assim `pty://output.seq` e
+    /// `snapshot.seq` falam a MESMA escala → o front deduplica corretamente.
+    seq: Arc<AtomicU64>,
 }
 
 impl PtySession {
@@ -161,6 +180,16 @@ impl PtySession {
         // Canal std (não precisa de runtime tokio): debounce de 16ms antes de emitir evento Tauri
         let (emit_tx, emit_rx) = mpsc::channel::<Vec<u8>>();
 
+        // Seq compartilhado com o emulador VT (ref P0 #2). O emulador (no manager) é
+        // criado via `new_with_seq` com ESTE Arc; o feeder dele o incrementa por chunk
+        // pintado. Aqui, no thread de emit, lemos o valor atual pra estampar o
+        // `pty://output`. Como o emit é debounced (16ms) e o feeder consome o broadcast
+        // cru imediato, o emulador está sempre à frente OU em dia com os bytes que
+        // estamos emitindo → o snapshot tirado nesse instante já contém esses bytes,
+        // então o front pode descartar com segurança os live com `seq <= snapshot.seq`.
+        let seq = Arc::new(AtomicU64::new(0));
+        let seq_for_emit = Arc::clone(&seq);
+
         let id_for_emit = id.clone();
         let app_for_emit = app.clone();
         std::thread::spawn(move || {
@@ -175,7 +204,9 @@ impl PtySession {
                         if !pending.is_empty() {
                             let text = String::from_utf8_lossy(&pending).to_string();
                             let _ = app_for_emit.emit("pty://output", PtyOutputEvent {
-                                session_id: id_for_emit.clone(), data: text,
+                                session_id: id_for_emit.clone(),
+                                data: text,
+                                seq: seq_for_emit.load(Ordering::SeqCst),
                             });
                         }
                         break;
@@ -193,7 +224,9 @@ impl PtySession {
                 }
                 let text = String::from_utf8_lossy(&pending).to_string();
                 let _ = app_for_emit.emit("pty://output", PtyOutputEvent {
-                    session_id: id_for_emit.clone(), data: text,
+                    session_id: id_for_emit.clone(),
+                    data: text,
+                    seq: seq_for_emit.load(Ordering::SeqCst),
                 });
                 pending.clear();
             }
@@ -221,7 +254,7 @@ impl PtySession {
             }
         });
 
-        Ok(Self { id, master, writer, output_tx, root_pid, parser })
+        Ok(Self { id, master, writer, output_tx, root_pid, parser, seq })
     }
 
     pub fn write(&self, data: &[u8]) -> Result<()> {
@@ -263,6 +296,14 @@ impl PtySession {
     pub(crate) fn screen_arc(&self) -> Arc<Mutex<vt100::Parser>> {
         Arc::clone(&self.parser)
     }
+
+    /// Seq monotônico do emulador VT (ref P0 #2). O manager passa este Arc pro
+    /// `TermEmulator::new_with_seq` — assim o feeder do emulador e o thread de emit do
+    /// `pty://output` compartilham o MESMO contador, e o front deduplica os chunks ao
+    /// vivo contra `snapshot.seq`.
+    pub(crate) fn seq_arc(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.seq)
+    }
 }
 
 fn read_loop(
@@ -301,10 +342,45 @@ fn read_loop(
 /// Função extraída justamente pra ser testável sem spawnar nada (os testes
 /// inspecionam o argv/cwd resultante, não executam o processo).
 fn build_command(cfg: &PtySpawnConfig) -> CommandBuilder {
-    let mut cmd = build_program(&cfg.command, &cfg.args);
+    // Resolve o host de execução (ref §3.1). `Local` → (command, args) crus, igual
+    // ao comportamento anterior. `Ssh(target)` → embrulha em `ssh -tt ... -- <cmd>`,
+    // onde `<cmd>` é a linha do agente shell-quotada (defesa anti-injeção em host.rs).
+    // ÚNICO ponto que ramifica por transporte. Em SSH, o `ssh` local vira o "programa"
+    // e segue pelo MESMO `build_program` (no Windows, o cmd.exe-wrap resolve `ssh.exe`
+    // via PATHEXT — inofensivo; no Unix spawna direto).
+    let host = ExecutionHost::parse(cfg.execution_host.as_deref().unwrap_or("local"));
+    let (program, args): (String, Vec<String>) = match &host {
+        ExecutionHost::Local => (cfg.command.clone(), cfg.args.clone()),
+        ExecutionHost::Ssh(target) => {
+            // cwd remoto: o `cwd` local não faz sentido na box remota. Embutimos um
+            // `cd <floor-path> && exec <cmd>` SÓ se houver cwd — senão roda no $HOME
+            // remoto. O path remoto = o Floor path no host (passado pelo caller via cwd).
+            let agent_line = host::build_remote_command_line(&cfg.command, &cfg.args);
+            let remote_cmd = match &cfg.cwd {
+                Some(c) => format!("cd {} && exec {}", host::shell_quote_single(c), agent_line),
+                None => agent_line,
+            };
+            match host::ssh_argv(target, &remote_cmd) {
+                Ok(pa) => pa,
+                Err(e) => {
+                    // Target inválido (metacaractere → injeção). Fail-safe: NÃO spawna o
+                    // ssh; spawna um shell que imprime o erro e sai, pra o usuário ver no
+                    // PTY em vez de um spawn silencioso de comando perigoso.
+                    log::error!("execution_host SSH rejeitado: {e}");
+                    fail_safe_program(&e)
+                }
+            }
+        }
+    };
 
-    if let Some(cwd) = &cfg.cwd {
-        cmd.cwd(cwd);
+    let mut cmd = build_program(&program, &args);
+
+    // O `cwd` LOCAL só se aplica ao processo local. Em SSH, o cwd já foi embutido no
+    // comando remoto acima (cd && exec) — o `ssh` local roda do cwd que o app tiver.
+    if !host.is_remote() {
+        if let Some(cwd) = &cfg.cwd {
+            cmd.cwd(cwd);
+        }
     }
     for (k, v) in &cfg.env {
         cmd.env(k, v);
@@ -315,6 +391,35 @@ fn build_command(cfg: &PtySpawnConfig) -> CommandBuilder {
     cmd.env("LD_PRELOAD", "");
     cmd.env("GTK_MODULES", "");
     cmd
+}
+
+/// Programa fail-safe pra quando o `execution_host` SSH é inválido (target com
+/// metacaractere → tentativa de injeção). Em vez de spawnar o comando perigoso, roda
+/// um shell que imprime o erro no PTY e sai com código 1 — o usuário vê o motivo.
+/// Cross-platform: `sh -c` no Unix, `cmd /c` no Windows. NUNCA repassa o target cru
+/// pro shell montado (só uma mensagem fixa + o erro de validação já sanitizado).
+fn fail_safe_program(err: &str) -> (String, Vec<String>) {
+    // O erro de validação já é texto controlado (não contém o target perigoso fora de
+    // {:?}); ainda assim só usamos uma mensagem genérica no shell pra zero risco.
+    let _ = err;
+    let msg = "OmniRift: sshTarget invalido (anti-injecao) — agente nao iniciado.";
+    #[cfg(not(windows))]
+    {
+        (
+            "sh".to_string(),
+            vec!["-c".to_string(), format!("echo '{msg}'; exit 1")],
+        )
+    }
+    #[cfg(windows)]
+    {
+        (
+            "cmd".to_string(),
+            vec![
+                "/c".to_string(),
+                format!("echo {msg} & exit 1"),
+            ],
+        )
+    }
 }
 
 #[cfg(not(windows))]
@@ -418,6 +523,7 @@ mod tests {
                 env: vec![],
                 cols: 80,
                 rows: 24,
+                execution_host: None,
             }
         }
 
@@ -523,5 +629,101 @@ mod tests {
         assert!(!wrapper_decision_portable("BASH.EXE"));
         assert!(!wrapper_decision_portable("cmd"));
         assert!(!wrapper_decision_portable("cmd.exe"));
+    }
+
+    // ---- SSH execution host: build_command monta o ssh-wrap (portável) ----
+    //
+    // No Unix, o `ssh` spawna direto (não-Windows não embrulha em cmd), então o
+    // argv resultante é exatamente `ssh -tt -o BatchMode=yes ... -- <cmd>`. Inspeciona
+    // via get_argv() (cross-platform). No Windows, o caminho cmd-wrap empacota a
+    // mesma linha — coberto pela lógica de host.rs + os testes Windows acima.
+
+    fn cfg_host(command: &str, args: &[&str], host: Option<&str>, cwd: Option<&str>) -> super::PtySpawnConfig {
+        super::PtySpawnConfig {
+            command: command.to_string(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            cwd: cwd.map(|c| c.to_string()),
+            env: vec![],
+            cols: 80,
+            rows: 24,
+            execution_host: host.map(|h| h.to_string()),
+        }
+    }
+
+    fn argv_of(cmd: &portable_pty::CommandBuilder) -> Vec<String> {
+        cmd.get_argv()
+            .iter()
+            .map(|o| o.to_string_lossy().to_string())
+            .collect()
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn local_host_is_unchanged_baseline() {
+        // host=None e host="local" → idêntico (command + args crus, sem ssh).
+        for h in [None, Some("local")] {
+            let argv = argv_of(&super::build_command(&cfg_host("claude", &["--foo"], h, None)));
+            assert_eq!(argv[0], "claude", "host={h:?} argv={argv:?}");
+            assert_eq!(argv[1], "--foo");
+            assert!(!argv.iter().any(|a| a == "ssh"), "sem ssh: {argv:?}");
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn ssh_host_wraps_command() {
+        // execution_host ssh:<encoded user@host> → ssh -tt -o BatchMode=yes ... -- <cmd>
+        let host_id = super::ExecutionHost::Ssh("user@box".to_string()).id();
+        let argv = argv_of(&super::build_command(&cfg_host("claude", &["--foo"], Some(&host_id), None)));
+        assert_eq!(argv[0], "ssh", "argv: {argv:?}");
+        assert_eq!(argv[1], "-tt");
+        assert_eq!(argv[2], "-o");
+        assert_eq!(argv[3], "BatchMode=yes");
+        assert_eq!(argv[4], "-o");
+        assert_eq!(argv[5], "StrictHostKeyChecking=accept-new");
+        assert_eq!(argv[6], "user@box");
+        assert_eq!(argv[7], "--");
+        // O cmd remoto é o último token. Internamente é `'claude' '--foo'` (cada token
+        // shell-quotado), e ssh_argv quota a linha INTEIRA de novo (token único pro argv
+        // do ssh local) → as aspas internas viram '\''. O conteúdo (claude/--foo)
+        // sobrevive; o shell remoto desfaz a camada externa.
+        let remote = argv.last().unwrap();
+        assert!(remote.starts_with('\'') && remote.ends_with('\''), "token único: {remote}");
+        assert!(remote.contains("claude"), "remote: {remote}");
+        assert!(remote.contains("--foo"), "remote: {remote}");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn ssh_host_embeds_remote_cwd() {
+        // Com cwd → cd <path> && exec <agent> embutido no comando remoto.
+        let host_id = super::ExecutionHost::Ssh("box".to_string()).id();
+        let argv = argv_of(&super::build_command(&cfg_host("bash", &[], Some(&host_id), Some("/srv/app"))));
+        let remote = argv.last().unwrap();
+        // O remote_cmd vai CRU como último arg do ssh (o ssh junta e manda pro shell
+        // remoto parsear cd/&&/exec). Os TOKENS internos é que são quotados:
+        // `cd '/srv/app' && exec 'bash'`. A segurança é o quote por-token, não um wrap
+        // externo (que quebraria o parse remoto). [GLM-audit]
+        assert!(remote.contains("/srv/app"), "remote contém o path: {remote}");
+        assert!(remote.starts_with("cd "), "remote cru começa com cd: {remote}");
+        assert!(remote.contains("&& exec"), "remote: {remote}");
+        assert!(remote.contains("'/srv/app'"), "path inner-quotado: {remote}");
+        assert!(remote.contains("'bash'"), "cmd inner-quotado: {remote}");
+        // O cwd LOCAL não é setado no ssh local (só embutido no remoto).
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn ssh_host_invalid_target_fails_safe() {
+        // Target com metacaractere (injeção) → NÃO spawna ssh; vira sh -c "echo ...; exit 1".
+        // Constrói um id ssh: com target perigoso (encode preserva os metacaracteres no
+        // round-trip, então parse devolve Ssh com o target sujo; ssh_argv então rejeita).
+        let dirty = super::ExecutionHost::Ssh("host; rm -rf /".to_string()).id();
+        let argv = argv_of(&super::build_command(&cfg_host("claude", &[], Some(&dirty), None)));
+        // Não há `ssh` no argv — caiu no fail-safe.
+        assert!(!argv.iter().any(|a| a == "ssh"), "NÃO deve spawnar ssh: {argv:?}");
+        assert_eq!(argv[0], "sh", "fail-safe via sh: {argv:?}");
+        // E não há o comando perigoso solto (o target sujo nunca chega ao shell).
+        assert!(!argv.iter().any(|a| a.contains("rm -rf")), "target sujo NÃO vaza: {argv:?}");
     }
 }

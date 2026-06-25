@@ -1,6 +1,17 @@
+# Workspace — este pacote (o app Tauri) é a raiz; o CLI fino (ref #8B) é membro.
+# Mantém o `target/` aqui (build do Tauri intocado) e deixa `cargo build -p omnirift-cli`
+# compartilhar a resolução de deps. O CLI vive em `cli/` (NÃO depende do tauri); fica
+# sob src-tauri porque o Cargo exige membros hierarquicamente abaixo da raiz.
+[workspace]
+members = ["cli"]
+# A CLI (omnirift) é membro mas NÃO entra nos comandos default (test/xwin check sem -p) —
+# ela é Linux-only (UnixStream; named-pipe Windows = fase 2), então fica fora do
+# `cargo xwin check` Windows da CI (que roda no manifesto raiz). Testa-se via `-p omnirift-cli`.
+default-members = ["."]
+
 [package]
 name = "omnirift"
-version = "0.1.34"
+version = "0.1.35"
 description = "OmniRift - canvas infinito para orquestrar agentes de IA, terminais e notas"
 authors = ["OmniForge <contato@omniforge.com.br>"]
 license = "MIT"
@@ -34,6 +45,11 @@ tauri-plugin-fs = "2"
 portable-pty = "0.9"
 # Emulador de tela VT100 — renderiza a tela visível de TUIs (Claude Code/Codex)
 vt100 = "0.15"
+# Emulador VT headless backend-owned (ref P0 #2): grid + scrollback bounded como
+# fonte da verdade; o front vira view descartável. Term + Grid + vte::ansi::Processor
+# (parser ANSI stateful). VoidListener = não responde queries (DA1/DSR) → só o xterm
+# do front responde, sem duplicar na stdin do shell. Ver pty/emulator.rs.
+alacritty_terminal = "0.26"
 # Persistência do canvas (Fase 3) — SQLite embutido (sem dep de sistema)
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Async runtime
@@ -94,6 +110,21 @@ tokio-postgres-rustls = "0.13"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # Monitor de recursos (CPU/RAM/disco/rede) — sub-fase A. GPU (NVML) entra na fase C.
 sysinfo = "0.33"
+# --- Mobile companion (relay LAN + E2EE) — ref #9 (rpc/ws.rs, rpc/e2ee.rs) ---
+# Servidor WebSocket de LAN embutido (ws:// cru; a confidencialidade é E2EE de app,
+# não TLS — RN não pina cert). default-features = false: SEM TLS (não puxa native-tls
+# nem duplicar rustls); só o transporte WS plain sobre tokio.
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+# E2EE NaCl box (X25519 ECDH + XSalsa20-Poly1305) — interop byte-a-byte com tweetnacl
+# do app Expo/RN (fase 2). `SalsaBox` = exatamente o `nacl.box`. rand_core 0.6 (alinhado
+# com o curve25519-dalek já no tree via ed25519-dalek).
+crypto_box = { version = "0.9", features = ["std"] }
+# RNG do SO p/ nonce E2EE (24B único por frame) + device token (24B hex). rand 0.8 já
+# está no tree (compatível com o rand_core 0.6 do crypto_box).
+rand = "0.8"
+# Descoberta do IP de LAN do desktop p/ o endpoint do pairing offer (ws://<lan-ip>:6768).
+# Leve, sem deps pesadas; degrada p/ 127.0.0.1 se não achar interface.
+local-ip-address = "0.6"
 # Datas: cutoff do filtro por período + carimbo do ledger nativo (RFC3339 comparável
 # aos timestamps ISO das sessões dos CLIs). default-features off + clock = leve.
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

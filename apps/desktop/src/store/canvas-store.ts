@@ -79,6 +79,9 @@ interface CanvasState {
     /** Env extra para injetar no spawn (ex: CODEX_HOME do bundle de skills).
      *  Mesclada com a env do compressor; o compressor tem prioridade em colisão. */
     env?: Array<[string, string]>;
+    /** Host de execução (ref §3.1). undefined/"local" = local; "ssh:<host>" = remoto.
+     *  Default: host do floor ativo. Ver ExecutionHostId. */
+    executionHost?: string;
   }) => TerminalNode | null;
   addNote: (params?: { position?: { x: number; y: number }; content?: string; color?: string }) => NoteNode;
   addGroup: (params?: { position?: { x: number; y: number }; label?: string }) => GroupNode;
@@ -289,7 +292,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       return { dirtyFiles: next };
     }),
 
-  addTerminal: ({ command, args, role = "shell", position, label, id, compressor, env: extraEnv }) => {
+  addTerminal: ({ command, args, role = "shell", position, label, id, compressor, env: extraEnv, executionHost }) => {
     // Gate de licença: community = máx 5 agentes (terminais). 0 = ilimitado.
     const lic = useLicenseStore.getState();
     if (!withinLimit(lic.limits.agents, get().allTerminalNodes().length)) {
@@ -308,6 +311,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     _spawnTimes.push(_now);
     const nodeId = id ?? nanoid();
     const cwd = get().currentCwd ?? undefined;
+    // Host de execução (ref §3.1): explícito do caller (dropdown) OU herda o host do
+    // floor ativo. "local"/ausente → não decora o node (comportamento idêntico).
+    const s0host = get();
+    const activeFloor = s0host.floors.find((f) => f.id === s0host.activeFloorId);
+    const resolvedHost = executionHost ?? activeFloor?.hostId ?? LOCAL_HOST_ID;
     // Compõe a env de todos os compressores ligados (OmniCompress nativo entra por
     // padrão) + o override do role, se houver. Proxy só injeta se está de pé.
     // Env extra do caller (ex: CODEX_HOME de skills) vai na frente; compressor tem prioridade.
@@ -326,6 +334,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       cwd,
       env,
       compressor: compressor && compressor !== "none" ? compressor : undefined,
+      // Decora só quando NÃO é local (mantém os nodes locais byte-idênticos ao antes).
+      executionHost:
+        resolvedHost && resolvedHost !== LOCAL_HOST_ID
+          ? (resolvedHost as TerminalNode["executionHost"])
+          : undefined,
       position: position ?? defaultPosition(),
       size: { width: 520, height: 320 },
     };

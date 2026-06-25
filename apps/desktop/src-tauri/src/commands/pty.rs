@@ -1,5 +1,6 @@
+use crate::pty::emulator::SCROLLBACK_LIMIT;
 use crate::pty::manager::{relay_task, ProcInfo};
-use crate::pty::{PtyManager, PtySpawnConfig, SessionId};
+use crate::pty::{PtyManager, PtySnapshot, PtySpawnConfig, SessionId};
 use tauri::{AppHandle, State};
 
 #[tauri::command]
@@ -61,6 +62,20 @@ pub fn pty_read_screen(
     manager: State<'_, std::sync::Arc<PtyManager>>,
 ) -> Result<String, String> {
     manager.read_screen(&session_id).map_err(|e| format!("{e:#}"))
+}
+
+/// Snapshot serializado (scrollback+viewport em ANSI re-hidratado) do emulador VT
+/// headless de uma sessão (ref P0 #2). O front chama no retorno-de-oculto / overflow
+/// pra re-hidratar a view e dedupar os chunks ao vivo por `seq`. Erro se a sessão não
+/// tem emulador → o front degrada pro fluxo ao vivo atual (não quebra).
+#[tauri::command]
+pub fn pty_snapshot(
+    session_id: SessionId,
+    manager: State<'_, std::sync::Arc<PtyManager>>,
+) -> Result<PtySnapshot, String> {
+    manager
+        .snapshot(&session_id, SCROLLBACK_LIMIT)
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
