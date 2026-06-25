@@ -87,7 +87,7 @@ use db::{
 use mcp::{mcp_router, serena_health, AgentRegistry, ClaimsRegistry, MCP_PORT};
 use pty::PtyManager;
 // Comandos do relay mobile (ref #9 — Área de Conexões / Mobile).
-use rpc::{mobile_devices_list, mobile_pairing_offer, mobile_revoke};
+use rpc::{mobile_devices_list, mobile_pairing_offer, mobile_revoke, mobile_set_steering};
 use std::sync::Arc;
 use tauri::Manager;
 
@@ -297,6 +297,7 @@ pub fn run() {
             mobile_pairing_offer,
             mobile_devices_list,
             mobile_revoke,
+            mobile_set_steering,
             workspace_save,
             workspace_load,
             mcp_register_agent,

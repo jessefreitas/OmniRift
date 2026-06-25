@@ -38,6 +38,7 @@ import {
   Gem,
   Save,
   Server,
+  Smartphone,
   Trash2,
   Sparkles,
   TerminalSquare,
@@ -100,6 +101,7 @@ const CompanionModal = lazy(() => import("@/components/CompanionModal").then((m)
 const AppearanceModal = lazy(() => import("@/components/AppearanceModal").then((m) => ({ default: m.AppearanceModal })));
 const UsageModal = lazy(() => import("@/components/UsageModal").then((m) => ({ default: m.UsageModal })));
 const ConnectionsModal = lazy(() => import("@/components/ConnectionsModal").then((m) => ({ default: m.ConnectionsModal })));
+const MobileDevicesModal = lazy(() => import("@/components/MobileDevicesModal").then((m) => ({ default: m.MobileDevicesModal })));
 const HelpModal = lazy(() => import("@/components/HelpModal").then((m) => ({ default: m.HelpModal })));
 const McpServersModal = lazy(() => import("@/components/McpServersModal").then((m) => ({ default: m.McpServersModal })));
 const ClisModal = lazy(() => import("@/components/ClisModal").then((m) => ({ default: m.ClisModal })));
@@ -141,6 +143,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "review-ai", icon: ScanSearch, label: "Code Review IA", desc: "LLM (BYOK) + Política de GO/NO-GO num painel só (abas)" },
   { id: "compressors", icon: Gauge, label: "Compressores de token", desc: "Instalar/gerenciar compressores (RTK, Headroom) que cortam tokens dos agentes" },
   { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
+  { id: "mobile", icon: Smartphone, label: "Dispositivos móveis", desc: "Parear o celular (QR), listar pareados, revogar e conceder controle (steering)" },
   { id: "history", icon: History, label: "Histórico de sessões", desc: "Sessões anteriores gravadas dos agentes" },
   { id: "hooks", icon: Webhook, label: "Hooks do paralelo", desc: "Comandos disparados em eventos do paralelo (pre/post)" },
   { id: "reminders", icon: Bookmark, label: "Lembretes", desc: "Notas do canvas viram lembretes com prazo" },
@@ -396,6 +399,7 @@ export function Sidebar() {
     setOrchMenu(false);
   }
   const [showConnections, setShowConnections] = useState(false);
+  const [showMobile, setShowMobile] = useState(false);
   const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
@@ -442,6 +446,7 @@ export function Sidebar() {
     companion: () => setShowCompanion(true),
     git: () => setShowGitRepos(true),
     connections: () => setShowConnections(true),
+    mobile: () => setShowMobile(true),
     "review-ai": () => setShowReviewAi(true),
     appearance: () => setShowAppearance(true),
     usage: () => setShowUsage(true),
@@ -472,6 +477,7 @@ export function Sidebar() {
         case "memory": setShowMemory(true); break;
         case "history": setShowHistory(true); break;
         case "connections": setShowConnections(true); break;
+        case "mobile": setShowMobile(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "project-health": setShowHealth(true); break;
         case "turbo": setShowTurbo(true); break;
@@ -1920,6 +1926,7 @@ export function Sidebar() {
       {showReminders && <RemindersModal onClose={() => setShowReminders(false)} />}
       {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
+      {showMobile && <MobileDevicesModal onClose={() => setShowMobile(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
       {showClis && <ClisModal onClose={() => setShowClis(false)} />}

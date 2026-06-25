@@ -361,9 +361,14 @@ fn handle_rpc_frame(
         }
     };
 
-    // ALLOWLIST: identidade = o canal E2EE já autenticado (scope do device), NÃO o token do
-    // envelope. Fora da allowlist → forbidden, sem tocar no estado do app. [segurança]
-    if !allowlist::is_allowed(&req.method, scope) {
+    // GATE COMPOSTO (allowlist + steering opt-in): identidade = o canal E2EE já autenticado
+    // (scope + steer do DeviceEntry), NÃO o token do envelope. Read-only sempre liberado p/
+    // Mobile; as 3 mutações de agente SÓ se o desktop concedeu `steer` a ESTE device. Um
+    // método não-mutação fora da allowlist segue forbidden mesmo com steer. [segurança]
+    // gate = is_allowed(method, scope) || (device.steer && is_steer_allowed(method))
+    let permitted =
+        allowlist::is_allowed(&req.method, scope) || (device.steer && allowlist::is_steer_allowed(&req.method));
+    if !permitted {
         return channel
             .encrypt_frame(json!({"id":req.id,"ok":false,"error":format!("forbidden: '{}' não permitido p/ mobile", req.method)}).to_string().as_bytes())
             .ok();
@@ -462,5 +467,47 @@ mod tests {
         let reg = Arc::new(DeviceRegistry::open(dir.path().join("devices.json")));
         let relay = MobileRelay::new(reg);
         assert_eq!(relay.port(), 0, "porta 0 até bindar");
+    }
+
+    /// Espelha EXATAMENTE o gate composto que `handle_rpc_frame` aplica antes do dispatch
+    /// (`is_allowed(method, scope) || (device.steer && is_steer_allowed(method))`), usando o
+    /// `steer` de um `DeviceEntry` real — prova a fronteira de segurança sem subir o WS.
+    fn ws_gate(method: &str, device: &DeviceEntry) -> bool {
+        allowlist::is_allowed(method, device.scope)
+            || (device.steer && allowlist::is_steer_allowed(method))
+    }
+
+    fn mobile_device(steer: bool) -> DeviceEntry {
+        DeviceEntry {
+            device_id: "d1".into(),
+            name: "Pixel".into(),
+            token: "tok".into(),
+            scope: super::super::devices::DeviceScope::Mobile,
+            steer,
+            paired_at: 1,
+            last_seen_at: 2,
+        }
+    }
+
+    #[test]
+    fn ws_gate_mobile_no_steer_blocks_mutations_keeps_readonly() {
+        let dev = mobile_device(false);
+        for m in ["agent.spawn", "agent.send", "agent.kill"] {
+            assert!(!ws_gate(m, &dev), "sem steer → '{m}' forbidden no ws");
+        }
+        assert!(ws_gate("status", &dev), "read-only sempre liberado");
+        assert!(ws_gate("pty.snapshot", &dev));
+    }
+
+    #[test]
+    fn ws_gate_mobile_with_steer_unlocks_only_three() {
+        let dev = mobile_device(true);
+        for m in ["agent.spawn", "agent.send", "agent.kill"] {
+            assert!(ws_gate(m, &dev), "com steer → '{m}' liberado no ws");
+        }
+        // Não-mutação fora da allowlist segue forbidden mesmo com steer.
+        for m in ["pty.kill", "pty.write", "método.inventado"] {
+            assert!(!ws_gate(m, &dev), "'{m}' forbidden mesmo com steer (não abre tudo)");
+        }
     }
 }

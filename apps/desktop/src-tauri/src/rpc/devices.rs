@@ -39,6 +39,13 @@ pub struct DeviceEntry {
     pub token: String,
     #[serde(default)]
     pub scope: DeviceScope,
+    /// **Steering opt-in** (Mobile steering #9). `false` (default) = device read-only
+    /// (monitor + push). `true` = o desktop concedeu controle → destrava SÓ as 3 mutações
+    /// de agente (`agent.spawn/send/kill`) via [`MOBILE_STEER_ALLOWLIST`](super::allowlist).
+    /// `#[serde(default)]` migra json legado sem o campo → `false` (seguro, read-only). O
+    /// celular NUNCA seta isso (não há método RPC) — só o comando Tauri local `set_steer`.
+    #[serde(default)]
+    pub steer: bool,
     pub paired_at: u64,
     pub last_seen_at: u64,
 }
@@ -86,6 +93,7 @@ impl DeviceRegistry {
             name: name.to_string(),
             token: generate_device_token(),
             scope: DeviceScope::Mobile,
+            steer: false, // opt-in: device pareado nasce read-only (default OFF)
             paired_at: now_secs(),
             last_seen_at: 0,
         };
@@ -112,6 +120,21 @@ impl DeviceRegistry {
             save(&self.path, &guard)?;
         }
         Ok(())
+    }
+
+    /// **Concede/revoga steering** (controle) p/ um device específico (Mobile steering #9).
+    /// `enabled=true` destrava as 3 mutações de agente p/ ele; `false` volta a read-only.
+    /// Persiste (0600 mantido via `save`). `true` se achou o device, `false` se não existe.
+    /// Grant SÓ daqui (comando Tauri local) — o celular nunca seta o próprio steer.
+    pub fn set_steer(&self, device_id: &str, enabled: bool) -> std::io::Result<bool> {
+        let mut guard = self.devices.lock();
+        if let Some(d) = guard.iter_mut().find(|d| d.device_id == device_id) {
+            d.steer = enabled;
+            save(&self.path, &guard)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     /// **Revoga** um device: remove a entrada e persiste. `true` se removeu, `false` se
@@ -302,6 +325,70 @@ mod tests {
         assert!(reg.list().is_empty(), "corrompido → vazio em memória");
         // O arquivo corrompido NÃO foi sobrescrito (só leitura no open).
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not an array");
+    }
+
+    #[test]
+    fn device_defaults_to_no_steer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        let reg = DeviceRegistry::open(path);
+        let dev = reg.get_or_create_pending("Pixel").unwrap();
+        assert!(!dev.steer, "device nasce read-only (steer=false, default OFF)");
+    }
+
+    #[test]
+    fn set_steer_persists_and_rereads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        let id;
+        {
+            let reg = DeviceRegistry::open(path.clone());
+            let dev = reg.get_or_create_pending("Pixel").unwrap();
+            id = dev.device_id.clone();
+            assert!(!dev.steer, "começa read-only");
+            // Concede steering.
+            assert!(reg.set_steer(&id, true).unwrap(), "device existe → true");
+            let after = reg.list().into_iter().find(|d| d.device_id == id).unwrap();
+            assert!(after.steer, "steer ligado em memória");
+            // set_steer em device inexistente → false (não cria nada).
+            assert!(!reg.set_steer("não-existe", true).unwrap());
+        }
+        // Reabre do disco: o steer ligado persistiu.
+        let reg2 = DeviceRegistry::open(path);
+        let reloaded = reg2.list().into_iter().find(|d| d.device_id == id).unwrap();
+        assert!(reloaded.steer, "steer=true persistiu em disco e releu");
+        // Revoga steering → volta read-only e persiste.
+        assert!(reg2.set_steer(&id, false).unwrap());
+        let off = reg2.list().into_iter().find(|d| d.device_id == id).unwrap();
+        assert!(!off.steer, "steer desligado revoga o controle");
+    }
+
+    #[test]
+    fn json_without_steer_deserializes_as_false() {
+        // Migração: json legado (sem o campo `steer`) → serde default `false` (read-only).
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        std::fs::write(
+            &path,
+            r#"[{"deviceId":"old-1","name":"Legacy","token":"abc123","scope":"mobile","pairedAt":100,"lastSeenAt":200}]"#,
+        )
+        .unwrap();
+        let reg = DeviceRegistry::open(path);
+        let dev = reg.list().into_iter().next().expect("device legado carregou");
+        assert!(!dev.steer, "json sem campo steer desserializa como false (migração segura)");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn set_steer_keeps_file_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        let reg = DeviceRegistry::open(path.clone());
+        let dev = reg.get_or_create_pending("Pixel").unwrap();
+        reg.set_steer(&dev.device_id, true).unwrap(); // re-save via set_steer
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "set_steer preserva 0600 (save atômico)");
     }
 
     #[cfg(unix)]

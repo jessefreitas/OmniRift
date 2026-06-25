@@ -159,6 +159,7 @@ pub fn mobile_devices_list(app: AppHandle) -> Result<serde_json::Value, String> 
                 "deviceId": d.device_id,
                 "name": d.name,
                 "scope": d.scope,
+                "steer": d.steer,
                 "pairedAt": d.paired_at,
                 "lastSeenAt": d.last_seen_at,
                 "pending": d.last_seen_at == 0,
@@ -178,6 +179,27 @@ pub fn mobile_revoke(app: AppHandle, device_id: String) -> Result<serde_json::Va
         .ok_or_else(|| "relay mobile não está ativo nesta sessão".to_string())?;
     let removed = relay.devices.remove(&device_id).map_err(|e| format!("revogar: {e}"))?;
     Ok(serde_json::json!({ "removed": removed }))
+}
+
+/// Concede/revoga **steering** (controle) p/ um device (Mobile steering #9). `enabled=true`
+/// destrava as 3 mutações de agente (`agent.spawn/send/kill`) p/ ESTE device; `false` volta
+/// a read-only. Grant SÓ daqui (comando local do desktop) — não há método RPC que o celular
+/// possa chamar pra setar o próprio steer (anti-escalação). `applied: bool` = device existe.
+#[tauri::command]
+pub fn mobile_set_steering(
+    app: AppHandle,
+    device_id: String,
+    enabled: bool,
+) -> Result<serde_json::Value, String> {
+    use tauri::Manager;
+    let relay = app
+        .try_state::<Arc<MobileRelay>>()
+        .ok_or_else(|| "relay mobile não está ativo nesta sessão".to_string())?;
+    let applied = relay
+        .devices
+        .set_steer(&device_id, enabled)
+        .map_err(|e| format!("set steering: {e}"))?;
+    Ok(serde_json::json!({ "applied": applied, "steer": enabled }))
 }
 
 #[cfg(test)]
