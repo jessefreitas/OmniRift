@@ -89,6 +89,7 @@ export function CommandPalette() {
       { id: "open-memory", label: t("palette.openMemory", "Abrir: Memória dos agentes"), category: t("palette.catOpen", "Abrir"), run: openTool("memory") },
       { id: "open-history", label: t("palette.openHistory", "Abrir: Histórico de sessões"), category: t("palette.catOpen", "Abrir"), run: openTool("history") },
       { id: "open-connections", label: t("palette.openConnections", "Abrir: Conexões de memória"), category: t("palette.catOpen", "Abrir"), run: openTool("connections") },
+      { id: "open-mobile", label: t("palette.openMobile", "Abrir: Dispositivos móveis"), category: t("palette.catOpen", "Abrir"), run: openTool("mobile") },
       { id: "open-review-ai", label: t("palette.openReviewAi", "Abrir: Code Review IA"), category: t("palette.catOpen", "Abrir"), run: openTool("review-ai") },
       { id: "open-git", label: t("palette.openGit", "Abrir: Repositórios Git"), category: t("palette.catOpen", "Abrir"), run: openTool("git") },
       { id: "open-health", label: t("palette.openHealth", "Abrir: Saúde do Projeto"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("project-health") },
