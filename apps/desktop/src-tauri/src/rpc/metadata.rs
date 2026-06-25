@@ -13,7 +13,14 @@ use std::path::{Path, PathBuf};
 
 /// Conteúdo de `~/.omnirift/runtime.json`. `camelCase` no fio pro CLI (TS/qualquer)
 /// ler natural; os campos batem com o §4.1 do RE adaptado (socketPath em vez de
-/// transports[] — MVP só tem o socket Unix local).
+/// transports[] — MVP só tem o transporte local).
+///
+/// `socket_path` é o endereço do transporte local, **genérico por plataforma**:
+/// - Unix: caminho do socket (`/run/user/<uid>/omnirift.sock` ou fallback `~/...`).
+/// - Windows: **nome do named pipe** (`\\.\pipe\omnirift-<id>`). O CLI abre esse nome
+///   como arquivo. Não há chmod 0600 no Windows (named pipe não é arquivo de FS): a
+///   proteção é a ACL default do pipe (dono = quem o criou) + o token da sessão. ACL
+///   restritiva explícita = hardening futuro (ver design 2026-06-25-windows-named-pipe).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeMetadata {
@@ -125,7 +132,9 @@ fn set_owner_only(path: &Path) -> std::io::Result<()> {
 
 #[cfg(not(unix))]
 fn set_owner_only(_path: &Path) -> std::io::Result<()> {
-    // Windows: a ACL do diretório de perfil do usuário já restringe; sem chmod.
+    // Windows: a ACL do diretório de perfil do usuário já restringe o runtime.json; sem
+    // chmod. (O transporte em si — named pipe — também não é arquivo de FS: protegido pela
+    // ACL default do pipe + token; ver doc de RuntimeMetadata e socket.rs spawn_listener.)
     Ok(())
 }
 
@@ -185,6 +194,25 @@ mod tests {
         let wire = serde_json::to_string(&meta).unwrap();
         assert!(wire.contains("socketPath"), "fio deve usar camelCase: {wire}");
         assert!(!wire.contains("socket_path"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn metadata_roundtrips_pipe_name_on_windows() {
+        // No Windows o `socket_path` guarda o NOME DO PIPE (não um caminho de FS). Garante
+        // que ele faz round-trip intacto (a `\` não é escapada/normalizada).
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("runtime.json");
+        let pipe = r"\\.\pipe\omnirift-deadbeef";
+        let meta = RuntimeMetadata {
+            socket_path: pipe.into(),
+            token: "t".into(),
+            pid: 1,
+            version: "0.1.0".into(),
+        };
+        write_metadata_to(&path, &meta).unwrap();
+        let back = read_metadata_from(&path).unwrap();
+        assert_eq!(back.socket_path, pipe);
     }
 
     #[cfg(unix)]
