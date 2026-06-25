@@ -68,7 +68,7 @@ use commands::memory::{
 };
 use commands::pty::{
     pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
-    pty_read_screen, pty_resize, pty_spawn, pty_write,
+    pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_write,
 };
 use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
 use turbo::commands::{turbo_list, turbo_start, turbo_status, turbo_stop};
@@ -267,6 +267,7 @@ pub fn run() {
             pty_pipe_list,
             pty_read_screen,
             pty_proc_info,
+            pty_snapshot,
             workspace_save,
             workspace_load,
             mcp_register_agent,
