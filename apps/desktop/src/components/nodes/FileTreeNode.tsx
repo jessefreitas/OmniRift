@@ -16,7 +16,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { useNodeMaximize } from "@/hooks/useNodeMaximize";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
-import { isMarkdown, isHtml } from "@/lib/preview-client";
+import { isMarkdown, isHtml, isPdf } from "@/lib/preview-client";
 import { listDir, type DirEntry } from "@/lib/fs-client";
 import type { FileTreeNode as FileTreeNodeData } from "@/types/canvas";
 
@@ -30,7 +30,10 @@ function TreeItem({ entry, depth, showHidden }: { entry: DirEntry; depth: number
   const [open, setOpen] = useState(false);
   const [children, setChildren] = useState<DirEntry[] | null>(null);
   const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
-  const previewable = !entry.isDir && (isMarkdown(entry.path) || isHtml(entry.path));
+  const addPdfNode = useCanvasStore((s) => s.addPdfNode);
+  const addHtmlNode = useCanvasStore((s) => s.addHtmlNode);
+  // Abre num node próprio: .pdf → PdfNode, .html → HtmlNode, .md → Preview.
+  const openable = !entry.isDir && (isMarkdown(entry.path) || isHtml(entry.path) || isPdf(entry.path));
 
   const toggle = useCallback(async () => {
     if (!entry.isDir) return;
@@ -45,12 +48,14 @@ function TreeItem({ entry, depth, showHidden }: { entry: DirEntry; depth: number
       <div
         onClick={toggle}
         onDoubleClick={(e) => {
-          if (previewable) {
+          if (openable) {
             e.stopPropagation();
-            addPreviewNode({ path: entry.path });
+            if (isPdf(entry.path)) addPdfNode({ filePath: entry.path });
+            else if (isHtml(entry.path)) addHtmlNode({ filePath: entry.path });
+            else addPreviewNode({ path: entry.path });
           }
         }}
-        title={previewable ? t("fileTree.previewHint", "Duplo-clique pra pré-visualizar") : undefined}
+        title={openable ? t("fileTree.previewHint", "Duplo-clique pra abrir") : undefined}
         draggable
         onDragStart={(e) => {
           // Arrasta o caminho do arquivo/pasta — solta num terminal pra inserir.

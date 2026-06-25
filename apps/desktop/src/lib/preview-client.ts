@@ -29,3 +29,7 @@ export function isMarkdown(path: string): boolean {
 export function isHtml(path: string): boolean {
   return /\.html?$/i.test(path);
 }
+
+export function isPdf(path: string): boolean {
+  return /\.pdf$/i.test(path);
+}

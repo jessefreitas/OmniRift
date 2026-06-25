@@ -207,6 +207,61 @@ pub fn agent_invocation(prompt: &str) -> Option<(&'static str, Vec<String>)> {
     None
 }
 
+/// Args pra rodar um prompt único e capturar stdout num CLI de agente headless
+/// ESPECÍFICO (`claude -p` / `codex exec` / fallback genérico). Reusado pelo TURBO
+/// (`turbo/driver.rs`) — implementer/verifier são CLIs escolhidos pelo usuário, não
+/// "o primeiro do PATH". `None` se o `cli` não for reconhecido. (Puro/testável.)
+pub fn agent_args_for(cli: &str, prompt: &str) -> Option<Vec<String>> {
+    match cli {
+        "claude" => Some(vec!["-p".into(), prompt.to_string()]),
+        "codex" => Some(vec!["exec".into(), prompt.to_string()]),
+        // Outros CLIs de agente costumam aceitar o prompt como argumento posicional
+        // (modo "run"); degrade pra isso em vez de falhar duro.
+        other if !other.trim().is_empty() => Some(vec![prompt.to_string()]),
+        _ => None,
+    }
+}
+
+/// **Helper headless COMPARTILHADO** (DRY — spec §"Agente headless"). Roda um
+/// `<cli>` específico com o `prompt` em `cwd`, captura stdout e devolve-o cru.
+/// Reusado por TURBO (implementer/verifier) — o `run_agent_report` abaixo é o caso
+/// especializado (escolhe o CLI do PATH + parseia o JSON). Degrada limpo: CLI
+/// ausente no PATH ou exit≠0 → `Err` amigável. Conteúdo do prompt NUNCA é logado.
+pub async fn run_headless_agent(cli: &str, prompt: &str, cwd: &str) -> Result<String, String> {
+    if !is_on_path(cli) {
+        return Err(format!(
+            "agente '{cli}' indisponível — instale o CLI (ou escolha outro)"
+        ));
+    }
+    let args = agent_args_for(cli, prompt)
+        .ok_or_else(|| format!("não sei invocar o agente '{cli}'"))?;
+
+    // Timeout defensivo: um agente headless travado (stall de rede) não pode pendurar
+    // o chamador pra sempre — crítico pro loop TURBO, cujo cancelamento só checa entre
+    // iterações. 15 min é folgado pra um turno; ao estourar vira erro (o loop trata como
+    // iteração falha). NB: o filho não é morto no timeout (fica órfão até terminar) — fase 2.
+    let fut = TokioCommand::new(cli)
+        .args(&args)
+        .current_dir(cwd)
+        .no_window()
+        .output();
+    let output = tokio::time::timeout(std::time::Duration::from_secs(900), fut)
+        .await
+        .map_err(|_| format!("o agente '{cli}' excedeu o tempo limite (15 min)"))?
+        .map_err(|e| format!("falha ao rodar o agente '{cli}': {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "o agente '{cli}' falhou (exit {}): {}",
+            output.status.code().unwrap_or(-1),
+            stderr.trim()
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 /// Roda um prompt pelo MESMO motor headless de `health_analyze_file`
 /// (`claude -p` / `codex exec`), parseia o stdout num `AiReport` e força o
 /// `target`. Degrada limpo: sem CLI no PATH → `Err` amigável. Reusado pela
@@ -774,5 +829,17 @@ mod tests {
     #[test]
     fn db_key_is_fixed() {
         assert_eq!(db_report_key(), "__db_repo__");
+    }
+
+    /// agent_args_for monta os args certos por CLI (reusado pelo TURBO).
+    #[test]
+    fn agent_args_for_known_clis() {
+        assert_eq!(agent_args_for("claude", "oi"), Some(vec!["-p".into(), "oi".into()]));
+        assert_eq!(agent_args_for("codex", "oi"), Some(vec!["exec".into(), "oi".into()]));
+        // CLI desconhecido (não vazio) → prompt posicional (degrade).
+        assert_eq!(agent_args_for("gemini", "oi"), Some(vec!["oi".into()]));
+        // Vazio → None.
+        assert_eq!(agent_args_for("", "oi"), None);
+        assert_eq!(agent_args_for("   ", "oi"), None);
     }
 }

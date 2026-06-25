@@ -9,7 +9,6 @@ import {
   ChevronRight,
   Code2,
   Coins,
-  Crown,
   Download,
   Folder,
   FolderOpen,
@@ -17,21 +16,16 @@ import {
   AlertTriangle,
   Archive,
   ArchiveRestore,
-  FilePlus,
-  FileText,
-  FolderPlus,
   Brain,
   GitCompare,
   GitFork,
   GitMerge,
   GripVertical,
   History,
-  Link2,
   Orbit,
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
-  Pencil,
   Plug,
   Plus,
   RefreshCw,
@@ -44,15 +38,14 @@ import {
   Gem,
   Save,
   Server,
-  Settings,
   Trash2,
   Sparkles,
   TerminalSquare,
   Upload,
-  UserCog,
   Webhook,
   Workflow,
   X,
+  Zap,
 } from "lucide-react";
 import { nanoid } from "nanoid";
 
@@ -116,6 +109,11 @@ const ReviewSettingsModal = lazy(() => import("@/components/ReviewSettingsModal"
 const SkillLaunchPickerModal = lazy(() => import("@/components/SkillLaunchPicker").then((m) => ({ default: m.SkillLaunchPicker })));
 const DiagnosticsModal = lazy(() => import("@/components/DiagnosticsModal").then((m) => ({ default: m.DiagnosticsModal })));
 const ProjectHealthPanel = lazy(() => import("@/components/health/ProjectHealthPanel").then((m) => ({ default: m.ProjectHealthPanel })));
+const TurboPanel = lazy(() => import("@/components/turbo/TurboPanel").then((m) => ({ default: m.TurboPanel })));
+import { ToolsSection } from "@/components/sidebar/ToolsSection";
+import { SpecsSection } from "@/components/sidebar/SpecsSection";
+import { RolesSection } from "@/components/sidebar/RolesSection";
+import { McpAgentsSection } from "@/components/sidebar/McpAgentsSection";
 import { loadPolicy } from "@/lib/review-policy";
 import { loadDefaultCompressor } from "@/lib/compress-client";
 import { loadLlmConfig } from "@/lib/llm-client";
@@ -123,7 +121,6 @@ import { runReview } from "@/lib/review";
 import { loadHooks, runFloorHook } from "@/lib/hooks-client";
 import type { Floor } from "@/types/workspace";
 import { floorHost } from "@/types/workspace";
-import { StatusDot } from "@/components/StatusDot";
 import { Tooltip } from "@/components/Tooltip";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
@@ -150,6 +147,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
   { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos paralelos" },
   { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
+  { id: "turbo", icon: Zap, label: "TURBO mode", desc: "Loop autônomo: goal + condição verificável → implementer↻condição→verifier (GO/NO-GO), sem auto-commit" },
   { id: "usage", icon: Coins, label: "Uso de Tokens", desc: "Quanto de token os agentes gastaram — total geral, por projeto e por modelo/LLM" },
 ];
 const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
@@ -385,6 +383,7 @@ export function Sidebar() {
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showReviewAi, setShowReviewAi] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
+  const [showTurbo, setShowTurbo] = useState(false);
   const [showAppearance, setShowAppearance] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
   const [showGitRepos, setShowGitRepos] = useState(false);
@@ -455,6 +454,7 @@ export function Sidebar() {
         case "connections": setShowConnections(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "project-health": setShowHealth(true); break;
+        case "turbo": setShowTurbo(true); break;
         case "appearance": setShowAppearance(true); break;
         case "usage": setShowUsage(true); break;
         case "git": setShowGitRepos(true); break;
@@ -1147,6 +1147,15 @@ export function Sidebar() {
     });
   }
 
+  // Adiciona um role já montado (ex.: importado de arquivo) à biblioteca.
+  function addRole(role: AgentRoleDef) {
+    setRoles((prev) => {
+      const next = [...prev, role];
+      saveRoles(next);
+      return next;
+    });
+  }
+
   function installPreset(preset: AgentPreset) {
     if (!preset.installCmd) return;
     addTerminal({
@@ -1437,34 +1446,14 @@ export function Sidebar() {
       </div>
 
       {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
-      <div className="px-2 py-2.5 border-b border-border" style={secStyle("tools")}>
-        <div className="px-2 mb-1.5">{sectionTitle("tools", tr("section.tools"))}</div>
-        {isOpen("tools") && (
-          <div className="space-y-1">
-            {tools.order.map((id) => {
-              const def = TOOL_DEFS.find((t) => t.id === id);
-              if (!def) return null;
-              const Icon = def.icon;
-              return (
-                <Tooltip key={id} label={tr("toolDesc." + def.id, def.desc)} side="right" className="w-full">
-                  <button
-                    {...tools.dnd(id)}
-                    onClick={runTool[id]}
-                    className={cn(
-                      "group w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-text",
-                      "hover:text-brand hover:bg-surface2 transition-colors cursor-grab active:cursor-grabbing",
-                      tools.overId === id && "border-t-2 border-brand",
-                    )}
-                  >
-                    <GripVertical size={11} className="shrink-0 opacity-0 group-hover:opacity-40 -ml-1" />
-                    <Icon size={13} className="shrink-0 opacity-80" /> {tr("tool." + def.id, def.label)}
-                  </button>
-                </Tooltip>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <ToolsSection
+        toolDefs={TOOL_DEFS}
+        tools={tools}
+        isOpen={isOpen}
+        sectionTitle={sectionTitle}
+        runTool={runTool}
+        secStyle={secStyle}
+      />
 
       {/* Workspace */}
       <div className="px-2 py-2.5 border-b border-border space-y-1" style={secStyle("workspace")}>
@@ -1730,261 +1719,57 @@ export function Sidebar() {
       </section>
 
       {/* Roles — personas de agente (--append-system-prompt) */}
-      <div className="px-2 py-2.5 border-t border-border" style={secStyle("roles")}>
-        <div className="flex items-center justify-between px-2 mb-1.5">
-          {sectionTitle("roles", tr("section.roles"))}
-          <div className="flex items-center gap-0.5">
-            {currentCwd && (
-              <Tooltip label={tr("sidebar.discoverProjectRoles", "Descobrir roles do projeto (.claude/agents)")} side="bottom">
-                <button
-                  onClick={() => void discoverProjectRoles()}
-                  className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
-                >
-                  <ScanSearch size={12} />
-                </button>
-              </Tooltip>
-            )}
-            <Tooltip label={tr("sidebar.newCustomRole", "Novo role custom")} side="bottom">
-              <button
-                onClick={() => setEditingRole({ id: nanoid(), name: "", prompt: "" })}
-                className="text-textMuted hover:text-brand p-0.5 rounded hover:bg-surface2 transition-colors"
-              >
-                <Plus size={12} />
-              </button>
-            </Tooltip>
-          </div>
-        </div>
-        {isOpen("roles") && (
-          <div className="space-y-1">
-            {roles.map((r) => (
-              <div
-                key={r.id}
-                className={cn(
-                  "group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface2",
-                  r.master && "bg-yellow-400/5 ring-1 ring-yellow-400/20",
-                )}
-              >
-                {r.master ? (
-                  <Crown size={12} className="text-yellow-400 shrink-0" />
-                ) : (
-                  <UserCog size={12} className="text-brand/70 shrink-0" />
-                )}
-                <button
-                  onClick={() => void spawnRole(r)}
-                  title={r.prompt}
-                  className={cn(
-                    "flex-1 min-w-0 text-left text-xs truncate hover:text-brand transition-colors",
-                    r.master && "font-medium",
-                  )}
-                >
-                  {r.name}
-                </button>
-                {((r.cli ?? "claude") !== "claude" || r.master) && (
-                  <span className="text-[8px] px-1 rounded shrink-0 bg-brand/15 text-brand uppercase">
-                    {r.cli ?? "claude"}
-                  </span>
-                )}
-                <Tooltip label={tr("sidebar.launchWith", "Launch with… (override de skills por-instância)")} side="top" className="shrink-0">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setLaunchPickerRole(r); }}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all"
-                  >
-                    <Settings size={10} />
-                  </button>
-                </Tooltip>
-                <Tooltip label={tr("sidebar.editPrompt", "Editar prompt")} side="top" className="shrink-0">
-                  <button
-                    onClick={() => setEditingRole(r)}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-text transition-all"
-                  >
-                    <Pencil size={10} />
-                  </button>
-                </Tooltip>
-                {!r.builtin && (
-                  <Tooltip label={tr("sidebar.deleteRole", "Excluir role")} side="top" className="shrink-0">
-                    <button
-                      onClick={() => deleteRole(r.id)}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
-                    >
-                      <X size={10} />
-                    </button>
-                  </Tooltip>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <RolesSection
+        roles={roles}
+        currentCwd={currentCwd}
+        isOpen={isOpen}
+        sectionTitle={sectionTitle}
+        discoverProjectRoles={discoverProjectRoles}
+        setEditingRole={setEditingRole}
+        setLaunchPickerRole={setLaunchPickerRole}
+        spawnRole={spawnRole}
+        deleteRole={deleteRole}
+        addRole={addRole}
+        secStyle={secStyle}
+      />
 
       {/* MCP Agents */}
-      <div className="px-2 py-2.5 border-t border-border" style={secStyle("mcp")}>
-        <div className="flex items-center justify-between px-2 mb-1.5 gap-2">
-          {sectionTitle("mcp", tr("section.mcp"))}
-          <div className="flex items-center gap-2 shrink-0">
-            <Tooltip label={tr("sidebar.maxAgentsTip", "Teto de agentes simultâneos do Orquestrador (ele pergunta antes de abrir; o resto roda em ondas)")} side="bottom">
-              <label className="flex items-center gap-1 text-[10px] text-textMuted">
-                {tr("sidebar.max", "máx")}
-                <input
-                  type="number"
-                  min={1}
-                  max={16}
-                  value={maxAgents}
-                  onChange={(e) => setMaxAgentsState(Math.max(1, Math.min(16, Number(e.target.value) || 5)))}
-                  className="w-9 px-1 py-0.5 rounded text-[10px] bg-bg border border-border text-text text-center focus:outline-none focus:border-brand"
-                />
-              </label>
-            </Tooltip>
-            <Tooltip label={tr("sidebar.copyMcpCmdTip", "Copia o comando /mcp add pra conectar o Orquestrador ao MCP")} side="bottom">
-              <button
-                onClick={copyMcpCmd}
-                className="text-[10px] text-textMuted hover:text-brand transition-colors px-1.5 py-0.5 rounded hover:bg-surface2"
-              >
-                {copiedCmd ? tr("sidebar.copied", "✓ copiado") : tr("sidebar.copyCmd", "copiar cmd")}
-              </button>
-            </Tooltip>
-          </div>
-        </div>
-
-        {/* Lista de terminais que podem ser agentes */}
-        {isOpen("mcp") && (
-        <div className="space-y-1">
-          {terminals.map((n) => {
-            const label = n.kind === "terminal" ? (n.label ?? n.command) : n.id;
-            const sid = n.kind === "terminal" ? n.session_id : n.id;
-            const isRegistered = mcpAgents.has(sid);
-            const isOrch = orchestratorSid === sid;
-            const desc = agentDescriptions[sid] ?? "";
-            const agentStatus = terminalStatuses[sid] ?? "idle";
-            const floorName = floorNameOf(sid);
-            return (
-              <div key={n.id} className="rounded hover:bg-surface2 group">
-                <div className="flex items-center gap-1.5 px-2 py-1">
-                  {/* Botão Orquestrador */}
-                  <Tooltip
-                    label={isOrch ? tr("sidebar.isOrchClickRemove", "É o Orquestrador — clique pra remover") : tr("sidebar.setAsOrch", "Definir como Orquestrador (coordena os outros agentes)")}
-                    side="top"
-                    className="shrink-0"
-                  >
-                    <button
-                      onClick={() => {
-                        const next = isOrch ? null : sid;
-                        setOrchestratorSid(next);
-                        if (next) sendTeamBriefing(mcpAgents, agentDescriptions, next, terminals);
-                      }}
-                      className={cn(
-                        "w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-colors text-[7px] font-bold",
-                        isOrch
-                          ? "bg-yellow-500 border-yellow-500 text-black"
-                          : "border-border bg-transparent text-textMuted opacity-0 group-hover:opacity-100",
-                      )}
-                    >
-                      O
-                    </button>
-                  </Tooltip>
-                  {/* Checkbox agente MCP */}
-                  <Tooltip
-                    label={isRegistered ? tr("sidebar.registeredClickRemove", "Registrado no MCP — clique pra remover") : tr("sidebar.registerAsMcpTool", "Registrar como tool MCP (o Orquestrador passa a poder chamá-lo)")}
-                    side="top"
-                    className="shrink-0"
-                  >
-                    <button
-                      onClick={() => toggleMcpAgent(sid, label)}
-                      className={cn(
-                        "w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors",
-                        isRegistered
-                          ? "bg-brand border-brand text-bg"
-                          : "border-border bg-transparent",
-                      )}
-                    >
-                      {isRegistered && <span className="text-[8px] leading-none">✓</span>}
-                    </button>
-                  </Tooltip>
-                  <Tooltip label={tr("sidebar.state", "Estado:") + " " + agentStatus} side="top" className="shrink-0">
-                    <StatusDot status={agentStatus} size={5} />
-                  </Tooltip>
-                  <span className={cn(
-                    "text-[11px] flex-1 truncate font-medium",
-                    isOrch && "text-yellow-400",
-                  )}>{label}{isOrch && <span className="ml-1 text-[9px] text-yellow-500 font-normal">{tr("orchestrator.orqBadge", "orq")}</span>}</span>
-                  {floorName && (
-                    <Tooltip label={tr("sidebar.livesInParallel", "Vive no paralelo \"{floor}\"").replace("{floor}", floorName)} side="top" className="shrink-0">
-                      <span className="flex items-center gap-0.5 text-[8px] text-textMuted opacity-70 px-1 py-0.5 rounded bg-surface2 max-w-[64px]">
-                        <GitBranch size={7} className="shrink-0" />
-                        <span className="truncate">{floorName}</span>
-                      </span>
-                    </Tooltip>
-                  )}
-                  <Tooltip label={tr("sidebar.injectMcpAdd", "Injeta /mcp add neste terminal (conecta-o ao MCP do OmniRift)")} side="top" className="shrink-0">
-                    <button
-                      onClick={() => injectMcpToTerminal(sid)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <Link2 size={10} className="text-textMuted hover:text-brand" />
-                    </button>
-                  </Tooltip>
-                </div>
-                {/* Campo de papel/descrição — aparece ao hover ou quando preenchido */}
-                <div className={cn(
-                  "px-2 pb-1 transition-all",
-                  desc || isRegistered ? "block" : "hidden group-hover:block",
-                )}>
-                  <input
-                    type="text"
-                    value={desc}
-                    onChange={(e) =>
-                      setAgentDescriptions((prev) => ({ ...prev, [sid]: e.target.value }))
-                    }
-                    placeholder={tr("sidebar.rolePlaceholder", "Papel de {label}… ex: \"especialista em frontend\"").replace("{label}", label)}
-                    className={cn(
-                      "w-full px-1.5 py-0.5 rounded text-[10px] bg-bg border border-border",
-                      "placeholder:text-textMuted focus:outline-none focus:border-brand",
-                      isRegistered && "border-brand/40",
-                    )}
-                  />
-                </div>
-              </div>
-            );
-          })}
-          {terminals.length === 0 && (
-            <p className="px-2 text-[10px] text-textMuted opacity-60">
-              {tr("sidebar.addTerminalsToRegister", "Adicione terminais para registrar agentes")}
-            </p>
-          )}
-        </div>
-        )}
-      </div>
+      <McpAgentsSection
+        terminals={terminals}
+        isOpen={isOpen}
+        sectionTitle={sectionTitle}
+        maxAgents={maxAgents}
+        setMaxAgentsState={setMaxAgentsState}
+        copyMcpCmd={copyMcpCmd}
+        copiedCmd={copiedCmd}
+        mcpAgents={mcpAgents}
+        agentDescriptions={agentDescriptions}
+        setAgentDescriptions={setAgentDescriptions}
+        orchestratorSid={orchestratorSid}
+        setOrchestratorSid={setOrchestratorSid}
+        terminalStatuses={terminalStatuses}
+        floorNameOf={floorNameOf}
+        toggleMcpAgent={toggleMcpAgent}
+        injectMcpToTerminal={injectMcpToTerminal}
+        sendTeamBriefing={sendTeamBriefing}
+        secStyle={secStyle}
+      />
 
       {/* Specs — ciclo de vida + dispatch (Fase C) */}
-      <div className="px-2 py-2.5 border-t border-border" style={secStyle("specs")}>
-        <div className="px-2 mb-1.5 flex items-center gap-1">
-          <div className="flex-1">{sectionTitle("specs", tr("section.specs"))}</div>
-          <button onClick={() => void newDoc("spec")} disabled={!currentCwd} title={tr("sidebar.newSpecDesign", "Nova spec (design)")} className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FileText size={12} /></button>
-          <button onClick={() => void newDoc("plan")} disabled={!currentCwd} title={tr("sidebar.newPlanTasks", "Novo plano (tasks)")} className="text-textMuted hover:text-brand disabled:opacity-30 p-0.5"><FilePlus size={12} /></button>
-          <button onClick={() => void importSpecRoot()} title={tr("sidebar.addSpecsFolderTitle", "Adicionar pasta de specs/planos")} className="text-textMuted hover:text-brand p-0.5"><FolderPlus size={12} /></button>
-        </div>
-        {isOpen("specs") && (
-          !currentCwd ? (
-            <p className="px-2 text-[10px] text-textMuted opacity-60">{tr("sidebar.openProjectToListSpecs", "Abra um projeto pra listar specs.")}</p>
-          ) : specs.length === 0 ? (
-            <p className="px-2 text-[10px] text-textMuted opacity-60">{tr("sidebar.noSpecs", "Nenhuma spec. Crie com + ou adicione uma pasta.")}</p>
-          ) : (
-            <div className="space-y-1">
-              {activeSpecs.map(renderSpecRow)}
-              {deadSpecs.length > 0 && (
-                <>
-                  <button
-                    onClick={() => setShowDeadSpecs((v) => !v)}
-                    className="w-full text-left px-2 py-1 text-[9px] uppercase tracking-wider text-textMuted opacity-60 hover:opacity-100"
-                  >
-                    {showDeadSpecs ? "▾" : "▸"} {tr("sidebar.doneArchived", "Concluídos / arquivados")} ({deadSpecs.length})
-                  </button>
-                  {showDeadSpecs && deadSpecs.map(renderSpecRow)}
-                </>
-              )}
-            </div>
-          )
-        )}
-      </div>
+      <SpecsSection
+        currentCwd={currentCwd}
+        isOpen={isOpen}
+        sectionTitle={sectionTitle}
+        newDoc={newDoc}
+        importSpecRoot={importSpecRoot}
+        specs={specs}
+        activeSpecs={activeSpecs}
+        deadSpecs={deadSpecs}
+        showDeadSpecs={showDeadSpecs}
+        setShowDeadSpecs={setShowDeadSpecs}
+        renderSpecRow={renderSpecRow}
+        secStyle={secStyle}
+      />
       </div>
 
       <footer className="px-4 py-3 border-t border-border text-[10px] text-textMuted">
@@ -2111,6 +1896,7 @@ export function Sidebar() {
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
       {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
       {showHealth && <ProjectHealthPanel onClose={() => setShowHealth(false)} />}
+      {showTurbo && <TurboPanel onClose={() => setShowTurbo(false)} />}
       {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}
       {showUsage && <UsageModal onClose={() => setShowUsage(false)} activeProject={currentCwd} />}
       </Suspense>

@@ -59,6 +59,8 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const [draft, setDraft] = useState(data.label ?? data.command);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
+  const [hovered, setHovered] = useState(false);
   const [inViewport, setInViewport] = useState(true);
   const [dragOver, setDragOver] = useState(false);
   // Economia do OmniCompress (badge "▼ X% · Yk tok"). Só quando o nativo está ligado.
@@ -276,6 +278,8 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
     <>
       <div
         ref={nodeWrapRef}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         className={cn(
           "flex flex-col rounded-lg border bg-surface1 overflow-hidden shadow-lg",
           "transition-colors",
@@ -287,7 +291,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
         }}
       >
         <NodeResizer
-          isVisible={selected}
+          isVisible={selected || hovered}
           minWidth={320}
           minHeight={200}
           color="rgb(41 162 167)"

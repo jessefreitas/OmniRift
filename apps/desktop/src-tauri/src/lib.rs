@@ -14,6 +14,7 @@ pub mod pty;
 // boot-safe, sem IO no load. Ver redactor.rs para a fronteira local vs sai-da-máquina.
 pub mod redactor;
 pub mod spec;
+pub mod turbo;
 
 use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles};
 use commands::skills::{skills_import_github, skills_import_md, skills_list};
@@ -48,6 +49,7 @@ use commands::review_cfg::{
     review_suppress_write,
 };
 use commands::review_history::{review_history_add, review_history_list};
+use commands::role_import::{role_import_file, role_template, role_template_save};
 use commands::mcp_servers::{
     mcp_server_remove, mcp_server_set_enabled, mcp_server_upsert, mcp_servers_list,
 };
@@ -69,6 +71,7 @@ use commands::pty::{
     pty_read_screen, pty_resize, pty_spawn, pty_write,
 };
 use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
+use turbo::commands::{turbo_list, turbo_start, turbo_status, turbo_stop};
 use commands::workspace::{workspace_load, workspace_save};
 use db::{
     db_load_workspace, db_save_workspace, memory_add, memory_delete, memory_query, reminder_add,
@@ -227,6 +230,10 @@ pub fn run() {
         // Cache do painel "Saúde do Projeto" (Fase A) — state PURO (Mutex<HashMap>),
         // sem thread/IO no construtor: app.manage disto no boot nunca panica.
         .manage(HealthCache::default())
+        // Registry de cancelamento do TURBO mode — state PURO (Mutex<HashSet>),
+        // sem thread/IO no construtor: app.manage disto no boot nunca panica.
+        // O estado de cada run vive em disco (`.omnirift/turbo/`, a fonte da verdade).
+        .manage(std::sync::Arc::new(crate::turbo::TurboCancels::new()) as crate::turbo::TurboState)
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
@@ -246,6 +253,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
@@ -302,6 +310,9 @@ pub fn run() {
             agent_docs_status,
             agent_docs_sync,
             discover_roles,
+            role_import_file,
+            role_template,
+            role_template_save,
             skills_list,
             skills_import_md,
             skills_import_github,
@@ -355,6 +366,10 @@ pub fn run() {
             health_analyze_db,
             db_introspect,
             health_analyze_db_live,
+            turbo_start,
+            turbo_status,
+            turbo_list,
+            turbo_stop,
             debug_request,
             metrics_snapshot,
             compressor_list,

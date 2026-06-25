@@ -13,6 +13,8 @@ import type {
   DevToolsNode,
   ExplainNode,
   FileTreeNode,
+  HtmlNode,
+  PdfNode,
   PreviewNode,
   JsonNode,
   GroupNode,
@@ -90,6 +92,8 @@ interface CanvasState {
   addExplainNode: (params?: { command?: string; position?: { x: number; y: number } }) => ExplainNode;
   addPreviewNode: (params?: { path?: string; position?: { x: number; y: number } }) => PreviewNode;
   addCodeNode: (params: { filePath: string; position?: { x: number; y: number } }) => CodeNode;
+  addPdfNode: (params: { filePath: string; position?: { x: number; y: number } }) => PdfNode;
+  addHtmlNode: (params: { filePath: string; position?: { x: number; y: number } }) => HtmlNode;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
   reparentNode: (nodeId: string, parentId: string | null) => void;
@@ -472,6 +476,30 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       filePath,
       position: position ?? defaultPosition(),
       size: { width: 800, height: 560 },
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addPdfNode: ({ filePath, position }) => {
+    const node: PdfNode = {
+      id: nanoid(),
+      kind: "pdf",
+      filePath,
+      position: position ?? defaultPosition(),
+      size: { width: 560, height: 720 }, // retrato (página A4 cabe inteira)
+    };
+    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addHtmlNode: ({ filePath, position }) => {
+    const node: HtmlNode = {
+      id: nanoid(),
+      kind: "html",
+      filePath,
+      position: position ?? defaultPosition(),
+      size: { width: 720, height: 460 }, // paisagem (apresentações reveal.js)
     };
     set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;

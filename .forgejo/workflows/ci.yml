@@ -101,9 +101,14 @@ jobs:
       - run: npm run typecheck
 
       # apps/desktop só é tipado pelo `tsc -b` do build (o typecheck-root NÃO o cobre).
+      # CI deve type-checar do ZERO: o runner do Forgejo reusa o workspace, e um
+      # `.tsbuildinfo` velho fazia o `tsc -b` incremental falhar/divergir do clean
+      # (verde local em node 20/24, vermelho só no CI). Apaga o cache + `--force`.
       - name: typecheck apps/desktop (tsc -b)
         working-directory: apps/desktop
-        run: npx tsc -b
+        run: |
+          find . -name '*.tsbuildinfo' -delete 2>/dev/null || true
+          npx tsc -b --force
 
       # Tipos próprios devem ser .ts, não .d.ts: com skipLibCheck o TS alarga nomes
       # não-resolvidos em .d.ts pra `any` silenciosamente (ref P2 #13). Único .d.ts

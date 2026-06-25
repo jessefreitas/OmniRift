@@ -23,6 +23,7 @@ pub mod metrics;
 pub mod pty;
 pub mod review_cfg;
 pub mod review_history;
+pub mod role_import;
 pub mod scheduler;
 pub mod serena;
 pub mod skills;

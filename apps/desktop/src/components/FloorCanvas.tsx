@@ -34,6 +34,8 @@ import { JsonNode } from "@/components/nodes/JsonNode";
 import { ExplainShellNode } from "@/components/nodes/ExplainShellNode";
 import { PreviewNode } from "@/components/nodes/PreviewNode";
 import { CodeNode } from "@/components/nodes/CodeNode";
+import { PdfNodeLazy } from "@/components/nodes/PdfNodeLazy";
+import { HtmlNode } from "@/components/nodes/HtmlNode";
 import { useCanvasStore } from "@/store/canvas-store";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
 import type { CanvasNode } from "@/types/canvas";
@@ -61,6 +63,8 @@ const nodeTypes = {
   explain: ExplainShellNode,
   preview: PreviewNode,
   code: CodeNode,
+  pdf: PdfNodeLazy, // pdf.js carrega sob demanda (code-split)
+  html: HtmlNode,
 };
 
 /** Cor de cada node no minimap, por tipo — pra dar pra "ler" o canvas de longe. */
@@ -77,6 +81,8 @@ const MINIMAP_COLORS: Record<string, string> = {
   json: "rgb(96, 165, 250)",
   explain: "rgb(148, 163, 184)",
   code: "rgb(96, 165, 250)",
+  pdf: "rgb(239, 68, 68)", // vermelho (ícone PDF clássico)
+  html: "rgb(251, 146, 60)", // laranja (HTML5)
 };
 function miniMapNodeColor(n: Node): string {
   return MINIMAP_COLORS[n.type ?? ""] ?? "rgb(120, 120, 130)";

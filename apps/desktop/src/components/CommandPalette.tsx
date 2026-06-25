@@ -92,6 +92,7 @@ export function CommandPalette() {
       { id: "open-review-ai", label: t("palette.openReviewAi", "Abrir: Code Review IA"), category: t("palette.catOpen", "Abrir"), run: openTool("review-ai") },
       { id: "open-git", label: t("palette.openGit", "Abrir: Repositórios Git"), category: t("palette.catOpen", "Abrir"), run: openTool("git") },
       { id: "open-health", label: t("palette.openHealth", "Abrir: Saúde do Projeto"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("project-health") },
+      { id: "open-turbo", label: t("palette.openTurbo", "Abrir: TURBO mode (loop autônomo)"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("turbo") },
     ];
     return [...create, ...floorCmds, ...openCmds];
   }, [open, t]);

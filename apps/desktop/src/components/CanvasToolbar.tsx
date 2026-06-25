@@ -4,7 +4,7 @@
 // um criador do store; o node nasce numa posição default e o usuário arrasta.
 
 import type { LucideIcon } from "lucide-react";
-import { Activity, Braces, Database, FileCode2, FileText, FolderTree, Frame, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench } from "lucide-react";
+import { Activity, Braces, Database, FileCode2, FileText, FolderTree, Frame, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench, Zap } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { useCanvasStore } from "@/store/canvas-store";
@@ -86,6 +86,12 @@ export function CanvasToolbar() {
         icon={Activity}
         disabled={!currentCwd}
         onClick={() => currentCwd && window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "project-health" }))}
+      />
+      <ToolBtn
+        label={currentCwd ? t("toolbar.turbo", "TURBO (loop autônomo)") : t("toolbar.openProjectFirst", "Abra um projeto primeiro")}
+        icon={Zap}
+        disabled={!currentCwd}
+        onClick={() => currentCwd && window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "turbo" }))}
       />
     </div>
   );

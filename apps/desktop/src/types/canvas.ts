@@ -18,7 +18,9 @@ export type NodeKind =
   | "json"
   | "explain"
   | "preview"
-  | "code";
+  | "code"
+  | "pdf"
+  | "html";
 
 export interface BaseCanvasNode {
   id: string;
@@ -130,6 +132,18 @@ export interface CodeNode extends BaseCanvasNode {
   filePath: string;
 }
 
+export interface PdfNode extends BaseCanvasNode {
+  kind: "pdf";
+  /** Caminho do arquivo .pdf renderizado via pdf.js (canvas). */
+  filePath: string;
+}
+
+export interface HtmlNode extends BaseCanvasNode {
+  kind: "html";
+  /** Caminho do arquivo .html exibido via asset protocol (iframe local). */
+  filePath: string;
+}
+
 export type CanvasNode =
   | TerminalNode
   | NoteNode
@@ -143,7 +157,9 @@ export type CanvasNode =
   | JsonNode
   | ExplainNode
   | PreviewNode
-  | CodeNode;
+  | CodeNode
+  | PdfNode
+  | HtmlNode;
 
 /**
  * Patch parcial pra `patchNode` — todos os campos editáveis de qualquer node,

@@ -27,6 +27,10 @@ Thumbs.db
 # Serena (cache de estrutura de código por projeto — gerado pelos agentes)
 .serena/
 
+# OmniRift runtime por-projeto: relatórios de Saúde + estado dos runs TURBO
+# (gerados em tempo de execução dentro do projeto aberto; não comitar).
+.omnirift/
+
 # Python (scripts/ — caches de bytecode)
 __pycache__/
 *.pyc
@@ -57,3 +61,6 @@ apps/desktop/src-tauri/icons/ios/
 *.exe
 *.msi
 *.tar.gz
+
+# ref reverse-engineering artifacts (AppImage, extracted squashfs, source ref)
+ref/

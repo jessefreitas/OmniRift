@@ -27,6 +27,20 @@ export interface AgentRoleDef {
    *  claude-ollama). O OmniRift NÃO anexa --append-system-prompt; a persona vai como
    *  1ª mensagem. Evita o conflito --append-system-prompt + --append-system-prompt-file. */
   selfSystemPrompt?: boolean;
+  /** Caminho do arquivo de onde este role foi importado (re-sync opcional futuro). */
+  sourcePath?: string;
+  /** Formato do arquivo de origem ("codex" | "claude"), quando importado de arquivo. */
+  format?: string;
+}
+
+/** Contrato do `role_import_file` (Rust → serde camelCase). */
+export interface ImportedRole {
+  name: string;
+  description: string;
+  prompt: string;
+  cli: string;
+  sourcePath: string;
+  format: string;
 }
 
 /** CLIs/LLMs disponíveis pra rodar um role. claude injeta via --append-system-prompt;
