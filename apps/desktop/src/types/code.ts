@@ -30,3 +30,21 @@ export interface CodeMetrics {
   /** ISO timestamp. */
   computedAt: string;
 }
+
+/**
+ * DTO leve por-arquivo do scan de projeto (sub-fase 9e). Espelha o struct Rust
+ * `FileMetricsSummary` (serde camelCase). NÃO carrega `functions[]` — isso vem
+ * sob demanda via `code_metrics(path)` no drill-down.
+ */
+export interface FileMetricsSummary {
+  /** Caminho absoluto do arquivo. */
+  path: string;
+  language: string;
+  loc: number;
+  maxCyclomatic: number;
+  maxCognitive: number;
+  maintainabilityIndex: number;
+  severity: MetricSeverity;
+  /** Nº de funções analisadas no arquivo. */
+  fnCount: number;
+}

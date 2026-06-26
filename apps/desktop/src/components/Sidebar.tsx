@@ -114,6 +114,7 @@ const ReviewSettingsModal = lazy(() => import("@/components/ReviewSettingsModal"
 const SkillLaunchPickerModal = lazy(() => import("@/components/SkillLaunchPicker").then((m) => ({ default: m.SkillLaunchPicker })));
 const DiagnosticsModal = lazy(() => import("@/components/DiagnosticsModal").then((m) => ({ default: m.DiagnosticsModal })));
 const ProjectHealthPanel = lazy(() => import("@/components/health/ProjectHealthPanel").then((m) => ({ default: m.ProjectHealthPanel })));
+const CodeMetricsPanel = lazy(() => import("@/components/CodeMetricsPanel").then((m) => ({ default: m.CodeMetricsPanel })));
 const TurboPanel = lazy(() => import("@/components/turbo/TurboPanel").then((m) => ({ default: m.TurboPanel })));
 import { ToolsSection } from "@/components/sidebar/ToolsSection";
 import { SpecsSection } from "@/components/sidebar/SpecsSection";
@@ -405,6 +406,7 @@ export function Sidebar() {
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showReviewAi, setShowReviewAi] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
+  const [showCodeMetrics, setShowCodeMetrics] = useState(false);
   const [showTurbo, setShowTurbo] = useState(false);
   const [turboSeed, setTurboSeed] = useState<string | undefined>(undefined);
   const [showAppearance, setShowAppearance] = useState(false);
@@ -480,6 +482,7 @@ export function Sidebar() {
         case "mobile": setShowMobile(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "project-health": setShowHealth(true); break;
+        case "code-metrics": setShowCodeMetrics(true); break;
         case "turbo": setShowTurbo(true); break;
         case "appearance": setShowAppearance(true); break;
         case "usage": setShowUsage(true); break;
@@ -1981,6 +1984,7 @@ export function Sidebar() {
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
       {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
       {showHealth && <ProjectHealthPanel onClose={() => setShowHealth(false)} />}
+      {showCodeMetrics && <CodeMetricsPanel onClose={() => setShowCodeMetrics(false)} />}
       {showTurbo && <TurboPanel seedGoal={turboSeed} onClose={() => { setShowTurbo(false); setTurboSeed(undefined); }} />}
       {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}
       {showUsage && <UsageModal onClose={() => setShowUsage(false)} activeProject={currentCwd} />}

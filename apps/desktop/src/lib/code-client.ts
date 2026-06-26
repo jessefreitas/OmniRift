@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { CodeMetrics } from "@/types/code";
+import type { CodeMetrics, FileMetricsSummary } from "@/types/code";
 
 /** Pedido de debug (sub-fase 9d) — payload enviado ao backend. */
 export interface DebugRequestPayload {
@@ -63,6 +63,16 @@ export async function codeUnwatch(path: string): Promise<void> {
  */
 export async function codeMetrics(path: string): Promise<CodeMetrics> {
   return invoke<CodeMetrics>("code_metrics", { path });
+}
+
+/**
+ * Scan de complexidade nível-projeto (sub-fase 9e). Anda os arquivos de código
+ * sob `dir` (+ `extraRoots`), respeita `.gitignore`, e devolve um DTO leve por
+ * arquivo (`functions[]` fica de fora — vem sob demanda via `codeMetrics`).
+ * Reusa o engine de métricas existente; arquivos que falham o parse são pulados.
+ */
+export async function metricsProject(dir: string, extraRoots: string[] = []): Promise<FileMetricsSummary[]> {
+  return invoke<FileMetricsSummary[]>("code_metrics_project", { dir, extraRoots });
 }
 
 /** Escuta mudanças no disco (emitidas pelo code_watch). Devolve o unlisten. */
