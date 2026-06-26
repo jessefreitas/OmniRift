@@ -9,6 +9,10 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { useCanvasStore } from "@/store/canvas-store";
 
+/** Tipo de disparo de uma routine (Fase 2). `interval`/`atTime` = MVP;
+ *  `floor-created`/`floor-deleted` = ciclo-de-vida de floor (worktree git). */
+export type RoutineTrigger = "interval" | "atTime" | "floor-created" | "floor-deleted";
+
 export interface Routine {
   id: string;
   name: string;
@@ -21,9 +25,28 @@ export interface Routine {
   enabled: boolean;
   /** Floor onde a routine roda (null/undefined = floor ativo). Backend: target_floor. */
   targetFloor?: string | null;
+  /** Tipo de disparo (Fase 2). undefined/null = retrocompat: deriva por intervalMin/atTime
+   *  (ver effectiveTrigger). Backend: coluna `trigger`. */
+  trigger?: RoutineTrigger | null;
   /** Epoch (segundos) — preenchido pelo backend (ignorado na entrada). */
   createdAt?: number;
   updatedAt?: number;
+}
+
+/** Disparo efetivo de uma routine: usa `trigger` explícito; senão DERIVA (retrocompat)
+ *  — atTime → "atTime", caso contrário "interval". Nunca deriva floor-* (precisa ser explícito). */
+export function effectiveTrigger(
+  r: Pick<Routine, "trigger" | "atTime" | "intervalMin">,
+): RoutineTrigger {
+  if (r.trigger) return r.trigger;
+  if (r.atTime) return "atTime";
+  return "interval";
+}
+
+/** True só quando o trigger EXPLÍCITO é de ciclo-de-vida de floor. Routines legadas
+ *  (sem trigger) retornam false → seguem agendando por intervalo/horário (zero regressão). */
+export function isFloorTrigger(r: Pick<Routine, "trigger">): boolean {
+  return r.trigger === "floor-created" || r.trigger === "floor-deleted";
 }
 
 /** Uma linha do histórico de execução (espelha RunRow do backend). */
@@ -50,6 +73,7 @@ function normalize(r: Partial<Routine>): Routine {
     atTime: r.atTime ?? null,
     enabled: Boolean(r.enabled),
     targetFloor: r.targetFloor ?? null,
+    trigger: r.trigger ?? null,
     createdAt: r.createdAt ?? undefined,
     updatedAt: r.updatedAt ?? undefined,
   };
@@ -83,7 +107,8 @@ function sameRoutine(a: Routine, b: Routine): boolean {
     a.intervalMin === b.intervalMin &&
     a.atTime === b.atTime &&
     a.enabled === b.enabled &&
-    (a.targetFloor ?? null) === (b.targetFloor ?? null)
+    (a.targetFloor ?? null) === (b.targetFloor ?? null) &&
+    (a.trigger ?? null) === (b.trigger ?? null)
   );
 }
 
@@ -243,7 +268,13 @@ export const ROUTINE_TEMPLATES: RoutineTemplate[] = [
 export const ROUTINE_CATEGORIES: string[] = [...new Set(ROUTINE_TEMPLATES.map((t) => t.category))];
 
 /** Resumo legível do agendamento (pra chips na UI). */
-export function scheduleLabel(t: { intervalMin?: number | null; atTime?: string | null }): string {
+export function scheduleLabel(t: {
+  intervalMin?: number | null;
+  atTime?: string | null;
+  trigger?: RoutineTrigger | null;
+}): string {
+  if (t.trigger === "floor-created") return "ao criar floor";
+  if (t.trigger === "floor-deleted") return "ao deletar floor";
   if (t.atTime) return `às ${t.atTime}`;
   if (t.intervalMin) return `a cada ${t.intervalMin} min`;
   return "manual";

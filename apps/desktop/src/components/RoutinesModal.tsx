@@ -14,10 +14,12 @@ import {
   refreshRoutines,
   routineRuns,
   runRoutine,
+  effectiveTrigger,
   ROUTINE_TEMPLATES,
   ROUTINE_CATEGORIES,
   type Routine,
   type RoutineTemplate,
+  type RoutineTrigger,
 } from "@/lib/routines";
 import { osSlug, schedulerInstall, schedulerUninstall, schedulerList } from "@/lib/scheduler-client";
 import { useCanvasStore } from "@/store/canvas-store";
@@ -40,7 +42,9 @@ export function RoutinesModal({ onClose, cwd }: Props) {
 
   // Versão localizada do scheduleLabel da lib (que devolve PT fixo). Reconstrói
   // o mesmo formato usando as chaves i18n — não toca na lib (fonte PT/fallback).
-  function localScheduleLabel(s: { intervalMin?: number | null; atTime?: string | null }): string {
+  function localScheduleLabel(s: { intervalMin?: number | null; atTime?: string | null; trigger?: RoutineTrigger | null }): string {
+    if (s.trigger === "floor-created") return t("routines.onFloorCreated", "ao criar floor");
+    if (s.trigger === "floor-deleted") return t("routines.onFloorDeleted", "ao deletar floor");
     if (s.atTime) return `${t("routines.at", "às")} ${s.atTime}`;
     if (s.intervalMin) return `${t("routines.every", "a cada")} ${s.intervalMin} ${t("routines.min", "min")}`;
     return t("routines.manual", "manual");
@@ -260,26 +264,43 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                     {t("routines.enabled", "ativa")}
                   </label>
                   <label className="flex items-center gap-1.5">
-                    {t("routines.every", "a cada")}
-                    <input
-                      type="number"
-                      min={0}
-                      value={r.intervalMin ?? ""}
-                      onChange={(e) => patch(r.id, { intervalMin: e.target.value ? Number(e.target.value) : null })}
-                      placeholder="—"
-                      className="w-14 px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
-                    />
-                    {t("routines.min", "min")}
-                  </label>
-                  <label className="flex items-center gap-1.5">
-                    <Clock size={11} className="opacity-70" /> {t("routines.at", "às")}
-                    <input
-                      type="time"
-                      value={r.atTime ?? ""}
-                      onChange={(e) => patch(r.id, { atTime: e.target.value || null })}
+                    {t("routines.trigger", "disparo")}
+                    <select
+                      value={effectiveTrigger(r)}
+                      onChange={(e) => patch(r.id, { trigger: e.target.value as RoutineTrigger })}
                       className="px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
-                    />
+                    >
+                      <option value="interval">{t("routines.trigInterval", "Intervalo")}</option>
+                      <option value="atTime">{t("routines.trigAtTime", "Diário HH:MM")}</option>
+                      <option value="floor-created">{t("routines.trigFloorCreated", "Ao criar floor")}</option>
+                      <option value="floor-deleted">{t("routines.trigFloorDeleted", "Ao deletar floor")}</option>
+                    </select>
                   </label>
+                  {effectiveTrigger(r) === "interval" && (
+                    <label className="flex items-center gap-1.5">
+                      {t("routines.every", "a cada")}
+                      <input
+                        type="number"
+                        min={0}
+                        value={r.intervalMin ?? ""}
+                        onChange={(e) => patch(r.id, { intervalMin: e.target.value ? Number(e.target.value) : null })}
+                        placeholder="—"
+                        className="w-14 px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
+                      />
+                      {t("routines.min", "min")}
+                    </label>
+                  )}
+                  {effectiveTrigger(r) === "atTime" && (
+                    <label className="flex items-center gap-1.5">
+                      <Clock size={11} className="opacity-70" /> {t("routines.at", "às")}
+                      <input
+                        type="time"
+                        value={r.atTime ?? ""}
+                        onChange={(e) => patch(r.id, { atTime: e.target.value || null })}
+                        className="px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
+                      />
+                    </label>
+                  )}
                   <label className="flex items-center gap-1.5">
                     {t("routines.runIn", "rodar em")}
                     <select
