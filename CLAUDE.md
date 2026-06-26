@@ -50,8 +50,8 @@ npm run dev
 | 3 | Roles + persistência SQLite | ✅ |
 | 4 | Sketches + Notas (tldraw) + FileTree + Group | ✅ |
 | 5 | Portais browser (iframe in-DOM; webview nativo falha no WebKitGTK) | ✅ (localhost) |
-| 6 | Floors (= worktrees git) ✅ + Routines ⏳ | 🔶 |
-| 7 | Ombro (LLM local) + OmniForge bridges | ⏳ |
+| 6 | Floors (= worktrees git) ✅ + Routines 🔶 (MVP: SQLite+histórico+alvo-de-floor; falta triggers de floor + gate) | 🔶 |
+| 7 | **OmniPartner** (LLM local — ex-"Ombro") + OmniForge bridges | ⏳ |
 | 8 | **Memória plugável** (interface do cérebro: OmniMemory/Obsidian) + Área de Conexões | 🔶 1a backend ✅ |
 
 ## Repositório Forgejo
