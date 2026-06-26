@@ -21,14 +21,48 @@ OmniRift é um app desktop **open-source** (Tauri 2 + Rust + React) que reúne n
 > Você orquestra; os agentes trabalham.
 
 ## Recursos ✨
-- **Canvas infinito:** mapeie e conecte visualmente suas ideias e tarefas (React Flow + Pixi).
-- **Agentes IA conectáveis:** orquestre Claude Code, Codex e agentes de shell num mesmo fluxo.
-- **Terminais PTY reais:** interaja com seu sistema operacional direto do canvas (`portable-pty`).
-- **Paralelos:** cada nó paralelo é um worktree git independente — múltiplas versões do projeto lado a lado.
-- **Canvas rico:** notas, sketches (tldraw), navegadores embutidos (portais) e file trees.
-- **OmniPartner (BYO LLM):** traga seu próprio LLM — configure as chaves e use os provedores que preferir.
-- **Memória plugável:** integre com OmniMemory ou Obsidian para dar contexto persistente aos agentes.
-- **Privacidade total:** 100% local, sem telemetria.
+
+### 🎨 Canvas & organização
+- **Canvas infinito** (React Flow + Pixi.js) — mapeie e conecte visualmente ideias e tarefas.
+- **Multi-projeto** isolado por abas.
+- **Grupos, notas e sketches** (tldraw), árvore de arquivos e **portais de navegador** embutidos.
+
+### 🤖 Agentes & terminais
+- **Terminais PTY reais** (backend-owned, via `portable-pty`, Windows e Linux).
+- **Agentes** Claude Code, Codex e shell nativo num mesmo fluxo.
+- **Conexões agente → agente** (a saída de A alimenta B).
+- **Roles** (personas reutilizáveis) + **Skills** por CLI.
+- **Fan-out paralelo** e **execução remota via SSH**.
+
+### 🌿 Floors (paralelos = worktrees git)
+- Cada floor é um **worktree git real** — várias versões do projeto lado a lado.
+- Dispatch paralelo de agentes entre floors + **"Land"** com gate de code review.
+
+### ⏰ Routines (automação)
+- Tarefas **agendadas** (intervalo ou diário) e por **gatilho de ciclo-de-vida de floor** (ao criar/deletar).
+- Scheduler embutido + a nível de SO (systemd / schtasks), com persistência SQLite e histórico.
+
+### 💬 OmniPartner — LLM (BYOK)
+- Companion de chat trazendo **seu próprio LLM**: OpenAI, Anthropic ou **Ollama (local)**. Com medidor de tokens.
+
+### 🧩 Memória plugável
+- Conecte um "cérebro": **Local** (SQLite, zero-config), **OmniMemory** (HTTP + MCP) ou **Obsidian**.
+- Área de Conexões pra parear; os agentes nascem *memory-aware*.
+
+### 🛠️ Qualidade de código
+- **Editor Monaco** no canvas + **Painel de Complexidade** nível-projeto (ciclomática/cognitiva/MI, pior-primeiro, drill-down por função) com **"Analisar com IA"**.
+- **Code Review por IA** (BYOK) com decisão **GO/NO-GO** como gate antes de integrar.
+
+### 🖥️ CLI, Mobile & monitoramento
+- **`omnirift-cli`** — controle os agentes pelo terminal (status / listar / spawnar / enviar / matar).
+- **Mobile:** pareie o celular por **QR**, monitore os agentes e habilite *steering* opt-in (relay E2EE na LAN).
+- **Monitor de recursos** (CPU/GPU/memória) + painel de **Saúde do Projeto** com relatório por IA.
+
+### 🔌 Extensibilidade & dados
+- Servidores **MCP** customizados injetados nos agentes, **hooks**, **compressores de token** plugáveis.
+- **Snapshots** e backup de ações, histórico de sessões, persistência SQLite com auto-save/restore.
+
+- **Privacidade total:** 100% local, sem conta, sem telemetria.
 
 ## Instalação ⬇️
 Baixe a versão mais recente no [site](https://omnirift.omniforge.com.br) ou na [página de Releases](https://github.com/jessefreitas/OmniRift/releases):
