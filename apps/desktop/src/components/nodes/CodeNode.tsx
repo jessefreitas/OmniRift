@@ -13,10 +13,8 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
 import { NodeHelp } from "@/components/NodeHelp";
 import { NodeComment } from "@/components/NodeComment";
-import { codeMetrics, codeOpen, codeSave, codeUnwatch, codeWatch, debugRequest, onCodeChanged } from "@/lib/code-client";
-import { agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
-import { workerClaudeArgs } from "@/lib/agent-contract";
-import { loadRoles, ROLE_CLIS } from "@/lib/agent-roles";
+import { codeMetrics, codeOpen, codeSave, codeUnwatch, codeWatch, onCodeChanged } from "@/lib/code-client";
+import { spawnDebuggerAgent } from "@/lib/agent-debug";
 import { ptyWrite } from "@/lib/pty-client";
 import { loadThresholds, levelFor, type ThresholdLevel } from "@/lib/code-thresholds";
 import { CodeComplexityPanel } from "@/components/nodes/CodeComplexityPanel";
@@ -81,8 +79,6 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
     setShowSend(true);
   }, []);
 
-  const addTerminal = useCanvasStore((s) => s.addTerminal);
-
   const [source, setSource] = useState("");
   const [language, setLanguage] = useState("plaintext");
   const [loading, setLoading] = useState(true);
@@ -113,50 +109,19 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
     setShowComplexity(false);
   }, []);
 
-  // Spawna o DebuggerAgent (sub-fase 9d) pelo MESMO caminho dos outros agentes:
-  // debug_request monta o prompt (arquivo + pior função + erro/seleção + bugs
-  // similares da memória), depois addTerminal sobe um claude com o role "debugger"
-  // — e o agent_mcp_config injeta Serena + memória nele. Tudo degrada: se
-  // debug_request/métricas/memória falharem, ainda spawna com o contexto que tiver.
+  // Spawna o DebuggerAgent (sub-fase 9d) pelo caminho único de `agent-debug.ts`
+  // (reusado também pelo Painel de Complexidade 9e). Degrada sozinho se o
+  // debug_request falhar — o agente ainda nasce memory/Serena-aware.
   const onDebug = useCallback(async () => {
     if (debugging) return;
     setDebugging(true);
     try {
-      const claude = ROLE_CLIS.find((c) => c.id === "claude") ?? ROLE_CLIS[0];
-      const debuggerRole = loadRoles().find((r) => r.id === "debugger");
-
-      const label = `debug: ${fileName}`;
-      const [mcpPath, settingsPath] = await Promise.all([
-        agentMcpConfig().catch(() => null),
-        agentSettingsConfig(label).catch(() => null),
-      ]);
-
-      // Prompt rico do backend (best-effort). Se falhar, cai num prompt mínimo
-      // com o caminho do arquivo — o agente ainda nasce memory/Serena-aware.
-      let prompt: string;
-      try {
-        const res = await debugRequest({
-          filePath,
-          selection: pendingSelection ?? undefined,
-        });
-        prompt = res.prompt;
-      } catch (e) {
-        console.warn("[code] debug_request falhou — prompt mínimo:", e);
-        prompt = `Faça debug cirúrgico do arquivo ${filePath}. Use o Serena (find_symbol/get_references) e edite via replace_symbol_body. Consulte a memória por bugs similares e grave o aprendizado ao final.`;
-      }
-
-      const baseArgs = workerClaudeArgs(mcpPath, debuggerRole?.prompt, settingsPath);
-      addTerminal({
-        command: claude.command,
-        args: [...baseArgs, prompt],
-        role: "claude-code",
-        label,
-      });
+      await spawnDebuggerAgent(filePath, { selection: pendingSelection ?? undefined });
       setPendingSelection(null);
     } finally {
       setDebugging(false);
     }
-  }, [debugging, filePath, fileName, pendingSelection, addTerminal]);
+  }, [debugging, filePath, pendingSelection]);
 
   // Recalcula as métricas a partir do arquivo em disco. Linguagem sem grammar
   // (ex.: .md/.json) ou erro → some o badge (não polui a UI nem é fatal).

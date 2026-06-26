@@ -26,7 +26,9 @@ use commands::skill_wiring::{agent_skills_config, list_installed_skills};
 use commands::usage::{budget_remove, budget_set, usage_budget_status, usage_scan};
 use commands::browser::browser_shot;
 use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
-use commands::code::{code_metrics, code_open, code_save, code_unwatch, code_watch, CodeWatchers};
+use commands::code::{
+    code_metrics, code_metrics_project, code_open, code_save, code_unwatch, code_watch, CodeWatchers,
+};
 use commands::dbnode::db_query;
 use commands::debug::debug_request;
 use commands::diagnostics::collect_diagnostics;
@@ -389,6 +391,7 @@ pub fn run() {
             code_watch,
             code_unwatch,
             code_metrics,
+            code_metrics_project,
             project_scan,
             health_analyze_file,
             health_report_get,
