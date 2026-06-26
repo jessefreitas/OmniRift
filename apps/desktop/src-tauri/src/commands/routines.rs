@@ -32,6 +32,10 @@ pub struct Routine {
     /// Floor onde a routine roda (null = floor ativo). Coluna `target_floor`.
     #[serde(default)]
     pub target_floor: Option<String>,
+    /// Tipo de disparo (Fase 2): "interval" | "atTime" | "floor-created" | "floor-deleted".
+    /// null/None = retrocompat: o front deriva por intervalMin/atTime. Coluna `trigger`.
+    #[serde(default)]
+    pub trigger: Option<String>,
     /// Epoch (segundos) — preenchido pelo backend; ignorado na entrada.
     #[serde(default)]
     pub created_at: Option<i64>,
@@ -63,7 +67,8 @@ CREATE TABLE IF NOT EXISTS routines (
     enabled       INTEGER,
     target_floor  TEXT,
     created_at    INTEGER,
-    updated_at    INTEGER
+    updated_at    INTEGER,
+    \"trigger\"     TEXT
 );
 CREATE TABLE IF NOT EXISTS routine_runs (
     id          TEXT PRIMARY KEY,
@@ -76,8 +81,28 @@ CREATE INDEX IF NOT EXISTS idx_routine_runs_routine
     ON routine_runs(routine_id, started_at DESC);
 ";
 
+/// Adiciona uma coluna só se ela ainda não existir (migração idempotente p/ DBs
+/// criados antes da coluna). `CREATE TABLE IF NOT EXISTS` é no-op em tabela que já
+/// existe, então tabelas legadas não ganhariam a coluna sem este ALTER guardado.
+/// `col` é citado (`"trigger"` é palavra reservada do SQLite). Roda 2x sem quebrar.
+fn ensure_column(conn: &Connection, table: &str, col: &str, decl: &str) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let exists = stmt
+        .query_map([], |r| r.get::<_, String>(1))? // col 1 = nome da coluna
+        .filter_map(Result::ok)
+        .any(|name| name == col);
+    drop(stmt);
+    if !exists {
+        conn.execute(&format!("ALTER TABLE {table} ADD COLUMN \"{col}\" {decl}"), [])?;
+    }
+    Ok(())
+}
+
 fn ensure_schema(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(SCHEMA)
+    conn.execute_batch(SCHEMA)?;
+    // Fase 2: coluna `trigger` (ciclo-de-vida de floor). Idempotente p/ DBs legados.
+    ensure_column(conn, "routines", "trigger", "TEXT")?;
+    Ok(())
 }
 
 fn now_secs() -> i64 {
@@ -98,6 +123,7 @@ fn row_to_routine(r: &rusqlite::Row<'_>) -> rusqlite::Result<Routine> {
         target_floor: r.get(6)?,
         created_at: r.get(7)?,
         updated_at: r.get(8)?,
+        trigger: r.get(9)?,
     })
 }
 
@@ -112,7 +138,7 @@ fn row_to_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
 }
 
 const COLS: &str =
-    "id, name, command, interval_min, at_time, enabled, target_floor, created_at, updated_at";
+    "id, name, command, interval_min, at_time, enabled, target_floor, created_at, updated_at, \"trigger\"";
 
 // ── Lógica (testável sem Tauri State) ────────────────────────────────────────
 
@@ -136,16 +162,17 @@ fn upsert_impl(db: &Db, mut routine: Routine) -> rusqlite::Result<Routine> {
         // created_at só no INSERT; no UPDATE preserva o original. updated_at sempre = now.
         c.execute(
             "INSERT INTO routines
-               (id, name, command, interval_min, at_time, enabled, target_floor, created_at, updated_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+               (id, name, command, interval_min, at_time, enabled, target_floor, created_at, updated_at, \"trigger\")
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
              ON CONFLICT(id) DO UPDATE SET
                name=excluded.name, command=excluded.command,
                interval_min=excluded.interval_min, at_time=excluded.at_time,
                enabled=excluded.enabled, target_floor=excluded.target_floor,
-               updated_at=excluded.updated_at",
+               updated_at=excluded.updated_at, \"trigger\"=excluded.\"trigger\"",
             rusqlite::params![
                 routine.id, routine.name, routine.command, routine.interval_min,
-                routine.at_time, routine.enabled as i64, routine.target_floor, now, now
+                routine.at_time, routine.enabled as i64, routine.target_floor, now, now,
+                routine.trigger
             ],
         )?;
         // Re-lê a linha canônica (created_at correto mesmo em update).
@@ -265,6 +292,7 @@ mod tests {
             target_floor: Some("floor-1".to_string()),
             created_at: None,
             updated_at: None,
+            trigger: None,
         }
     }
 
@@ -347,5 +375,80 @@ mod tests {
         // E as operações seguem funcionando.
         upsert_impl(&db, mk("x", "X")).unwrap();
         assert_eq!(list_impl(&db).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn trigger_column_migration_is_idempotent_from_legacy_table() {
+        let (db, _d) = temp_db();
+        // Simula um DB LEGADO: tabela `routines` SEM a coluna `trigger`.
+        db.with_conn(|c| {
+            c.execute_batch(
+                "CREATE TABLE routines (
+                    id TEXT PRIMARY KEY, name TEXT, command TEXT,
+                    interval_min INTEGER, at_time TEXT, enabled INTEGER,
+                    target_floor TEXT, created_at INTEGER, updated_at INTEGER
+                );",
+            )?;
+            // Insere uma routine legada (sem a coluna trigger existir ainda).
+            c.execute(
+                "INSERT INTO routines
+                   (id, name, command, interval_min, at_time, enabled, target_floor, created_at, updated_at)
+                 VALUES ('legacy','Legada','echo hi',30,NULL,1,NULL,1,1)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        // 1ª migração: ALTER adiciona `trigger`. 2ª e 3ª: no-op (idempotente).
+        db.with_conn(|c| {
+            ensure_schema(c)?;
+            ensure_schema(c)?;
+            ensure_column(c, "routines", "trigger", "TEXT")?;
+            Ok(())
+        })
+        .unwrap();
+
+        // A routine legada sobrevive e lê com trigger = None (retrocompat).
+        let list = list_impl(&db).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "legacy");
+        assert_eq!(list[0].trigger, None, "routine legada nasce sem trigger (deriva no front)");
+        // E a coluna existe de fato (PRAGMA enxerga "trigger").
+        let has_trigger = db
+            .with_conn(|c| {
+                let mut stmt = c.prepare("PRAGMA table_info(routines)")?;
+                let cols: Vec<String> = stmt
+                    .query_map([], |r| r.get::<_, String>(1))?
+                    .filter_map(Result::ok)
+                    .collect();
+                Ok(cols)
+            })
+            .unwrap();
+        assert!(has_trigger.iter().any(|c| c == "trigger"), "coluna trigger migrada");
+    }
+
+    #[test]
+    fn upsert_and_list_roundtrip_trigger() {
+        let (db, _d) = temp_db();
+        // Routine com trigger de ciclo-de-vida de floor.
+        let mut r = mk("floor-trig", "Ao criar floor");
+        r.interval_min = None;
+        r.at_time = None;
+        r.trigger = Some("floor-created".to_string());
+        let saved = upsert_impl(&db, r).unwrap();
+        assert_eq!(saved.trigger.as_deref(), Some("floor-created"));
+
+        // List preserva o trigger.
+        let list = list_impl(&db).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].trigger.as_deref(), Some("floor-created"));
+
+        // Update muda o trigger (floor-created → floor-deleted) sem duplicar.
+        let mut edit = mk("floor-trig", "Ao deletar floor");
+        edit.trigger = Some("floor-deleted".to_string());
+        let updated = upsert_impl(&db, edit).unwrap();
+        assert_eq!(updated.trigger.as_deref(), Some("floor-deleted"));
+        assert_eq!(list_impl(&db).unwrap().len(), 1, "update por id não duplica");
     }
 }

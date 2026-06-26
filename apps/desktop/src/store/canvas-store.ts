@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
+import { emit } from "@tauri-apps/api/event";
 import { composedCompressorEnv } from "@/lib/compress-client";
 import { withinLimit } from "@/lib/license-client";
 import { useLicenseStore } from "@/store/license-store";
@@ -141,6 +142,18 @@ function defaultPosition(): { x: number; y: number } {
   return { x: 200 + Math.random() * 400, y: 150 + Math.random() * 300 };
 }
 
+/** Emite o evento de ciclo-de-vida de floor no event bus do Tauri (Routines Fase 2).
+ *  No-op sem Tauri (browser/test). Git-backed creates já são emitidos pelo backend
+ *  (`floor_git_create`) — aqui só emitimos `floor:created` p/ floors NÃO git-backed,
+ *  evitando disparo duplicado. `floor:deleted` sai sempre daqui (é o caminho de delete vivo). */
+function emitFloorLifecycle(
+  event: "floor:created" | "floor:deleted",
+  floor: { id: string; name: string; branch?: string },
+): void {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+  void emit(event, { floorId: floor.id, name: floor.name, branch: floor.branch ?? null }).catch(() => {});
+}
+
 const FIRST_FLOOR: Floor = { id: "floor-main", name: "Principal", cwd: null, projectId: "proj-main", nodes: [], edges: [], hostId: LOCAL_HOST_ID };
 const FIRST_PROJECT: ProjectMeta = { id: "proj-main", name: "Principal", cwd: null, activeFloorId: FIRST_FLOOR.id };
 
@@ -252,6 +265,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       }),
     };
     set((s) => ({ floors: [...s.floors, floor] }));
+    // Trigger Routines: floors git-backed já emitem `floor:created` no backend
+    // (floor_git_create) — aqui só emitimos os NÃO git-backed (evita disparo duplo).
+    if (!g) emitFloorLifecycle("floor:created", floor);
     if (opts?.focus) get().switchFloor(floor.id);
     return floor;
   },
@@ -263,19 +279,22 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     }),
   renameFloor: (id, name) =>
     set((s) => ({ floors: s.floors.map((f) => (f.id === id ? { ...f, name } : f)) })),
-  deleteFloor: (id) =>
-    set((s) => {
-      const target = s.floors.find((f) => f.id === id);
-      if (!target) return s;
-      const projId = target.projectId;
-      if (s.floors.filter((f) => f.projectId === projId).length <= 1) return s; // nunca o último do projeto
-      const floors = s.floors.filter((f) => f.id !== id);
-      if (s.activeFloorId === id) {
-        const next = floors.find((f) => f.projectId === projId) ?? floors[0];
-        return { floors, activeFloorId: next.id, currentCwd: next.cwd };
-      }
-      return { floors };
-    }),
+  deleteFloor: (id) => {
+    const s = get();
+    const target = s.floors.find((f) => f.id === id);
+    if (!target) return;
+    const projId = target.projectId;
+    if (s.floors.filter((f) => f.projectId === projId).length <= 1) return; // nunca o último do projeto
+    const floors = s.floors.filter((f) => f.id !== id);
+    if (s.activeFloorId === id) {
+      const next = floors.find((f) => f.projectId === projId) ?? floors[0];
+      set({ floors, activeFloorId: next.id, currentCwd: next.cwd });
+    } else {
+      set({ floors });
+    }
+    // Trigger Routines: caminho de delete vivo (canvas-store). Só emite em delete real.
+    emitFloorLifecycle("floor:deleted", target);
+  },
   getFloor: (id) => get().floors.find((f) => f.id === id),
   allTerminalNodes: () =>
     get().floors.flatMap((f) => f.nodes.filter((n): n is TerminalNode => n.kind === "terminal")),
