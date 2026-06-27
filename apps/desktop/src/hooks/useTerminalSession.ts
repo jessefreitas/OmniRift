@@ -177,6 +177,7 @@ export function useTerminalSession({
     let disposed = false;
     disposedRef.current = false; // reset no (re)mount [GLM-audit #3]
     let dataDisposable: { dispose: () => void } | null = null;
+    let disposeImeGuard: (() => void) | null = null;
 
     // --- Pipeline assíncrono: fit → spawn → listeners → stdin -----------
     // IMPORTANTE: fit() ANTES do spawn garante que o PTY nasce com as
@@ -304,8 +305,31 @@ export function useTerminalSession({
           onExit?.(code);
         });
 
-        // Teclas do usuário → stdin do PTY
+        // Teclas do usuário → stdin do PTY.
+        //
+        // WebKitGTK + IBus (Linux) DUPLICAM o caractere composto (acentos, ç…):
+        // o caminho de composição do xterm emite o char e o evento `input`
+        // seguinte da textarea emite o MESMO char de novo. A dedup interna do
+        // xterm (`_isSendingComposition` + setTimeout 0) perde a corrida nesse
+        // motor → "começar" vira "come ç çar". Guardamos a string recém-composta
+        // numa janela curta: a 1ª cópia passa, a 2ª idêntica é dropada (uma vez).
+        // No-op em motores sem o bug — nunca há 2ª cópia pra dropar (não deleta).
+        let composed: { data: string; until: number; seen: boolean } | null = null;
+        const onCompositionEnd = (e: CompositionEvent) => {
+          if (e.data) composed = { data: e.data, until: Date.now() + 60, seen: false };
+        };
+        term.textarea?.addEventListener("compositionend", onCompositionEnd);
+        disposeImeGuard = () =>
+          term.textarea?.removeEventListener("compositionend", onCompositionEnd);
+
         dataDisposable = term.onData((data) => {
+          if (composed && data === composed.data && Date.now() < composed.until) {
+            if (composed.seen) {
+              composed = null; // 2ª cópia (duplicata WebKitGTK/IBus) → dropa
+              return;
+            }
+            composed.seen = true; // 1ª cópia (a legítima) → passa adiante
+          }
           // Não aguardamos: a UI deve ser imediata; erros aparecem nos logs.
           ptyWrite(sessionId, data).catch((e) => {
             console.error("[omni-canvas] pty_write falhou:", e);
@@ -351,6 +375,7 @@ export function useTerminalSession({
       bgQueueCharsRef.current = 0;
       snapshotInFlightRef.current = false;
       pendingDuringSnapshotRef.current = [];
+      disposeImeGuard?.();
       dataDisposable?.dispose();
       unlistenOutput?.();
       unlistenStatus?.();
