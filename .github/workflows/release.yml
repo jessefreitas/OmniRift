@@ -1,6 +1,6 @@
 # Release do OmniRift — builda os instaladores no GitHub e anexa ao Release.
 # Dispara num push de tag `v*` (ex.: git tag v0.1.0 && git push --tags).
-# Plataformas: Linux (.AppImage + .deb) e Windows (.exe NSIS + .msi). Sem macOS.
+# Plataformas: Linux (.AppImage + .deb), Windows (.exe NSIS + .msi) e macOS Apple Silicon (.dmg).
 name: release
 
 on:
@@ -59,6 +59,8 @@ jobs:
             bundles: "deb,appimage"
           - os: windows-latest
             bundles: "nsis,msi"
+          - os: macos-14
+            bundles: "dmg"
     runs-on: ${{ matrix.os }}
     # Resiliência de rede em runner hospedado: o build do Windows já caiu com
     # "HTTP2 framing layer / curl failed" baixando crate. Desligar multiplexing HTTP2
