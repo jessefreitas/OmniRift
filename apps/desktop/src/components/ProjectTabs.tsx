@@ -7,6 +7,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Plus, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { EditableLabel } from "@/components/EditableLabel";
 import { serenaEnsureProject } from "@/lib/serena-client";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
@@ -41,17 +42,19 @@ export function ProjectTabs() {
         <div
           key={p.id}
           onClick={() => setActiveProject(p.id)}
-          onDoubleClick={() => {
-            const n = prompt(t("projectTabs.renameProject", "Renomear projeto"), p.name);
-            if (n) renameProject(p.id, n.trim());
-          }}
           title={p.cwd ?? t("projectTabs.noFolder", "(sem pasta)")}
           className={cn(
             "group flex items-center gap-1.5 px-3 border-r border-border cursor-pointer text-xs whitespace-nowrap",
             p.id === activeProjectId ? "bg-bg text-text" : "text-textMuted hover:bg-surface1",
           )}
         >
-          <span className="truncate max-w-[160px]">{p.name}</span>
+          <EditableLabel
+            value={p.name}
+            onCommit={(n) => renameProject(p.id, n)}
+            className="truncate max-w-[160px]"
+            inputClassName="max-w-[160px] text-xs"
+            title={t("projectTabs.renameHint", "Renomear (duplo-clique)")}
+          />
           <span className="text-[9px] opacity-50">{floorCount(p)}</span>
           {projects.length > 1 && (
             <button

@@ -15,6 +15,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { emit } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import {
   listenAgentStatus,
@@ -141,7 +142,20 @@ export function useTerminalSession({
     });
 
     const fitAddon = new FitAddon();
-    const webLinks = new WebLinksAddon();
+    // Links clicáveis: handler abre no SO via plugin-shell (window.open não
+    // funciona no WebKitGTK) + regex que inclui file:// além de http(s) — o
+    // default do addon só pega http(s). O addon acrescenta a flag 'g' sozinho.
+    const webLinks = new WebLinksAddon(
+      (_event, uri) => {
+        // Defense-in-depth: o scope do plugin-shell já valida, mas aqui barramos
+        // URIs longas ou de esquema inesperado antes de pedir abertura ao SO.
+        if (uri.length > 2048 || !/^(https?:\/\/|file:\/\/\/)/.test(uri)) return;
+        void openExternal(uri).catch((e) => console.warn("[terminal] abrir link falhou:", e));
+      },
+      // Classe negada + quantificador LIMITADO ({1,2048}) — tempo linear, sem
+      // backtracking catastrófico. Inclui file:// além do http(s) do default.
+      { urlRegex: /(https?:\/\/|file:\/\/)[^\s"'<>)\]]{1,2048}/ },
+    );
     term.loadAddon(fitAddon);
     term.loadAddon(webLinks);
 

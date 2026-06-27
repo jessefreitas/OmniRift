@@ -6,6 +6,15 @@ por `npm run version:set <X.Y.Z>`.
 
 ## [Não lançado]
 
+## [0.1.39] — 2026-06-27
+
+### Adicionado
+- **Renomear inline** de abas de projeto e de paralelos — duplo-clique vira input (Enter/Esc/blur), no lugar do `prompt()` nativo que não abre no WebKitGTK.
+- **Links clicáveis no terminal** — `file://` (pastas/arquivos) e `http(s)` abrem no app/gerenciador padrão do SO; scope `file://` liberado e restrito a paths absolutos (sem metacaracteres de shell).
+
+### Corrigido
+- **Boot não restaura mais o projeto anterior** — o app abre limpo (projeto "Principal" vazio) em vez de reabrir a última sessão. Quando a sessão anterior tem conteúdo, ela é preservada como snapshot recuperável (não é apagada pelo auto-save).
+
 ## [0.1.0] — 2026-06-17
 
 Primeiro beta do OmniRift — o **cockpit visual de agentes de IA**: um canvas
