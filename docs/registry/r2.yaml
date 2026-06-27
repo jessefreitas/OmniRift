@@ -5,7 +5,7 @@
 
 buckets:
   omnirift-releases:
-    description: "Instaladores do OmniRift (Win/Linux) espelhados do GitHub Release."
+    description: "Instaladores do OmniRift (Win/Linux/macOS) espelhados do GitHub Release."
     account_id: "0245b00ef3744d9e0e07f785971bb90a"   # conta CF OmniForge (Jesse)
     created: "2026-06-24"
     access: "privado (sem domínio público) — lido só pelo Worker via binding RELEASES"
@@ -18,6 +18,7 @@ buckets:
         windows_msi: "releases/latest/windows.msi"
         linux: "releases/latest/linux.AppImage"
         linux_deb: "releases/latest/linux.deb"
+        macos: "releases/latest/macos.dmg"
     upload_por: ".github/workflows/release.yml (job 'mirror', needs build, em push de tag v*)"
 
 credentials:
