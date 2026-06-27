@@ -71,6 +71,11 @@ const R2_LATEST = {
     filename: "OmniRift.AppImage",
     contentType: "application/octet-stream",
   },
+  mac: {
+    key: "releases/latest/macos.dmg",
+    filename: "OmniRift.dmg",
+    contentType: "application/octet-stream",
+  },
 } as const;
 
 // Email single-line (sem CR/LF → barra SMTP header injection) + formato simples.
@@ -324,17 +329,19 @@ app.get("/download/:platform?", async (c) => {
   const releasesPage = `https://github.com/${env.GITHUB_REPO}/releases/latest`;
   const ua = c.req.header("user-agent") || "";
   let platform = (c.req.param("platform") || "").toLowerCase();
+  if (platform === "macos") platform = "mac"; // alias amigável
   if (!platform) {
     if (/windows/i.test(ua)) platform = "windows";
     else if (/linux/i.test(ua) && !/android/i.test(ua)) platform = "linux";
+    else if (/macintosh|mac os x/i.test(ua)) platform = "mac";
   }
-  if (platform !== "windows" && platform !== "linux") return c.redirect(releasesPage, 302);
+  if (platform !== "windows" && platform !== "linux" && platform !== "mac") return c.redirect(releasesPage, 302);
 
   // ── R2 PRIMEIRO: serve o ponteiro estável releases/latest/<so> direto do bucket
   // (egress zero, sem rate limit do GitHub API). Objeto ausente OU erro → fallback
   // pro fluxo do GitHub abaixo (fail-open: nunca quebra o download).
   try {
-    const r2 = platform === "windows" ? R2_LATEST.windows : R2_LATEST.linux;
+    const r2 = platform === "windows" ? R2_LATEST.windows : platform === "mac" ? R2_LATEST.mac : R2_LATEST.linux;
     const obj = await env.RELEASES.get(r2.key);
     if (obj) {
       return new Response(obj.body, {
@@ -365,7 +372,7 @@ app.get("/download/:platform?", async (c) => {
     const assets = rel.assets ?? [];
     const pick = (exts: string[]) =>
       assets.find((a) => exts.some((e) => a.name.toLowerCase().endsWith(e) && !a.name.toLowerCase().endsWith(".sig")));
-    const asset = platform === "windows" ? pick([".exe", ".msi"]) : pick([".appimage", ".deb"]);
+    const asset = platform === "windows" ? pick([".exe", ".msi"]) : platform === "mac" ? pick([".dmg"]) : pick([".appimage", ".deb"]);
     return c.redirect(asset?.browser_download_url ?? releasesPage, 302);
   } catch {
     return c.redirect(releasesPage, 302);
