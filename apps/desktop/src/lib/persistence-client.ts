@@ -1,27 +1,48 @@
 // src/lib/persistence-client.ts
 //
-// Auto-persistência do canvas (Fase 3): carrega o estado salvo no boot e
-// salva (debounced) sempre que floors/ativo/nome mudam. Mudanças de status de
-// terminal não tocam o snapshot, então não disparam save.
+// Auto-persistência do canvas (Fase 3): salva (debounced) sempre que
+// floors/ativo/nome mudam. Mudanças de status de terminal não tocam o snapshot,
+// então não disparam save.
+//
+// Boot LIMPO (decisão de produto): o app NÃO restaura a sessão anterior — nasce
+// sempre no projeto "Principal" vazio. A sessão salva não é descartada: é
+// preservada como snapshot recuperável (modal de Snapshots) antes de o auto-save
+// sobrescrever o registro único do workspace.
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { dbLoadWorkspace, dbSaveWorkspace } from "@/lib/db-client";
+import { snapshotCreate } from "@/lib/snapshot-client";
+import { migrateWorkspace } from "@/types/workspace";
 
 // Garante que o auto-load só roda uma vez por processo (evita re-load no
 // double-mount do StrictMode em dev).
 let didLoad = false;
 
-/** Carrega o canvas salvo (se houver) e liga o auto-save. Devolve um unsubscribe. */
+/** Vale preservar a sessão anterior? Evita snapshot de workspace vazio a cada boot. */
+function worthPreserving(doc: string): boolean {
+  try {
+    const ws = migrateWorkspace(JSON.parse(doc));
+    if (ws.projects.length > 1) return true;
+    return ws.projects.some((p) => p.cwd != null || p.floors.some((f) => f.nodes.length > 0));
+  } catch {
+    return false; // doc corrompido → nada seguro a preservar
+  }
+}
+
+/** Liga o auto-save (boot limpo, sem restaurar a sessão). Devolve um unsubscribe. */
 export async function initPersistence(): Promise<() => void> {
   if (!didLoad) {
     didLoad = true;
     try {
       const doc = await dbLoadWorkspace();
-      if (doc) {
-        useCanvasStore.getState().restoreWorkspace(JSON.parse(doc));
+      // Boot limpo: NÃO restaura a sessão anterior. Só preserva como snapshot
+      // (rotaciona) se houver conteúdo real — senão o auto-save abaixo apagaria
+      // o registro único. Workspace vazio não vira snapshot (evita overhead).
+      if (doc && worthPreserving(doc)) {
+        await snapshotCreate("sessão anterior (boot)", doc, true);
       }
     } catch (e) {
-      console.warn("[persistence] load falhou:", e);
+      console.warn("[persistence] preservar sessão anterior falhou:", e);
     }
   }
 

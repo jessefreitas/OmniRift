@@ -62,6 +62,7 @@ import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-
 import { type SkillWiring } from "@/lib/agent-skills";
 import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
+import { EditableLabel } from "@/components/EditableLabel";
 import { UpdaterButton } from "@/components/UpdaterButton";
 import { PromptModal } from "@/components/PromptModal";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
@@ -1398,10 +1399,6 @@ export function Sidebar() {
                 ready && "ring-1 ring-green-500/40",
               )}
               onClick={() => switchFloor(f.id)}
-              onDoubleClick={() => {
-                const name = prompt(tr("sidebar.renameParallel", "Renomear paralelo"), f.name);
-                if (name) renameFloor(f.id, name.trim());
-              }}
             >
               {i < 9 && (
                 <span
@@ -1431,7 +1428,13 @@ export function Sidebar() {
                   </Tooltip>
                 );
               })()}
-              <span className="text-xs flex-1 truncate">{f.name}</span>
+              <EditableLabel
+                value={f.name}
+                onCommit={(n) => renameFloor(f.id, n)}
+                className="text-xs flex-1 truncate"
+                inputClassName="text-xs flex-1 min-w-0"
+                title={tr("sidebar.renameParallelHint", "Renomear (duplo-clique)")}
+              />
               <Tooltip label={tr("sidebar.nodesInParallel", "{n} nó(s) neste paralelo").replace("{n}", String(f.nodes.length))} side="top">
                 <span className="text-[9px] text-textMuted opacity-60">{f.nodes.length}</span>
               </Tooltip>

@@ -1,7 +1,7 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "OmniRift",
-  "version": "0.1.38",
+  "version": "0.1.39",
   "identifier": "com.omniforge.omnirift",
   "build": {
     "frontendDist": "../dist",
@@ -62,6 +62,9 @@
     }
   },
   "plugins": {
+    "shell": {
+      "open": "^(https?://[^\\s\"'<>]+|mailto:[^\\s\"'<>]+|tel:[^\\s\"'<>]+|file:///[^\\s\"'<>;|&$]*)$"
+    },
     "updater": {
       "endpoints": [
         "https://github.com/jessefreitas/OmniRift/releases/latest/download/latest.json"
