@@ -6,6 +6,8 @@ por `npm run version:set <X.Y.Z>`.
 
 ## [Não lançado]
 
+## [0.1.41] — 2026-06-27
+
 ### Corrigido
 - **Acentos duplicados no terminal** (Linux/WebKitGTK + IBus) — caracteres compostos (ç, á, ã…) eram enviados em dobro ao PTY ("começar" virava "come ç çar"). Um guard de composição dropa a 2ª cópia idêntica do char recém-composto; a 1ª passa sempre, então é no-op em motores sem o bug.
 
