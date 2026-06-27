@@ -6,6 +6,11 @@ por `npm run version:set <X.Y.Z>`.
 
 ## [Não lançado]
 
+## [0.1.40] — 2026-06-27
+
+### Adicionado
+- **Imagem macOS (Apple Silicon)** — o pipeline de release agora gera `.dmg` arm64 (job `macos-14`). Não-assinado (uso pessoal): abrir com botão-direito → Abrir, ou `xattr -cr OmniRift.app`. Os sidecars OmniCompress compilam nativamente no runner macOS.
+
 ## [0.1.39] — 2026-06-27
 
 ### Adicionado
