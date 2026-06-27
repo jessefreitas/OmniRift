@@ -22,6 +22,7 @@ const DOWNLOAD_URL = (() => {
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
   if (/Windows/i.test(ua)) return `${LICENSE_WORKER}/download/windows`;
   if (/Linux/i.test(ua) && !/Android/i.test(ua)) return `${LICENSE_WORKER}/download/linux`;
+  if (/Macintosh|Mac OS X/i.test(ua)) return `${LICENSE_WORKER}/download/mac`;
   return `${LICENSE_WORKER}/download`;
 })();
 
@@ -686,7 +687,7 @@ export function Landing() {
           <div style={eyebrow}>Baixar</div>
           <h2 style={{ ...h2, margin: "14px auto 8px" }}>Pegue o OmniRift</h2>
           <p style={{ textAlign: "center", color: MUTED, fontSize: 17, maxWidth: 520, margin: "0 auto 44px" }}>
-            Open-source · grátis · sem conta · roda no seu Linux ou Windows.
+            Open-source · grátis · sem conta · roda no seu Linux, Windows ou macOS.
           </p>
           <div style={{ display: "flex", gap: 20, justifyContent: "center", flexWrap: "wrap" }}>
             <div style={{ flex: "1 1 260px", maxWidth: 320, border: "1px solid rgba(255,255,255,.09)", borderRadius: 16, padding: 28, background: "linear-gradient(180deg, rgba(20,20,23,.6), rgba(12,12,15,.6))", textAlign: "center" }}>
@@ -703,9 +704,19 @@ export function Landing() {
                 Baixar para Windows →
               </a>
             </div>
+            <div style={{ flex: "1 1 260px", maxWidth: 320, border: "1px solid rgba(255,255,255,.09)", borderRadius: 16, padding: 28, background: "linear-gradient(180deg, rgba(20,20,23,.6), rgba(12,12,15,.6))", textAlign: "center" }}>
+              <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>macOS</div>
+              <div style={{ color: MUTED, fontSize: 13, marginBottom: 18 }}>.dmg · Apple Silicon</div>
+              <a href={`${LICENSE_WORKER}/download/mac`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#F3F3F4", color: "#0A0A0C", textDecoration: "none", padding: "12px 22px", borderRadius: 10, fontWeight: 600, fontSize: 15 }}>
+                Baixar para macOS →
+              </a>
+            </div>
           </div>
-          <a href="https://github.com/jessefreitas/OmniRift/releases/latest" target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 28, color: "var(--ac)", textDecoration: "none", fontSize: 14 }}>
-            Todas as versões e formatos (.deb, .msi) → GitHub Releases
+          <p style={{ color: MUTED, fontSize: 12.5, maxWidth: 460, margin: "22px auto 0" }}>
+            macOS é não-assinado (uso pessoal): na 1ª vez, botão-direito no app → Abrir.
+          </p>
+          <a href="https://github.com/jessefreitas/OmniRift/releases/latest" target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 16, color: "var(--ac)", textDecoration: "none", fontSize: 14 }}>
+            Todas as versões e formatos (.deb, .msi, .dmg) → GitHub Releases
           </a>
         </div>
       </section>
@@ -794,7 +805,7 @@ export function Landing() {
           >
             Baixar {PRODUCT_NAME} →
           </a>
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12.5, color: DIM, marginTop: 18 }}>Linux · Windows · open-source</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12.5, color: DIM, marginTop: 18 }}>Linux · Windows · macOS · open-source</div>
         </div>
       </section>
 
