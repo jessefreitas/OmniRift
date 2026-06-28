@@ -4,6 +4,7 @@
 // blackboard e erros registrados. Mesmas memórias das tools MCP memory_*.
 
 import { useEffect, useState } from "react";
+import { SafeInput } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { Brain, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
@@ -83,7 +84,7 @@ export function MemoryModal({ onClose }: Props) {
           <span className="text-sm font-medium text-text">{t("memory.title", "Memória dos agentes")}</span>
           <span className="text-[11px] text-textMuted opacity-60">{items.length}</span>
           <div className="flex-1" />
-          <input
+          <SafeInput
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void load(); }}
@@ -152,7 +153,7 @@ export function MemoryModal({ onClose }: Props) {
 
         {/* Adicionar fato manual */}
         <div className="flex items-center gap-1.5 px-4 py-2 border-t border-border shrink-0">
-          <input
+          <SafeInput
             value={newFact}
             onChange={(e) => setNewFact(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void addFact(); }}

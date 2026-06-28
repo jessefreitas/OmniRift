@@ -29,6 +29,7 @@ import {
 } from "@/lib/pty-client";
 import { useCanvasStore } from "@/store/canvas-store";
 import { sessionStart, sessionEvent, sessionEnd } from "@/lib/session-client";
+import { pasteText } from "@/lib/clipboard";
 import type { PtySpawnConfig, SessionId } from "@/types/pty";
 
 interface UseTerminalSessionOptions {
@@ -354,8 +355,8 @@ export function useTerminalSession({
         // Atalhos de input extra (interceptados ANTES do xterm gerar bytes):
         //  - Shift+Enter → quebra de linha (\n) em vez de enviar (\r) — Claude Code
         //    e REPLs tratam \n como nova linha e \r como submit.
-        //  - Ctrl/Cmd+V → cola do clipboard (mesmo caminho do menu de contexto:
-        //    navigator.clipboard.readText, que cobre o WebKitGTK com foco no canvas).
+        //  - Ctrl/Cmd+V → cola do clipboard via pasteText() (plugin clipboard do
+        //    Tauri; o navigator.clipboard.readText não funciona no WebKitGTK).
         term.attachCustomKeyEventHandler((e) => {
           if (e.type !== "keydown") return true;
           // Conta cada tecla-de-char (key.length === 1) p/ o dedup por keySeq do
@@ -368,10 +369,7 @@ export function useTerminalSession({
             return false;
           }
           if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "v" || e.key === "V")) {
-            void navigator.clipboard
-              .readText()
-              .then((text) => (text ? ptyWrite(sessionId, text) : undefined))
-              .catch(() => {});
+            void pasteText().then((text) => (text ? ptyWrite(sessionId, text) : undefined));
             return false;
           }
           return true;

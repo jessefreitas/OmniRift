@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Copy, Maximize2, Minimize2, Play, Wrench, X } from "lucide-react";
@@ -77,7 +78,7 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
       </div>
 
       {/* Input */}
-      <textarea
+      <SafeTextarea
         value={input}
         onChange={(e) => { setInput(e.target.value); patchNode(id, { input: e.target.value }); }}
         onKeyDown={(e) => {

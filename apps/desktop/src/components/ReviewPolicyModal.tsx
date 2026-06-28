@@ -5,6 +5,7 @@
 // de PR, e o modo de gate. Salvo em localStorage por escopo.
 
 import { useEffect, useState } from "react";
+import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { Plus, Sliders, Trash2, X } from "lucide-react";
 
@@ -125,8 +126,8 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }:
               </div>
               {p.categories.map((c, i) => (
                 <div key={i} className="grid grid-cols-[1fr_70px_60px_60px_28px] gap-2 items-center">
-                  <input value={t("reviewCategory." + c.key, c.label)} onChange={(e) => patchCat(i, { label: e.target.value })} className={inp} />
-                  <input value={c.key} onChange={(e) => patchCat(i, { key: e.target.value })} className={`${inp} font-mono`} />
+                  <SafeInput value={t("reviewCategory." + c.key, c.label)} onChange={(e) => patchCat(i, { label: e.target.value })} className={inp} />
+                  <SafeInput value={c.key} onChange={(e) => patchCat(i, { key: e.target.value })} className={`${inp} font-mono`} />
                   <input type="number" value={c.weight} onChange={(e) => patchCat(i, { weight: Number(e.target.value) })} className={inp} />
                   <input type="checkbox" checked={c.blocking} onChange={(e) => patchCat(i, { blocking: e.target.checked })} className="justify-self-center" />
                   <button onClick={() => delCat(i)} className="text-textMuted hover:text-danger justify-self-center"><Trash2 size={12} /></button>
@@ -153,14 +154,14 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }:
           {/* Contratos */}
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("reviewPolicy.contracts", "Contratos / regras extras (vão no prompt)")}</label>
-            <textarea value={p.contracts} onChange={(e) => patch({ contracts: e.target.value })} rows={4} placeholder={t("reviewPolicy.contractsPlaceholder", "ex: nenhum console.log; toda função pública documentada; sem any em TS…")} className="mt-1 w-full px-2 py-1.5 rounded-md text-[11px] bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono" />
+            <SafeTextarea value={p.contracts} onChange={(e) => patch({ contracts: e.target.value })} rows={4} placeholder={t("reviewPolicy.contractsPlaceholder", "ex: nenhum console.log; toda função pública documentada; sem any em TS…")} className="mt-1 w-full px-2 py-1.5 rounded-md text-[11px] bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono" />
           </div>
 
           {/* Contexto de design (committed em .forgejo/review-context.md) */}
           {cwd && (
             <div>
               <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("reviewPolicy.designContext", "Contexto de design (o reviewer respeita)")}</label>
-              <textarea value={ctx} onChange={(e) => setCtx(e.target.value)} rows={5} placeholder={t("reviewPolicy.designContextPlaceholder", "Decisões INTENCIONAIS que o reviewer NÃO deve flagar (threat model, chave pública embutida, ofuscação documentada…)")} className="mt-1 w-full px-2 py-1.5 rounded-md text-[11px] bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono" />
+              <SafeTextarea value={ctx} onChange={(e) => setCtx(e.target.value)} rows={5} placeholder={t("reviewPolicy.designContextPlaceholder", "Decisões INTENCIONAIS que o reviewer NÃO deve flagar (threat model, chave pública embutida, ofuscação documentada…)")} className="mt-1 w-full px-2 py-1.5 rounded-md text-[11px] bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand font-mono" />
               <p className="mt-0.5 text-[10px] text-textMuted opacity-50">{t("reviewPolicy.savedInPrefix", "Salvo em")} <code>.forgejo/review-context.md</code> {t("reviewPolicy.designContextNote", "— usado pelo review do CI e local.")}</p>
             </div>
           )}
@@ -176,9 +177,9 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }:
                 {suppress.length === 0 && <p className="text-[10px] text-textMuted opacity-50">{t("reviewPolicy.noSuppress", "Nenhuma. Adicione pra silenciar um falso-positivo reconhecido (exige motivo).")}</p>}
                 {suppress.map((s, i) => (
                   <div key={i} className="grid grid-cols-[110px_1fr_1fr_28px] gap-2 items-center">
-                    <input value={s.file} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, file: e.target.value } : x)))} placeholder={t("reviewPolicy.filePlaceholder", "arquivo.rs")} className={`${inp} font-mono`} />
-                    <input value={s.keywords.join(", ")} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, keywords: e.target.value.split(",").map((k) => k.trim()).filter(Boolean) } : x)))} placeholder={t("reviewPolicy.keywordsPlaceholder", "palavras (vírgula)")} className={inp} />
-                    <input value={s.reason} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, reason: e.target.value } : x)))} placeholder={t("reviewPolicy.reasonPlaceholder", "motivo")} className={inp} />
+                    <SafeInput value={s.file} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, file: e.target.value } : x)))} placeholder={t("reviewPolicy.filePlaceholder", "arquivo.rs")} className={`${inp} font-mono`} />
+                    <SafeInput value={s.keywords.join(", ")} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, keywords: e.target.value.split(",").map((k) => k.trim()).filter(Boolean) } : x)))} placeholder={t("reviewPolicy.keywordsPlaceholder", "palavras (vírgula)")} className={inp} />
+                    <SafeInput value={s.reason} onChange={(e) => setSuppress((arr) => arr.map((x, j) => (j === i ? { ...x, reason: e.target.value } : x)))} placeholder={t("reviewPolicy.reasonPlaceholder", "motivo")} className={inp} />
                     <button onClick={() => setSuppress((arr) => arr.filter((_, j) => j !== i))} className="text-textMuted hover:text-danger justify-self-center"><Trash2 size={12} /></button>
                   </div>
                 ))}
@@ -198,10 +199,10 @@ export function ReviewPolicyModal({ scope, scopeLabel, cwd, onClose, embedded }:
                 {pathrules.length === 0 && <p className="text-[10px] text-textMuted opacity-50">{t("reviewPolicy.pathRulesExample", 'Ex.: "src/api/** exige teste"; "**/migrations/** → aviso de DBA".')}</p>}
                 {pathrules.map((r, i) => (
                   <div key={i} className="grid grid-cols-[1fr_64px_64px_1fr_28px] gap-2 items-center">
-                    <input value={r.glob} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, glob: e.target.value } : x)))} placeholder="src/api/**" className={`${inp} font-mono`} />
+                    <SafeInput value={r.glob} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, glob: e.target.value } : x)))} placeholder="src/api/**" className={`${inp} font-mono`} />
                     <label className="flex items-center gap-1 text-[10px] text-textMuted"><input type="checkbox" checked={r.requireTest} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, requireTest: e.target.checked } : x)))} /> {t("reviewPolicy.test", "teste")}</label>
                     <select value={r.severity} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, severity: e.target.value } : x)))} className={inp}><option value="WARNING">WARN</option><option value="INFO">INFO</option></select>
-                    <input value={r.message} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, message: e.target.value } : x)))} placeholder={t("reviewPolicy.messagePlaceholder", "mensagem")} className={inp} />
+                    <SafeInput value={r.message} onChange={(e) => setPathrules((arr) => arr.map((x, j) => (j === i ? { ...x, message: e.target.value } : x)))} placeholder={t("reviewPolicy.messagePlaceholder", "mensagem")} className={inp} />
                     <button onClick={() => setPathrules((arr) => arr.filter((_, j) => j !== i))} className="text-textMuted hover:text-danger justify-self-center"><Trash2 size={12} /></button>
                   </div>
                 ))}

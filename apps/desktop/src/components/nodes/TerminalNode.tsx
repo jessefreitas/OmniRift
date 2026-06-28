@@ -18,6 +18,7 @@ import { TerminalContextMenu } from "@/components/TerminalContextMenu";
 import { StatusDot } from "@/components/StatusDot";
 import { useProcInfo } from "@/hooks/useProcInfo";
 import { ptyWrite } from "@/lib/pty-client";
+import { copyText, pasteText } from "@/lib/clipboard";
 import { compressorSavings, isCompressorEnabled, type SavingsReport } from "@/lib/compress-client";
 import { cn } from "@/lib/cn";
 import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
@@ -214,24 +215,18 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
 
   async function handleCopy() {
     const sel = getSelection();
-    if (sel) {
-      try { await navigator.clipboard.writeText(sel); } catch { /* ignorar */ }
-    }
+    if (sel) await copyText(sel);
   }
 
   async function handlePaste() {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) {
-        await ptyWrite(data.session_id, text);
-      }
-    } catch { /* ignorar */ }
+    const text = await pasteText();
+    if (text) await ptyWrite(data.session_id, text);
   }
 
   async function handleCopyAndSave() {
     const sel = getSelection();
     if (sel) {
-      try { await navigator.clipboard.writeText(sel); } catch { /* ignorar */ }
+      await copyText(sel);
       addToClipboard(sel);
     }
   }

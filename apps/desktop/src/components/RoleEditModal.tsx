@@ -5,6 +5,7 @@
 // .claude/skills e injetadas na persona do agente no spawn. Renderiza em portal.
 
 import { useCallback, useEffect, useState } from "react";
+import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -160,7 +161,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
         <div className="p-4 space-y-3 overflow-auto">
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("roleEdit.name", "Nome")}</label>
-            <input
+            <SafeInput
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t("roleEdit.namePlaceholder", "ex: DevOps")}
@@ -209,7 +210,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
           {isShell && (
             <div>
               <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("roleEdit.startupCmd", "Comando ao abrir (opcional)")}</label>
-              <input
+              <SafeInput
                 value={startupCmd}
                 onChange={(e) => setStartupCmd(e.target.value)}
                 placeholder={t("roleEdit.startupCmdPlaceholder", "ex: npm run dev")}
@@ -240,7 +241,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
             <label className="text-[11px] uppercase tracking-wider text-textMuted">
               {isShell ? t("roleEdit.personaLabel", "Persona (injetada no CLI que o comando abrir)") : t("roleEdit.promptLabel", "Prompt (persona / instruções)")}
             </label>
-            <textarea
+            <SafeTextarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={7}

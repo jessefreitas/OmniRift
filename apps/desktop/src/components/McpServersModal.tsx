@@ -5,6 +5,7 @@
 // É DIFERENTE de "MCP Agents" (que registra terminais como alvos de dispatch).
 
 import { useEffect, useState } from "react";
+import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { Plus, Server, Trash2, X } from "lucide-react";
 
@@ -139,7 +140,7 @@ export function McpServersModal({ onClose }: Props) {
               <div className="space-y-1.5">
                 <p className="text-[10px] text-textMuted">{picked.desc}</p>
                 {picked.paramLabel && (
-                  <input
+                  <SafeInput
                     value={param}
                     onChange={(e) => setParam(e.target.value)}
                     type={picked.secret ? "password" : "text"}
@@ -155,13 +156,13 @@ export function McpServersModal({ onClose }: Props) {
 
             {picked === "custom" && (
               <div className="space-y-1.5">
-                <input
+                <SafeInput
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
                   placeholder={t("mcpServers.customNamePlaceholder", "nome (chave do mcpServers, ex: meu-mcp)")}
                   className="w-full px-2 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand font-mono"
                 />
-                <textarea
+                <SafeTextarea
                   value={customJson}
                   onChange={(e) => setCustomJson(e.target.value)}
                   placeholder={t("mcpServers.customJsonPlaceholder", '{ "command": "npx", "args": ["-y", "pacote"], "env": { "TOKEN": "..." } }\nou { "type": "http", "url": "https://...", "headers": { "Authorization": "Bearer ..." } }')}

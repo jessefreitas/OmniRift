@@ -5,6 +5,7 @@
 // no Esc/clique fora. Complementa o Quick Jump (Alt+1..9) que já existe.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SafeInput } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { Command } from "lucide-react";
 
@@ -128,7 +129,7 @@ export function CommandPalette() {
       >
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border">
           <Command size={15} className="text-brand shrink-0" />
-          <input
+          <SafeInput
             ref={inputRef}
             value={query}
             onChange={(e) => { setQuery(e.target.value); setSel(0); }}

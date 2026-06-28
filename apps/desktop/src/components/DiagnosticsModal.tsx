@@ -3,6 +3,7 @@
 // Devolve um código pra ele citar no grupo do WhatsApp. Gerado via Ollama + auditado.
 
 import { useState } from "react";
+import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { Bug, X, Send, Copy, Check } from "lucide-react";
 import { sendDiagnostics } from "@/lib/diagnostics";
@@ -73,14 +74,14 @@ export function DiagnosticsModal({ onClose }: { onClose: () => void }) {
               <p className="text-[12px] text-textMuted">
                 Conta o que aconteceu (o que você fazia, o que esperava). Vai junto com versão, sistema e logs técnicos recentes — nunca enviamos senhas/tokens.
               </p>
-              <textarea
+              <SafeTextarea
                 value={msg}
                 onChange={(e) => setMsg(e.target.value)}
                 rows={5}
                 placeholder="Descreva o problema ou o que você quer falar…"
                 className="w-full px-2 py-1.5 text-sm rounded bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand resize-none"
               />
-              <input
+              <SafeInput
                 type="text"
                 value={contact}
                 onChange={(e) => setContact(e.target.value)}

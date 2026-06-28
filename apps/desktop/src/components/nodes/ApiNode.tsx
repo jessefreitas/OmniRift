@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Globe, Send, X } from "lucide-react";
 
@@ -87,7 +88,7 @@ export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
             <option key={m} value={m}>{m}</option>
           ))}
         </select>
-        <input
+        <SafeInput
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void send(); e.stopPropagation(); }}
@@ -107,7 +108,7 @@ export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
 
       {/* Body (pra métodos que enviam corpo) */}
       {hasBody && (
-        <textarea
+        <SafeTextarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
           onPointerDown={(e) => e.stopPropagation()}

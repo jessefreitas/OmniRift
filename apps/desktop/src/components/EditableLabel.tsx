@@ -5,6 +5,7 @@
 // para renomear abas de projeto e paralelos (floors).
 
 import { useEffect, useRef, useState } from "react";
+import { SafeInput } from "@/components/SafeInput";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { cn } from "@/lib/cn";
 
@@ -80,7 +81,7 @@ export function EditableLabel({
 
   if (editing) {
     return (
-      <input
+      <SafeInput
         ref={inputRef}
         type="text"
         value={draft}

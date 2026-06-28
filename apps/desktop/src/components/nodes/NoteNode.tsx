@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SafeTextarea } from "@/components/SafeInput";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Check, Pin, StickyNote, X } from "lucide-react";
 
@@ -76,7 +77,7 @@ export function NoteNode({ id, data, selected }: NodeProps<NoteRfNode>) {
           <X size={12} />
         </button>
       </div>
-      <textarea
+      <SafeTextarea
         value={text}
         onChange={(e) => {
           setText(e.target.value);

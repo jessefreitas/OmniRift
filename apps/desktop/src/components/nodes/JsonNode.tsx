@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Braces, ChevronRight, Code2, ListTree, Maximize2, Minimize2, Network, Upload, X } from "lucide-react";
@@ -264,7 +265,7 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
 
       {/* Corpo: editor ou árvore */}
       {view === "text" ? (
-        <textarea
+        <SafeTextarea
           value={text}
           onChange={(e) => { setText(e.target.value); patchNode(id, { text: e.target.value }); }}
           onPointerDown={(e) => e.stopPropagation()}

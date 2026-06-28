@@ -8,6 +8,7 @@
 // Esc=cancela, foco automático no mount.
 
 import { useEffect, useRef, useState } from "react";
+import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
@@ -64,7 +65,7 @@ export function PromptModal({ title, defaultValue, placeholder, multiline, onSub
         </header>
         <div className="p-4">
           {multiline ? (
-            <textarea
+            <SafeTextarea
               ref={areaRef}
               value={value}
               onChange={(e) => setValue(e.target.value)}
@@ -74,7 +75,7 @@ export function PromptModal({ title, defaultValue, placeholder, multiline, onSub
               className="w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text resize-y focus:outline-none focus:border-brand"
             />
           ) : (
-            <input
+            <SafeInput
               ref={inputRef}
               value={value}
               onChange={(e) => setValue(e.target.value)}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -141,7 +142,7 @@ export function DbNode({ id, data, selected }: NodeProps<DbRfNode>) {
         <button onClick={() => void pickFile()} onPointerDown={(e) => e.stopPropagation()} title={t("db.openFile", "Abrir arquivo .sqlite")} className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-surface2 text-text hover:bg-bg border border-border transition-colors">
           <FolderOpen size={11} /> {t("common.open", "Abrir")}
         </button>
-        <input value={dbPath} onChange={(e) => setDbPath(e.target.value)} onBlur={() => patchNode(id, { dbPath })} onPointerDown={(e) => e.stopPropagation()} placeholder={t("db.pathPlaceholder", "/caminho/para/app.db")} className="flex-1 min-w-0 px-1.5 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand font-mono" />
+        <SafeInput value={dbPath} onChange={(e) => setDbPath(e.target.value)} onBlur={() => patchNode(id, { dbPath })} onPointerDown={(e) => e.stopPropagation()} placeholder={t("db.pathPlaceholder", "/caminho/para/app.db")} className="flex-1 min-w-0 px-1.5 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand font-mono" />
       </div>
 
       {/* Corpo: sidebar de tabelas + (editor SQL + resultado) */}
@@ -161,7 +162,7 @@ export function DbNode({ id, data, selected }: NodeProps<DbRfNode>) {
 
         <div className="flex-1 flex flex-col min-w-0">
           <div className="relative shrink-0 border-b border-border">
-            <textarea
+            <SafeTextarea
               value={sql}
               onChange={(e) => setSql(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void runSql(); } e.stopPropagation(); }}

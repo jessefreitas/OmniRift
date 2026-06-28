@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SafeTextarea } from "@/components/SafeInput";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Check, FileText, FolderOpen, Pencil, RefreshCw, Save, X } from "lucide-react";
@@ -99,7 +100,7 @@ export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
 
       <div className="flex-1 overflow-auto bg-bg nodrag" onPointerDown={(e) => e.stopPropagation()}>
         {editing ? (
-          <textarea
+          <SafeTextarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onPointerDown={(e) => e.stopPropagation()}

@@ -12,6 +12,7 @@
 // acompanha o run ao vivo via `turbo://update`.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { Zap, X, Play, Square, Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
 
@@ -221,7 +222,7 @@ export function TurboPanel({ onClose, seedGoal }: { onClose: () => void; seedGoa
                   <label className="block text-[11px] font-medium text-textMuted mb-1">
                     {t("turbo.goal", "Objetivo (goal)")}
                   </label>
-                  <textarea
+                  <SafeTextarea
                     value={goal}
                     onChange={(e) => setGoal(e.target.value)}
                     rows={4}
@@ -234,7 +235,7 @@ export function TurboPanel({ onClose, seedGoal }: { onClose: () => void; seedGoa
                   <label className="block text-[11px] font-medium text-textMuted mb-1">
                     {t("turbo.condition", "Condição de parada (exit 0 = pronto)")}
                   </label>
-                  <input
+                  <SafeInput
                     value={condition}
                     onChange={(e) => setCondition(e.target.value)}
                     placeholder="cargo test"

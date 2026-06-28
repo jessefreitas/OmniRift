@@ -4,6 +4,7 @@
 // código, etc.). Colapsável; persiste via onChange (campo `comment` do nó).
 
 import { useState } from "react";
+import { SafeTextarea } from "@/components/SafeInput";
 import { ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
 
 import { cn } from "@/lib/cn";
@@ -31,7 +32,7 @@ export function NodeComment({ value, onChange }: { value?: string; onChange: (v:
         {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
       </button>
       {open && (
-        <textarea
+        <SafeTextarea
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
           onPointerDown={(e) => e.stopPropagation()}
