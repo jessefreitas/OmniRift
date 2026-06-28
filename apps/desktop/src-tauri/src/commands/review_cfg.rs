@@ -97,6 +97,12 @@ pub fn agent_settings_config(app: tauri::AppHandle, label: String) -> Option<Str
     let label = if label.is_empty() { "agent" } else { label };
 
     let settings = serde_json::json!({
+        // Ditado por voz nativo do Claude Code: tap mode + idioma PT. O valor DEVE
+        // ser "pt" — "pt_BR"/"portuguese" NÃO estão na lista de idiomas da voz e
+        // caem em fallback pra inglês (transcrição embaralhada). `language` rege
+        // texto E voz. Requer login com conta Claude.ai (STT nos servidores Anthropic).
+        "voice": { "enabled": true, "mode": "tap" },
+        "language": "pt",
         "hooks": {
             // Prompt submetido → o agente começou a trabalhar.
             "UserPromptSubmit": [ { "hooks": [

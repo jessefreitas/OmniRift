@@ -59,6 +59,7 @@ import { specListFiles, specArchive, specUnarchive, isDeadSpec, pathsOverlap, ty
 import { writeFile } from "@/lib/preview-client";
 import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
+import { loadGlobalSkills } from "@/lib/global-skills";
 import { type SkillWiring } from "@/lib/agent-skills";
 import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
@@ -114,8 +115,8 @@ const ReviewPolicyModal = lazy(() => import("@/components/ReviewPolicyModal").th
 const ReviewSettingsModal = lazy(() => import("@/components/ReviewSettingsModal").then((m) => ({ default: m.ReviewSettingsModal })));
 const SkillLaunchPickerModal = lazy(() => import("@/components/SkillLaunchPicker").then((m) => ({ default: m.SkillLaunchPicker })));
 const DiagnosticsModal = lazy(() => import("@/components/DiagnosticsModal").then((m) => ({ default: m.DiagnosticsModal })));
+const SkillsCenterModal = lazy(() => import("@/components/SkillsCenterModal").then((m) => ({ default: m.SkillsCenterModal })));
 const ProjectHealthPanel = lazy(() => import("@/components/health/ProjectHealthPanel").then((m) => ({ default: m.ProjectHealthPanel })));
-const CodeMetricsPanel = lazy(() => import("@/components/CodeMetricsPanel").then((m) => ({ default: m.CodeMetricsPanel })));
 const TurboPanel = lazy(() => import("@/components/turbo/TurboPanel").then((m) => ({ default: m.TurboPanel })));
 import { ToolsSection } from "@/components/sidebar/ToolsSection";
 import { SpecsSection } from "@/components/sidebar/SpecsSection";
@@ -144,6 +145,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "clis", icon: Download, label: "CLIs de IA", desc: "Instalar e gerenciar CLIs de agentes (Claude Code, Codex, Gemini, Aider, …)" },
   { id: "review-ai", icon: ScanSearch, label: "Code Review IA", desc: "LLM (BYOK) + Política de GO/NO-GO num painel só (abas)" },
   { id: "compressors", icon: Gauge, label: "Compressores de token", desc: "Instalar/gerenciar compressores (RTK, Headroom) que cortam tokens dos agentes" },
+  { id: "skills", icon: Sparkles, label: "Skills dos agentes", desc: "Selecionar skills globais (todo agente recebe) e por agente (cada role escolhe as suas)" },
   { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
   { id: "mobile", icon: Smartphone, label: "Dispositivos móveis", desc: "Parear o celular (QR), listar pareados, revogar e conceder controle (steering)" },
   { id: "history", icon: History, label: "Histórico de sessões", desc: "Sessões anteriores gravadas dos agentes" },
@@ -373,6 +375,7 @@ export function Sidebar() {
   const [showMcpServers, setShowMcpServers] = useState(false);
   const [showClis, setShowClis] = useState(false);
   const [showCompressors, setShowCompressors] = useState(false);
+  const [showSkillsCenter, setShowSkillsCenter] = useState(false);
   const [showDiag, setShowDiag] = useState(false);
   // Host de execução do "novo agente" (ref §3.1). "local" = máquina atual (default);
   // outros = ids do registry SSH (~/.omnirift/hosts.json). Injetado no addTerminal.
@@ -407,7 +410,6 @@ export function Sidebar() {
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showReviewAi, setShowReviewAi] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
-  const [showCodeMetrics, setShowCodeMetrics] = useState(false);
   const [showTurbo, setShowTurbo] = useState(false);
   const [turboSeed, setTurboSeed] = useState<string | undefined>(undefined);
   const [showAppearance, setShowAppearance] = useState(false);
@@ -461,6 +463,7 @@ export function Sidebar() {
     mcpservers: () => setShowMcpServers(true),
     clis: () => setShowClis(true),
     compressors: () => setShowCompressors(true),
+    skills: () => setShowSkillsCenter(true),
     snapshots: () => setShowSnapshots(true),
     hooks: () => setShowHooks(true),
     turbo: () => setShowTurbo(true),
@@ -475,6 +478,7 @@ export function Sidebar() {
         case "mcpservers": setShowMcpServers(true); break;
         case "clis": setShowClis(true); break;
         case "compressors": setShowCompressors(true); break;
+        case "skills": setShowSkillsCenter(true); break;
         case "snapshots": setShowSnapshots(true); break;
         case "hooks": setShowHooks(true); break;
         case "memory": setShowMemory(true); break;
@@ -483,7 +487,6 @@ export function Sidebar() {
         case "mobile": setShowMobile(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "project-health": setShowHealth(true); break;
-        case "code-metrics": setShowCodeMetrics(true); break;
         case "turbo": setShowTurbo(true); break;
         case "appearance": setShowAppearance(true); break;
         case "usage": setShowUsage(true); break;
@@ -1076,7 +1079,9 @@ export function Sidebar() {
   // extras → addTerminal idêntico ao comportamento pré-skills (garantia de no-op).
   async function spawnRole(r: AgentRoleDef, skillIdsOverride?: string[]) {
     const cli = ROLE_CLIS.find((c) => c.id === (r.cli ?? "claude")) ?? ROLE_CLIS[0];
-    const ids = skillIdsOverride ?? r.skills ?? [];
+    // União das skills GLOBAIS (todo agente recebe) com as do role/override. ids
+    // vazio (sem global + sem role) → mantém a invariante no-skills (spawn idêntico).
+    const ids = [...new Set([...loadGlobalSkills(), ...(skillIdsOverride ?? r.skills ?? [])])];
 
     // Wiring só quando há IDs; vazio → null (sem tocar em args/env).
     let wiring: SkillWiring | null = null;
@@ -1093,10 +1098,17 @@ export function Sidebar() {
       wiring?.kind === "codexHome" ? [["CODEX_HOME", wiring.home]] : [];
     const indexText = wiring?.kind === "indexPrompt" ? wiring.text : "";
 
+    // MCP por-role: role com curadoria (r.mcpServers definido) → gera um agent-mcp
+    // FILTRADO (budget de contexto, resolve o 200k); undefined → global de sempre.
+    const roleMcpPath =
+      r.mcpServers !== undefined
+        ? ((await agentMcpConfig(r.mcpServers).catch(() => null)) ?? mcpConfigPath)
+        : mcpConfigPath;
+
     if (cli.systemPromptFlag) {
       const baseArgs =
         cli.role === "claude-code"
-          ? workerClaudeArgs(mcpConfigPath, r.prompt, await settingsFor(r.name))
+          ? workerClaudeArgs(roleMcpPath, r.prompt, await settingsFor(r.name))
           : [cli.systemPromptFlag, r.prompt];
       addTerminal({
         command: cli.command,
@@ -1189,17 +1201,26 @@ export function Sidebar() {
   }
 
   // Salva (upsert) um role editado/criado no modal.
-  function saveRole(name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string, selfSystemPrompt: boolean) {
+  function saveRole(name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string, selfSystemPrompt: boolean, mcpServers?: string[]) {
     if (!editingRole) return;
     setRoles((prev) => {
       const exists = prev.some((x) => x.id === editingRole.id);
       const next = exists
-        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd, skills, compressor, selfSystemPrompt } : x))
-        : [...prev, { ...editingRole, name, prompt, cli, startupCmd, skills, compressor, selfSystemPrompt }];
+        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd, skills, compressor, selfSystemPrompt, mcpServers } : x))
+        : [...prev, { ...editingRole, name, prompt, cli, startupCmd, skills, compressor, selfSystemPrompt, mcpServers }];
       saveRoles(next);
       return next;
     });
     setEditingRole(null);
+  }
+
+  // Atualiza só as skills de um role (usado pela Central de Skills) + persiste.
+  function updateRoleSkills(roleId: string, skills: string[]) {
+    setRoles((prev) => {
+      const next = prev.map((r) => (r.id === roleId ? { ...r, skills } : r));
+      saveRoles(next);
+      return next;
+    });
   }
 
   function deleteRole(id: string) {
@@ -1937,6 +1958,7 @@ export function Sidebar() {
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
       {showClis && <ClisModal onClose={() => setShowClis(false)} />}
       {showCompressors && <CompressorsModal onClose={() => setShowCompressors(false)} />}
+      {showSkillsCenter && <SkillsCenterModal cwd={currentCwd} roles={roles} onUpdateRoleSkills={updateRoleSkills} onClose={() => setShowSkillsCenter(false)} />}
       {showDiag && <DiagnosticsModal onClose={() => setShowDiag(false)} />}
       {closingFolder && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={() => setClosingFolder(false)}>
@@ -1987,7 +2009,6 @@ export function Sidebar() {
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
       {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
       {showHealth && <ProjectHealthPanel onClose={() => setShowHealth(false)} />}
-      {showCodeMetrics && <CodeMetricsPanel onClose={() => setShowCodeMetrics(false)} />}
       {showTurbo && <TurboPanel seedGoal={turboSeed} onClose={() => { setShowTurbo(false); setTurboSeed(undefined); }} />}
       {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}
       {showUsage && <UsageModal onClose={() => setShowUsage(false)} activeProject={currentCwd} />}

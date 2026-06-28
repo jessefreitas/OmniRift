@@ -69,7 +69,7 @@ use commands::git::{
     floor_run_hook, git_repo_info,
 };
 use commands::mcp::{
-    agent_mcp_config, floor_mirror_set, get_max_agents, mcp_list_agents, mcp_register_agent,
+    agent_mcp_config, floor_mirror_set, get_max_agents, mcp_inventory, mcp_list_agents, mcp_register_agent,
     mcp_server_url, mcp_unregister_agent, set_max_agents,
 };
 use commands::memory::{
@@ -332,6 +332,7 @@ pub fn run() {
             reminder_set_done,
             reminder_delete,
             agent_mcp_config,
+            mcp_inventory,
             git_repo_info,
             floor_git_create,
             floor_git_status,

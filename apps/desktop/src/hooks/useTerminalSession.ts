@@ -322,7 +322,22 @@ export function useTerminalSession({
         disposeImeGuard = () =>
           term.textarea?.removeEventListener("compositionend", onCompositionEnd);
 
+        // Dedup por keydown — cobre o ç do ABNT2 (TECLA DIRETA, não dead-key): o
+        // IBus/WebKitGTK também emite o MESMO char 2× a partir de UM único keydown,
+        // mas SEM passar por `compositionend`, então o guard acima não pega. Cada
+        // tecla-de-char incrementa `keySeq` (no handler abaixo); duas emissões
+        // idênticas com o MESMO keySeq (nenhum keydown entre elas) = duplicata →
+        // dropa a 2ª. key-repeat e "çç" legítimo têm keydowns distintos (keySeq
+        // muda) → passam. Complementa o guard de composição (que cobre dead-keys).
+        let keySeq = 0;
+        let lastEmit: { data: string; seq: number } | null = null;
+
         dataDisposable = term.onData((data) => {
+          if (lastEmit && lastEmit.data === data && lastEmit.seq === keySeq) {
+            lastEmit = null; // 2ª emissão da MESMA tecla (duplicata IBus) → dropa
+            return;
+          }
+          lastEmit = { data, seq: keySeq };
           if (composed && data === composed.data && Date.now() < composed.until) {
             if (composed.seen) {
               composed = null; // 2ª cópia (duplicata WebKitGTK/IBus) → dropa
@@ -334,6 +349,32 @@ export function useTerminalSession({
           ptyWrite(sessionId, data).catch((e) => {
             console.error("[omni-canvas] pty_write falhou:", e);
           });
+        });
+
+        // Atalhos de input extra (interceptados ANTES do xterm gerar bytes):
+        //  - Shift+Enter → quebra de linha (\n) em vez de enviar (\r) — Claude Code
+        //    e REPLs tratam \n como nova linha e \r como submit.
+        //  - Ctrl/Cmd+V → cola do clipboard (mesmo caminho do menu de contexto:
+        //    navigator.clipboard.readText, que cobre o WebKitGTK com foco no canvas).
+        term.attachCustomKeyEventHandler((e) => {
+          if (e.type !== "keydown") return true;
+          // Conta cada tecla-de-char (key.length === 1) p/ o dedup por keySeq do
+          // onData acima. Teclas especiais (Enter/Shift/Arrow/Backspace…) têm
+          // key.length > 1 e não contam — é isto que distingue a duplicata do IBus
+          // (1 keydown → 2 emissões) de uma 2ª digitação real (key-repeat / "çç").
+          if (e.key.length === 1) keySeq++;
+          if (e.key === "Enter" && e.shiftKey) {
+            ptyWrite(sessionId, "\n").catch(() => {});
+            return false;
+          }
+          if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "v" || e.key === "V")) {
+            void navigator.clipboard
+              .readText()
+              .then((text) => (text ? ptyWrite(sessionId, text) : undefined))
+              .catch(() => {});
+            return false;
+          }
+          return true;
         });
 
         // Reage a resize do xterm

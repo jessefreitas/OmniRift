@@ -131,6 +131,7 @@ pub fn agent_mcp_config(
     app: tauri::AppHandle,
     memory_registry: tauri::State<'_, std::sync::Arc<crate::memory::MemoryRegistry>>,
     db: State<'_, Db>,
+    allowed: Option<Vec<String>>,
 ) -> Option<String> {
     use tauri::Manager;
     let mut servers = serde_json::Map::new();
@@ -189,12 +190,90 @@ pub fn agent_mcp_config(
     // MCP servers custom habilitados pelo usuário (Postgres/GitHub/filesystem/…).
     crate::commands::mcp_servers::merge_enabled_into(&db, &mut servers);
 
+    // O PRÓPRIO server de orquestração do OmniRift (SSE @ 127.0.0.1:MCP_PORT):
+    // expõe terminal_spawn/terminal_run, claim_*, memory_*, review_current,
+    // spec_path_conflicts e a equipe (frontend/backend/…) como tools. Sem esta
+    // entrada o config nunca aponta pro server → NEM o Orquestrador NEM os
+    // agentes-filho recebem as tools de orquestração (a "equipe via MCP" é
+    // anunciada, mas o canal não existe). Reusa o helper mcp_server_url().
+    servers.insert(
+        "omnirift-agents".into(),
+        serde_json::json!({ "type": "sse", "url": mcp_server_url() }),
+    );
+
+    // Curadoria de MCP por-role (budget de contexto → resolve o estouro de 200k):
+    // se `allowed` veio, mantém só os servers selecionados e grava num arquivo com
+    // nome estável-por-set (FNV-1a, evita corrida entre spawns com filtros diferentes).
+    // `None` = todos os servers no `agent-mcp.json` de sempre (zero regressão).
+    let (servers, filename) = match &allowed {
+        Some(allow) => {
+            let keep: std::collections::HashSet<&str> = allow.iter().map(String::as_str).collect();
+            let servers: serde_json::Map<String, serde_json::Value> =
+                servers.into_iter().filter(|(k, _)| keep.contains(k.as_str())).collect();
+            let mut keys: Vec<&str> = servers.keys().map(String::as_str).collect();
+            keys.sort_unstable();
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for b in keys.join("\0").bytes() {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            (servers, format!("agent-mcp-{h:016x}.json"))
+        }
+        None => (servers, "agent-mcp.json".to_string()),
+    };
+
     let dir = app.path().app_data_dir().ok()?;
     std::fs::create_dir_all(&dir).ok()?;
     let cfg = serde_json::json!({ "mcpServers": serde_json::Value::Object(servers) });
-    let path = dir.join("agent-mcp.json");
+    let path = dir.join(filename);
     std::fs::write(&path, serde_json::to_string_pretty(&cfg).ok()?).ok()?;
     Some(path.to_string_lossy().to_string())
+}
+
+/// Um MCP server que o [`agent_mcp_config`] injetaria, com estimativa de custo de
+/// contexto (tokens de schema das tools). Alimenta o medidor de budget do RoleEdit.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpInventoryItem {
+    pub key: String,
+    pub label: String,
+    pub est_tokens: u32,
+    /// "builtin" | "memory" | "custom" | "orchestration".
+    pub source: String,
+    /// false p/ serena/omnicompress não instalados (mostra cinza, não conta no budget).
+    pub available: bool,
+}
+
+/// Inventário dos MCP servers disponíveis + custo estimado em tokens. Read-only:
+/// só LISTA (o gating real vive no `agent_mcp_config(allowed)`). Os números são
+/// estimativas de schema (nº de tools × ~tamanho médio) — o omnimemory (~100 tools)
+/// é o maior consumidor e o principal responsável pelo estouro de 200k.
+#[tauri::command]
+pub fn mcp_inventory(
+    memory_registry: tauri::State<'_, std::sync::Arc<crate::memory::MemoryRegistry>>,
+    db: State<'_, Db>,
+) -> Vec<McpInventoryItem> {
+    let mut out = vec![
+        McpInventoryItem { key: "serena".into(), label: "Serena — estrutura de código (LSP, 50+ langs)".into(), est_tokens: 7000, source: "builtin".into(), available: find_serena().is_some() },
+        McpInventoryItem { key: "context7".into(), label: "Context7 — docs ao vivo de libs".into(), est_tokens: 700, source: "builtin".into(), available: true },
+        McpInventoryItem { key: "playwright".into(), label: "Playwright — dirige um browser real".into(), est_tokens: 8000, source: "builtin".into(), available: true },
+    ];
+    if crate::compress::find_sidecar("omnicompress-mcp").is_some() {
+        out.push(McpInventoryItem { key: "omnicompress".into(), label: "OmniCompress — compressão sob demanda".into(), est_tokens: 900, source: "builtin".into(), available: true });
+    }
+    // Provider de memória ativo (omnimemory ~100 tools = o gigante do contexto).
+    for (name, _spec) in memory_registry.active_provider().agent_wiring().mcp_servers {
+        let est = if name.to_lowercase().contains("memory") || name.to_lowercase().contains("omnimemory") { 32000 } else { 4000 };
+        out.push(McpInventoryItem { key: name.clone(), label: format!("Memória — {name}"), est_tokens: est, source: "memory".into(), available: true });
+    }
+    // MCP servers custom habilitados pelo usuário.
+    if let Ok(rows) = db.mcp_list() {
+        for r in rows.into_iter().filter(|r| r.enabled) {
+            out.push(McpInventoryItem { key: r.name.clone(), label: format!("Custom — {}", r.name), est_tokens: 2500, source: "custom".into(), available: true });
+        }
+    }
+    out.push(McpInventoryItem { key: "omnirift-agents".into(), label: "OmniRift — orquestração (equipe, claims, review)".into(), est_tokens: 3500, source: "orchestration".into(), available: true });
+    out
 }
 
 /// Define o teto de agentes simultâneos do Orquestrador (clamp 1–16).

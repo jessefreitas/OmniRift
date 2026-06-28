@@ -8,10 +8,11 @@ import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { Download, FileUp, Sparkles, X } from "lucide-react";
+import { Download, FileUp, Gauge, Sparkles, X } from "lucide-react";
 
 import { ROLE_CLIS, type AgentRoleDef, type ImportedRole } from "@/lib/agent-roles";
 import { skillsList, skillsImportMd, skillsImportGithub, type SkillInfo } from "@/lib/skills-client";
+import { mcpInventory, type McpInventoryItem } from "@/lib/mcp-client";
 import { loadGitProviders } from "@/lib/git-providers";
 import { isCompressorEnabled } from "@/lib/compress-client";
 import { PromptModal } from "@/components/PromptModal";
@@ -21,7 +22,7 @@ interface Props {
   role: AgentRoleDef;
   /** cwd do projeto ativo — pra listar as skills de .claude/skills. */
   cwd?: string | null;
-  onSave: (name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string, selfSystemPrompt: boolean) => void;
+  onSave: (name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string, selfSystemPrompt: boolean, mcpServers?: string[]) => void;
   onClose: () => void;
 }
 
@@ -33,6 +34,10 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
   const [startupCmd, setStartupCmd] = useState(role.startupCmd ?? "");
   const [skills, setSkills] = useState<string[]>(role.skills ?? []);
   const [available, setAvailable] = useState<SkillInfo[]>([]);
+  const [mcpInv, setMcpInv] = useState<McpInventoryItem[]>([]);
+  // null = role sem curadoria de MCP (undefined no disco). Vira lista concreta quando
+  // o inventário carrega (todos os disponíveis marcados = comportamento atual).
+  const [mcpSel, setMcpSel] = useState<string[] | null>(role.mcpServers ?? null);
   const [compressor, setCompressor] = useState(role.compressor ?? "none");
   const [selfSystemPrompt, setSelfSystemPrompt] = useState(role.selfSystemPrompt ?? false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
@@ -51,6 +56,36 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
   function toggleSkill(n: string) {
     setSkills((cur) => (cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n]));
   }
+
+  // Inventário de MCP servers (+ custo de contexto) → seção MCP + medidor de budget.
+  useEffect(() => {
+    void mcpInventory()
+      .then((inv) => {
+        setMcpInv(inv);
+        // Role sem curadoria → começa com TODOS os disponíveis marcados (= hoje).
+        setMcpSel((cur) => cur ?? inv.filter((i) => i.available).map((i) => i.key));
+      })
+      .catch(() => setMcpInv([]));
+  }, []);
+
+  function toggleMcp(key: string) {
+    setMcpSel((cur) => {
+      const base = cur ?? mcpInv.filter((i) => i.available).map((i) => i.key);
+      return base.includes(key) ? base.filter((k) => k !== key) : [...base, key];
+    });
+  }
+
+  // Budget de contexto estimado (skills curadas + MCP selecionados) vs 200k.
+  const SKILL_TOKENS = 150; // ~frontmatter de um SKILL.md carregado no contexto
+  const mcpTokens = mcpInv
+    .filter((i) => i.available && (mcpSel ?? []).includes(i.key))
+    .reduce((sum, i) => sum + i.estTokens, 0);
+  const budgetTokens = mcpTokens + skills.length * SKILL_TOKENS;
+  const budgetPct = Math.min(100, Math.round((budgetTokens / 200000) * 100));
+  const budgetColor =
+    budgetTokens > 180000 ? "text-danger" : budgetTokens > 120000 ? "text-amber-400" : "text-green-400";
+  const budgetBar =
+    budgetTokens > 180000 ? "bg-danger" : budgetTokens > 120000 ? "bg-amber-400" : "bg-green-400";
 
   // Importa um .md avulso → vira skill do projeto e já entra marcada.
   async function importMd() {
@@ -269,6 +304,38 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
             )}
             <p className="mt-1 text-[10px] text-textMuted opacity-60">{t("roleEdit.skillsFooter", "As marcadas entram na persona do agente no spawn (ele prioriza usá-las).")}</p>
           </div>
+          {/* MCP servers do agente + medidor de budget de contexto (resolve o 200k). */}
+          <div>
+            <div className="flex items-center gap-1.5">
+              <Gauge size={12} className="text-brand" />
+              <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("roleEdit.agentMcp", "MCP do agente · contexto")}</label>
+              <div className="flex-1" />
+              <span className={`text-[10px] font-semibold ${budgetColor}`}>≈ {(budgetTokens / 1000).toFixed(1)}k / 200k</span>
+            </div>
+            <div className="mt-1 h-1.5 w-full rounded-full bg-surface3 overflow-hidden">
+              <div className={`h-full ${budgetBar} transition-all`} style={{ width: `${budgetPct}%` }} />
+            </div>
+            {mcpInv.length > 0 && (
+              <div className="mt-1.5 max-h-40 overflow-auto rounded-md border border-border divide-y divide-border/40">
+                {mcpInv.map((m) => {
+                  const on = (mcpSel ?? []).includes(m.key) && m.available;
+                  return (
+                    <label key={m.key} className={`flex items-start gap-2 px-2 py-1.5 ${m.available ? "hover:bg-surface2 cursor-pointer" : "opacity-50 cursor-not-allowed"}`}>
+                      <input type="checkbox" disabled={!m.available} checked={on} onChange={() => m.available && toggleMcp(m.key)} className="mt-0.5" />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-[12px] text-text font-medium truncate">{m.label}</span>
+                          <span className="text-[8px] uppercase px-1 rounded bg-surface2 text-textMuted shrink-0">{m.source}</span>
+                        </span>
+                        <span className="block text-[10px] text-textMuted opacity-70">≈ {(m.estTokens / 1000).toFixed(1)}k tokens{m.available ? "" : ` · ${t("roleEdit.mcpNotInstalled", "não instalado")}`}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <p className="mt-1 text-[10px] text-textMuted opacity-60">{t("roleEdit.mcpFooter", "Desmarque o que este agente não precisa pra enxugar o contexto. omnimemory e playwright são os mais pesados.")}</p>
+          </div>
         </div>
         <footer className="flex justify-end gap-2 px-4 py-3 border-t border-border shrink-0">
           <button
@@ -278,7 +345,15 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
             {t("common.cancel", "Cancelar")}
           </button>
           <button
-            onClick={() => onSave(name.trim() || "Role", prompt, cli, startupCmd, skills, compressor, selfSystemPrompt)}
+            onClick={() => {
+              // Tudo marcado = sem curadoria → grava undefined (back-compat + future-proof).
+              const allAvail = mcpInv.filter((i) => i.available).map((i) => i.key);
+              const mcpToSave =
+                mcpSel && allAvail.length && allAvail.every((k) => mcpSel.includes(k))
+                  ? undefined
+                  : mcpSel ?? undefined;
+              onSave(name.trim() || "Role", prompt, cli, startupCmd, skills, compressor, selfSystemPrompt, mcpToSave);
+            }}
             disabled={!isShell && !prompt.trim()}
             className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
