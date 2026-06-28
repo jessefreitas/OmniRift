@@ -38,17 +38,36 @@ export function CompressorsModal({ onClose }: { onClose: () => void }) {
   useEffect(refresh, []);
 
   // Roda o comando de instalação num terminal do canvas (BYO instalável pelo app).
-  function runInstall(label: string, cmd: string) {
+  // `update=true` → usa rótulos de "atualização" (o comando já vem transformado).
+  function runInstall(label: string, cmd: string, update = false) {
+    const verb = update
+      ? t("compressors.updateOf", "atualização de")
+      : t("compressors.installOf", "instalação de");
+    const action = update
+      ? t("compressors.updateLabel", "atualizar")
+      : t("compressors.installLabel", "instalar");
     addTerminal({
       command: "bash",
       args: [
         "-lc",
-        `${cmd}; rc=$?; echo; echo "--- ${t("compressors.installOf", "instalação de")} ${label} (${t("compressors.exitCode", "código")} $rc) — ${t("compressors.installDoneHint", "feche este terminal e clique em ↻")} ---"`,
+        `${cmd}; rc=$?; echo; echo "--- ${verb} ${label} (${t("compressors.exitCode", "código")} $rc) — ${t("compressors.installDoneHint", "feche este terminal e clique em ↻")} ---"`,
       ],
       role: "shell",
-      label: `${t("compressors.installLabel", "instalar")} ${label}`,
+      label: `${action} ${label}`,
     });
     onClose();
+  }
+
+  // Transforma um comando de instalação num comando de ATUALIZAÇÃO (puxa a última
+  // versão upstream do projeto). pip/cargo precisam de flag explícita pra reinstalar
+  // a partir do git; `curl … install.sh | sh` já baixa o HEAD. Heurística conservadora:
+  // na dúvida, re-roda o mesmo comando (idempotente).
+  function toUpdateCmd(cmd: string): string {
+    if (/\bpip\d?\s+install\b/.test(cmd) && !/--upgrade|\s-U\b/.test(cmd))
+      return cmd.replace(/\bpip(\d?)\s+install\b/, "pip$1 install --upgrade --force-reinstall");
+    if (/\bcargo\s+install\b/.test(cmd) && !/--force\b/.test(cmd))
+      return cmd.replace(/\bcargo\s+install\b/, "cargo install --force");
+    return cmd;
   }
 
   function saveNewComp() {
@@ -138,6 +157,15 @@ export function CompressorsModal({ onClose }: { onClose: () => void }) {
               {!c.installed && (
                 <button onClick={() => runInstall(c.label, c.installHint)} className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs bg-surface2 text-text hover:bg-bg border border-border">
                   <Download size={13} /> {t("common.install", "Instalar")}
+                </button>
+              )}
+              {c.installed && !c.native && (
+                <button
+                  onClick={() => runInstall(c.label, toUpdateCmd(c.installHint), true)}
+                  title={t("compressors.updateTitle", "Re-roda a instalação pra puxar a última versão do projeto")}
+                  className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs bg-surface2 text-text hover:bg-bg border border-border"
+                >
+                  <RefreshCw size={13} /> {t("compressors.update", "Atualizar")}
                 </button>
               )}
               <button

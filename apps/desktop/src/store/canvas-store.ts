@@ -251,7 +251,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     const floor: Floor = {
       id: nanoid(),
       name: name?.trim() || `Floor ${s0.floors.filter((f) => f.projectId === s0.activeProjectId).length + 1}`,
-      cwd: g?.worktreePath ?? null, // git-backed → terminais nascem no worktree
+      cwd: g?.worktreePath ?? s0.currentCwd, // git → worktree; vazio → herda a pasta atual do projeto (não cai em null/HOME)
       projectId: s0.activeProjectId, // floor nasce no projeto ativo
       nodes: [],
       edges: [],

@@ -189,6 +189,17 @@ pub fn agent_mcp_config(
     // MCP servers custom habilitados pelo usuário (Postgres/GitHub/filesystem/…).
     crate::commands::mcp_servers::merge_enabled_into(&db, &mut servers);
 
+    // O PRÓPRIO server de orquestração do OmniRift (SSE @ 127.0.0.1:MCP_PORT):
+    // expõe terminal_spawn/terminal_run, claim_*, memory_*, review_current,
+    // spec_path_conflicts e a equipe (frontend/backend/…) como tools. Sem esta
+    // entrada o config nunca aponta pro server → NEM o Orquestrador NEM os
+    // agentes-filho recebem as tools de orquestração (a "equipe via MCP" é
+    // anunciada, mas o canal não existe). Reusa o helper mcp_server_url().
+    servers.insert(
+        "omnirift-agents".into(),
+        serde_json::json!({ "type": "sse", "url": mcp_server_url() }),
+    );
+
     let dir = app.path().app_data_dir().ok()?;
     std::fs::create_dir_all(&dir).ok()?;
     let cfg = serde_json::json!({ "mcpServers": serde_json::Value::Object(servers) });
