@@ -81,7 +81,7 @@ export function ResourcePanel() {
   const setExpanded = useResourceStore((s) => s.setExpanded);
   const last = useResourceStore((s) => s.last);
   const ring = useResourceStore((s) => s.ring);
-  const floors = useCanvasStore((s) => s.floors);
+  const floors = useCanvasStore((s) => s.parallels);
   const [tab, setTab] = useState<string>("geral"); // "geral" | sessionId
 
   const labelOf = useMemo(() => {

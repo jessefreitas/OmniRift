@@ -29,7 +29,7 @@ export function NoteNode({ id, data, selected }: NodeProps<NoteRfNode>) {
     if (!content) return;
     const s = useCanvasStore.getState();
     try {
-      await reminderAdd({ content, noteId: id, floorId: s.activeFloorId, projectId: s.activeProjectId });
+      await reminderAdd({ content, noteId: id, floorId: s.activeParallelId, projectId: s.activeProjectId });
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
     } catch (e) {

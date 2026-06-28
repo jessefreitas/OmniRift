@@ -50,8 +50,8 @@ export async function initPersistence(): Promise<() => void> {
   // clipboard), mas só floors/ativo/nome entram no snapshot — comparar a
   // referência de `floors` evita salvar (e nem reagendar) em mudança de status.
   const s0 = useCanvasStore.getState();
-  let lastFloors = s0.floors;
-  let lastActive = s0.activeFloorId;
+  let lastFloors = s0.parallels;
+  let lastActive = s0.activeParallelId;
   let lastName = s0.workspaceName;
   let lastProjects = s0.projects;
   let lastActiveProject = s0.activeProjectId;
@@ -60,16 +60,16 @@ export async function initPersistence(): Promise<() => void> {
   const unsub = useCanvasStore.subscribe(() => {
     const s = useCanvasStore.getState();
     if (
-      s.floors === lastFloors &&
-      s.activeFloorId === lastActive &&
+      s.parallels === lastFloors &&
+      s.activeParallelId === lastActive &&
       s.workspaceName === lastName &&
       s.projects === lastProjects &&
       s.activeProjectId === lastActiveProject
     ) {
       return;
     }
-    lastFloors = s.floors;
-    lastActive = s.activeFloorId;
+    lastFloors = s.parallels;
+    lastActive = s.activeParallelId;
     lastName = s.workspaceName;
     lastProjects = s.projects;
     lastActiveProject = s.activeProjectId;

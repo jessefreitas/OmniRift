@@ -10,10 +10,10 @@ import { FileDiff as FileDiffIcon, RefreshCw, X } from "lucide-react";
 import { floorGitDiff, type FileDiff, type FloorDiff } from "@/lib/git-client";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import type { Floor } from "@/types/workspace";
+import type { Parallel } from "@/types/workspace";
 
 interface Props {
-  floor: Floor;
+  floor: Parallel;
   onClose: () => void;
 }
 

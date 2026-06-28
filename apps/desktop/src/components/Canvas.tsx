@@ -13,8 +13,8 @@ import { useQuickJump } from "@/hooks/useQuickJump";
 import { useRoutines } from "@/hooks/useRoutines";
 
 export function Canvas() {
-  const floors = useCanvasStore((s) => s.floors);
-  const activeFloorId = useCanvasStore((s) => s.activeFloorId);
+  const floors = useCanvasStore((s) => s.parallels);
+  const activeFloorId = useCanvasStore((s) => s.activeParallelId);
   const activeProjectId = useCanvasStore((s) => s.activeProjectId);
   useQuickJump(); // Alt+1..9 → floor N
   useRoutines(); // scheduler das routines por intervalo

@@ -127,7 +127,7 @@ import { loadDefaultCompressor } from "@/lib/compress-client";
 import { loadLlmConfig } from "@/lib/llm-client";
 import { runReview } from "@/lib/review";
 import { loadHooks, runFloorHook } from "@/lib/hooks-client";
-import type { Floor } from "@/types/workspace";
+import type { Parallel } from "@/types/workspace";
 import { floorHost } from "@/types/workspace";
 import { Tooltip } from "@/components/Tooltip";
 import { cn } from "@/lib/cn";
@@ -303,15 +303,15 @@ export function Sidebar() {
   const [closingFolder, setClosingFolder] = useState(false);
   const getWorkspaceSnapshot = useCanvasStore((s) => s.getWorkspaceSnapshot);
   const restoreWorkspace = useCanvasStore((s) => s.restoreWorkspace);
-  const allFloors = useCanvasStore((s) => s.floors);
+  const allFloors = useCanvasStore((s) => s.parallels);
   const activeProjectId = useCanvasStore((s) => s.activeProjectId);
   // A sidebar mostra/opera só os floors do projeto ATIVO (floors é flat no store).
   const floors = useMemo(() => allFloors.filter((f) => f.projectId === activeProjectId), [allFloors, activeProjectId]);
-  const activeFloorId = useCanvasStore((s) => s.activeFloorId);
-  const createFloor = useCanvasStore((s) => s.createFloor);
-  const switchFloor = useCanvasStore((s) => s.switchFloor);
-  const renameFloor = useCanvasStore((s) => s.renameFloor);
-  const deleteFloor = useCanvasStore((s) => s.deleteFloor);
+  const activeFloorId = useCanvasStore((s) => s.activeParallelId);
+  const createFloor = useCanvasStore((s) => s.createParallel);
+  const switchFloor = useCanvasStore((s) => s.switchParallel);
+  const renameFloor = useCanvasStore((s) => s.renameParallel);
+  const deleteFloor = useCanvasStore((s) => s.deleteParallel);
   const terminals = useMemo(
     () => floors.flatMap((f) => f.nodes.filter((n) => n.kind === "terminal")),
     [floors],
@@ -365,7 +365,7 @@ export function Sidebar() {
   const [roles, setRoles] = useState<AgentRoleDef[]>(() => loadRoles());
   const [editingRole, setEditingRole] = useState<AgentRoleDef | null>(null);
   const [launchPickerRole, setLaunchPickerRole] = useState<AgentRoleDef | null>(null);
-  const [diffFloor, setDiffFloor] = useState<Floor | null>(null);
+  const [diffFloor, setDiffFloor] = useState<Parallel | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
   const [showHooks, setShowHooks] = useState(false);
@@ -405,7 +405,7 @@ export function Sidebar() {
   }
   const [showConnections, setShowConnections] = useState(false);
   const [showMobile, setShowMobile] = useState(false);
-  const [reviewFloor, setReviewFloor] = useState<Floor | null>(null);
+  const [reviewFloor, setReviewFloor] = useState<Parallel | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showReviewAi, setShowReviewAi] = useState(false);
@@ -775,7 +775,7 @@ export function Sidebar() {
         if (!node) continue;
         const label = node.label ?? node.command;
         const desc = savedDescs[sid] ?? `Agente ${label}`;
-        const floor = st.floors.find(
+        const floor = st.parallels.find(
           (f) => f.nodes.some((n) => n.kind === "terminal" && n.session_id === sid),
         )?.name;
         mcpRegisterAgent(label, sid, desc, floor).catch(console.warn);
@@ -950,7 +950,7 @@ export function Sidebar() {
 
   // Land: merge da branch do floor na base + remove worktree + apaga branch.
   // Destrutivo → confirma explicitamente. Em conflito, o merge falha e o floor fica.
-  async function landFloor(f: Floor) {
+  async function landFloor(f: Parallel) {
     if (!f.repoRoot || !f.branch || !f.worktreePath || !f.baseBranch) return;
     if (!(await confirmDialog(tr("sidebar.landConfirm", "Land \"{branch}\" → \"{base}\"?\nFaz merge e remove o worktree.").replace("{branch}", f.branch).replace("{base}", f.baseBranch)))) return;
     // Review gate: se a política liga o gate, roda o code review antes do merge.
@@ -991,7 +991,7 @@ export function Sidebar() {
   }
 
   // Land monitor: floor-git com algum agente em "done" → pronto pra Land.
-  function isReadyToLand(f: Floor): boolean {
+  function isReadyToLand(f: Parallel): boolean {
     return (
       !!f.branch &&
       f.nodes.some((n) => n.kind === "terminal" && terminalStatuses[n.session_id] === "done")

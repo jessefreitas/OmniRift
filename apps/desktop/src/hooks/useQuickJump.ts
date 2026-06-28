@@ -16,11 +16,11 @@ export function useQuickJump(): void {
       const idx = Number(e.key) - 1;
       const st = useCanvasStore.getState();
       // Floors do projeto ativo (floors é flat no store).
-      const pf = st.floors.filter((f) => f.projectId === st.activeProjectId);
+      const pf = st.parallels.filter((f) => f.projectId === st.activeProjectId);
       if (idx >= pf.length) return;
       e.preventDefault();
       e.stopPropagation();
-      st.switchFloor(pf[idx].id);
+      st.switchParallel(pf[idx].id);
     };
     window.addEventListener("keydown", handler, true); // capture: antes do xterm
     return () => window.removeEventListener("keydown", handler, true);

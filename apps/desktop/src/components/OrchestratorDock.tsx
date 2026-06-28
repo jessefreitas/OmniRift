@@ -16,9 +16,9 @@ import { useT } from "@/lib/i18n";
 export function OrchestratorDock() {
   const t = useT();
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
-  const floors = useCanvasStore((s) => s.floors);
-  const activeFloorId = useCanvasStore((s) => s.activeFloorId);
-  const switchFloor = useCanvasStore((s) => s.switchFloor);
+  const floors = useCanvasStore((s) => s.parallels);
+  const activeFloorId = useCanvasStore((s) => s.activeParallelId);
+  const switchFloor = useCanvasStore((s) => s.switchParallel);
   const status = useCanvasStore((s) =>
     orchestratorSid ? (s.terminalStatuses[orchestratorSid] ?? "idle") : "idle",
   );

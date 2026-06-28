@@ -45,7 +45,7 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const patchNode = useCanvasStore((s) => s.patchNode);
   const setFileDirty = useCanvasStore((s) => s.setFileDirty);
-  const floors = useCanvasStore((s) => s.floors);
+  const floors = useCanvasStore((s) => s.parallels);
   const filePath = data.filePath;
   const fileName = filePath.split("/").pop() || filePath;
 

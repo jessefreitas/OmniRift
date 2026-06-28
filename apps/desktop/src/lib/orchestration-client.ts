@@ -110,7 +110,7 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
     git?: boolean;
   }>("canvas://spawn-on-floor", async (event) => {
     const p = event.payload;
-    let gitOpts: Parameters<ReturnType<typeof store>["createFloor"]>[1] = { focus: true };
+    let gitOpts: Parameters<ReturnType<typeof store>["createParallel"]>[1] = { focus: true };
     if (p.git !== false) {
       const cwd = store().currentCwd;
       if (cwd) {
@@ -123,24 +123,24 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
         console.warn("[orchestration] sem projeto aberto — floor comum (sem git).");
       }
     }
-    store().createFloor(p.branch, gitOpts);
+    store().createParallel(p.branch, gitOpts);
     const role = asRole(p.role);
     store().addTerminal({ id: p.id, command: p.command, args: await devArgs(role, p.label), label: p.label, role });
   });
 
   const unCreate = await listen<{ name?: string }>("canvas://floor-create", (e) => {
-    store().createFloor(e.payload.name, { focus: true });
+    store().createParallel(e.payload.name, { focus: true });
   });
   const unFocus = await listen<{ target: string }>("canvas://floor-focus", (e) => {
     const t = e.payload.target;
-    const f = store().floors.find((x) => x.id === t || x.name === t);
-    if (f) store().switchFloor(f.id);
+    const f = store().parallels.find((x) => x.id === t || x.name === t);
+    if (f) store().switchParallel(f.id);
   });
   const unRename = await listen<{ id: string; name: string }>("canvas://floor-rename", (e) => {
-    store().renameFloor(e.payload.id, e.payload.name);
+    store().renameParallel(e.payload.id, e.payload.name);
   });
   const unClose = await listen<{ id: string }>("canvas://floor-close", (e) => {
-    store().deleteFloor(e.payload.id);
+    store().deleteParallel(e.payload.id);
   });
 
   // Sincroniza o espelho do backend só quando floors/ativo mudam (dedup por
@@ -150,14 +150,14 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
   const pushMirror = () => {
     const s = useCanvasStore.getState();
     // Só os floors do projeto ATIVO — o orquestrador opera no projeto corrente.
-    const pf = s.floors.filter((f) => f.projectId === s.activeProjectId);
+    const pf = s.parallels.filter((f) => f.projectId === s.activeProjectId);
     const sig =
-      s.activeProjectId + "|" + s.activeFloorId + "|" + pf.map((f) => `${f.id}:${f.name}:${f.nodes.length}`).join(",");
+      s.activeProjectId + "|" + s.activeParallelId + "|" + pf.map((f) => `${f.id}:${f.name}:${f.nodes.length}`).join(",");
     if (sig === lastSig) return;
     lastSig = sig;
     floorMirrorSet(
       pf.map((f) => ({ id: f.id, name: f.name, nodes: f.nodes.length })),
-      s.activeFloorId,
+      s.activeParallelId,
     ).catch(() => {});
   };
   pushMirror();

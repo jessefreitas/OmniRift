@@ -63,10 +63,10 @@ export async function sendDiagnostics(note?: string): Promise<string> {
   const s = useCanvasStore.getState();
   const stateSummary = JSON.stringify({
     projects: s.projects.length,
-    floors: s.floors.length,
+    floors: s.parallels.length,
     terminals: s.allTerminalNodes().length,
     activeProjectId: s.activeProjectId,
-    activeFloorId: s.activeFloorId,
+    activeFloorId: s.activeParallelId, // wire-name do payload /diag (lido por /admin/diag) — chave preservada
   });
 
   const frontendLog = ring.join("\n");

@@ -18,7 +18,7 @@ export async function analyzeCanvas(): Promise<string> {
   }
 
   const s = useCanvasStore.getState();
-  const floors = s.floors.filter((f) => f.projectId === s.activeProjectId);
+  const floors = s.parallels.filter((f) => f.projectId === s.activeProjectId);
   const lines: string[] = [];
   for (const f of floors) {
     const agents = f.nodes.filter((n): n is Extract<typeof n, { kind: "terminal" }> => n.kind === "terminal");
