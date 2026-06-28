@@ -5,7 +5,7 @@
 //!   2. implementer headless (goal + no re-itera o erro da condição anterior) →
 //!      `super::run_headless_agent` (helper compartilhado com o painel de Saúde).
 //!   3. roda a condição via `sh -c` / `cmd /c` em `cwd`, captura exit + stdout/stderr
-//!      (padrão de `commands/git.rs::floor_run_hook`).
+//!      (padrão de `commands/git.rs::parallel_run_hook`).
 //!   4. persiste a iteração no estado + emite `turbo://update`.
 //!   5. decide via `next_action(exit, iter, max)`:
 //!      - RunVerifier → roda o verifier (CLI separado; maker ≠ checker) com o `git
@@ -39,7 +39,7 @@ pub struct ConditionResult {
 }
 
 /// Roda a condição (comando shell) em `cwd` via `sh -c` (Unix) / `cmd /c` (Windows),
-/// capturando o exit code + stdout/stderr combinados (padrão de `floor_run_hook`).
+/// capturando o exit code + stdout/stderr combinados (padrão de `parallel_run_hook`).
 /// Strip de LD_PRELOAD/GTK_MODULES (mesmo motivo dos PTYs; no-op no Windows). Falha
 /// ao SPAWNAR (binário do shell ausente) vira exit `None` + a mensagem na saída — o
 /// loop trata como "condição não passou" (não derruba o run).
