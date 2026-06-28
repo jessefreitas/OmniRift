@@ -69,7 +69,7 @@ use commands::git::{
     parallel_run_hook, git_repo_info,
 };
 use commands::mcp::{
-    agent_mcp_config, floor_mirror_set, get_max_agents, mcp_inventory, mcp_list_agents, mcp_register_agent,
+    agent_mcp_config, parallel_mirror_set, get_max_agents, mcp_inventory, mcp_list_agents, mcp_register_agent,
     mcp_server_url, mcp_unregister_agent, set_max_agents,
 };
 use commands::memory::{
@@ -311,7 +311,7 @@ pub fn run() {
             mcp_server_url,
             set_max_agents,
             get_max_agents,
-            floor_mirror_set,
+            parallel_mirror_set,
             db_save_workspace,
             db_load_workspace,
             session_start,

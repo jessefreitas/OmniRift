@@ -38,8 +38,11 @@ pub fn mcp_server_url() -> String {
     format!("http://127.0.0.1:{}/sse", crate::mcp::MCP_PORT)
 }
 
+/// Espelha o estado dos paralelos do front no mirror do backend (lido por
+/// `workspace_list`). Comando renomeado floor→parallel (Fase 2 · #6); o ARG
+/// `floors` é wire — o front envia `{ floors: { floors, activeParallelId } }`.
 #[tauri::command]
-pub fn floor_mirror_set(
+pub fn parallel_mirror_set(
     floors: serde_json::Value,
     mirror: State<'_, std::sync::Arc<parking_lot::Mutex<serde_json::Value>>>,
 ) {
