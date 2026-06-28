@@ -308,8 +308,9 @@ fn migrate(conn: &Connection) {
 
 /// Renomeia a coluna `old`→`new` só se `old` ainda existe e `new` ainda não —
 /// idempotente (roda a cada boot, no-op após migrada). Falha (tabela inexistente,
-/// SQL) é absorvida: a tabela nova já nasce com o nome certo via SCHEMA.
-fn rename_column_if_legacy(conn: &Connection, table: &str, old: &str, new: &str) {
+/// SQL) é absorvida: a tabela nova já nasce com o nome certo via SCHEMA. Helper
+/// ÚNICO de migração de rename — reusado por `commands/routines.rs::ensure_schema`.
+pub(crate) fn rename_column_if_legacy(conn: &Connection, table: &str, old: &str, new: &str) {
     let cols: Vec<String> = {
         let Ok(mut stmt) = conn.prepare(&format!("PRAGMA table_info({table})")) else {
             return;

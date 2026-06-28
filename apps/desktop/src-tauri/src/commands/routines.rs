@@ -106,24 +106,8 @@ fn ensure_schema(conn: &Connection) -> rusqlite::Result<()> {
     ensure_column(conn, "routines", "trigger", "TEXT")?;
     // Rename floor→parallel (Fase 2 · #6): coluna legada `target_floor`→`target_parallel`.
     // Idempotente (no-op após migrada); o wire camelCase `targetFloor` vem do struct.
-    rename_column_if_legacy(conn, "routines", "target_floor", "target_parallel")?;
-    Ok(())
-}
-
-/// Renomeia a coluna `old`→`new` só se `old` ainda existe e `new` ainda não —
-/// idempotente (no-op após migrada). `RENAME COLUMN` (SQLite ≥3.25) preserva os
-/// dados. Espelha o `migrate()` do db.rs (mesmo padrão presence-based de versão).
-fn rename_column_if_legacy(conn: &Connection, table: &str, old: &str, new: &str) -> rusqlite::Result<()> {
-    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-    let cols: Vec<String> = stmt
-        .query_map([], |r| r.get::<_, String>(1))?
-        .filter_map(Result::ok)
-        .collect();
-    drop(stmt);
-    let has = |c: &str| cols.iter().any(|n| n == c);
-    if has(old) && !has(new) {
-        conn.execute(&format!("ALTER TABLE {table} RENAME COLUMN \"{old}\" TO \"{new}\""), [])?;
-    }
+    // Reusa o helper ÚNICO de db.rs (absorve o erro internamente → sem `?`).
+    crate::db::rename_column_if_legacy(conn, "routines", "target_floor", "target_parallel");
     Ok(())
 }
 
@@ -311,7 +295,7 @@ mod tests {
             interval_min: Some(30),
             at_time: None,
             enabled: true,
-            target_parallel: Some("floor-1".to_string()),
+            target_parallel: Some("parallel-1".to_string()),
             created_at: None,
             updated_at: None,
             trigger: None,
@@ -333,7 +317,7 @@ mod tests {
         assert_eq!(r.command, "echo hi");
         assert_eq!(r.interval_min, Some(30));
         assert!(r.enabled);
-        assert_eq!(r.target_parallel.as_deref(), Some("floor-1"));
+        assert_eq!(r.target_parallel.as_deref(), Some("parallel-1"));
     }
 
     #[test]

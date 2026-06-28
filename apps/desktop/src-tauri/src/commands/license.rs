@@ -25,6 +25,11 @@ const COMMUNITY_AGENTS: i64 = 0;
 const COMMUNITY_PARALLELS: i64 = 0;
 
 /// Limites efetivos aplicados pela UI (0 = ilimitado).
+///
+/// CONVENÇÃO DE NOMES (rename floor→parallel · Fase 2 #6): o identificador
+/// interno é `parallels`, mas o WIRE-NAME (de)serializado é `floors` — mantido
+/// via `#[serde(rename = "floors")]`. O wire `floors` é INTOCÁVEL: aparece no
+/// JWT assinado (`lim.floors`) e no IPC→front (`limits.floors`).
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Limits {
