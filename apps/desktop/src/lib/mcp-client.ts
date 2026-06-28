@@ -83,7 +83,7 @@ export async function floorMirrorSet(
   floors: { id: string; name: string; nodes: number }[],
   activeFloorId: string,
 ): Promise<void> {
-  await invoke("floor_mirror_set", { floors: { floors, activeFloorId } });
+  await invoke("parallel_mirror_set", { floors: { floors, activeFloorId } });
 }
 
 /**

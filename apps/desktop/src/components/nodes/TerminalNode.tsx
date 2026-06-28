@@ -51,8 +51,8 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   // Selector devolve boolean → só re-renderiza quando o estado realmente vira.
   const orchOnActiveFloor = useCanvasStore((s) => {
     if (s.orchestratorSid !== data.session_id) return true;
-    const f = s.floors.find((fl) => fl.nodes.some((n) => n.kind === "terminal" && n.session_id === s.orchestratorSid));
-    return !f || f.id === s.activeFloorId;
+    const f = s.parallels.find((fl) => fl.nodes.some((n) => n.kind === "terminal" && n.session_id === s.orchestratorSid));
+    return !f || f.id === s.activeParallelId;
   });
 
   const [editing, setEditing] = useState(false);

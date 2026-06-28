@@ -51,7 +51,7 @@ export function RemindersModal({ onClose }: Props) {
   function openOnCanvas(r: Reminder) {
     const s = useCanvasStore.getState();
     if (r.projectId && r.projectId !== s.activeProjectId) s.setActiveProject(r.projectId);
-    if (r.floorId) useCanvasStore.getState().switchFloor(r.floorId);
+    if (r.floorId) useCanvasStore.getState().switchParallel(r.floorId);
     onClose();
   }
 

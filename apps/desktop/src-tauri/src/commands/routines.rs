@@ -29,9 +29,11 @@ pub struct Routine {
     #[serde(default)]
     pub at_time: Option<String>,
     pub enabled: bool,
-    /// Floor onde a routine roda (null = floor ativo). Coluna `target_floor`.
-    #[serde(default)]
-    pub target_floor: Option<String>,
+    /// Paralelo onde a routine roda (null = paralelo ativo). Coluna `target_parallel`.
+    /// Wire-name `targetFloor` PRESERVADO (front lê/envia); ident = `target_parallel`
+    /// (rename floor→parallel · Fase 2 #6).
+    #[serde(default, rename = "targetFloor")]
+    pub target_parallel: Option<String>,
     /// Tipo de disparo (Fase 2): "interval" | "atTime" | "floor-created" | "floor-deleted".
     /// null/None = retrocompat: o front deriva por intervalMin/atTime. Coluna `trigger`.
     #[serde(default)]
@@ -65,7 +67,7 @@ CREATE TABLE IF NOT EXISTS routines (
     interval_min  INTEGER,
     at_time       TEXT,
     enabled       INTEGER,
-    target_floor  TEXT,
+    target_parallel  TEXT,
     created_at    INTEGER,
     updated_at    INTEGER,
     \"trigger\"     TEXT
@@ -100,8 +102,12 @@ fn ensure_column(conn: &Connection, table: &str, col: &str, decl: &str) -> rusql
 
 fn ensure_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(SCHEMA)?;
-    // Fase 2: coluna `trigger` (ciclo-de-vida de floor). Idempotente p/ DBs legados.
+    // Fase 2: coluna `trigger` (ciclo-de-vida de paralelo). Idempotente p/ DBs legados.
     ensure_column(conn, "routines", "trigger", "TEXT")?;
+    // Rename floor→parallel (Fase 2 · #6): coluna legada `target_floor`→`target_parallel`.
+    // Idempotente (no-op após migrada); o wire camelCase `targetFloor` vem do struct.
+    // Reusa o helper ÚNICO de db.rs (absorve o erro internamente → sem `?`).
+    crate::db::rename_column_if_legacy(conn, "routines", "target_floor", "target_parallel");
     Ok(())
 }
 
@@ -120,7 +126,7 @@ fn row_to_routine(r: &rusqlite::Row<'_>) -> rusqlite::Result<Routine> {
         interval_min: r.get(3)?,
         at_time: r.get(4)?,
         enabled: r.get::<_, i64>(5)? != 0,
-        target_floor: r.get(6)?,
+        target_parallel: r.get(6)?,
         created_at: r.get(7)?,
         updated_at: r.get(8)?,
         trigger: r.get(9)?,
@@ -138,7 +144,7 @@ fn row_to_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
 }
 
 const COLS: &str =
-    "id, name, command, interval_min, at_time, enabled, target_floor, created_at, updated_at, \"trigger\"";
+    "id, name, command, interval_min, at_time, enabled, target_parallel, created_at, updated_at, \"trigger\"";
 
 // ── Lógica (testável sem Tauri State) ────────────────────────────────────────
 
@@ -162,16 +168,16 @@ fn upsert_impl(db: &Db, mut routine: Routine) -> rusqlite::Result<Routine> {
         // created_at só no INSERT; no UPDATE preserva o original. updated_at sempre = now.
         c.execute(
             "INSERT INTO routines
-               (id, name, command, interval_min, at_time, enabled, target_floor, created_at, updated_at, \"trigger\")
+               (id, name, command, interval_min, at_time, enabled, target_parallel, created_at, updated_at, \"trigger\")
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
              ON CONFLICT(id) DO UPDATE SET
                name=excluded.name, command=excluded.command,
                interval_min=excluded.interval_min, at_time=excluded.at_time,
-               enabled=excluded.enabled, target_floor=excluded.target_floor,
+               enabled=excluded.enabled, target_parallel=excluded.target_parallel,
                updated_at=excluded.updated_at, \"trigger\"=excluded.\"trigger\"",
             rusqlite::params![
                 routine.id, routine.name, routine.command, routine.interval_min,
-                routine.at_time, routine.enabled as i64, routine.target_floor, now, now,
+                routine.at_time, routine.enabled as i64, routine.target_parallel, now, now,
                 routine.trigger
             ],
         )?;
@@ -289,7 +295,7 @@ mod tests {
             interval_min: Some(30),
             at_time: None,
             enabled: true,
-            target_floor: Some("floor-1".to_string()),
+            target_parallel: Some("parallel-1".to_string()),
             created_at: None,
             updated_at: None,
             trigger: None,
@@ -311,7 +317,7 @@ mod tests {
         assert_eq!(r.command, "echo hi");
         assert_eq!(r.interval_min, Some(30));
         assert!(r.enabled);
-        assert_eq!(r.target_floor.as_deref(), Some("floor-1"));
+        assert_eq!(r.target_parallel.as_deref(), Some("parallel-1"));
     }
 
     #[test]

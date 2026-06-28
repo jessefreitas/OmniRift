@@ -1,7 +1,7 @@
 import type { CanvasEdge, CanvasNode } from "./canvas";
 
 /** Um canvas nomeado dentro do projeto. */
-export interface Floor {
+export interface Parallel {
   id: string;
   name: string;
   cwd: string | null;
@@ -29,7 +29,7 @@ export interface Floor {
 export const LOCAL_HOST_ID = "local";
 
 /** Host de execução parseado de `Floor.hostId`. */
-export type FloorHost =
+export type ParallelHost =
   | { kind: "local" }
   | { kind: "ssh"; id: string }
   | { kind: "runtime"; id: string };
@@ -39,9 +39,9 @@ export type FloorHost =
  * caminhos (SSH/runtime) usam isto em vez de comparar a string crua.
  * Qualquer valor não reconhecido (incluindo "" / undefined) cai em `local`.
  */
-export function floorHost(
-  floor: Pick<Floor, "hostId"> | { hostId?: string } | null | undefined,
-): FloorHost {
+export function parallelHost(
+  floor: Pick<Parallel, "hostId"> | { hostId?: string } | null | undefined,
+): ParallelHost {
   const raw = floor?.hostId;
   if (typeof raw !== "string") return { kind: "local" };
   if (raw.startsWith("ssh:")) {
@@ -56,7 +56,7 @@ export function floorHost(
 }
 
 /** Normaliza `hostId` de um floor carregado: ausente/legado → `"local"`. */
-export function normalizeFloorHostId(hostId: unknown): string {
+export function normalizeParallelHostId(hostId: unknown): string {
   return typeof hostId === "string" && hostId.length > 0 ? hostId : LOCAL_HOST_ID;
 }
 
@@ -69,11 +69,18 @@ export interface WorkspaceFile {
   edges: CanvasEdge[];
 }
 
-/** v2 — múltiplos floors. */
+/**
+ * v2 — múltiplos floors.
+ * WIRE-NAME (formato de arquivo PERSISTIDO em disco): as chaves `floors` e
+ * `activeFloorId` aqui — e em `Project`/`ProjectMeta` — são o formato salvo de
+ * workspaces já gravados. O conceito de runtime virou "parallel" (ver `interface
+ * Parallel` e o estado `parallels`/`activeParallelId` no canvas-store), mas estas
+ * CHAVES JSON NÃO mudam, senão workspaces salvos quebram. Migração de chave = à parte.
+ */
 export interface WorkspaceFileV2 {
   version: 2;
   name: string;
-  floors: Floor[];
+  floors: Parallel[];
   activeFloorId: string;
 }
 
@@ -82,7 +89,7 @@ export interface Project {
   id: string;
   name: string;
   cwd: string | null;
-  floors: Floor[];
+  floors: Parallel[];
   activeFloorId: string;
 }
 

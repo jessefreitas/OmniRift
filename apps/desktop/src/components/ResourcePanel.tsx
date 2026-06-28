@@ -81,18 +81,18 @@ export function ResourcePanel() {
   const setExpanded = useResourceStore((s) => s.setExpanded);
   const last = useResourceStore((s) => s.last);
   const ring = useResourceStore((s) => s.ring);
-  const floors = useCanvasStore((s) => s.floors);
+  const parallels = useCanvasStore((s) => s.parallels);
   const [tab, setTab] = useState<string>("geral"); // "geral" | sessionId
 
   const labelOf = useMemo(() => {
     const m = new Map<string, string>();
-    for (const f of floors) {
+    for (const f of parallels) {
       for (const n of f.nodes) {
         if (n.kind === "terminal") m.set(n.session_id, n.label ?? n.command);
       }
     }
     return (sid: string) => m.get(sid) ?? sid.slice(0, 8);
-  }, [floors]);
+  }, [parallels]);
 
   if (!expanded || !last) return null;
 

@@ -24,8 +24,8 @@ import type {
   SketchNode,
   TerminalNode,
 } from "@/types/canvas";
-import type { AnyWorkspaceFile, Floor, Project, ProjectMeta, WorkspaceFileV3 } from "@/types/workspace";
-import { LOCAL_HOST_ID, migrateWorkspace, normalizeFloorHostId } from "@/types/workspace";
+import type { AnyWorkspaceFile, Parallel, Project, ProjectMeta, WorkspaceFileV3 } from "@/types/workspace";
+import { LOCAL_HOST_ID, migrateWorkspace, normalizeParallelHostId } from "@/types/workspace";
 import type { AgentRole, AgentState } from "@/types/pty";
 
 interface CanvasState {
@@ -34,8 +34,8 @@ interface CanvasState {
   projects: ProjectMeta[];
   activeProjectId: string;
   /** TODOS os floors de TODOS os projetos (flat). O Canvas mostra só os do ativo. */
-  floors: Floor[];
-  activeFloorId: string;
+  parallels: Parallel[];
+  activeParallelId: string;
   workspaceName: string;
   currentCwd: string | null; // espelho do cwd do floor ativo
 
@@ -47,17 +47,17 @@ interface CanvasState {
   renameProject: (id: string, name: string) => void;
 
   // floor management
-  createFloor: (
+  createParallel: (
     name?: string,
     opts?: {
       focus?: boolean;
       git?: { worktreePath: string; branch: string; baseBranch: string; repoRoot: string };
     },
-  ) => Floor | null;
-  switchFloor: (id: string) => void;
-  renameFloor: (id: string, name: string) => void;
-  deleteFloor: (id: string) => void;
-  getFloor: (id: string) => Floor | undefined;
+  ) => Parallel | null;
+  switchParallel: (id: string) => void;
+  renameParallel: (id: string, name: string) => void;
+  deleteParallel: (id: string) => void;
+  getParallel: (id: string) => Parallel | undefined;
   allTerminalNodes: () => TerminalNode[];
 
   // node/edge ops (agem no floor ativo)
@@ -144,28 +144,28 @@ function defaultPosition(): { x: number; y: number } {
 
 /** Emite o evento de ciclo-de-vida de floor no event bus do Tauri (Routines Fase 2).
  *  No-op sem Tauri (browser/test). Git-backed creates já são emitidos pelo backend
- *  (`floor_git_create`) — aqui só emitimos `floor:created` p/ floors NÃO git-backed,
- *  evitando disparo duplicado. `floor:deleted` sai sempre daqui (é o caminho de delete vivo). */
-function emitFloorLifecycle(
-  event: "floor:created" | "floor:deleted",
+ *  (`parallel_git_create`) — aqui só emitimos `parallel:created` p/ floors NÃO git-backed,
+ *  evitando disparo duplicado. `parallel:deleted` sai sempre daqui (é o caminho de delete vivo). */
+function emitParallelLifecycle(
+  event: "parallel:created" | "parallel:deleted",
   floor: { id: string; name: string; branch?: string },
 ): void {
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
   void emit(event, { floorId: floor.id, name: floor.name, branch: floor.branch ?? null }).catch(() => {});
 }
 
-const FIRST_FLOOR: Floor = { id: "floor-main", name: "Principal", cwd: null, projectId: "proj-main", nodes: [], edges: [], hostId: LOCAL_HOST_ID };
+const FIRST_FLOOR: Parallel = { id: "floor-main", name: "Principal", cwd: null, projectId: "proj-main", nodes: [], edges: [], hostId: LOCAL_HOST_ID };
 const FIRST_PROJECT: ProjectMeta = { id: "proj-main", name: "Principal", cwd: null, activeFloorId: FIRST_FLOOR.id };
 
 /** Map sobre os nós do floor ativo (busca por activeFloorId no array flat). */
-function mapActiveNodes(s: CanvasState, fn: (nodes: CanvasNode[]) => CanvasNode[]): Floor[] {
-  return s.floors.map((f) => (f.id === s.activeFloorId ? { ...f, nodes: fn(f.nodes) } : f));
+function mapActiveNodes(s: CanvasState, fn: (nodes: CanvasNode[]) => CanvasNode[]): Parallel[] {
+  return s.parallels.map((f) => (f.id === s.activeParallelId ? { ...f, nodes: fn(f.nodes) } : f));
 }
 
 /** Salva o estado vivo do projeto ativo (activeFloorId/cwd) de volta no seu meta. */
 function syncActiveMeta(s: CanvasState): ProjectMeta[] {
   return s.projects.map((p) =>
-    p.id === s.activeProjectId ? { ...p, activeFloorId: s.activeFloorId, cwd: s.currentCwd } : p,
+    p.id === s.activeProjectId ? { ...p, activeFloorId: s.activeParallelId, cwd: s.currentCwd } : p,
   );
 }
 
@@ -180,8 +180,8 @@ const SPAWN_BURST_MAX = 20;
 export const useCanvasStore = create<CanvasState>()((set, get) => ({
   projects: [FIRST_PROJECT],
   activeProjectId: FIRST_PROJECT.id,
-  floors: [FIRST_FLOOR],
-  activeFloorId: FIRST_FLOOR.id,
+  parallels: [FIRST_FLOOR],
+  activeParallelId: FIRST_FLOOR.id,
   workspaceName: "workspace",
   currentCwd: null,
   clipboardHistory: [],
@@ -198,7 +198,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       return null;
     }
     const projId = nanoid();
-    const floor: Floor = { id: nanoid(), name: "Principal", cwd, projectId: projId, nodes: [], edges: [], hostId: LOCAL_HOST_ID };
+    const floor: Parallel = { id: nanoid(), name: "Principal", cwd, projectId: projId, nodes: [], edges: [], hostId: LOCAL_HOST_ID };
     const proj: ProjectMeta = {
       id: projId,
       name: name?.trim() || `Projeto ${get().projects.length + 1}`,
@@ -207,9 +207,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     };
     set((s) => ({
       projects: [...syncActiveMeta(s), proj], // write-back do ativo + adiciona o novo
-      floors: [...s.floors, floor], // floor novo entra no array flat (não move os outros)
+      parallels: [...s.parallels, floor], // floor novo entra no array flat (não move os outros)
       activeProjectId: proj.id,
-      activeFloorId: floor.id,
+      activeParallelId: floor.id,
       currentCwd: cwd,
     }));
     return proj;
@@ -221,36 +221,41 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       const target = projects.find((p) => p.id === id);
       if (!target) return s;
       // Só troca o ponteiro ativo — os floors flat NÃO mudam → nada desmonta (PTYs vivos).
-      return { projects, activeProjectId: id, activeFloorId: target.activeFloorId, currentCwd: target.cwd };
+      return { projects, activeProjectId: id, activeParallelId: target.activeFloorId, currentCwd: target.cwd };
     }),
   closeProject: (id) =>
     set((s) => {
       if (s.projects.length <= 1) return s; // nunca fecha o último
       const projects = syncActiveMeta(s).filter((p) => p.id !== id);
-      const floors = s.floors.filter((f) => f.projectId !== id); // floors do fechado saem (PTYs morrem — esperado ao fechar)
+      const floors = s.parallels.filter((f) => f.projectId !== id); // floors do fechado saem (PTYs morrem — esperado ao fechar)
       if (id === s.activeProjectId) {
         const next = projects[0];
-        return { projects, floors, activeProjectId: next.id, activeFloorId: next.activeFloorId, currentCwd: next.cwd };
+        return { projects, parallels: floors, activeProjectId: next.id, activeParallelId: next.activeFloorId, currentCwd: next.cwd };
       }
-      return { projects, floors };
+      return { projects, parallels: floors };
     }),
   renameProject: (id, name) =>
     set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, name: name.trim() || p.name } : p)) })),
 
-  // ---- floor management ----
-  createFloor: (name, opts) => {
+  // ---- parallel management (conceito de runtime = "parallel"; ex-"floor") ----
+  // App local-first mono-usuário (Tauri): NÃO há multi-tenant nem modelo de
+  // permissões — toda operação age nos canvases do PRÓPRIO usuário, em memória.
+  // Ids são locais; não existe superfície de IDOR/autorização aqui. Os updates
+  // usam `set((s) => …)` do Zustand — SÍNCRONOS e atômicos (single-thread JS),
+  // logo não há race condition nem necessidade de locks/transações.
+  createParallel: (name, opts) => {
     // Gate de licença: community = 1 paralelo (floor) por canvas. 0 = ilimitado.
     const lic = useLicenseStore.getState();
-    const floorsHere = get().floors.filter((f) => f.projectId === get().activeProjectId).length;
+    const floorsHere = get().parallels.filter((f) => f.projectId === get().activeProjectId).length;
     if (!withinLimit(lic.limits.floors, floorsHere)) {
       lic.noteLimit("floors");
       return null;
     }
     const g = opts?.git;
     const s0 = get();
-    const floor: Floor = {
+    const floor: Parallel = {
       id: nanoid(),
-      name: name?.trim() || `Floor ${s0.floors.filter((f) => f.projectId === s0.activeProjectId).length + 1}`,
+      name: name?.trim() || `Floor ${s0.parallels.filter((f) => f.projectId === s0.activeProjectId).length + 1}`,
       cwd: g?.worktreePath ?? s0.currentCwd, // git → worktree; vazio → herda a pasta atual do projeto (não cai em null/HOME)
       projectId: s0.activeProjectId, // floor nasce no projeto ativo
       nodes: [],
@@ -264,54 +269,54 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
         repoRoot: g.repoRoot,
       }),
     };
-    set((s) => ({ floors: [...s.floors, floor] }));
-    // Trigger Routines: floors git-backed já emitem `floor:created` no backend
-    // (floor_git_create) — aqui só emitimos os NÃO git-backed (evita disparo duplo).
-    if (!g) emitFloorLifecycle("floor:created", floor);
-    if (opts?.focus) get().switchFloor(floor.id);
+    set((s) => ({ parallels: [...s.parallels, floor] }));
+    // Trigger Routines: floors git-backed já emitem `parallel:created` no backend
+    // (parallel_git_create) — aqui só emitimos os NÃO git-backed (evita disparo duplo).
+    if (!g) emitParallelLifecycle("parallel:created", floor);
+    if (opts?.focus) get().switchParallel(floor.id);
     return floor;
   },
-  switchFloor: (id) =>
+  switchParallel: (id) =>
     set((s) => {
-      const f = s.floors.find((x) => x.id === id);
+      const f = s.parallels.find((x) => x.id === id);
       if (!f) return s;
-      return { activeFloorId: id, currentCwd: f.cwd };
+      return { activeParallelId: id, currentCwd: f.cwd };
     }),
-  renameFloor: (id, name) =>
-    set((s) => ({ floors: s.floors.map((f) => (f.id === id ? { ...f, name } : f)) })),
-  deleteFloor: (id) => {
+  renameParallel: (id, name) =>
+    set((s) => ({ parallels: s.parallels.map((f) => (f.id === id ? { ...f, name } : f)) })),
+  deleteParallel: (id) => {
     const s = get();
-    const target = s.floors.find((f) => f.id === id);
+    const target = s.parallels.find((f) => f.id === id);
     if (!target) return;
     const projId = target.projectId;
-    if (s.floors.filter((f) => f.projectId === projId).length <= 1) return; // nunca o último do projeto
-    const floors = s.floors.filter((f) => f.id !== id);
-    if (s.activeFloorId === id) {
+    if (s.parallels.filter((f) => f.projectId === projId).length <= 1) return; // nunca o último do projeto
+    const floors = s.parallels.filter((f) => f.id !== id);
+    if (s.activeParallelId === id) {
       const next = floors.find((f) => f.projectId === projId) ?? floors[0];
-      set({ floors, activeFloorId: next.id, currentCwd: next.cwd });
+      set({ parallels: floors, activeParallelId: next.id, currentCwd: next.cwd });
     } else {
-      set({ floors });
+      set({ parallels: floors });
     }
     // Trigger Routines: caminho de delete vivo (canvas-store). Só emite em delete real.
-    emitFloorLifecycle("floor:deleted", target);
+    emitParallelLifecycle("parallel:deleted", target);
   },
-  getFloor: (id) => get().floors.find((f) => f.id === id),
+  getParallel: (id) => get().parallels.find((f) => f.id === id),
   allTerminalNodes: () =>
-    get().floors.flatMap((f) => f.nodes.filter((n): n is TerminalNode => n.kind === "terminal")),
+    get().parallels.flatMap((f) => f.nodes.filter((n): n is TerminalNode => n.kind === "terminal")),
 
   // ---- node/edge ops (floor ativo) ----
   setCurrentCwd: (cwd) =>
     set((s) => ({
       currentCwd: cwd,
-      floors: s.floors.map((f) => (f.id === s.activeFloorId ? { ...f, cwd } : f)),
+      parallels: s.parallels.map((f) => (f.id === s.activeParallelId ? { ...f, cwd } : f)),
     })),
   closeFolder: () =>
     set((s) => {
       const pid = s.activeProjectId;
-      const fresh: Floor = { id: nanoid(), name: "Floor 1", cwd: null, projectId: pid, nodes: [], edges: [], hostId: LOCAL_HOST_ID };
+      const fresh: Parallel = { id: nanoid(), name: "Floor 1", cwd: null, projectId: pid, nodes: [], edges: [], hostId: LOCAL_HOST_ID };
       // Tira os floors do projeto ativo (terminais desmontam → PTYs morrem) + 1 floor limpo.
-      const floors = [...s.floors.filter((f) => f.projectId !== pid), fresh];
-      return { floors, activeFloorId: fresh.id, currentCwd: null, dirtyFiles: new Set() };
+      const floors = [...s.parallels.filter((f) => f.projectId !== pid), fresh];
+      return { parallels: floors, activeParallelId: fresh.id, currentCwd: null, dirtyFiles: new Set() };
     }),
   dirtyFiles: new Set<string>(),
   setFileDirty: (nodeId, dirty) =>
@@ -344,15 +349,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     const s0host = get();
     // Floor alvo: explícito (routines "Rodar em") OU floor ativo (default — idêntico
     // ao anterior). NÃO troca o floor ativo: o terminal nasce no destino em background.
-    const explicitFloor = targetFloorId ? s0host.floors.find((f) => f.id === targetFloorId) : undefined;
-    const targetFloorIdResolved = explicitFloor?.id ?? s0host.activeFloorId;
-    const isActiveFloor = targetFloorIdResolved === s0host.activeFloorId;
+    const explicitFloor = targetFloorId ? s0host.parallels.find((f) => f.id === targetFloorId) : undefined;
+    const targetFloorIdResolved = explicitFloor?.id ?? s0host.activeParallelId;
+    const isActiveFloor = targetFloorIdResolved === s0host.activeParallelId;
     // cwd explícito (attach: vem do PTY já criado) tem prioridade; senão herda o cwd do
     // floor alvo (no floor ativo = currentCwd, byte-idêntico ao anterior).
     const cwd = cwdArg ?? (isActiveFloor ? get().currentCwd : explicitFloor?.cwd ?? null) ?? undefined;
     // Host de execução (ref §3.1): explícito do caller (dropdown) OU herda o host do
     // floor alvo. "local"/ausente → não decora o node (comportamento idêntico).
-    const baseFloor = explicitFloor ?? s0host.floors.find((f) => f.id === s0host.activeFloorId);
+    const baseFloor = explicitFloor ?? s0host.parallels.find((f) => f.id === s0host.activeParallelId);
     const resolvedHost = executionHost ?? baseFloor?.hostId ?? LOCAL_HOST_ID;
     // Compõe a env de todos os compressores ligados (OmniCompress nativo entra por
     // padrão) + o override do role, se houver. Proxy só injeta se está de pé.
@@ -385,7 +390,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     };
     // Insere no floor alvo (= ativo quando targetFloorId ausente → idêntico a mapActiveNodes).
     set((s) => ({
-      floors: s.floors.map((f) => (f.id === targetFloorIdResolved ? { ...f, nodes: [...f.nodes, node] } : f)),
+      parallels: s.parallels.map((f) => (f.id === targetFloorIdResolved ? { ...f, nodes: [...f.nodes, node] } : f)),
     }));
     return node;
   },
@@ -399,7 +404,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 240, height: 200 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -412,7 +417,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       size: { width: 420, height: 320 },
     };
     // No início do array → renderiza atrás dos outros nós (frame de fundo).
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [node, ...ns]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [node, ...ns]) }));
     return node;
   },
 
@@ -424,7 +429,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 280, height: 360 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -435,7 +440,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 480, height: 360 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -447,7 +452,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 420, height: 320 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -460,7 +465,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 440, height: 380 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -473,7 +478,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 480, height: 400 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -486,7 +491,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 420, height: 380 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -498,7 +503,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 460, height: 420 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -510,7 +515,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 460, height: 360 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -522,7 +527,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 520, height: 460 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -534,7 +539,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 800, height: 560 },
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -546,7 +551,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 560, height: 720 }, // retrato (página A4 cabe inteira)
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -558,14 +563,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 720, height: 460 }, // paisagem (apresentações reveal.js)
     };
-    set((s) => ({ floors: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
 
   removeNode: (id) =>
     set((s) => ({
-      floors: s.floors.map((f) => {
-        if (f.id !== s.activeFloorId) return f;
+      parallels: s.parallels.map((f) => {
+        if (f.id !== s.activeParallelId) return f;
         const removed = f.nodes.find((n) => n.id === id);
         const nodes = f.nodes
           .filter((n) => n.id !== id)
@@ -585,8 +590,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
 
   reparentNode: (nodeId, parentId) =>
     set((s) => ({
-      floors: s.floors.map((f) => {
-        if (f.id !== s.activeFloorId) return f;
+      parallels: s.parallels.map((f) => {
+        if (f.id !== s.activeParallelId) return f;
         const node = f.nodes.find((n) => n.id === nodeId);
         if (!node) return f;
         // Posição absoluta atual (soma a do pai antigo, se houver).
@@ -610,30 +615,30 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
 
   renameNode: (id, label) =>
     set((s) => ({
-      floors: mapActiveNodes(s, (ns) =>
+      parallels: mapActiveNodes(s, (ns) =>
         ns.map((n) => (n.id === id ? ({ ...n, label } as CanvasNode) : n)),
       ),
     })),
 
   updateNodePosition: (id, position) =>
     set((s) => {
-      const active = s.floors.find((f) => f.id === s.activeFloorId);
+      const active = s.parallels.find((f) => f.id === s.activeParallelId);
       const node = active?.nodes.find((n) => n.id === id);
       if (!node || (node.position.x === position.x && node.position.y === position.y)) return s;
-      return { floors: mapActiveNodes(s, (ns) => ns.map((n) => (n.id === id ? { ...n, position } : n))) };
+      return { parallels: mapActiveNodes(s, (ns) => ns.map((n) => (n.id === id ? { ...n, position } : n))) };
     }),
 
   updateNodeSize: (id, size) =>
     set((s) => {
-      const active = s.floors.find((f) => f.id === s.activeFloorId);
+      const active = s.parallels.find((f) => f.id === s.activeParallelId);
       const node = active?.nodes.find((n) => n.id === id);
       if (!node || (node.size.width === size.width && node.size.height === size.height)) return s;
-      return { floors: mapActiveNodes(s, (ns) => ns.map((n) => (n.id === id ? { ...n, size } : n))) };
+      return { parallels: mapActiveNodes(s, (ns) => ns.map((n) => (n.id === id ? { ...n, size } : n))) };
     }),
 
   patchNode: (id, patch) =>
     set((s) => ({
-      floors: mapActiveNodes(s, (ns) =>
+      parallels: mapActiveNodes(s, (ns) =>
         ns.map((n) => (n.id === id ? ({ ...n, ...patch } as CanvasNode) : n)),
       ),
     })),
@@ -641,8 +646,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   addEdge: (source, target, kind = "generic") => {
     if (source === target) return;
     set((s) => ({
-      floors: s.floors.map((f) => {
-        if (f.id !== s.activeFloorId) return f;
+      parallels: s.parallels.map((f) => {
+        if (f.id !== s.activeParallelId) return f;
         if (f.edges.some((e) => e.source === source && e.target === target)) return f;
         return { ...f, edges: [...f.edges, { id: nanoid(), source, target, kind }] };
       }),
@@ -651,8 +656,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
 
   removeEdge: (id) =>
     set((s) => ({
-      floors: s.floors.map((f) =>
-        f.id === s.activeFloorId ? { ...f, edges: f.edges.filter((e) => e.id !== id) } : f,
+      parallels: s.parallels.map((f) =>
+        f.id === s.activeParallelId ? { ...f, edges: f.edges.filter((e) => e.id !== id) } : f,
       ),
     })),
 
@@ -677,13 +682,16 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   getWorkspaceSnapshot: () => {
     const s = get();
     // Agrupa os floors flat por projeto pro formato V3 (aninhado). O ativo usa o
-    // estado vivo top-level (activeFloorId/cwd); os inativos, o meta.
+    // estado vivo top-level (activeParallelId/cwd); os inativos, o meta.
+    // WIRE-NAME: as chaves `activeFloorId`/`floors` abaixo são o formato V3 PERSISTIDO
+    // (Project) — NÃO renomear (quebraria workspaces salvos). Só os VALORES vêm do
+    // estado renomeado (`s.activeParallelId`/`s.parallels`).
     const projects: Project[] = s.projects.map((pm) => ({
       id: pm.id,
       name: pm.name,
       cwd: pm.id === s.activeProjectId ? s.currentCwd : pm.cwd,
-      activeFloorId: pm.id === s.activeProjectId ? s.activeFloorId : pm.activeFloorId,
-      floors: s.floors.filter((f) => f.projectId === pm.id),
+      activeFloorId: pm.id === s.activeProjectId ? s.activeParallelId : pm.activeFloorId,
+      floors: s.parallels.filter((f) => f.projectId === pm.id),
     }));
     return { version: 3, name: s.workspaceName, projects, activeProjectId: s.activeProjectId };
   },
@@ -692,7 +700,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     const v3 = migrateWorkspace(ws);
     // Remapeia ids (floors/nodes/parentId/edges) e taga o projectId. Restore não
     // pode reusar ids (colidem com os já vivos).
-    const remapFloor = (f: Floor, projId: string): { floor: Floor; oldId: string } => {
+    const remapFloor = (f: Parallel, projId: string): { floor: Parallel; oldId: string } => {
       const idMap = new Map<string, string>();
       const remapped: CanvasNode[] = f.nodes.map((n) => {
         const newId = nanoid();
@@ -711,9 +719,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
         target: idMap.get(e.target) ?? e.target,
       }));
       // Migração suave: floors legados (sem hostId) → "local" ao carregar.
-      return { floor: { ...f, id: nanoid(), projectId: projId, nodes, edges, hostId: normalizeFloorHostId(f.hostId) }, oldId: f.id };
+      return { floor: { ...f, id: nanoid(), projectId: projId, nodes, edges, hostId: normalizeParallelHostId(f.hostId) }, oldId: f.id };
     };
-    const flatFloors: Floor[] = [];
+    const flatFloors: Parallel[] = [];
     const projects: ProjectMeta[] = v3.projects.map((p) => {
       const newProjId = nanoid();
       const floorIdMap = new Map<string, string>();
@@ -729,9 +737,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     const active = projects[activeIdx] ?? projects[0];
     set({
       projects,
-      floors: flatFloors,
+      parallels: flatFloors,
       activeProjectId: active.id,
-      activeFloorId: active.activeFloorId,
+      activeParallelId: active.activeFloorId,
       currentCwd: active.cwd,
       workspaceName: v3.name,
     });

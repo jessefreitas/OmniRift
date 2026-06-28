@@ -65,11 +65,11 @@ use commands::mcp_servers::{
 use commands::scheduler::{scheduler_install, scheduler_list, scheduler_uninstall};
 use commands::serena::serena_ensure_project;
 use commands::git::{
-    floor_git_create, floor_git_diff, floor_git_land, floor_git_remove, floor_git_status,
-    floor_run_hook, git_repo_info,
+    parallel_git_create, parallel_git_diff, parallel_git_land, parallel_git_remove, parallel_git_status,
+    parallel_run_hook, git_repo_info,
 };
 use commands::mcp::{
-    agent_mcp_config, floor_mirror_set, get_max_agents, mcp_inventory, mcp_list_agents, mcp_register_agent,
+    agent_mcp_config, parallel_mirror_set, get_max_agents, mcp_inventory, mcp_list_agents, mcp_register_agent,
     mcp_server_url, mcp_unregister_agent, set_max_agents,
 };
 use commands::memory::{
@@ -311,7 +311,7 @@ pub fn run() {
             mcp_server_url,
             set_max_agents,
             get_max_agents,
-            floor_mirror_set,
+            parallel_mirror_set,
             db_save_workspace,
             db_load_workspace,
             session_start,
@@ -334,12 +334,12 @@ pub fn run() {
             agent_mcp_config,
             mcp_inventory,
             git_repo_info,
-            floor_git_create,
-            floor_git_status,
-            floor_git_land,
-            floor_git_diff,
-            floor_run_hook,
-            floor_git_remove,
+            parallel_git_create,
+            parallel_git_status,
+            parallel_git_land,
+            parallel_git_diff,
+            parallel_run_hook,
+            parallel_git_remove,
             spec_list_files,
             spec_archive,
             spec_unarchive,

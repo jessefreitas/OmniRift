@@ -11,7 +11,7 @@ export interface GitRepoInfo {
   branch: string;
 }
 
-export interface FloorGit {
+export interface ParallelGit {
   worktreePath: string;
   branch: string;
   baseBranch: string;
@@ -31,17 +31,17 @@ export async function gitRepoInfo(cwd: string): Promise<GitRepoInfo> {
 }
 
 /** Cria um floor git-backed: worktree numa branch nova (ou reusa existente). */
-export async function floorGitCreate(
+export async function parallelGitCreate(
   cwd: string,
   branch: string,
   base?: string,
-): Promise<FloorGit> {
-  return invoke<FloorGit>("floor_git_create", { cwd, branch, base: base ?? null });
+): Promise<ParallelGit> {
+  return invoke<ParallelGit>("parallel_git_create", { cwd, branch, base: base ?? null });
 }
 
 /** Status resumido (branch/ahead/behind/dirty) de um worktree. */
-export async function floorGitStatus(path: string): Promise<GitStatus> {
-  return invoke<GitStatus>("floor_git_status", { path });
+export async function parallelGitStatus(path: string): Promise<GitStatus> {
+  return invoke<GitStatus>("parallel_git_status", { path });
 }
 
 export interface FileDiff {
@@ -54,33 +54,33 @@ export interface FileDiff {
   patch: string;
 }
 
-export interface FloorDiff {
+export interface ParallelDiff {
   files: FileDiff[];
   /** Arquivos novos não-rastreados (sem patch). */
   untracked: string[];
 }
 
 /** Diff do worktree vs sua base (commitado + working tree) + untracked. */
-export async function floorGitDiff(path: string, base: string): Promise<FloorDiff> {
-  return invoke<FloorDiff>("floor_git_diff", { path, base });
+export async function parallelGitDiff(path: string, base: string): Promise<ParallelDiff> {
+  return invoke<ParallelDiff>("parallel_git_diff", { path, base });
 }
 
 /** Land: merge da branch do floor em `into` + remove worktree + apaga branch. */
-export async function floorGitLand(
+export async function parallelGitLand(
   repoRoot: string,
   branch: string,
   into: string,
   worktreePath: string,
 ): Promise<string> {
-  return invoke<string>("floor_git_land", { repoRoot, branch, into, worktreePath });
+  return invoke<string>("parallel_git_land", { repoRoot, branch, into, worktreePath });
 }
 
 /** Descarta o worktree de um floor sem merge (opcionalmente apaga a branch). */
-export async function floorGitRemove(
+export async function parallelGitRemove(
   repoRoot: string,
   worktreePath: string,
   branch: string,
   deleteBranch: boolean,
 ): Promise<void> {
-  return invoke("floor_git_remove", { repoRoot, worktreePath, branch, deleteBranch });
+  return invoke("parallel_git_remove", { repoRoot, worktreePath, branch, deleteBranch });
 }

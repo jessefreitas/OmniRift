@@ -64,14 +64,14 @@ export function CommandPalette() {
       { id: "json", label: t("palette.json", "JSON (formatar + árvore)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addJsonNode()) },
       { id: "explain", label: "explainshell", category: t("palette.catCreate", "Criar"), run: act(() => s.addExplainNode()) },
     ];
-    const projFloors = s.floors.filter((f) => f.projectId === s.activeProjectId);
+    const projParallels = s.parallels.filter((f) => f.projectId === s.activeProjectId);
     const floorCmds: Cmd[] = [
-      { id: "newfloor", label: t("palette.newParallel", "Novo paralelo"), category: t("palette.catParallel", "Paralelo"), run: act(() => s.createFloor(undefined, { focus: true })) },
-      ...projFloors.map((f, i) => ({
+      { id: "newfloor", label: t("palette.newParallel", "Novo paralelo"), category: t("palette.catParallel", "Paralelo"), run: act(() => s.createParallel(undefined, { focus: true })) },
+      ...projParallels.map((f, i) => ({
         id: `floor-${f.id}`,
         label: `${t("palette.goTo", "Ir para:")} ${f.name}${i < 9 ? `  ·  Alt+${i + 1}` : ""}`,
         category: t("palette.catParallel", "Paralelo"),
-        run: act(() => s.switchFloor(f.id)),
+        run: act(() => s.switchParallel(f.id)),
       })),
       ...s.projects.map((p) => ({
         id: `project-${p.id}`,

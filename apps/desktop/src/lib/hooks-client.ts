@@ -6,7 +6,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-export interface FloorHooks {
+export interface ParallelHooks {
   /** Roda num terminal ao criar um floor-branch (ex: npm install). */
   onCreate?: string;
   /** Roda (blocking) no worktree antes do Land — falha aborta o Land. */
@@ -15,7 +15,7 @@ export interface FloorHooks {
 
 const KEY = "omnirift-floor-hooks-v1";
 
-export function loadHooks(): FloorHooks {
+export function loadHooks(): ParallelHooks {
   try {
     return JSON.parse(localStorage.getItem(KEY) || "{}");
   } catch {
@@ -23,11 +23,11 @@ export function loadHooks(): FloorHooks {
   }
 }
 
-export function saveHooks(h: FloorHooks): void {
+export function saveHooks(h: ParallelHooks): void {
   localStorage.setItem(KEY, JSON.stringify(h));
 }
 
 /** Roda um comando (sh -lc) num cwd e devolve a saída. Throw se exit ≠ 0. */
-export async function runFloorHook(cwd: string, command: string): Promise<string> {
-  return invoke<string>("floor_run_hook", { cwd, command });
+export async function runParallelHook(cwd: string, command: string): Promise<string> {
+  return invoke<string>("parallel_run_hook", { cwd, command });
 }

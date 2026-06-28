@@ -4,7 +4,7 @@
 // diff → pré-flight (limites de PR) → prompt (diff + política) → LLM → parse
 // (tolerante) → agregação → veredito GO/NO-GO. Backend novo = só o llm_chat.
 
-import { floorGitDiff, type FloorDiff } from "@/lib/git-client";
+import { parallelGitDiff, type ParallelDiff } from "@/lib/git-client";
 import { llmChat, type LlmConfig } from "@/lib/llm-client";
 import { assertBudgetOk } from "@/lib/usage-client";
 import type { ReviewPolicy } from "@/lib/review-policy";
@@ -30,7 +30,7 @@ export interface ReviewResult {
 }
 
 /** Pré-flight determinístico: limites de tamanho de PR (antes do LLM). */
-function preflight(diff: FloorDiff, policy: ReviewPolicy): Finding[] {
+function preflight(diff: ParallelDiff, policy: ReviewPolicy): Finding[] {
   const out: Finding[] = [];
   const { maxFiles, maxLines, maxFileLines } = policy.prLimits;
   const total = diff.files.reduce((a, f) => a + f.additions + f.deletions, 0);
@@ -45,7 +45,7 @@ function preflight(diff: FloorDiff, policy: ReviewPolicy): Finding[] {
   return out;
 }
 
-function buildPrompt(diff: FloorDiff, policy: ReviewPolicy): { system: string; prompt: string } {
+function buildPrompt(diff: ParallelDiff, policy: ReviewPolicy): { system: string; prompt: string } {
   const cats = policy.categories
     .map((c) => `- ${c.key} (${c.label}, peso ${c.weight}${c.blocking ? ", bloqueante" : ""})`)
     .join("\n");
@@ -113,7 +113,7 @@ export async function runReview(
   config: LlmConfig,
   policy: ReviewPolicy,
 ): Promise<ReviewResult> {
-  const diff = await floorGitDiff(worktree, base);
+  const diff = await parallelGitDiff(worktree, base);
   const pre = preflight(diff, policy);
   if (diff.files.length === 0) {
     return { findings: [], preflight: pre, verdict: "GO", score: 100, summary: `Sem mudanças vs ${base}.` };

@@ -1,6 +1,6 @@
-//! Git worktree backing pros Floors.
+//! Git worktree backing pros Parallels.
 //!
-//! Cada Floor git-backed é uma branch num `git worktree` próprio, isolado do
+//! Cada Parallel git-backed é uma branch num `git worktree` próprio, isolado do
 //! repo principal — é o que permite agentes paralelos editarem sem conflito.
 //! Shell-out pro binário `git` (sem dependência nova; worktree + merge robustos).
 //!
@@ -168,8 +168,8 @@ pub struct FileDiff {
     pub patch: String,
 }
 
-/// Diff completo de um floor vs sua base.
-pub struct FloorDiff {
+/// Diff completo de um paralelo vs sua base.
+pub struct ParallelDiff {
     pub files: Vec<FileDiff>,
     /// Arquivos novos ainda não rastreados (não aparecem no patch).
     pub untracked: Vec<String>,
@@ -213,8 +213,8 @@ fn parse_name_status(s: &str) -> HashMap<String, String> {
 }
 
 /// Diff de tudo que o worktree mudou vs `base` (commitado + working tree) +
-/// lista de untracked. `base` é a branch de onde o floor saiu.
-pub fn diff(cwd: &Path, base: &str) -> Result<FloorDiff> {
+/// lista de untracked. `base` é a branch de onde o paralelo saiu.
+pub fn diff(cwd: &Path, base: &str) -> Result<ParallelDiff> {
     let numstat = run_git(cwd, &["diff", "--numstat", base])?;
     let name_status = run_git(cwd, &["diff", "--name-status", base])?;
     let full = run_git(cwd, &["diff", base])?;
@@ -245,7 +245,7 @@ pub fn diff(cwd: &Path, base: &str) -> Result<FloorDiff> {
         .filter(|l| !l.trim().is_empty())
         .map(|s| s.to_string())
         .collect();
-    Ok(FloorDiff { files, untracked })
+    Ok(ParallelDiff { files, untracked })
 }
 
 #[cfg(test)]

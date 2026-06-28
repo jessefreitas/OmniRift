@@ -19,14 +19,14 @@ import { PromptModal } from "@/components/PromptModal";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import type { Floor } from "@/types/workspace";
+import type { Parallel } from "@/types/workspace";
 
 /** Achados de "arquivo real" (não os marcadores "(PR)" / "(?)") ganham inline + abrir. */
 const isReal = (file: string) => !!file && !file.startsWith("(");
 const fkey = (f: Finding) => `${f.file}:${f.line ?? ""}:${f.title}`;
 
 interface Props {
-  floor: Floor;
+  floor: Parallel;
   onClose: () => void;
   onConfigure: () => void;
   onEditPolicy: () => void;

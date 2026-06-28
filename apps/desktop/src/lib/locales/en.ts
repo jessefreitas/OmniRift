@@ -840,7 +840,7 @@ export const en: Record<string, string> = {
   "sessionHistory.empty": "No sessions yet. Start an agent.",
   "sessionHistory.end": "End",
   "sessionHistory.filterPh": "filter (role, parallel, branch…)",
-  "sessionHistory.floor": "Parallel",
+  "sessionHistory.parallel": "Parallel",
   "sessionHistory.inProgress": "in progress",
   "sessionHistory.noEvents": "No events.",
   "sessionHistory.recorded": "recorded",

@@ -15,7 +15,7 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
   const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
-  const empty = useCanvasStore((s) => !s.floors.some((f) => f.nodes.some((n) => n.parentId === id)));
+  const empty = useCanvasStore((s) => !s.parallels.some((f) => f.nodes.some((n) => n.parentId === id)));
   const [label, setLabel] = useState(data.label ?? "Grupo");
   const [editing, setEditing] = useState(false);
   // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)

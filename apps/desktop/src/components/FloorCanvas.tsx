@@ -89,7 +89,7 @@ function miniMapNodeColor(n: Node): string {
 }
 
 export function FloorCanvas({ floorId }: { floorId: string }) {
-  const floor = useCanvasStore((s) => s.floors.find((f) => f.id === floorId));
+  const floor = useCanvasStore((s) => s.parallels.find((f) => f.id === floorId));
   const updateNodePosition = useCanvasStore((s) => s.updateNodePosition);
   const updateNodeSize = useCanvasStore((s) => s.updateNodeSize);
   const addEdge = useCanvasStore((s) => s.addEdge);
@@ -195,7 +195,7 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
   // grupo (move junto); se saiu de um grupo, solta. Grupos não viram filhos.
   const onNodeDragStop = useCallback(
     (_e: React.MouseEvent, dragged: Node) => {
-      const list = useCanvasStore.getState().floors.find((f) => f.id === floorId)?.nodes ?? [];
+      const list = useCanvasStore.getState().parallels.find((f) => f.id === floorId)?.nodes ?? [];
       const node = list.find((n) => n.id === dragged.id);
       if (!node || node.kind === "group") return;
       const a = absolutePos(node, list);

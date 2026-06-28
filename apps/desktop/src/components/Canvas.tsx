@@ -13,21 +13,21 @@ import { useQuickJump } from "@/hooks/useQuickJump";
 import { useRoutines } from "@/hooks/useRoutines";
 
 export function Canvas() {
-  const floors = useCanvasStore((s) => s.floors);
-  const activeFloorId = useCanvasStore((s) => s.activeFloorId);
+  const parallels = useCanvasStore((s) => s.parallels);
+  const activeParallelId = useCanvasStore((s) => s.activeParallelId);
   const activeProjectId = useCanvasStore((s) => s.activeProjectId);
   useQuickJump(); // Alt+1..9 → floor N
   useRoutines(); // scheduler das routines por intervalo
 
   return (
     <div className="absolute inset-0">
-      {floors.map((f) => (
+      {parallels.map((f) => (
         <div
           key={f.id}
           style={{
             position: "absolute",
             inset: 0,
-            display: f.projectId === activeProjectId && f.id === activeFloorId ? "block" : "none",
+            display: f.projectId === activeProjectId && f.id === activeParallelId ? "block" : "none",
           }}
         >
           <FloorCanvas floorId={f.id} />

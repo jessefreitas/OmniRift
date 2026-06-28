@@ -48,7 +48,7 @@ export function HooksModal({ onClose }: Props) {
               className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono"
             />
             <p className="mt-1 text-[10px] text-textMuted opacity-60">
-              {t("hooks.onCreateDesc", "Roda num terminal no floor-branch recém-criado (worktree limpo).")}
+              {t("hooks.onCreateDesc", "Roda num terminal no paralelo-branch recém-criado (worktree limpo).")}
             </p>
           </div>
           <div>

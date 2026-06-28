@@ -7,13 +7,13 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileDiff as FileDiffIcon, RefreshCw, X } from "lucide-react";
 
-import { floorGitDiff, type FileDiff, type FloorDiff } from "@/lib/git-client";
+import { parallelGitDiff, type FileDiff, type ParallelDiff } from "@/lib/git-client";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import type { Floor } from "@/types/workspace";
+import type { Parallel } from "@/types/workspace";
 
 interface Props {
-  floor: Floor;
+  floor: Parallel;
   onClose: () => void;
 }
 
@@ -52,7 +52,7 @@ function DiffLines({ patch }: { patch: string }) {
 
 export function DiffViewerModal({ floor, onClose }: Props) {
   const t = useT();
-  const [diff, setDiff] = useState<FloorDiff | null>(null);
+  const [diff, setDiff] = useState<ParallelDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
@@ -64,7 +64,7 @@ export function DiffViewerModal({ floor, onClose }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const d = await floorGitDiff(floor.worktreePath, base);
+      const d = await parallelGitDiff(floor.worktreePath, base);
       setDiff(d);
       setSelected((cur) => cur ?? d.files[0]?.path ?? null);
     } catch (e) {

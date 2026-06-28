@@ -813,7 +813,7 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             });
 
             // Frontend: cria o floor (git worktree) + foca + spawna o terminal com este id.
-            let _ = state.app.emit("canvas://spawn-on-floor", json!({
+            let _ = state.app.emit("canvas://spawn-on-parallel", json!({
                 "id": id, "branch": branch, "command": command,
                 "label": label, "role": role, "git": git
             }));

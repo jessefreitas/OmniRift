@@ -10,7 +10,7 @@ import { createPortal } from "react-dom";
 import { AlertTriangle, Wand2, X } from "lucide-react";
 
 import type { Finding } from "@/lib/review";
-import type { Floor } from "@/types/workspace";
+import type { Parallel } from "@/types/workspace";
 import { useCanvasStore } from "@/store/canvas-store";
 import { agentMcpConfig, agentSettingsConfig, getMaxAgents, mcpListAgents } from "@/lib/mcp-client";
 import { workerClaudeArgs } from "@/lib/agent-contract";
@@ -20,7 +20,7 @@ import { cn } from "@/lib/cn";
 
 interface Props {
   finding: Finding;
-  floor: Floor;
+  floor: Parallel;
   onClose: () => void;
   onDispatched: (terminalId: string, msg: string) => void;
 }
@@ -70,7 +70,7 @@ export function ReviewFixConfirm({ finding, floor, onClose, onDispatched }: Prop
       const claude = ROLE_CLIS.find((c) => c.id === "claude");
       const store = useCanvasStore.getState();
       // Garante que o agente nasça no floor revisado (cwd = worktree da branch).
-      store.switchFloor(floor.id);
+      store.switchParallel(floor.id);
       const node = store.addTerminal({
         command: claude?.command ?? "claude",
         args: [...workerClaudeArgs(mcpPath, undefined, settingsPath), prompt],

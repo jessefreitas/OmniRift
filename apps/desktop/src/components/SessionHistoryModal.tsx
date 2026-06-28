@@ -161,7 +161,7 @@ export function SessionHistoryModal({ onClose }: Props) {
                   </div>
                   <dl className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-1 text-[11px] mb-4">
                     {current.role && (<><dt className="text-textMuted">{t("sessionHistory.role", "Role")}</dt><dd className="text-text">{current.role}</dd></>)}
-                    {current.floorName && (<><dt className="text-textMuted">{t("sessionHistory.floor", "Floor")}</dt><dd className="text-text">{current.floorName}</dd></>)}
+                    {current.floorName && (<><dt className="text-textMuted">{t("sessionHistory.parallel", "Parallel")}</dt><dd className="text-text">{current.floorName}</dd></>)}
                     {current.branch && (<><dt className="text-textMuted">{t("sessionHistory.branch", "Branch")}</dt><dd className="text-brand font-mono">{current.branch}</dd></>)}
                     {current.command && (<><dt className="text-textMuted">{t("sessionHistory.command", "Comando")}</dt><dd className="text-text font-mono break-all">{current.command}</dd></>)}
                     {current.cwd && (<><dt className="text-textMuted">cwd</dt><dd className="text-text font-mono break-all opacity-80">{current.cwd}</dd></>)}

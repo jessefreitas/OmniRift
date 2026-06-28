@@ -17,14 +17,14 @@ export function ProjectTabs() {
   const t = useT();
   const projects = useCanvasStore((s) => s.projects);
   const activeProjectId = useCanvasStore((s) => s.activeProjectId);
-  const floors = useCanvasStore((s) => s.floors);
+  const parallels = useCanvasStore((s) => s.parallels);
   const setActiveProject = useCanvasStore((s) => s.setActiveProject);
   const addProject = useCanvasStore((s) => s.addProject);
   const closeProject = useCanvasStore((s) => s.closeProject);
   const renameProject = useCanvasStore((s) => s.renameProject);
 
   // floors é flat (todos os projetos) — conta por projectId.
-  const floorCount = (p: ProjectMeta) => floors.filter((f) => f.projectId === p.id).length;
+  const floorCount = (p: ProjectMeta) => parallels.filter((f) => f.projectId === p.id).length;
 
   async function newProject() {
     const sel = await open({ directory: true, multiple: false, title: t("projectTabs.openProject", "Abrir projeto (pasta)") });
