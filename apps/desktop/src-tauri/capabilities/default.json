@@ -15,6 +15,8 @@
     "shell:allow-open",
     "updater:default",
     "process:default",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
     {
       "identifier": "fs:allow-read-file",
       "allow": [{ "path": "**" }]
