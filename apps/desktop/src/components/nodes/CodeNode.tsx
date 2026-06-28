@@ -45,12 +45,12 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const patchNode = useCanvasStore((s) => s.patchNode);
   const setFileDirty = useCanvasStore((s) => s.setFileDirty);
-  const floors = useCanvasStore((s) => s.parallels);
+  const parallels = useCanvasStore((s) => s.parallels);
   const filePath = data.filePath;
   const fileName = filePath.split("/").pop() || filePath;
 
   // Agentes abertos no canvas (qualquer floor) — alvos pra "enviar arquivo".
-  const agentTerminals = floors.flatMap((f) =>
+  const agentTerminals = parallels.flatMap((f) =>
     f.nodes.flatMap((n) =>
       n.kind === "terminal"
         ? [{ sid: n.session_id, label: n.label || n.role, role: n.role, floor: f.name }]

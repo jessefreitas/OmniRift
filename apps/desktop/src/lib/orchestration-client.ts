@@ -7,7 +7,7 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCanvasStore } from "@/store/canvas-store";
 import { floorMirrorSet, agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
-import { floorGitCreate } from "@/lib/git-client";
+import { parallelGitCreate } from "@/lib/git-client";
 import { workerClaudeArgs } from "@/lib/agent-contract";
 import { ROLE_CLIS } from "@/lib/agent-roles";
 import type { AgentRole } from "@/types/pty";
@@ -108,14 +108,14 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
     label?: string;
     role?: string;
     git?: boolean;
-  }>("canvas://spawn-on-floor", async (event) => {
+  }>("canvas://spawn-on-parallel", async (event) => {
     const p = event.payload;
     let gitOpts: Parameters<ReturnType<typeof store>["createParallel"]>[1] = { focus: true };
     if (p.git !== false) {
       const cwd = store().currentCwd;
       if (cwd) {
         try {
-          gitOpts = { focus: true, git: await floorGitCreate(cwd, p.branch) };
+          gitOpts = { focus: true, git: await parallelGitCreate(cwd, p.branch) };
         } catch (e) {
           console.warn("[orchestration] floor git falhou — criando floor comum:", e);
         }

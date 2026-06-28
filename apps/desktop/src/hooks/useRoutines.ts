@@ -4,8 +4,8 @@
 //  - intervalo: um setInterval por routine habilitada com intervalMin
 //  - horário fixo: um tick a cada 30s que dispara routines com atTime "HH:MM"
 //    (1x/dia, dedupe por dia local). Re-arma quando a lista muda.
-//  - ciclo-de-vida de floor (Fase 2): escuta os eventos Tauri `floor:created` /
-//    `floor:deleted` e dispara as routines com trigger casado. Routines de floor
+//  - ciclo-de-vida de floor (Fase 2): escuta os eventos Tauri `parallel:created` /
+//    `parallel:deleted` e dispara as routines com trigger casado. Routines de floor
 //    NÃO entram no agendamento por intervalo/horário (e vice-versa) — os triggers
 //    são mutuamente exclusivos; routines legadas (sem trigger) seguem por interval/atTime.
 
@@ -67,8 +67,8 @@ export function useRoutines(): void {
     let disposed = false;
     const unlisteners: UnlistenFn[] = [];
     const track = (u: UnlistenFn) => (disposed ? u() : unlisteners.push(u));
-    void listen("floor:created", () => fireFloorRoutines("floor-created")).then(track).catch(() => {});
-    void listen("floor:deleted", () => fireFloorRoutines("floor-deleted")).then(track).catch(() => {});
+    void listen("parallel:created", () => fireFloorRoutines("floor-created")).then(track).catch(() => {});
+    void listen("parallel:deleted", () => fireFloorRoutines("floor-deleted")).then(track).catch(() => {});
 
     return () => {
       disposed = true;

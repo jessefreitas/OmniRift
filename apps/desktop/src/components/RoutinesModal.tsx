@@ -58,11 +58,11 @@ export function RoutinesModal({ onClose, cwd }: Props) {
 
   // Floors do projeto ativo (alvo "Rodar em"). Seleciona arrays crus e deriva com
   // useMemo (selector com .filter retornaria ref nova a cada render → loop no zustand).
-  const floors = useCanvasStore((s) => s.parallels);
+  const parallels = useCanvasStore((s) => s.parallels);
   const activeProjectId = useCanvasStore((s) => s.activeProjectId);
   const projectFloors = useMemo(
-    () => floors.filter((f) => f.projectId === activeProjectId),
-    [floors, activeProjectId],
+    () => parallels.filter((f) => f.projectId === activeProjectId),
+    [parallels, activeProjectId],
   );
 
   async function refreshLastRuns(list: Routine[]) {

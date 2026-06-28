@@ -25,7 +25,7 @@ import type {
   TerminalNode,
 } from "@/types/canvas";
 import type { AnyWorkspaceFile, Parallel, Project, ProjectMeta, WorkspaceFileV3 } from "@/types/workspace";
-import { LOCAL_HOST_ID, migrateWorkspace, normalizeFloorHostId } from "@/types/workspace";
+import { LOCAL_HOST_ID, migrateWorkspace, normalizeParallelHostId } from "@/types/workspace";
 import type { AgentRole, AgentState } from "@/types/pty";
 
 interface CanvasState {
@@ -144,10 +144,10 @@ function defaultPosition(): { x: number; y: number } {
 
 /** Emite o evento de ciclo-de-vida de floor no event bus do Tauri (Routines Fase 2).
  *  No-op sem Tauri (browser/test). Git-backed creates já são emitidos pelo backend
- *  (`floor_git_create`) — aqui só emitimos `floor:created` p/ floors NÃO git-backed,
- *  evitando disparo duplicado. `floor:deleted` sai sempre daqui (é o caminho de delete vivo). */
-function emitFloorLifecycle(
-  event: "floor:created" | "floor:deleted",
+ *  (`parallel_git_create`) — aqui só emitimos `parallel:created` p/ floors NÃO git-backed,
+ *  evitando disparo duplicado. `parallel:deleted` sai sempre daqui (é o caminho de delete vivo). */
+function emitParallelLifecycle(
+  event: "parallel:created" | "parallel:deleted",
   floor: { id: string; name: string; branch?: string },
 ): void {
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
@@ -270,9 +270,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       }),
     };
     set((s) => ({ parallels: [...s.parallels, floor] }));
-    // Trigger Routines: floors git-backed já emitem `floor:created` no backend
-    // (floor_git_create) — aqui só emitimos os NÃO git-backed (evita disparo duplo).
-    if (!g) emitFloorLifecycle("floor:created", floor);
+    // Trigger Routines: floors git-backed já emitem `parallel:created` no backend
+    // (parallel_git_create) — aqui só emitimos os NÃO git-backed (evita disparo duplo).
+    if (!g) emitParallelLifecycle("parallel:created", floor);
     if (opts?.focus) get().switchParallel(floor.id);
     return floor;
   },
@@ -298,7 +298,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       set({ parallels: floors });
     }
     // Trigger Routines: caminho de delete vivo (canvas-store). Só emite em delete real.
-    emitFloorLifecycle("floor:deleted", target);
+    emitParallelLifecycle("parallel:deleted", target);
   },
   getParallel: (id) => get().parallels.find((f) => f.id === id),
   allTerminalNodes: () =>
@@ -719,7 +719,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
         target: idMap.get(e.target) ?? e.target,
       }));
       // Migração suave: floors legados (sem hostId) → "local" ao carregar.
-      return { floor: { ...f, id: nanoid(), projectId: projId, nodes, edges, hostId: normalizeFloorHostId(f.hostId) }, oldId: f.id };
+      return { floor: { ...f, id: nanoid(), projectId: projId, nodes, edges, hostId: normalizeParallelHostId(f.hostId) }, oldId: f.id };
     };
     const flatFloors: Parallel[] = [];
     const projects: ProjectMeta[] = v3.projects.map((p) => {

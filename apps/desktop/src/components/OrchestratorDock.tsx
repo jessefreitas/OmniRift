@@ -16,9 +16,9 @@ import { useT } from "@/lib/i18n";
 export function OrchestratorDock() {
   const t = useT();
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
-  const floors = useCanvasStore((s) => s.parallels);
-  const activeFloorId = useCanvasStore((s) => s.activeParallelId);
-  const switchFloor = useCanvasStore((s) => s.switchParallel);
+  const parallels = useCanvasStore((s) => s.parallels);
+  const activeParallelId = useCanvasStore((s) => s.activeParallelId);
+  const switchParallel = useCanvasStore((s) => s.switchParallel);
   const status = useCanvasStore((s) =>
     orchestratorSid ? (s.terminalStatuses[orchestratorSid] ?? "idle") : "idle",
   );
@@ -63,12 +63,12 @@ export function OrchestratorDock() {
   // Acha o nó do orquestrador (e seu floor) entre todos os floors.
   const orch = useMemo(() => {
     if (!orchestratorSid) return null;
-    for (const f of floors) {
+    for (const f of parallels) {
       const n = f.nodes.find((x) => x.kind === "terminal" && x.session_id === orchestratorSid);
       if (n && n.kind === "terminal") return { label: n.label ?? n.command, floor: f };
     }
     return null;
-  }, [floors, orchestratorSid]);
+  }, [parallels, orchestratorSid]);
 
   // Publica o alvo de montagem a cada render (idempotente no singleton);
   // limpa no unmount → o TerminalNode devolve o xterm pro seu floor.
@@ -79,7 +79,7 @@ export function OrchestratorDock() {
 
   if (!orch) return null; // nenhum orquestrador designado → sem dock
 
-  const onOrchFloor = orch.floor.id === activeFloorId;
+  const onOrchFloor = orch.floor.id === activeParallelId;
   // No floor do próprio Orquestrador o terminal volta pro node → sem dock flutuante.
   // (getOrchestratorMount() vira null → TerminalNode recoloca o xterm no slot do nó.)
   if (onOrchFloor) return null;
@@ -109,7 +109,7 @@ export function OrchestratorDock() {
         </span>
         {!onOrchFloor && (
           <button
-            onClick={() => switchFloor(orch.floor.id)}
+            onClick={() => switchParallel(orch.floor.id)}
             title={t("orchestrator.goToFloor", "Ir pro paralelo do Orquestrador")}
             className="p-0.5 rounded hover:bg-bg hover:text-text transition-colors shrink-0"
           >

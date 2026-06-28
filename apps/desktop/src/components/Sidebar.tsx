@@ -54,7 +54,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { snapshotCreate } from "@/lib/snapshot-client";
 import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig, setMaxAgents } from "@/lib/mcp-client";
-import { floorGitCreate, floorGitLand } from "@/lib/git-client";
+import { parallelGitCreate, parallelGitLand } from "@/lib/git-client";
 import { specListFiles, specArchive, specUnarchive, isDeadSpec, pathsOverlap, type SpecFile } from "@/lib/spec-client";
 import { writeFile } from "@/lib/preview-client";
 import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } from "@/lib/agent-docs-client";
@@ -126,9 +126,9 @@ import { loadPolicy } from "@/lib/review-policy";
 import { loadDefaultCompressor } from "@/lib/compress-client";
 import { loadLlmConfig } from "@/lib/llm-client";
 import { runReview } from "@/lib/review";
-import { loadHooks, runFloorHook } from "@/lib/hooks-client";
+import { loadHooks, runParallelHook } from "@/lib/hooks-client";
 import type { Parallel } from "@/types/workspace";
-import { floorHost } from "@/types/workspace";
+import { parallelHost } from "@/types/workspace";
 import { Tooltip } from "@/components/Tooltip";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
@@ -303,24 +303,24 @@ export function Sidebar() {
   const [closingFolder, setClosingFolder] = useState(false);
   const getWorkspaceSnapshot = useCanvasStore((s) => s.getWorkspaceSnapshot);
   const restoreWorkspace = useCanvasStore((s) => s.restoreWorkspace);
-  const allFloors = useCanvasStore((s) => s.parallels);
+  const allParallels = useCanvasStore((s) => s.parallels);
   const activeProjectId = useCanvasStore((s) => s.activeProjectId);
   // A sidebar mostra/opera só os floors do projeto ATIVO (floors é flat no store).
-  const floors = useMemo(() => allFloors.filter((f) => f.projectId === activeProjectId), [allFloors, activeProjectId]);
-  const activeFloorId = useCanvasStore((s) => s.activeParallelId);
-  const createFloor = useCanvasStore((s) => s.createParallel);
-  const switchFloor = useCanvasStore((s) => s.switchParallel);
-  const renameFloor = useCanvasStore((s) => s.renameParallel);
-  const deleteFloor = useCanvasStore((s) => s.deleteParallel);
+  const parallels = useMemo(() => allParallels.filter((f) => f.projectId === activeProjectId), [allParallels, activeProjectId]);
+  const activeParallelId = useCanvasStore((s) => s.activeParallelId);
+  const createParallel = useCanvasStore((s) => s.createParallel);
+  const switchParallel = useCanvasStore((s) => s.switchParallel);
+  const renameParallel = useCanvasStore((s) => s.renameParallel);
+  const deleteParallel = useCanvasStore((s) => s.deleteParallel);
   const terminals = useMemo(
-    () => floors.flatMap((f) => f.nodes.filter((n) => n.kind === "terminal")),
-    [floors],
+    () => parallels.flatMap((f) => f.nodes.filter((n) => n.kind === "terminal")),
+    [parallels],
   );
   // Floor (nome) onde cada sessão vive — topologia cross-floor pro registry/UI.
   const floorNameOf = useCallback(
     (sid: string) =>
-      floors.find((f) => f.nodes.some((n) => n.kind === "terminal" && n.session_id === sid))?.name,
-    [floors],
+      parallels.find((f) => f.nodes.some((n) => n.kind === "terminal" && n.session_id === sid))?.name,
+    [parallels],
   );
   const terminalStatuses = useCanvasStore((s) => s.terminalStatuses);
 
@@ -931,8 +931,8 @@ export function Sidebar() {
     const branch = prompt(tr("sidebar.newBranchPrompt", "Branch do novo paralelo (ex: feature/auth):"));
     if (!branch?.trim()) return;
     try {
-      const g = await floorGitCreate(currentCwd, branch.trim());
-      createFloor(branch.trim(), { focus: true, git: g });
+      const g = await parallelGitCreate(currentCwd, branch.trim());
+      createParallel(branch.trim(), { focus: true, git: g });
       // Hook onCreate: roda num terminal no floor novo (worktree limpo).
       const hooks = loadHooks();
       if (hooks.onCreate) {
@@ -976,15 +976,15 @@ export function Sidebar() {
     const hooks = loadHooks();
     if (hooks.onLand) {
       try {
-        await runFloorHook(f.worktreePath, hooks.onLand);
+        await runParallelHook(f.worktreePath, hooks.onLand);
       } catch (e) {
         void notify(tr("sidebar.hookOnLandFailed", "Hook onLand falhou — Land abortado:") + "\n" + String(e), "error");
         return;
       }
     }
     try {
-      await floorGitLand(f.repoRoot, f.branch, f.baseBranch, f.worktreePath);
-      deleteFloor(f.id);
+      await parallelGitLand(f.repoRoot, f.branch, f.baseBranch, f.worktreePath);
+      deleteParallel(f.id);
     } catch (e) {
       void notify(tr("sidebar.landFailed", "Land falhou (resolva conflitos no paralelo e tente de novo):") + "\n" + String(e), "error");
     }
@@ -1378,13 +1378,13 @@ export function Sidebar() {
                 <GitBranch size={8} /> git-native{cow?.reflink ? " ⚡" : ""}
               </span>
             </Tooltip>
-            {floors.filter(isReadyToLand).length > 0 && (
+            {parallels.filter(isReadyToLand).length > 0 && (
               <Tooltip
-                label={tr("sidebar.floorsReadyToLand", "{n} floor(s) com agente pronto pra Land").replace("{n}", String(floors.filter(isReadyToLand).length))}
+                label={tr("sidebar.floorsReadyToLand", "{n} floor(s) com agente pronto pra Land").replace("{n}", String(parallels.filter(isReadyToLand).length))}
                 side="bottom"
               >
                 <span className="flex items-center gap-0.5 text-[9px] text-green-400 bg-green-500/15 px-1 rounded">
-                  <GitMerge size={8} /> {floors.filter(isReadyToLand).length}
+                  <GitMerge size={8} /> {parallels.filter(isReadyToLand).length}
                 </span>
               </Tooltip>
             )}
@@ -1400,7 +1400,7 @@ export function Sidebar() {
             </Tooltip>
             <Tooltip label={tr("sidebar.newParallelEmpty", "Novo paralelo vazio")} side="bottom">
               <button
-                onClick={() => createFloor(undefined, { focus: true })}
+                onClick={() => createParallel(undefined, { focus: true })}
                 className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
               >
                 <Plus size={12} />
@@ -1409,17 +1409,17 @@ export function Sidebar() {
           </div>
         </div>
         <div className="space-y-1">
-          {floors.map((f, i) => {
+          {parallels.map((f, i) => {
             const ready = isReadyToLand(f);
             return (
             <div
               key={f.id}
               className={cn(
                 "group flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors",
-                f.id === activeFloorId ? "bg-surface2 text-text" : "text-textMuted hover:bg-surface2",
+                f.id === activeParallelId ? "bg-surface2 text-text" : "text-textMuted hover:bg-surface2",
                 ready && "ring-1 ring-green-500/40",
               )}
-              onClick={() => switchFloor(f.id)}
+              onClick={() => switchParallel(f.id)}
             >
               {i < 9 && (
                 <span
@@ -1435,7 +1435,7 @@ export function Sidebar() {
                 </Tooltip>
               )}
               {(() => {
-                const host = floorHost(f);
+                const host = parallelHost(f);
                 if (host.kind === "local") return null;
                 return (
                   <Tooltip
@@ -1451,7 +1451,7 @@ export function Sidebar() {
               })()}
               <EditableLabel
                 value={f.name}
-                onCommit={(n) => renameFloor(f.id, n)}
+                onCommit={(n) => renameParallel(f.id, n)}
                 className="text-xs flex-1 truncate"
                 inputClassName="text-xs flex-1 min-w-0"
                 title={tr("sidebar.renameParallelHint", "Renomear (duplo-clique)")}
@@ -1510,7 +1510,7 @@ export function Sidebar() {
                   </button>
                 </Tooltip>
               )}
-              {floors.length > 1 && (
+              {parallels.length > 1 && (
                 <Tooltip
                   label={f.branch ? tr("sidebar.removeFromCanvas", "Tira do canvas (o worktree fica no disco)") : tr("sidebar.deleteParallel", "Excluir paralelo")}
                   side="top"
@@ -1518,7 +1518,7 @@ export function Sidebar() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      deleteFloor(f.id);
+                      deleteParallel(f.id);
                     }}
                     className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-danger transition-all"
                   >

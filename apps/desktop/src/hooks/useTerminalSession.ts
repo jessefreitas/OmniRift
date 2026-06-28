@@ -212,8 +212,8 @@ export function useTerminalSession({
         // Session recorder — registra a sessão no SQLite (durável). Pega o
         // contexto de floor/role do store; fire-and-forget (nunca quebra o PTY).
         {
-          const { parallels: floors } = useCanvasStore.getState();
-          const floor = floors.find((f) =>
+          const { parallels } = useCanvasStore.getState();
+          const floor = parallels.find((f) =>
             f.nodes.some((n) => n.kind === "terminal" && n.session_id === sessionId),
           );
           const node = floor?.nodes.find(

@@ -29,7 +29,7 @@ export interface Parallel {
 export const LOCAL_HOST_ID = "local";
 
 /** Host de execução parseado de `Floor.hostId`. */
-export type FloorHost =
+export type ParallelHost =
   | { kind: "local" }
   | { kind: "ssh"; id: string }
   | { kind: "runtime"; id: string };
@@ -39,9 +39,9 @@ export type FloorHost =
  * caminhos (SSH/runtime) usam isto em vez de comparar a string crua.
  * Qualquer valor não reconhecido (incluindo "" / undefined) cai em `local`.
  */
-export function floorHost(
+export function parallelHost(
   floor: Pick<Parallel, "hostId"> | { hostId?: string } | null | undefined,
-): FloorHost {
+): ParallelHost {
   const raw = floor?.hostId;
   if (typeof raw !== "string") return { kind: "local" };
   if (raw.startsWith("ssh:")) {
@@ -56,7 +56,7 @@ export function floorHost(
 }
 
 /** Normaliza `hostId` de um floor carregado: ausente/legado → `"local"`. */
-export function normalizeFloorHostId(hostId: unknown): string {
+export function normalizeParallelHostId(hostId: unknown): string {
   return typeof hostId === "string" && hostId.length > 0 ? hostId : LOCAL_HOST_ID;
 }
 
