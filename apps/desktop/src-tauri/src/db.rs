@@ -15,19 +15,19 @@ const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY, doc TEXT NOT NULL, updated_at TEXT);
 
 CREATE TABLE IF NOT EXISTS agent_sessions (
-    id          TEXT PRIMARY KEY,
-    floor_id    TEXT,
-    floor_name  TEXT,
-    agent_id    TEXT,
-    role        TEXT,
-    label       TEXT,
-    command     TEXT,
-    branch      TEXT,
-    cwd         TEXT,
-    started_at  TEXT NOT NULL,
-    ended_at    TEXT,
-    status      TEXT NOT NULL DEFAULT 'running',
-    summary     TEXT
+    id           TEXT PRIMARY KEY,
+    parallel_id   TEXT,
+    parallel_name TEXT,
+    agent_id     TEXT,
+    role         TEXT,
+    label        TEXT,
+    command      TEXT,
+    branch       TEXT,
+    cwd          TEXT,
+    started_at   TEXT NOT NULL,
+    ended_at     TEXT,
+    status       TEXT NOT NULL DEFAULT 'running',
+    summary      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS session_events (
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS reminders (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     content     TEXT NOT NULL,
     note_id     TEXT,
-    floor_id    TEXT,
+    parallel_id TEXT,
     project_id  TEXT,
     remind_at   TEXT,
     done        INTEGER NOT NULL DEFAULT 0,
@@ -142,7 +142,9 @@ pub struct ReminderRow {
     pub id: i64,
     pub content: String,
     pub note_id: Option<String>,
-    pub floor_id: Option<String>,
+    /// Wire-name `floorId` PRESERVADO (front lê isso). Coluna/ident = `parallel_id`.
+    #[serde(rename = "floorId")]
+    pub parallel_id: Option<String>,
     pub project_id: Option<String>,
     pub remind_at: Option<String>,
     pub done: bool,
@@ -154,7 +156,9 @@ pub struct ReminderRow {
 pub struct ReminderInput {
     pub content: String,
     pub note_id: Option<String>,
-    pub floor_id: Option<String>,
+    /// Wire-name `floorId` PRESERVADO (front envia isso). Coluna/ident = `parallel_id`.
+    #[serde(rename = "floorId")]
+    pub parallel_id: Option<String>,
     pub project_id: Option<String>,
     pub remind_at: Option<String>,
 }
@@ -223,8 +227,12 @@ pub struct ReviewHistRow {
 #[serde(rename_all = "camelCase")]
 pub struct SessionStart {
     pub id: String,
-    pub floor_id: Option<String>,
-    pub floor_name: Option<String>,
+    /// Wire-names `floorId`/`floorName` PRESERVADOS (front envia). Idents/colunas
+    /// = `parallel_id`/`parallel_name` (rename floor→parallel · Fase 2 #6).
+    #[serde(rename = "floorId")]
+    pub parallel_id: Option<String>,
+    #[serde(rename = "floorName")]
+    pub parallel_name: Option<String>,
     pub agent_id: Option<String>,
     pub role: Option<String>,
     pub label: Option<String>,
@@ -237,8 +245,12 @@ pub struct SessionStart {
 #[serde(rename_all = "camelCase")]
 pub struct SessionRow {
     pub id: String,
-    pub floor_id: Option<String>,
-    pub floor_name: Option<String>,
+    /// Wire-names `floorId`/`floorName` PRESERVADOS (front lê). Idents/colunas
+    /// = `parallel_id`/`parallel_name` (rename floor→parallel · Fase 2 #6).
+    #[serde(rename = "floorId")]
+    pub parallel_id: Option<String>,
+    #[serde(rename = "floorName")]
+    pub parallel_name: Option<String>,
     pub role: Option<String>,
     pub label: Option<String>,
     pub command: Option<String>,
@@ -285,6 +297,32 @@ fn migrate(conn: &Connection) {
         "ALTER TABLE canvas_snapshots ADD COLUMN auto INTEGER NOT NULL DEFAULT 0",
         [],
     );
+    // Rename floor→parallel (Fase 2 · #6): renomeia as colunas legadas dos DBs
+    // anteriores. Nomes de coluna são INTERNOS (o front lê o wire camelCase dos
+    // structs, preservado via `#[serde(rename = "floorId")]`). `RENAME COLUMN`
+    // preserva os dados; o schema "versiona" por presença (não há contador).
+    rename_column_if_legacy(conn, "agent_sessions", "floor_id", "parallel_id");
+    rename_column_if_legacy(conn, "agent_sessions", "floor_name", "parallel_name");
+    rename_column_if_legacy(conn, "reminders", "floor_id", "parallel_id");
+}
+
+/// Renomeia a coluna `old`→`new` só se `old` ainda existe e `new` ainda não —
+/// idempotente (roda a cada boot, no-op após migrada). Falha (tabela inexistente,
+/// SQL) é absorvida: a tabela nova já nasce com o nome certo via SCHEMA.
+fn rename_column_if_legacy(conn: &Connection, table: &str, old: &str, new: &str) {
+    let cols: Vec<String> = {
+        let Ok(mut stmt) = conn.prepare(&format!("PRAGMA table_info({table})")) else {
+            return;
+        };
+        let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(1)) else {
+            return;
+        };
+        rows.filter_map(Result::ok).collect()
+    };
+    let has = |c: &str| cols.iter().any(|n| n == c);
+    if has(old) && !has(new) {
+        let _ = conn.execute(&format!("ALTER TABLE {table} RENAME COLUMN {old} TO {new}"), []);
+    }
 }
 
 impl Db {
@@ -358,11 +396,11 @@ impl Db {
     pub fn session_start(&self, s: &SessionStart) -> Result<()> {
         self.0.lock().execute(
             "INSERT INTO agent_sessions
-               (id, floor_id, floor_name, agent_id, role, label, command, branch, cwd, started_at, status)
+               (id, parallel_id, parallel_name, agent_id, role, label, command, branch, cwd, started_at, status)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9, datetime('now'), 'running')
              ON CONFLICT(id) DO NOTHING",
             rusqlite::params![
-                s.id, s.floor_id, s.floor_name, s.agent_id, s.role,
+                s.id, s.parallel_id, s.parallel_name, s.agent_id, s.role,
                 s.label, s.command, s.branch, s.cwd
             ],
         )?;
@@ -395,7 +433,7 @@ impl Db {
     pub fn sessions_list(&self, limit: i64) -> Result<Vec<SessionRow>> {
         let conn = self.0.lock();
         let mut stmt = conn.prepare(
-            "SELECT s.id, s.floor_id, s.floor_name, s.role, s.label, s.command,
+            "SELECT s.id, s.parallel_id, s.parallel_name, s.role, s.label, s.command,
                     s.branch, s.cwd, s.started_at, s.ended_at, s.status, s.summary,
                     (SELECT COUNT(*) FROM session_events e WHERE e.session_id = s.id)
              FROM agent_sessions s
@@ -405,8 +443,8 @@ impl Db {
         let rows = stmt.query_map([limit], |r| {
             Ok(SessionRow {
                 id: r.get(0)?,
-                floor_id: r.get(1)?,
-                floor_name: r.get(2)?,
+                parallel_id: r.get(1)?,
+                parallel_name: r.get(2)?,
                 role: r.get(3)?,
                 label: r.get(4)?,
                 command: r.get(5)?,
@@ -567,9 +605,9 @@ impl Db {
     pub fn reminder_add(&self, r: &ReminderInput) -> Result<i64> {
         let conn = self.0.lock();
         conn.execute(
-            "INSERT INTO reminders (content, note_id, floor_id, project_id, remind_at, created_at)
+            "INSERT INTO reminders (content, note_id, parallel_id, project_id, remind_at, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))",
-            rusqlite::params![r.content, r.note_id, r.floor_id, r.project_id, r.remind_at],
+            rusqlite::params![r.content, r.note_id, r.parallel_id, r.project_id, r.remind_at],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -577,7 +615,7 @@ impl Db {
     pub fn reminders_list(&self) -> Result<Vec<ReminderRow>> {
         let conn = self.0.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, content, note_id, floor_id, project_id, remind_at, done, created_at
+            "SELECT id, content, note_id, parallel_id, project_id, remind_at, done, created_at
                FROM reminders ORDER BY done ASC, id DESC",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -585,7 +623,7 @@ impl Db {
                 id: r.get(0)?,
                 content: r.get(1)?,
                 note_id: r.get(2)?,
-                floor_id: r.get(3)?,
+                parallel_id: r.get(3)?,
                 project_id: r.get(4)?,
                 remind_at: r.get(5)?,
                 done: r.get::<_, i64>(6)? != 0,

@@ -22,7 +22,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// (canvas/projetos) = 1; agentes e paralelos são ilimitados no free.
 const COMMUNITY_CANVAS: i64 = 1;
 const COMMUNITY_AGENTS: i64 = 0;
-const COMMUNITY_FLOORS: i64 = 0;
+const COMMUNITY_PARALLELS: i64 = 0;
 
 /// Limites efetivos aplicados pela UI (0 = ilimitado).
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -30,15 +30,19 @@ const COMMUNITY_FLOORS: i64 = 0;
 pub struct Limits {
     pub canvas: i64,
     pub agents: i64,
-    pub floors: i64,
+    /// Wire-name `floors` PRESERVADO (IPC→front: o front lê `limits.floors`). O
+    /// identificador interno virou `parallels` (rename floor→parallel · Fase 2 #6);
+    /// `#[serde(rename)]` mantém a chave JSON serializada como `floors`.
+    #[serde(rename = "floors")]
+    pub parallels: i64,
 }
 
 impl Limits {
     fn community() -> Self {
-        Self { canvas: COMMUNITY_CANVAS, agents: COMMUNITY_AGENTS, floors: COMMUNITY_FLOORS }
+        Self { canvas: COMMUNITY_CANVAS, agents: COMMUNITY_AGENTS, parallels: COMMUNITY_PARALLELS }
     }
     fn unlimited() -> Self {
-        Self { canvas: 0, agents: 0, floors: 0 }
+        Self { canvas: 0, agents: 0, parallels: 0 }
     }
 }
 
@@ -47,7 +51,7 @@ impl Limits {
 fn limits_for(tier: &str, lim: Option<&LimPayload>) -> Limits {
     if tier == "full" {
         match lim {
-            Some(l) => Limits { canvas: l.canvas, agents: l.agents, floors: l.floors },
+            Some(l) => Limits { canvas: l.canvas, agents: l.agents, parallels: l.parallels },
             None => Limits::unlimited(),
         }
     } else {
@@ -69,8 +73,11 @@ struct LimPayload {
     canvas: i64,
     #[serde(default)]
     agents: i64,
-    #[serde(default)]
-    floors: i64,
+    /// Wire-name `floors` do payload ASSINADO (lim.floors) — INTOCÁVEL: tokens já
+    /// emitidos trazem essa chave. Ident interno virou `parallels`; `rename`
+    /// mantém a desserialização do JSON assinado (rename floor→parallel · Fase 2 #6).
+    #[serde(default, rename = "floors")]
+    parallels: i64,
 }
 
 #[derive(Deserialize)]
@@ -323,7 +330,7 @@ mod tests {
     fn community_gates_only_workspace() {
         let l = Limits::community();
         // 1 workspace (canvas); agentes e paralelos ilimitados (0).
-        assert_eq!((l.canvas, l.agents, l.floors), (1, 0, 0));
+        assert_eq!((l.canvas, l.agents, l.parallels), (1, 0, 0));
     }
 
     #[test]
@@ -349,7 +356,7 @@ mod tests {
         assert_eq!(limits_for("community", None), Limits::community());
         assert_eq!(limits_for("qualquer", None), Limits::community());
         // token full com lim explícito (plano futuro) é respeitado
-        let l = LimPayload { canvas: 3, agents: 0, floors: 2 };
-        assert_eq!(limits_for("full", Some(&l)), Limits { canvas: 3, agents: 0, floors: 2 });
+        let l = LimPayload { canvas: 3, agents: 0, parallels: 2 };
+        assert_eq!(limits_for("full", Some(&l)), Limits { canvas: 3, agents: 0, parallels: 2 });
     }
 }
