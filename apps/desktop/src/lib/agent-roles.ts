@@ -21,6 +21,9 @@ export interface AgentRoleDef {
   startupCmd?: string;
   /** Skills (nomes de .claude/skills) curadas pra este role — injetadas na persona no spawn. */
   skills?: string[];
+  /** MCP servers (chaves do mcp_inventory) que este role carrega. undefined = TODOS
+   *  (back-compat); curar reduz o contexto do agente — é o lever do budget de 200k. */
+  mcpServers?: string[];
   /** Compressor de token deste role ("none"|"rtk"|"headroom"). Decora só env no spawn. */
   compressor?: string;
   /** true = o comando de início já injeta o próprio system-prompt (wrapper tipo

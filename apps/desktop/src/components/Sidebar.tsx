@@ -1090,10 +1090,17 @@ export function Sidebar() {
       wiring?.kind === "codexHome" ? [["CODEX_HOME", wiring.home]] : [];
     const indexText = wiring?.kind === "indexPrompt" ? wiring.text : "";
 
+    // MCP por-role: role com curadoria (r.mcpServers definido) → gera um agent-mcp
+    // FILTRADO (budget de contexto, resolve o 200k); undefined → global de sempre.
+    const roleMcpPath =
+      r.mcpServers !== undefined
+        ? ((await agentMcpConfig(r.mcpServers).catch(() => null)) ?? mcpConfigPath)
+        : mcpConfigPath;
+
     if (cli.systemPromptFlag) {
       const baseArgs =
         cli.role === "claude-code"
-          ? workerClaudeArgs(mcpConfigPath, r.prompt, await settingsFor(r.name))
+          ? workerClaudeArgs(roleMcpPath, r.prompt, await settingsFor(r.name))
           : [cli.systemPromptFlag, r.prompt];
       addTerminal({
         command: cli.command,
@@ -1186,13 +1193,13 @@ export function Sidebar() {
   }
 
   // Salva (upsert) um role editado/criado no modal.
-  function saveRole(name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string, selfSystemPrompt: boolean) {
+  function saveRole(name: string, prompt: string, cli: string, startupCmd: string, skills: string[], compressor: string, selfSystemPrompt: boolean, mcpServers?: string[]) {
     if (!editingRole) return;
     setRoles((prev) => {
       const exists = prev.some((x) => x.id === editingRole.id);
       const next = exists
-        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd, skills, compressor, selfSystemPrompt } : x))
-        : [...prev, { ...editingRole, name, prompt, cli, startupCmd, skills, compressor, selfSystemPrompt }];
+        ? prev.map((x) => (x.id === editingRole.id ? { ...x, name, prompt, cli, startupCmd, skills, compressor, selfSystemPrompt, mcpServers } : x))
+        : [...prev, { ...editingRole, name, prompt, cli, startupCmd, skills, compressor, selfSystemPrompt, mcpServers }];
       saveRoles(next);
       return next;
     });

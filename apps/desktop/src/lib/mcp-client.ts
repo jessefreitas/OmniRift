@@ -43,9 +43,26 @@ export async function getMaxAgents(): Promise<number> {
  * Caminho do mcp-config dos agentes claude com o perfil universal de dev:
  * Serena (estrutura de código por linguagem) + Context7 (docs ao vivo).
  * Injetado via --mcp-config nos agentes claude. Null se indisponível.
+ *
+ * `allowed` (chaves do mcpInventory) = curadoria por-role: só esses servers entram
+ * no config → contexto enxuto (budget de 200k). undefined = TODOS (back-compat).
  */
-export async function agentMcpConfig(): Promise<string | null> {
-  return invoke<string | null>("agent_mcp_config");
+export async function agentMcpConfig(allowed?: string[]): Promise<string | null> {
+  return invoke<string | null>("agent_mcp_config", allowed ? { allowed } : undefined);
+}
+
+/** Um MCP server disponível + custo estimado de contexto (tokens de schema). */
+export interface McpInventoryItem {
+  key: string;
+  label: string;
+  estTokens: number;
+  source: "builtin" | "memory" | "custom" | "orchestration";
+  available: boolean;
+}
+
+/** Inventário dos MCP servers + estimativa de tokens — alimenta o medidor de budget. */
+export async function mcpInventory(): Promise<McpInventoryItem[]> {
+  return invoke<McpInventoryItem[]>("mcp_inventory");
 }
 
 /**
