@@ -1171,6 +1171,55 @@ export function Sidebar() {
     }
   }
 
+  // Infere o tipo de CLI (pro wiring de skills) pelo comando de um CLI personalizado.
+  // A maioria é claude-like (--plugin-dir); casos conhecidos detectados por nome.
+  function inferCliId(command: string): string {
+    const c = command.toLowerCase();
+    if (/\bcodex\b/.test(c)) return "codex";
+    if (/\bgemini\b/.test(c)) return "gemini";
+    if (/\bopencode\b/.test(c)) return "opencode";
+    if (/\b(antigravity|agy)\b/.test(c)) return "antigravity";
+    return "claude";
+  }
+
+  // Spawna um CLI PERSONALIZADO já com as skills curadas (globais ∪ customCli.skills)
+  // injetadas — mesmo wiring do spawnRole (plugin-dir / CODEX_HOME / 1ª mensagem), mas
+  // sem persona (o CLI personalizado é só um comando). Isolado de propósito: NÃO toca
+  // o spawnRole. Sem skills (ids vazio) → addTerminal idêntico ao comportamento antigo.
+  async function spawnCustomCli(preset: AgentPreset, cc: CustomCli | undefined) {
+    const executionHost = resolveExecutionHost();
+    const baseArgs = (await argsWithMcp(preset)) ?? [];
+    const ids = [...new Set([...loadGlobalSkills(), ...(cc?.skills ?? [])])];
+    let wiring: SkillWiring | null = null;
+    if (ids.length > 0) {
+      try {
+        wiring = await invoke<SkillWiring | null>("agent_skills_config", { cli: inferCliId(preset.command), skillIds: ids });
+      } catch (e) {
+        console.warn("[skills] agent_skills_config (CLI personalizado) falhou (segue sem skills):", e);
+      }
+    }
+    const pluginArgs = wiring?.kind === "pluginDir" ? ["--plugin-dir", wiring.dir] : [];
+    const skillEnv: Array<[string, string]> = wiring?.kind === "codexHome" ? [["CODEX_HOME", wiring.home]] : [];
+    const indexText = wiring?.kind === "indexPrompt" ? wiring.text : "";
+    const node = addTerminal({
+      command: preset.command,
+      args: [...baseArgs, ...pluginArgs],
+      role: preset.role,
+      label: preset.label,
+      compressor: loadDefaultCompressor(),
+      executionHost,
+      env: skillEnv.length > 0 ? skillEnv : undefined,
+    });
+    // CLI sem flag/env de skills (indexPrompt) → injeta as skills como 1ª mensagem.
+    if (node && indexText.trim()) {
+      const sid = node.session_id;
+      setTimeout(() => {
+        invoke("pty_write", { sessionId: sid, data: indexText }).catch(console.warn);
+        setTimeout(() => invoke("pty_write", { sessionId: sid, data: "\r" }).catch(console.warn), 200);
+      }, 1800);
+    }
+  }
+
   // Descobre roles do projeto (.claude/agents/*.md) e importa os que ainda não existem.
   async function discoverProjectRoles() {
     if (!currentCwd) return;
@@ -1220,6 +1269,16 @@ export function Sidebar() {
     setRoles((prev) => {
       const next = prev.map((r) => (r.id === roleId ? { ...r, skills } : r));
       saveRoles(next);
+      return next;
+    });
+  }
+
+  // Idem para um CLI personalizado — a Central também os lista como agentes. As
+  // skills do CLI são injetadas no spawn dele (igual ao role.skills).
+  function updateCliSkills(cliId: string, skills: string[]) {
+    setCustomClis((prev) => {
+      const next = prev.map((c) => (c.id === cliId ? { ...c, skills } : c));
+      saveCustomClis(next);
       return next;
     });
   }
@@ -1752,6 +1811,11 @@ export function Sidebar() {
               <button
                 onClick={() => {
                   if (isOrch) { void spawnOrchestrator(orchCli); return; }
+                  // CLI personalizado → caminho com wiring de skills (globais ∪ skills do CLI).
+                  if (preset.custom) {
+                    void spawnCustomCli(preset, customClis.find((c) => `custom:${c.id}` === preset.id));
+                    return;
+                  }
                   const executionHost = resolveExecutionHost();
                   void argsWithMcp(preset).then((args) =>
                     addTerminal({
@@ -1965,7 +2029,7 @@ export function Sidebar() {
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
       {showClis && <ClisModal onClose={() => setShowClis(false)} />}
       {showCompressors && <CompressorsModal onClose={() => setShowCompressors(false)} />}
-      {showSkillsCenter && <SkillsCenterModal cwd={currentCwd} roles={roles} onUpdateRoleSkills={updateRoleSkills} onClose={() => setShowSkillsCenter(false)} />}
+      {showSkillsCenter && <SkillsCenterModal cwd={currentCwd} roles={roles} customClis={customClis} onUpdateRoleSkills={updateRoleSkills} onUpdateCliSkills={updateCliSkills} onClose={() => setShowSkillsCenter(false)} />}
       {showDiag && <DiagnosticsModal onClose={() => setShowDiag(false)} />}
       {closingFolder && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={() => setClosingFolder(false)}>

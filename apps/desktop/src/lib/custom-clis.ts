@@ -11,6 +11,9 @@ export interface CustomCli {
   command: string;
   /** Comando de instalação opcional (rodado num terminal pelo botão instalar). */
   installCmd?: string;
+  /** Skills curadas deste CLI personalizado (nomes de .claude/skills) — escolhidas na
+   *  Central de Skills, injetadas no spawn (igual ao role.skills). undefined = nenhuma. */
+  skills?: string[];
 }
 
 const KEY = "omnirift-custom-clis-v1";
