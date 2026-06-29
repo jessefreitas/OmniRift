@@ -31,13 +31,27 @@ export async function copyText(text: string): Promise<void> {
 }
 
 /**
- * Salva a imagem do clipboard do SO num arquivo PNG temporário e devolve o caminho
- * (ou null se não há imagem / em erro). Contorna o paste de imagem quebrado no
- * WebKitGTK: lê os pixels via plugin (readImage → RGBA), encoda o PNG aqui no front
- * com <canvas> e delega ao Rust (save_paste_image) só a gravação do arquivo. O
- * caminho devolvido é inserido no stdin do agente (mesma ideia do file-drop).
+ * Teto prático do payload do IPC do Tauri (WebKitGTK/WebView2): acima disto o
+ * `invoke` estoura ("texto/contexto > 32 MB"). O caller mede o conteúdo ANTES de
+ * enviar e avisa o usuário em vez de deixar o IPC crashar. Margem propositada
+ * abaixo do limite real (~32 MiB) porque o invoke ainda embrulha o payload.
  */
-export async function pasteImageToFile(): Promise<string | null> {
+export const MAX_PASTE_BYTES = 30 * 1024 * 1024;
+
+/** Bytes UTF-8 reais de uma string — é o que de fato trafega no payload do IPC
+ *  (não `.length`, que conta unidades UTF-16 e subconta acentos/emoji). */
+export function utf8ByteLength(s: string): number {
+  return new TextEncoder().encode(s).length;
+}
+
+/**
+ * Lê a imagem do clipboard do SO e a encoda em PNG (bytes), ou null se não há
+ * imagem / em erro. Contorna o paste de imagem quebrado no WebKitGTK: lê os pixels
+ * via plugin (readImage → RGBA) e encoda o PNG aqui no front com <canvas>. A
+ * GRAVAÇÃO fica no Rust (savePastePng). Separado em duas etapas pra o caller poder
+ * medir o tamanho dos bytes ANTES de mandar pro IPC (guard de 32 MB).
+ */
+export async function readClipboardPng(): Promise<Uint8Array | null> {
   try {
     const img = await readImage();
     const { width, height } = await img.size();
@@ -52,10 +66,14 @@ export async function pasteImageToFile(): Promise<string | null> {
 
     const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
     if (!blob) return null;
-
-    const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
-    return await invoke<string>("save_paste_image", { bytes });
+    return new Uint8Array(await blob.arrayBuffer());
   } catch {
     return null;
   }
+}
+
+/** Grava o PNG (bytes) num arquivo temp via Rust e devolve o caminho. O caller já
+ *  validou `bytes.byteLength` contra o teto do IPC antes de chamar. */
+export async function savePastePng(bytes: Uint8Array): Promise<string> {
+  return invoke<string>("save_paste_image", { bytes: Array.from(bytes) });
 }

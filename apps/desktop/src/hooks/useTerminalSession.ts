@@ -49,6 +49,9 @@ interface UseTerminalSessionReturn {
   error: string | null;
   fit: () => void;
   getSelection: () => string;
+  /** Escreve uma linha de AVISO local no xterm (NÃO vai pro PTY) — ex.: colar
+   *  cancelado por exceder o teto de payload do IPC. */
+  writeNotice: (msg: string) => void;
   /** Mata o PTY atual e re-spawna com a mesma config, sem recriar o xterm.js. */
   reconnect: () => Promise<void>;
   /**
@@ -464,6 +467,12 @@ export function useTerminalSession({
     return terminalRef.current?.getSelection() ?? "";
   }, []);
 
+  // Aviso local no xterm (amarelo), sem enviar nada pro PTY. \r\n nas duas pontas
+  // pra não colar na linha do prompt onde o usuário estava digitando.
+  const writeNotice = useCallback((msg: string) => {
+    terminalRef.current?.write(`\r\n\x1b[33m${msg}\x1b[0m\r\n`);
+  }, []);
+
   const reconnect = useCallback(async () => {
     const term = terminalRef.current;
     const fitAddon = fitAddonRef.current;
@@ -581,5 +590,5 @@ export function useTerminalSession({
     [replayFromSnapshot],
   );
 
-  return { containerRef, ready, error, fit, getSelection, reconnect, setActive };
+  return { containerRef, ready, error, fit, getSelection, writeNotice, reconnect, setActive };
 }

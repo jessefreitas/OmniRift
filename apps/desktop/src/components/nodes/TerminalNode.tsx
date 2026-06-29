@@ -18,7 +18,7 @@ import { TerminalContextMenu } from "@/components/TerminalContextMenu";
 import { StatusDot } from "@/components/StatusDot";
 import { useProcInfo } from "@/hooks/useProcInfo";
 import { ptyWrite } from "@/lib/pty-client";
-import { copyText, pasteText, pasteImageToFile } from "@/lib/clipboard";
+import { copyText, pasteText, readClipboardPng, savePastePng, MAX_PASTE_BYTES, utf8ByteLength } from "@/lib/clipboard";
 import { compressorSavings, isCompressorEnabled, type SavingsReport } from "@/lib/compress-client";
 import { cn } from "@/lib/cn";
 import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
@@ -72,7 +72,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const fullscreenSlotRef = useRef<HTMLDivElement | null>(null);
   const nodeWrapRef = useRef<HTMLDivElement>(null);
 
-  const { containerRef, ready, error, fit, getSelection, reconnect, setActive } =
+  const { containerRef, ready, error, fit, getSelection, writeNotice, reconnect, setActive } =
     useTerminalSession({
       sessionId: data.session_id,
       config: {
@@ -224,13 +224,27 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   async function handlePaste() {
     const text = await pasteText();
     if (text) {
+      // Guard: texto acima do teto do IPC estouraria o invoke do pty_write. Avisa
+      // no terminal em vez de crashar (o usuário cola menos / via arquivo).
+      const bytes = utf8ByteLength(text);
+      if (bytes > MAX_PASTE_BYTES) {
+        writeNotice(`[colar cancelado] texto ~${Math.round(bytes / 1024 / 1024)} MB excede o limite de ${Math.round(MAX_PASTE_BYTES / 1024 / 1024)} MB do IPC.`);
+        return;
+      }
       await ptyWrite(data.session_id, text);
       return;
     }
     // Sem texto no clipboard → tenta imagem (Ctrl+V de print): salva em PNG temp e
     // insere o caminho no stdin, igual ao file-drop (claude-code recebe `@caminho`).
-    const path = await pasteImageToFile();
-    if (!path) return;
+    const png = await readClipboardPng();
+    if (!png) return;
+    // Os bytes viram array JSON no invoke (~4× inflado) → barra o que estouraria o
+    // IPC. Salve e arraste o arquivo pro terminal nesse caso.
+    if (png.byteLength * 4 > MAX_PASTE_BYTES) {
+      writeNotice(`[colar cancelado] imagem ~${Math.round(png.byteLength / 1024 / 1024)} MB grande demais pro IPC. Salve e arraste o arquivo pro terminal.`);
+      return;
+    }
+    const path = await savePastePng(png);
     let rel = path;
     if (data.cwd && path.startsWith(data.cwd + "/")) rel = path.slice(data.cwd.length + 1);
     const insert = data.role === "claude-code" ? `@${rel}` : /\s/.test(rel) ? `"${rel}"` : rel;
