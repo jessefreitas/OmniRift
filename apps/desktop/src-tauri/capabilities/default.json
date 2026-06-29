@@ -15,6 +15,7 @@
     "shell:allow-open",
     "updater:default",
     "process:default",
+    "core:window:allow-destroy",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-image",

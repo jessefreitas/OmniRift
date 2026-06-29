@@ -53,7 +53,7 @@ import { nanoid } from "nanoid";
 import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { snapshotCreate } from "@/lib/snapshot-client";
-import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig, setMaxAgents } from "@/lib/mcp-client";
+import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig, setMaxAgents, mcpAddCommand } from "@/lib/mcp-client";
 import { parallelGitCreate, parallelGitLand } from "@/lib/git-client";
 import { specListFiles, specArchive, specUnarchive, isDeadSpec, pathsOverlap, type SpecFile } from "@/lib/spec-client";
 import { writeFile } from "@/lib/preview-client";
@@ -288,8 +288,9 @@ function detectShell(): string {
 }
 
 
-const MCP_SSE_URL = "http://127.0.0.1:7844/sse";
-const MCP_ADD_CMD = `/mcp add --transport sse omnirift-agents ${MCP_SSE_URL}`;
+// O comando `/mcp add` é montado dinamicamente via `mcpAddCommand()` (mcp-client),
+// que inclui o token de auth por-boot do MCP server. NÃO hardcode a URL aqui — sem o
+// token o `/mcp add` daria 401 desde o hardening do control plane.
 
 export function Sidebar() {
   const addTerminal = useCanvasStore((s) => s.addTerminal);
@@ -848,14 +849,14 @@ export function Sidebar() {
   }, [mcpAgents, agentDescriptions, orchestratorSid, terminals, sendTeamBriefing, floorNameOf]);
 
   const copyMcpCmd = useCallback(async () => {
-    await navigator.clipboard.writeText(MCP_ADD_CMD);
+    await navigator.clipboard.writeText(await mcpAddCommand());
     setCopiedCmd(true);
     setTimeout(() => setCopiedCmd(false), 2000);
   }, []);
 
   // Injeta o comando /mcp add diretamente no PTY do terminal selecionado
   const injectMcpToTerminal = useCallback(async (sessionId: string) => {
-    await invoke("pty_write", { sessionId, data: `${MCP_ADD_CMD}\n` });
+    await invoke("pty_write", { sessionId, data: `${await mcpAddCommand()}\n` });
   }, []);
 
   // Injeta o perfil universal de MCP (--mcp-config) nos agentes claude — o
@@ -1265,8 +1266,14 @@ export function Sidebar() {
   }
 
   async function handleLoad() {
-    const ws = await loadWorkspaceFromDisk();
-    if (ws) restoreWorkspace(ws);
+    // Workspace corrupto/estranho → migrateWorkspace/restore lançam. Sem try/catch
+    // virava unhandled rejection sem feedback; aqui avisamos (padrão SnapshotsModal).
+    try {
+      const ws = await loadWorkspaceFromDisk();
+      if (ws) restoreWorkspace(ws);
+    } catch (e) {
+      void notify(tr("sidebar.loadWorkspaceFailed", "Falha ao abrir workspace:") + "\n" + String(e), "error");
+    }
   }
 
   // Encerrar o projeto (fechar a pasta): salva/snapshot opcional, depois fecha

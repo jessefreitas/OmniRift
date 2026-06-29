@@ -237,9 +237,16 @@ pub fn run() {
                 crate::rpc::start_mobile_relay(relay_handle);
             });
 
+            // Token de auth do MCP control plane (loopback): aleatório por boot (mesma
+            // técnica do socket RPC). Gerenciado como state pra `agent_mcp_config` escrever
+            // o MESMO valor no agent-mcp.json (URL `?token=`); o server exige em /sse e
+            // /message. Sem ele qualquer processo local rodava terminal_run. (Auditoria #1.)
+            let mcp_token = crate::rpc::metadata::generate_token();
+            app.manage(std::sync::Arc::new(crate::mcp::server::McpAuthToken(mcp_token.clone())));
+
             // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente.
             tauri::async_runtime::spawn(async move {
-                let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry, max_agents, mcp_claims);
+                let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry, max_agents, mcp_claims, mcp_token);
                 let addr = format!("127.0.0.1:{MCP_PORT}");
                 match tokio::net::TcpListener::bind(&addr).await {
                     Ok(listener) => {

@@ -106,6 +106,9 @@ export function useTerminalSession({
   // aqui e reaplicados (com o mesmo filtro de seq) quando o snapshot resolver.
   const snapshotInFlightRef = useRef(false);
   const pendingDuringSnapshotRef = useRef<Array<{ data: string; seq: number | undefined }>>([]);
+  // Contagem de chars do buffer acima — pro mesmo cap do bgQueue (MAX_BG_CHARS):
+  // um agente barulhento durante um snapshot lento não pode reter MB no renderer.
+  const pendingDuringSnapshotCharsRef = useRef(0);
   // [GLM-audit] reconnect: ignora o exit do PTY morto no reconnect; aborta o re-spawn se desmontou.
   const reconnectingRef = useRef(false);
   const disposedRef = useRef(false);
@@ -189,6 +192,13 @@ export function useTerminalSession({
     let unlistenOutput: UnlistenFn | null = null;
     let unlistenStatus: UnlistenFn | null = null;
     let unlistenExit: UnlistenFn | null = null;
+    // Remove os listeners já montados. Em closure (TS não estreita os let pra null,
+    // então o `?.()` typa) — usado pelos guards de unmount no meio do setup async.
+    const dropListeners = () => {
+      unlistenOutput?.();
+      unlistenStatus?.();
+      unlistenExit?.();
+    };
     let disposed = false;
     disposedRef.current = false; // reset no (re)mount [GLM-audit #3]
     let dataDisposable: { dispose: () => void } | null = null;
@@ -223,6 +233,9 @@ export function useTerminalSession({
           // em 80×24 no agent.spawn). Fire-and-forget — falha não bloqueia o attach.
           ptyResize(sessionId, cols, rows).catch(() => {});
         }
+        // Desmontou durante o await do spawn → aborta antes de montar listeners
+        // (senão eles resolveriam depois e escreveriam num term já disposto).
+        if (disposed) { dropListeners(); return; }
 
         // Session recorder — registra a sessão no SQLite (durável). Pega o
         // contexto de floor/role do store; fire-and-forget (nunca quebra o PTY).
@@ -289,11 +302,22 @@ export function useTerminalSession({
           // Durante o await do snapshot, bufferiza — reaplica com o mesmo filtro de
           // seq quando o snapshot resolver (anti-corrida snapshot×live).
           if (snapshotInFlightRef.current) {
+            // Cap igual ao bgQueue: estourou MAX_BG_CHARS → dropa o buffer + marca
+            // stale (o próximo foreground re-hidrata via snapshot). Sem isto, um
+            // snapshot lento + agente barulhento acumulava MB sem limite aqui.
+            if (pendingDuringSnapshotCharsRef.current + data.length > MAX_BG_CHARS) {
+              pendingDuringSnapshotRef.current = [];
+              pendingDuringSnapshotCharsRef.current = 0;
+              staleRef.current = true;
+              return;
+            }
             pendingDuringSnapshotRef.current.push({ data, seq });
+            pendingDuringSnapshotCharsRef.current += data.length;
             return;
           }
           applyChunk(data, seq);
         });
+        if (disposed) { dropListeners(); return; }
         applyChunkRef.current = applyChunk;
 
         unlistenStatus = await listenAgentStatus(sessionId, (state) => {
@@ -303,6 +327,7 @@ export function useTerminalSession({
             void sessionEvent(sessionId, `state:${state}`).catch(() => {});
           }
         });
+        if (disposed) { dropListeners(); return; }
 
         unlistenExit = await listenPtyExit(sessionId, (code) => {
           // Exit do PTY morto DURANTE reconnect → ignora (o novo PTY assume; não marca a
@@ -319,6 +344,7 @@ export function useTerminalSession({
           }
           onExit?.(code);
         });
+        if (disposed) { dropListeners(); return; }
 
         // Teclas do usuário → stdin do PTY.
         //
@@ -373,11 +399,13 @@ export function useTerminalSession({
         //    Tauri; o navigator.clipboard.readText não funciona no WebKitGTK).
         term.attachCustomKeyEventHandler((e) => {
           if (e.type !== "keydown") return true;
-          // Conta cada tecla-de-char (key.length === 1) p/ o dedup por keySeq do
+          // Conta cada tecla-de-char (1 code point) p/ o dedup por keySeq do
           // onData acima. Teclas especiais (Enter/Shift/Arrow/Backspace…) têm
-          // key.length > 1 e não contam — é isto que distingue a duplicata do IBus
+          // múltiplos chars e não contam — é isto que distingue a duplicata do IBus
           // (1 keydown → 2 emissões) de uma 2ª digitação real (key-repeat / "çç").
-          if (e.key.length === 1) keySeq++;
+          // Array.from conta CODE POINTS: emoji/CJK-ext têm String#length 2 mas são
+          // 1 tecla — senão a 2ª emissão do mesmo char viraria falso-duplicado.
+          if (Array.from(e.key).length === 1) keySeq++;
           if (e.key === "Enter" && e.shiftKey) {
             ptyWrite(sessionId, "\n").catch(() => {});
             return false;
@@ -432,6 +460,7 @@ export function useTerminalSession({
       bgQueueCharsRef.current = 0;
       snapshotInFlightRef.current = false;
       pendingDuringSnapshotRef.current = [];
+      pendingDuringSnapshotCharsRef.current = 0;
       disposeImeGuard?.();
       dataDisposable?.dispose();
       unlistenOutput?.();
@@ -493,6 +522,7 @@ export function useTerminalSession({
     staleRef.current = false;
     snapshotInFlightRef.current = false;
     pendingDuringSnapshotRef.current = [];
+    pendingDuringSnapshotCharsRef.current = 0;
 
     reconnectingRef.current = true; // ignora o exit do PTY que vamos matar [GLM-audit #1]
     try { await ptyKill(sessionId); } catch { /* já morreu */ }
@@ -549,6 +579,7 @@ export function useTerminalSession({
       // cobertos pelo snapshot; escreve os novos). `applyChunk` respeita active/bg.
       const pending = pendingDuringSnapshotRef.current;
       pendingDuringSnapshotRef.current = [];
+      pendingDuringSnapshotCharsRef.current = 0;
       const apply = applyChunkRef.current;
       if (apply) {
         for (const { data, seq } of pending) apply(data, seq);

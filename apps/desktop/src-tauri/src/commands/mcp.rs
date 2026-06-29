@@ -33,9 +33,19 @@ pub fn mcp_list_agents(
         .collect()
 }
 
+/// URL SSE do MCP server local, JÁ com o token de auth (`?token=`). É a mesma URL
+/// que vai pro agent-mcp.json — o server exige o token em /sse e /message (auditoria #1).
 #[tauri::command]
-pub fn mcp_server_url() -> String {
-    format!("http://127.0.0.1:{}/sse", crate::mcp::MCP_PORT)
+pub fn mcp_server_url(
+    token: State<'_, std::sync::Arc<crate::mcp::server::McpAuthToken>>,
+) -> String {
+    mcp_sse_url(&token.0)
+}
+
+/// Monta a URL SSE (loopback) com o token de auth embutido. Fonte única usada pelo
+/// comando `mcp_server_url` e pelo `agent_mcp_config` (entrada `omnirift-agents`).
+fn mcp_sse_url(token: &str) -> String {
+    format!("http://127.0.0.1:{}/sse?token={}", crate::mcp::MCP_PORT, token)
 }
 
 /// Salva uma imagem colada (Ctrl+V) em arquivo PNG temporário e devolve o caminho.
@@ -154,6 +164,7 @@ pub fn agent_mcp_config(
     app: tauri::AppHandle,
     memory_registry: tauri::State<'_, std::sync::Arc<crate::memory::MemoryRegistry>>,
     db: State<'_, Db>,
+    mcp_token: State<'_, std::sync::Arc<crate::mcp::server::McpAuthToken>>,
     allowed: Option<Vec<String>>,
 ) -> Option<String> {
     use tauri::Manager;
@@ -221,7 +232,7 @@ pub fn agent_mcp_config(
     // anunciada, mas o canal não existe). Reusa o helper mcp_server_url().
     servers.insert(
         "omnirift-agents".into(),
-        serde_json::json!({ "type": "sse", "url": mcp_server_url() }),
+        serde_json::json!({ "type": "sse", "url": mcp_sse_url(&mcp_token.0) }),
     );
 
     // Curadoria de MCP por-role (budget de contexto → resolve o estouro de 200k):
@@ -250,6 +261,14 @@ pub fn agent_mcp_config(
     let cfg = serde_json::json!({ "mcpServers": serde_json::Value::Object(servers) });
     let path = dir.join(filename);
     std::fs::write(&path, serde_json::to_string_pretty(&cfg).ok()?).ok()?;
+    // 0600: o arquivo carrega o token do MCP control plane (e possível Bearer de
+    // provider remoto de memória) → só o dono lê/escreve. Espelha rpc/metadata.rs
+    // (runtime.json). Unix-only; no Windows a ACL do app data dir já restringe. (Auditoria #3.)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
     Some(path.to_string_lossy().to_string())
 }
 

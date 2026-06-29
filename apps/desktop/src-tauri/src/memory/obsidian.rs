@@ -6,10 +6,29 @@
 //! operam o vault direto.
 //!
 //! Cert: o Local REST API serve HTTPS com cert AUTO-ASSINADO em 127.0.0.1 → o client
-//! aceita cert inválido (escopo local; só fala com o endpoint configurado).
+//! aceita cert inválido SÓ quando o host é loopback. Como o `endpoint` é definido pelo
+//! usuário (pode apontar pra host remoto), aceitar cert inválido incondicionalmente
+//! abriria MITM/roubo de token → em host remoto a validação TLS é normal.
 use crate::memory::provider::MemoryProvider;
 use crate::memory::types::*;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Host do endpoint é loopback? Só nesse caso aceitamos cert self-signed do Local
+/// REST API; remoto exige TLS válido. Parser sem deps: tira esquema, userinfo e porta
+/// (trata IPv6 entre colchetes, ex.: `http://[::1]:27124`).
+fn endpoint_is_loopback(endpoint: Option<&str>) -> bool {
+    let Some(e) = endpoint else { return false };
+    let after_scheme = e.split("://").nth(1).unwrap_or(e);
+    let authority = after_scheme.split('/').next().unwrap_or("");
+    let hostport = authority.rsplit('@').next().unwrap_or(authority); // tira user:pass@
+    let host = if let Some(rest) = hostport.strip_prefix('[') {
+        rest.split(']').next().unwrap_or("") // [::1]:porta → ::1
+    } else {
+        hostport.split(':').next().unwrap_or("") // host:porta → host
+    };
+    let host = host.trim().to_ascii_lowercase();
+    host == "127.0.0.1" || host == "localhost" || host == "::1"
+}
 
 pub struct ObsidianProvider {
     cfg: ConnectionConfig,
@@ -18,11 +37,13 @@ pub struct ObsidianProvider {
 
 impl ObsidianProvider {
     pub fn new(cfg: ConnectionConfig) -> Self {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(true) // Local REST API = cert self-signed (127.0.0.1)
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+        let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(15));
+        // Cert self-signed só é aceito em loopback (Local REST API). Endpoint remoto
+        // → validação TLS normal (evita MITM/roubo do token Bearer).
+        if endpoint_is_loopback(cfg.endpoint.as_deref()) {
+            builder = builder.danger_accept_invalid_certs(true);
+        }
+        let http = builder.build().unwrap_or_else(|_| reqwest::Client::new());
         Self { cfg, http }
     }
 
@@ -190,6 +211,17 @@ mod tests {
     #[test]
     fn slug_is_safe() {
         assert_eq!(slug("Decisão: usar X!"), "decis-o--usar-x");
+    }
+
+    #[test]
+    fn loopback_gate_only_for_local_hosts() {
+        assert!(endpoint_is_loopback(Some("https://127.0.0.1:27124/mcp/")));
+        assert!(endpoint_is_loopback(Some("https://localhost:27124")));
+        assert!(endpoint_is_loopback(Some("http://[::1]:27124")));
+        // Remoto → TLS válido obrigatório (não aceita cert inválido).
+        assert!(!endpoint_is_loopback(Some("https://obsidian.example.com:27124")));
+        assert!(!endpoint_is_loopback(Some("https://10.0.0.5:27124")));
+        assert!(!endpoint_is_loopback(None));
     }
 
     #[test]

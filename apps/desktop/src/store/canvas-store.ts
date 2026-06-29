@@ -735,6 +735,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     });
     const activeIdx = Math.max(0, v3.projects.findIndex((p) => p.id === v3.activeProjectId));
     const active = projects[activeIdx] ?? projects[0];
+    // Restore troca TODAS as sessões por ids novos → o estado global keyed por sessão
+    // antiga vira lixo. Zera status/dirty e o orquestrador designado (a sessão dele não
+    // existe mais). orchestratorSid também é espelhado em localStorage — limpa lá também.
+    try { localStorage.removeItem("omnirift-mcp-orch"); } catch { /* localStorage indisponível */ }
     set({
       projects,
       parallels: flatFloors,
@@ -742,6 +746,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       activeParallelId: active.activeFloorId,
       currentCwd: active.cwd,
       workspaceName: v3.name,
+      terminalStatuses: {},
+      dirtyFiles: new Set<string>(),
+      orchestratorSid: null,
     });
   },
 }));

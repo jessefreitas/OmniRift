@@ -111,29 +111,56 @@ export interface WorkspaceFileV3 {
 
 export type AnyWorkspaceFile = WorkspaceFile | WorkspaceFileV2 | WorkspaceFileV3;
 
-/** Converte qualquer versão para v3 (floors antigos viram 1 projeto "Principal"). */
+/** Converte qualquer versão para v3 (floors antigos viram 1 projeto "Principal").
+ *  REJEITA (throw) docs sem version/shape reconhecível em vez de coagir pra v1
+ *  silenciosamente — abrir um JSON corrupto/estranho deve falhar com mensagem clara,
+ *  não virar um canvas vazio. Quem chama trata o throw (try/catch + notify). */
 export function migrateWorkspace(ws: AnyWorkspaceFile): WorkspaceFileV3 {
-  if (ws.version === 3) return ws;
-  if (ws.version === 2) {
-    const cwd = ws.floors.find((f) => f.id === ws.activeFloorId)?.cwd ?? ws.floors[0]?.cwd ?? null;
+  // O input vem de JSON.parse (não confiável) — inspeciona campos como `unknown`.
+  const doc = ws as unknown as
+    | { version?: unknown; projects?: unknown; floors?: unknown; nodes?: unknown }
+    | null
+    | undefined;
+  if (doc == null || typeof doc !== "object") {
+    throw new Error("Workspace inválido: conteúdo não é um objeto JSON.");
+  }
+  if (doc.version === 3) {
+    if (!Array.isArray(doc.projects)) {
+      throw new Error("Workspace v3 inválido: campo `projects` ausente ou malformado.");
+    }
+    return ws as WorkspaceFileV3;
+  }
+  if (doc.version === 2) {
+    if (!Array.isArray(doc.floors)) {
+      throw new Error("Workspace v2 inválido: campo `floors` ausente ou malformado.");
+    }
+    const v2 = ws as WorkspaceFileV2;
+    const cwd = v2.floors.find((f) => f.id === v2.activeFloorId)?.cwd ?? v2.floors[0]?.cwd ?? null;
     return {
       version: 3,
-      name: ws.name,
-      projects: [{ id: "proj-main", name: "Principal", cwd, floors: ws.floors, activeFloorId: ws.activeFloorId }],
+      name: v2.name,
+      projects: [{ id: "proj-main", name: "Principal", cwd, floors: v2.floors, activeFloorId: v2.activeFloorId }],
       activeProjectId: "proj-main",
     };
   }
-  // v1 → projeto único com 1 floor
-  return {
-    version: 3,
-    name: ws.name,
-    projects: [{
-      id: "proj-main",
-      name: "Principal",
-      cwd: ws.cwd,
-      floors: [{ id: "floor-main", name: "Principal", cwd: ws.cwd, nodes: ws.nodes, edges: ws.edges, hostId: LOCAL_HOST_ID }],
-      activeFloorId: "floor-main",
-    }],
-    activeProjectId: "proj-main",
-  };
+  if (doc.version === 1) {
+    if (!Array.isArray(doc.nodes)) {
+      throw new Error("Workspace v1 inválido: campo `nodes` ausente ou malformado.");
+    }
+    // v1 → projeto único com 1 floor
+    const v1 = ws as WorkspaceFile;
+    return {
+      version: 3,
+      name: v1.name,
+      projects: [{
+        id: "proj-main",
+        name: "Principal",
+        cwd: v1.cwd,
+        floors: [{ id: "floor-main", name: "Principal", cwd: v1.cwd, nodes: v1.nodes, edges: v1.edges, hostId: LOCAL_HOST_ID }],
+        activeFloorId: "floor-main",
+      }],
+      activeProjectId: "proj-main",
+    };
+  }
+  throw new Error(`Workspace não reconhecido: sem version 1/2/3 válida (version=${String(doc.version)}).`);
 }

@@ -18,6 +18,25 @@ import { migrateWorkspace } from "@/types/workspace";
 // double-mount do StrictMode em dev).
 let didLoad = false;
 
+// Timer do debounce em escopo de módulo: o handler de fechamento da janela
+// (App.tsx → flushPersistence) precisa cancelá-lo e gravar na hora, senão o
+// debounce de 600ms perde a última edição quando o usuário fecha o app.
+let pendingTimer: number | undefined;
+
+/** Cancela o debounce pendente e grava o snapshot atual NA HORA (close da janela). */
+export async function flushPersistence(): Promise<void> {
+  if (pendingTimer !== undefined) {
+    window.clearTimeout(pendingTimer);
+    pendingTimer = undefined;
+  }
+  try {
+    const s = useCanvasStore.getState();
+    await dbSaveWorkspace(JSON.stringify(s.getWorkspaceSnapshot()));
+  } catch (e) {
+    console.warn("[persistence] flush no fechamento falhou:", e);
+  }
+}
+
 /** Vale preservar a sessão anterior? Evita snapshot de workspace vazio a cada boot. */
 function worthPreserving(doc: string): boolean {
   try {
@@ -55,7 +74,6 @@ export async function initPersistence(): Promise<() => void> {
   let lastName = s0.workspaceName;
   let lastProjects = s0.projects;
   let lastActiveProject = s0.activeProjectId;
-  let timer: number | undefined;
 
   const unsub = useCanvasStore.subscribe(() => {
     const s = useCanvasStore.getState();
@@ -73,8 +91,10 @@ export async function initPersistence(): Promise<() => void> {
     lastName = s.workspaceName;
     lastProjects = s.projects;
     lastActiveProject = s.activeProjectId;
-    if (timer) window.clearTimeout(timer);
-    timer = window.setTimeout(() => {
+    // Timer em escopo de módulo (pendingTimer) → flushPersistence pode forçá-lo no close.
+    if (pendingTimer !== undefined) window.clearTimeout(pendingTimer);
+    pendingTimer = window.setTimeout(() => {
+      pendingTimer = undefined;
       dbSaveWorkspace(JSON.stringify(s.getWorkspaceSnapshot())).catch((e) =>
         console.warn("[persistence] save falhou:", e),
       );
@@ -82,7 +102,7 @@ export async function initPersistence(): Promise<() => void> {
   });
 
   return () => {
-    if (timer) window.clearTimeout(timer);
+    if (pendingTimer !== undefined) { window.clearTimeout(pendingTimer); pendingTimer = undefined; }
     unsub();
   };
 }

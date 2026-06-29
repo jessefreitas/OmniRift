@@ -15,7 +15,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::proc_ext::NoWindow;
 use parking_lot::Mutex;
@@ -75,10 +75,14 @@ struct Proc {
     bind: String,
     upstream: String,
     child: Child,
-    /// Desistimos desta porta: ocupada por outra instância/órfão. Sem isto, o
-    /// `try_wait()` re-retorna o mesmo `Some` do morto a cada tick → o watchdog
-    /// re-detectaria e logaria "porta ocupada" a cada 2s pra sempre.
+    /// Porta CEDIDA temporariamente: ocupada por outra instância/órfão. NÃO é
+    /// permanente — o watchdog re-checa `port_free` a cada tick e, quando a porta
+    /// liberar, limpa `given_up` e respawna (recupera o gerenciamento). Antes isto
+    /// era definitivo e furava multi-instância (app B nunca retomava ao A fechar).
     given_up: bool,
+    /// Último log de "porta ocupada" — throttle de 1x/min pra não voltar ao
+    /// log-spam de 2s enquanto a porta segue cedida.
+    last_logged: Option<Instant>,
 }
 
 /// Estado compartilhado entre a thread principal e o watchdog.
@@ -171,6 +175,7 @@ impl OmnicompressProxies {
                         upstream: upstream.to_string(),
                         child,
                         given_up: false,
+                        last_logged: None,
                     });
                 } else {
                     log::warn!("falha ao subir omnicompress-proxy em {bind}");
@@ -206,27 +211,36 @@ impl Drop for OmnicompressProxies {
     }
 }
 
-/// Watchdog: a cada 2s checa cada instância e re-spawna as que morreram. O sleep e
-/// o respawn ficam FORA do lock de `procs` (lock curto só pra detecção e troca).
+/// Watchdog: a cada 2s checa cada instância e re-spawna as que morreram OU as que
+/// estavam com a porta cedida e agora liberou (recuperação multi-instância). O sleep
+/// e o respawn ficam FORA do lock de `procs` (lock curto só pra detecção e troca).
 fn watch_proxies(running: Arc<AtomicBool>, inner: Arc<Inner>) {
     while running.load(Ordering::Acquire) {
         thread::sleep(Duration::from_secs(2));
 
-        // 1) Detecta os mortos (lock curto). try_wait() exige &mut → iter_mut().
-        let died: Vec<(usize, String, String)> = {
+        // 1) Candidatos a (re)spawn (lock curto). try_wait() exige &mut → iter_mut().
+        //    - proc cedido (given_up): re-checamos a porta TODO tick → se liberar, recupera.
+        //    - proc vivo: try_wait() == Some → morreu, candidato a respawn.
+        let candidates: Vec<(usize, String, String)> = {
             let mut procs = inner.procs.lock();
             procs
                 .iter_mut()
                 .enumerate()
-                .filter(|(_, proc)| !proc.given_up) // porta cedida → não re-detecta/loga
-                .filter_map(|(idx, proc)| match proc.child.try_wait() {
-                    Ok(Some(_)) => Some((idx, proc.bind.clone(), proc.upstream.clone())),
-                    _ => None,
+                .filter_map(|(idx, proc)| {
+                    if proc.given_up {
+                        // Cedido: sempre re-avalia a porta (não chama try_wait — já morto).
+                        Some((idx, proc.bind.clone(), proc.upstream.clone()))
+                    } else {
+                        match proc.child.try_wait() {
+                            Ok(Some(_)) => Some((idx, proc.bind.clone(), proc.upstream.clone())),
+                            _ => None,
+                        }
+                    }
                 })
                 .collect()
         };
 
-        if died.is_empty() {
+        if candidates.is_empty() {
             continue;
         }
 
@@ -235,23 +249,33 @@ fn watch_proxies(running: Arc<AtomicBool>, inner: Arc<Inner>) {
             continue;
         };
 
-        // 3) Respawn fora do lock de detecção.
-        for (idx, bind, upstream) in died {
-            // Porta ainda ocupada (órfão / outra instância do app) → respawnar só
-            // geraria um natimorto e manteria o loop de 2s. Pula e segue. O proxy
-            // existente na porta segue atendendo (o app reusa) — sem badge 0%.
+        // 3) Decide por candidato, fora do lock de detecção.
+        for (idx, bind, upstream) in candidates {
+            // Porta ainda ocupada (órfão / outra instância do app) → cede
+            // TEMPORARIAMENTE e re-tenta no próximo tick. O proxy existente na porta
+            // segue atendendo (o app reusa) — sem badge 0%. Log throttled 1x/min.
             if !port_free(&bind) {
-                log::warn!("omnicompress-proxy {bind}: porta ocupada por outra instância/órfão — reusando, sem respawn");
                 if let Some(proc) = inner.procs.lock().get_mut(idx) {
-                    proc.given_up = true; // não respawna NEM re-loga a cada 2s
+                    proc.given_up = true;
+                    let due = proc
+                        .last_logged
+                        .map(|t| t.elapsed() >= Duration::from_secs(60))
+                        .unwrap_or(true);
+                    if due {
+                        proc.last_logged = Some(Instant::now());
+                        log::warn!("omnicompress-proxy {bind}: porta ocupada por outra instância/órfão — reusando (re-tenta quando liberar)");
+                    }
                 }
                 continue;
             }
-            log::warn!("omnicompress-proxy em {bind} morreu — respawn");
+            // Porta livre → (re)assume e respawna (recupera se estava cedida).
+            log::warn!("omnicompress-proxy {bind}: porta livre — (re)spawn");
             if let Some(mut new_child) = spawn_one(&bin, &bind, &upstream) {
                 let mut procs = inner.procs.lock();
                 if let Some(proc) = procs.get_mut(idx) {
                     proc.child = new_child;
+                    proc.given_up = false; // voltou a gerenciar
+                    proc.last_logged = None; // reseta throttle
                 } else {
                     // stop() drenou o Vec no meio do caminho — descarta o novo filho.
                     let _ = new_child.kill();

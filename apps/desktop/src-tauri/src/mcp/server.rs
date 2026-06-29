@@ -42,7 +42,16 @@ pub struct McpState {
     pub(crate) max_agents: Arc<std::sync::atomic::AtomicUsize>,
     /// Registry de claims (Bloco E — coordenação de edição entre agentes).
     pub(crate) claims: Arc<ClaimsRegistry>,
+    /// Token de auth do control plane (loopback): exigido em `/sse` e `/message`.
+    /// Aleatório por boot; o MESMO valor é escrito no `agent-mcp.json` (URL `?token=`)
+    /// pelo `agent_mcp_config` → só agentes legítimos passam. (Fix de auditoria #1.)
+    pub(crate) token: String,
 }
+
+/// Token de auth do MCP control plane, gerenciado como Tauri state (`Arc`) pra que
+/// `agent_mcp_config` (commands/mcp.rs) escreva o MESMO valor que o server exige no
+/// `agent-mcp.json`. Aleatório por boot (gerado no `lib.rs` via `rpc::metadata`).
+pub struct McpAuthToken(pub String);
 
 pub fn mcp_router(
     pty_manager: Arc<PtyManager>,
@@ -52,6 +61,7 @@ pub fn mcp_router(
     memory_registry: Arc<crate::memory::MemoryRegistry>,
     max_agents: Arc<std::sync::atomic::AtomicUsize>,
     claims: Arc<ClaimsRegistry>,
+    token: String,
 ) -> Router {
     let state = Arc::new(McpState {
         pty_manager,
@@ -62,6 +72,7 @@ pub fn mcp_router(
         memory_registry,
         max_agents,
         claims,
+        token,
     });
     Router::new()
         .route("/sse", get(sse_handler))
@@ -135,41 +146,123 @@ pub(crate) fn resolve_hook_target(
     Some((session_id, label.to_string()))
 }
 
+// ── Auth do control plane (Fix de auditoria #1) ───────────────────────────────
+
+/// Extrai o token do request (header `x-omnirift-token` OU query param `token`) e
+/// compara em tempo ~constante com o da sessão. `true` = autorizado. O query param é
+/// o caminho confiável: o cliente SSE (EventSource) não seta header custom, então a
+/// URL do `agent-mcp.json` carrega `?token=`; o header é alternativa pra POSTs diretos.
+fn check_token(
+    headers: &axum::http::HeaderMap,
+    params: &HashMap<String, String>,
+    expected: &str,
+) -> bool {
+    let provided = headers
+        .get("x-omnirift-token")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| params.get("token").cloned());
+    match provided {
+        Some(tok) => ct_eq(tok.as_bytes(), expected.as_bytes()),
+        None => false,
+    }
+}
+
+/// Igualdade em tempo ~constante (não curto-circuita no 1º byte diferente) — espelha
+/// o `ct_eq` do `rpc/socket.rs`. O vazamento de comprimento é aceitável (token 64-hex).
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 // ── SSE handler ──────────────────────────────────────────────────────────────
 
+/// Guard de limpeza da sessão SSE (Fix de auditoria #2): ao ser dropado (stream
+/// encerrado / cliente desconecta), remove a entrada do mapa de sessões. Sem isso o
+/// `sessions` (DashMap) crescia sem limite — DoS por acúmulo de senders mortos.
+struct SessionGuard {
+    sessions: Arc<DashMap<String, broadcast::Sender<String>>>,
+    session_id: String,
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        self.sessions.remove(&self.session_id);
+    }
+}
+
 async fn sse_handler(
+    Query(params): Query<HashMap<String, String>>,
+    headers: axum::http::HeaderMap,
     State(state): State<Arc<McpState>>,
-) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
+) -> axum::response::Response {
+    // Auth: token no header `x-omnirift-token` ou query `?token=` (vem na URL do
+    // agent-mcp.json). Sem token válido → 401: senão qualquer processo local abria o
+    // stream e POSTava comando via terminal_run.
+    if !check_token(&headers, &params, &state.token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            "unauthorized: token ausente ou inválido",
+        )
+            .into_response();
+    }
+
     let session_id = uuid::Uuid::new_v4().to_string();
     let (tx, rx) = broadcast::channel::<String>(256);
     state.sessions.insert(session_id.clone(), tx);
 
-    let endpoint_url = format!("/message?sessionId={session_id}");
+    // Guard que limpa a sessão do DashMap quando o stream morrer (ver SessionGuard).
+    let guard = SessionGuard {
+        sessions: Arc::clone(&state.sessions),
+        session_id: session_id.clone(),
+    };
+
+    // O token segue na URL do endpoint pro POST /message também carregá-lo (a auth do
+    // /message lê o mesmo `?token=`).
+    let endpoint_url = format!("/message?sessionId={session_id}&token={}", state.token);
 
     // Primeiro evento: informa ao cliente para onde fazer POST
     let initial = futures_util::stream::once(async move {
         Ok::<_, Infallible>(Event::default().event("endpoint").data(endpoint_url))
     });
 
-    // Stream contínuo: respostas JSON-RPC para esta sessão
+    // Stream contínuo: respostas JSON-RPC para esta sessão. O `guard` é capturado por
+    // move neste stream → vive enquanto o stream viver; no disconnect o Drop limpa.
     let ongoing = BroadcastStream::new(rx)
         .filter_map(|msg| async move { msg.ok() })
-        .map(|data| Ok::<_, Infallible>(Event::default().event("message").data(data)));
+        .map(move |data| {
+            let _ = &guard; // mantém o guard vivo junto do stream (limpeza no Drop)
+            Ok::<_, Infallible>(Event::default().event("message").data(data))
+        });
 
-    Sse::new(initial.chain(ongoing)).keep_alive(
-        axum::response::sse::KeepAlive::new()
-            .interval(Duration::from_secs(15))
-            .text("ping"),
-    )
+    Sse::new(initial.chain(ongoing))
+        .keep_alive(
+            axum::response::sse::KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("ping"),
+        )
+        .into_response()
 }
 
 // ── POST /message handler ─────────────────────────────────────────────────────
 
 async fn message_handler(
     Query(params): Query<HashMap<String, String>>,
+    headers: axum::http::HeaderMap,
     State(state): State<Arc<McpState>>,
     Json(request): Json<Value>,
 ) -> impl IntoResponse {
+    // Auth: mesmo token do /sse (header x-omnirift-token ou query `?token=`, este
+    // último herdado do endpoint URL). Sem token válido → 401. (Fix de auditoria #1.)
+    if !check_token(&headers, &params, &state.token) {
+        return StatusCode::UNAUTHORIZED;
+    }
     let Some(session_id) = params.get("sessionId").cloned() else {
         return StatusCode::BAD_REQUEST;
     };
@@ -388,6 +481,54 @@ async fn do_send_task(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ct_eq_matches_only_identical_bytes() {
+        assert!(ct_eq(b"abc", b"abc"));
+        assert!(!ct_eq(b"abc", b"abd"));
+        assert!(!ct_eq(b"abc", b"ab")); // comprimento diferente
+        assert!(ct_eq(b"", b""));
+    }
+
+    #[test]
+    fn check_token_reads_query_param() {
+        let mut params = HashMap::new();
+        params.insert("token".to_string(), "secret".to_string());
+        let empty = axum::http::HeaderMap::new();
+        assert!(check_token(&empty, &params, "secret"));
+        assert!(!check_token(&empty, &params, "outro"));
+    }
+
+    #[test]
+    fn check_token_reads_header() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-omnirift-token", "secret".parse().unwrap());
+        let no_params = HashMap::new();
+        assert!(check_token(&headers, &no_params, "secret"));
+    }
+
+    #[test]
+    fn check_token_missing_is_rejected() {
+        // Nenhum token (header nem query) → não autorizado (não fail-open).
+        let empty_h = axum::http::HeaderMap::new();
+        let empty_p = HashMap::new();
+        assert!(!check_token(&empty_h, &empty_p, "secret"));
+    }
+
+    #[test]
+    fn session_guard_removes_on_drop() {
+        let sessions: Arc<DashMap<String, broadcast::Sender<String>>> = Arc::new(DashMap::new());
+        let (tx, _rx) = broadcast::channel::<String>(4);
+        sessions.insert("sid-1".to_string(), tx);
+        assert!(sessions.contains_key("sid-1"));
+        {
+            let _g = SessionGuard {
+                sessions: Arc::clone(&sessions),
+                session_id: "sid-1".to_string(),
+            };
+        } // drop aqui → remove
+        assert!(!sessions.contains_key("sid-1"), "guard deve limpar a sessão no Drop");
+    }
 
     #[test]
     fn map_state_valid_strings() {

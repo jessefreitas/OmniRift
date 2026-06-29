@@ -1,7 +1,7 @@
 use crate::pty::host::{self, ExecutionHost};
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -149,6 +149,12 @@ pub struct PtySession {
     /// atual pra estampar cada evento ao vivo. Assim `pty://output.seq` e
     /// `snapshot.seq` falam a MESMA escala → o front deduplica corretamente.
     seq: Arc<AtomicU64>,
+    /// Killer do processo filho (portable-pty): clonado ANTES do `child` ser movido
+    /// pra thread waiter. É o que permite o `kill()` matar o filho DE VERDADE — sem
+    /// isto o kill só removia a sessão do mapa e o processo (claude/bash/ssh) virava
+    /// zumbi: o master não fechava (o StateDetector segura um clone), logo sem SIGHUP,
+    /// e read_loop/emit/waiter/feeder vazavam por sessão a cada terminal fechado.
+    killer: Mutex<Box<dyn ChildKiller + Send>>,
 }
 
 impl PtySession {
@@ -167,6 +173,11 @@ impl PtySession {
 
         let mut child = pair.slave.spawn_command(cmd).context("falha ao spawnar processo no PTY")?;
         let root_pid = child.process_id();
+        // Clona o killer ANTES do `child` ir pra thread waiter (move, mais abaixo) — é
+        // o que permite o kill() matar o filho de verdade (fecha o slave → read_loop
+        // sai por EOF → todas as threads encerram e o waiter reapeia). Sem isto, fechar
+        // um nó vazava o processo do agente + as threads.
+        let killer = child.clone_killer();
         drop(pair.slave);
 
         let master = Arc::new(Mutex::new(pair.master));
@@ -222,13 +233,26 @@ impl PtySession {
                         Err(_) => break,
                     }
                 }
-                let text = String::from_utf8_lossy(&pending).to_string();
-                let _ = app_for_emit.emit("pty://output", PtyOutputEvent {
-                    session_id: id_for_emit.clone(),
-                    data: text,
-                    seq: seq_for_emit.load(Ordering::SeqCst),
-                });
-                pending.clear();
+                // Decodifica só até o ÚLTIMO char UTF-8 COMPLETO; os bytes de um char
+                // partido entre dois flushes do debounce (ç/acento/emoji/CJK/box-drawing)
+                // ficam pro próximo frame — senão o from_utf8_lossy emitia U+FFFD
+                // permanente no meio do char no stream ao vivo.
+                let valid = match std::str::from_utf8(&pending) {
+                    Ok(_) => pending.len(),
+                    Err(e) => e.valid_up_to(),
+                };
+                // Cauda > 3 bytes não é char UTF-8 incompleto (máx 4 bytes) → é byte
+                // inválido real: emite tudo (lossy) pra não acumular lixo no buffer.
+                let cut = if pending.len() - valid <= 3 { valid } else { pending.len() };
+                if cut > 0 {
+                    let text = String::from_utf8_lossy(&pending[..cut]).to_string();
+                    let _ = app_for_emit.emit("pty://output", PtyOutputEvent {
+                        session_id: id_for_emit.clone(),
+                        data: text,
+                        seq: seq_for_emit.load(Ordering::SeqCst),
+                    });
+                    pending.drain(..cut); // mantém a cauda incompleta pro próximo frame
+                }
             }
         });
 
@@ -254,7 +278,14 @@ impl PtySession {
             }
         });
 
-        Ok(Self { id, master, writer, output_tx, root_pid, parser, seq })
+        Ok(Self { id, master, writer, output_tx, root_pid, parser, seq, killer: Mutex::new(killer) })
+    }
+
+    /// Mata o processo filho do PTY. Fechar o filho fecha o slave → o `read_loop` sai
+    /// por EOF → as threads (read/emit/feeder/detector) encerram e o waiter reapeia o
+    /// zumbi. Idempotente: matar 2× é inofensivo (o 2º kill num morto só erra → ignorado).
+    pub(crate) fn kill_child(&self) {
+        let _ = self.killer.lock().kill();
     }
 
     pub fn write(&self, data: &[u8]) -> Result<()> {
@@ -303,6 +334,15 @@ impl PtySession {
     /// vivo contra `snapshot.seq`.
     pub(crate) fn seq_arc(&self) -> Arc<AtomicU64> {
         Arc::clone(&self.seq)
+    }
+}
+
+impl Drop for PtySession {
+    fn drop(&mut self) {
+        // Backstop: se a sessão for dropada sem passar pelo kill() explícito (ex.:
+        // panic, ou o Arc cair por outro caminho), ainda mata o filho — sem isto o
+        // processo do agente vazaria.
+        let _ = self.killer.lock().kill();
     }
 }
 

@@ -125,9 +125,15 @@ impl PtyManager {
     }
 
     pub fn kill(&self, id: &str) -> Result<()> {
-        self.sessions
+        let (_, session) = self.sessions
             .remove(id)
             .ok_or_else(|| anyhow!("sessão {id} não encontrada"))?;
+        // Mata o processo filho ANTES de soltar a sessão: fecha o slave → o read_loop
+        // sai por EOF → todas as threads (read/emit/feeder/detector) encerram e o
+        // waiter reapeia. O StateDetector segura um clone do master_arc, então NÃO dá
+        // pra contar só com o drop fechar o fd — o kill explícito é o que garante o
+        // teardown (era o leak de processo+threads a cada terminal fechado).
+        session.kill_child();
         self.state_map.remove(id);
         // Remove o emulador: o feeder task encerra sozinho no `Closed` do broadcast.
         self.emulators.remove(id);
