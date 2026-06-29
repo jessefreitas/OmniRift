@@ -946,16 +946,23 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
 
             let mut delivered: Vec<String> = Vec::new();
             let mut failed: Vec<String> = Vec::new();
+            // Fan-out O(1) em vez de O(N×200ms): injeta o TEXTO em todos os alvos de uma
+            // vez (writes independentes — PTYs distintos), espera a pausa texto→Enter do
+            // do_send_task UMA vez pro grupo, e só então o Enter em quem recebeu o texto.
+            // Antes era sequencial (sleep 200ms POR agente) → 10 agentes = 2s só pra despachar.
+            let mut pending: Vec<&String> = Vec::new();
             for sid in &targets {
-                // Mesmo padrão do do_send_task: texto, pausa, Enter sozinho.
                 match state.pty_manager.write(sid, message.as_bytes()) {
-                    Ok(()) => {
-                        tokio::time::sleep(Duration::from_millis(200)).await;
-                        match state.pty_manager.write(sid, b"\r") {
-                            Ok(()) => delivered.push(label_of(sid)),
-                            Err(e) => failed.push(format!("{} ({e})", label_of(sid))),
-                        }
-                    }
+                    Ok(()) => pending.push(sid),
+                    Err(e) => failed.push(format!("{} ({e})", label_of(sid))),
+                }
+            }
+            if !pending.is_empty() {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+            for sid in pending {
+                match state.pty_manager.write(sid, b"\r") {
+                    Ok(()) => delivered.push(label_of(sid)),
                     Err(e) => failed.push(format!("{} ({e})", label_of(sid))),
                 }
             }
