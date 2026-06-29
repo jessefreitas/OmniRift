@@ -75,6 +75,10 @@ struct Proc {
     bind: String,
     upstream: String,
     child: Child,
+    /// Desistimos desta porta: ocupada por outra instância/órfão. Sem isto, o
+    /// `try_wait()` re-retorna o mesmo `Some` do morto a cada tick → o watchdog
+    /// re-detectaria e logaria "porta ocupada" a cada 2s pra sempre.
+    given_up: bool,
 }
 
 /// Estado compartilhado entre a thread principal e o watchdog.
@@ -113,14 +117,34 @@ impl Default for OmnicompressProxies {
 /// Spawna UMA instância do `omnicompress-proxy` com as envs corretas. Reuso por
 /// `start()` e pelo watchdog (mesmo Stdio::null + no_window do auto-start original).
 fn spawn_one(bin: &Path, bind: &str, upstream: &str) -> Option<Child> {
-    Command::new(bin)
-        .env("OMNICOMPRESS_BIND", bind)
+    let mut cmd = Command::new(bin);
+    cmd.env("OMNICOMPRESS_BIND", bind)
         .env("OMNICOMPRESS_UPSTREAM", upstream)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .no_window()
-        .spawn()
-        .ok()
+        .no_window();
+    // Linux: o filho recebe SIGKILL quando o processo-pai (app) morre. Um
+    // encerramento ABRUPTO (SIGKILL do cargo/tauri no dev, crash) NÃO roda o
+    // stop()/Drop → sem isto o proxy ficava ÓRFÃO segurando 8787/8788; no próximo
+    // boot o novo proxy morria no bind e o watchdog respawnava a cada 2s pra sempre
+    // (loop + badge 0%). prctl é async-signal-safe → ok no pre_exec (pós-fork).
+    #[cfg(target_os = "linux")]
+    unsafe {
+        use std::os::unix::process::CommandExt;
+        cmd.pre_exec(|| {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+            Ok(())
+        });
+    }
+    cmd.spawn().ok()
+}
+
+/// A porta está livre pra bindar agora? O watchdog usa isto pra NÃO respawnar em
+/// cima de uma porta já ocupada (outra instância do app, ou um órfão de Win/macOS
+/// onde não há PDEATHSIG) — respawnar ali só geraria um natimorto e o loop de 2s.
+/// TOCTOU é aceitável: a janela até o proxy real bindar é mínima e só ele disputa.
+fn port_free(bind: &str) -> bool {
+    std::net::TcpListener::bind(bind).is_ok()
 }
 
 impl OmnicompressProxies {
@@ -146,6 +170,7 @@ impl OmnicompressProxies {
                         bind: bind.to_string(),
                         upstream: upstream.to_string(),
                         child,
+                        given_up: false,
                     });
                 } else {
                     log::warn!("falha ao subir omnicompress-proxy em {bind}");
@@ -193,6 +218,7 @@ fn watch_proxies(running: Arc<AtomicBool>, inner: Arc<Inner>) {
             procs
                 .iter_mut()
                 .enumerate()
+                .filter(|(_, proc)| !proc.given_up) // porta cedida → não re-detecta/loga
                 .filter_map(|(idx, proc)| match proc.child.try_wait() {
                     Ok(Some(_)) => Some((idx, proc.bind.clone(), proc.upstream.clone())),
                     _ => None,
@@ -211,6 +237,16 @@ fn watch_proxies(running: Arc<AtomicBool>, inner: Arc<Inner>) {
 
         // 3) Respawn fora do lock de detecção.
         for (idx, bind, upstream) in died {
+            // Porta ainda ocupada (órfão / outra instância do app) → respawnar só
+            // geraria um natimorto e manteria o loop de 2s. Pula e segue. O proxy
+            // existente na porta segue atendendo (o app reusa) — sem badge 0%.
+            if !port_free(&bind) {
+                log::warn!("omnicompress-proxy {bind}: porta ocupada por outra instância/órfão — reusando, sem respawn");
+                if let Some(proc) = inner.procs.lock().get_mut(idx) {
+                    proc.given_up = true; // não respawna NEM re-loga a cada 2s
+                }
+                continue;
+            }
             log::warn!("omnicompress-proxy em {bind} morreu — respawn");
             if let Some(mut new_child) = spawn_one(&bin, &bind, &upstream) {
                 let mut procs = inner.procs.lock();

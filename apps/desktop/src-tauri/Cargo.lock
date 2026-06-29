@@ -3665,6 +3665,7 @@ dependencies = [
  "futures-util",
  "ignore",
  "keyring",
+ "libc",
  "local-ip-address",
  "log",
  "notify",
