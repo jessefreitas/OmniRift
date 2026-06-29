@@ -368,6 +368,35 @@ fn read_loop(
     }
 }
 
+/// PATH do shell de login do usuário, computado UMA vez (cacheado). O app GUI (clicado
+/// do menu) NÃO herda o PATH do `~/.bashrc` (que ativa nvm/npm-global/etc), então CLIs
+/// como o `gemini` (instalado via nvm) dão "No viable candidates found in PATH". Rodamos
+/// `bash -lc` uma vez e cacheamos. `None` se não der (sem bash / Windows) → comportamento
+/// atual intocado. Análogo ao fix do `TERM`: o app GUI não traz o ambiente do shell.
+fn login_shell_path() -> Option<&'static str> {
+    use std::sync::OnceLock;
+    static LOGIN_PATH: OnceLock<Option<String>> = OnceLock::new();
+    LOGIN_PATH
+        .get_or_init(|| {
+            #[cfg(not(windows))]
+            {
+                std::process::Command::new("bash")
+                    .args(["-lc", "echo -n \"$PATH\""])
+                    .output()
+                    .ok()
+                    .and_then(|o| String::from_utf8(o.stdout).ok())
+                    .map(|s| s.trim().to_string())
+                    // sanidade: parece um PATH de verdade (tem `/`, não-trivial).
+                    .filter(|s| s.len() > 10 && s.contains('/'))
+            }
+            #[cfg(windows)]
+            {
+                None
+            }
+        })
+        .as_deref()
+}
+
 /// Monta o `CommandBuilder` a partir do `PtySpawnConfig`, aplicando o cwd, o env
 /// e a limpeza do env de GUI do `tauri:dev` em AMBOS os SOs. A diferença é só
 /// COMO o programa+args são montados:
@@ -429,6 +458,14 @@ fn build_command(cfg: &PtySpawnConfig) -> CommandBuilder {
     // do `cfg.env` pra um TERM custom do caller ainda poder sobrescrever.
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    // PATH do shell de login: acha CLIs instalados via nvm/npm-global (ex: gemini) que o
+    // PATH restrito do app GUI não enxerga. Prepende o login PATH ao do app (login vence
+    // na resolução; o do app continua de fallback). Antes do `cfg.env` pra o caller poder
+    // sobrescrever PATH se quiser. No-op se `login_shell_path()` for None.
+    if let Some(lp) = login_shell_path() {
+        let current = std::env::var("PATH").unwrap_or_default();
+        cmd.env("PATH", if current.is_empty() { lp.to_string() } else { format!("{lp}:{current}") });
+    }
     for (k, v) in &cfg.env {
         cmd.env(k, v);
     }
