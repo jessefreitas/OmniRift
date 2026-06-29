@@ -36,6 +36,11 @@ interface UseTerminalSessionOptions {
   sessionId: SessionId;
   config: PtySpawnConfig;
   onExit?: (code: number | null) => void;
+  /** Colar (Ctrl+V) — delega ao caller, que sabe formatar imagem→caminho com o
+   *  cwd/role do node (mesmo caminho do menu de contexto). Sem isto, o Ctrl+V cai
+   *  no fallback de texto puro — que NÃO cobre imagem (clipboard com imagem e sem
+   *  texto = no-op). Era a causa de "Ctrl+V não cola a imagem". */
+  onPaste?: () => void | Promise<void>;
 }
 
 interface UseTerminalSessionReturn {
@@ -66,7 +71,13 @@ export function useTerminalSession({
   sessionId,
   config,
   onExit,
+  onPaste,
 }: UseTerminalSessionOptions): UseTerminalSessionReturn {
+  // "Latest ref" do onPaste: o useEffect de spawn é one-shot ([sessionId]); o handler
+  // do Ctrl+V lê SEMPRE a versão mais recente do callback sem re-rodar o effect.
+  const onPasteRef = useRef<UseTerminalSessionOptions["onPaste"]>(undefined);
+  onPasteRef.current = onPaste;
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -369,7 +380,11 @@ export function useTerminalSession({
             return false;
           }
           if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "v" || e.key === "V")) {
-            void pasteText().then((text) => (text ? ptyWrite(sessionId, text) : undefined));
+            // Delega ao caller (TerminalNode.handlePaste): texto → senão imagem→caminho.
+            // Unifica o Ctrl+V com o menu de contexto (antes só o menu pegava imagem).
+            // Fallback (sem onPaste): texto puro, retrocompat.
+            if (onPasteRef.current) void onPasteRef.current();
+            else void pasteText().then((text) => (text ? ptyWrite(sessionId, text) : undefined));
             return false;
           }
           return true;

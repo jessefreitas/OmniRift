@@ -38,6 +38,26 @@ pub fn mcp_server_url() -> String {
     format!("http://127.0.0.1:{}/sse", crate::mcp::MCP_PORT)
 }
 
+/// Salva uma imagem colada (Ctrl+V) em arquivo PNG temporário e devolve o caminho.
+/// Os `bytes` já são um PNG válido (encodado no front via <canvas>); aqui só gravamos.
+/// Contorna o paste de imagem quebrado no WebKitGTK — o terminal insere o caminho
+/// devolvido no stdin do agente (mesma convenção do file-drop).
+#[tauri::command]
+pub fn save_paste_image(bytes: Vec<u8>) -> Result<String, String> {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+
+    let dir = std::env::temp_dir().join("omnirift-pastes");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let path = dir.join(format!("paste-{millis}.png"));
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// Espelha o estado dos paralelos do front no mirror do backend (lido por
 /// `workspace_list`). Comando renomeado floor→parallel (Fase 2 · #6); o ARG
 /// `floors` é wire — o front envia `{ floors: { floors, activeParallelId } }`.

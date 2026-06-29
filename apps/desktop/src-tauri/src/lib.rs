@@ -70,7 +70,7 @@ use commands::git::{
 };
 use commands::mcp::{
     agent_mcp_config, parallel_mirror_set, get_max_agents, mcp_inventory, mcp_list_agents, mcp_register_agent,
-    mcp_server_url, mcp_unregister_agent, set_max_agents,
+    mcp_server_url, mcp_unregister_agent, save_paste_image, set_max_agents,
 };
 use commands::memory::{
     memory_active, memory_connect, memory_providers_list, memory_set_active, memory_test,
@@ -313,6 +313,7 @@ pub fn run() {
             set_max_agents,
             get_max_agents,
             parallel_mirror_set,
+            save_paste_image,
             db_save_workspace,
             db_load_workspace,
             session_start,

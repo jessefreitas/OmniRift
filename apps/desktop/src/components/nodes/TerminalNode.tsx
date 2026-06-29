@@ -18,7 +18,7 @@ import { TerminalContextMenu } from "@/components/TerminalContextMenu";
 import { StatusDot } from "@/components/StatusDot";
 import { useProcInfo } from "@/hooks/useProcInfo";
 import { ptyWrite } from "@/lib/pty-client";
-import { copyText, pasteText } from "@/lib/clipboard";
+import { copyText, pasteText, pasteImageToFile } from "@/lib/clipboard";
 import { compressorSavings, isCompressorEnabled, type SavingsReport } from "@/lib/compress-client";
 import { cn } from "@/lib/cn";
 import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
@@ -87,6 +87,9 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
         // `omnirift spawn` → `rpc://agent-spawned`). O hook anexa em vez de spawnar.
         attach: data.attach,
       },
+      // Ctrl+V no terminal reutiliza o MESMO handler do menu de contexto (texto →
+      // senão imagem→caminho). Antes o Ctrl+V só colava texto; imagem (print) sumia.
+      onPaste: handlePaste,
     });
 
   // Fit quando o nó é redimensionado externamente
@@ -220,7 +223,18 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
 
   async function handlePaste() {
     const text = await pasteText();
-    if (text) await ptyWrite(data.session_id, text);
+    if (text) {
+      await ptyWrite(data.session_id, text);
+      return;
+    }
+    // Sem texto no clipboard → tenta imagem (Ctrl+V de print): salva em PNG temp e
+    // insere o caminho no stdin, igual ao file-drop (claude-code recebe `@caminho`).
+    const path = await pasteImageToFile();
+    if (!path) return;
+    let rel = path;
+    if (data.cwd && path.startsWith(data.cwd + "/")) rel = path.slice(data.cwd.length + 1);
+    const insert = data.role === "claude-code" ? `@${rel}` : /\s/.test(rel) ? `"${rel}"` : rel;
+    await ptyWrite(data.session_id, insert + " ");
   }
 
   async function handleCopyAndSave() {
