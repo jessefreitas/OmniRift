@@ -376,6 +376,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       label,
       cwd,
       env,
+      createdAt: Date.now(),
       compressor: compressor && compressor !== "none" ? compressor : undefined,
       // Decora só quando NÃO é local (mantém os nodes locais byte-idênticos ao antes).
       executionHost:

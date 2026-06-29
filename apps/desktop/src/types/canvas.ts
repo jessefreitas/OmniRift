@@ -70,6 +70,9 @@ export interface TerminalNode extends BaseCanvasNode {
   cwd?: string;
   /** Env extra injetada no spawn (ex.: decoração do compressor — só env). */
   env?: Array<[string, string]>;
+  /** Epoch ms de quando o node/agente foi criado — alimenta o badge de tempo de
+   *  sessão no header. Opcional: nodes antigos (sem o campo) só não mostram o badge. */
+  createdAt?: number;
   /** Compressor de token ativo neste agente (kind: "rtk"|"headroom"|"none"). */
   compressor?: string;
   /**

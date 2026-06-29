@@ -20,6 +20,7 @@ import { useProcInfo } from "@/hooks/useProcInfo";
 import { ptyWrite } from "@/lib/pty-client";
 import { copyText, pasteText, readClipboardPng, savePastePng, MAX_PASTE_BYTES, utf8ByteLength } from "@/lib/clipboard";
 import { compressorSavings, isCompressorEnabled, type SavingsReport } from "@/lib/compress-client";
+import { CLI_CATALOG } from "@/lib/clis-client";
 import { cn } from "@/lib/cn";
 import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
 
@@ -37,6 +38,24 @@ function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
+}
+
+/** Identidade do CLI (emoji + nome do catálogo) inferida pelo comando spawnado
+ *  (claude/codex/gemini…). `null` = comando desconhecido → ícone genérico no header. */
+function cliMeta(command: string): { emoji: string; label: string } | null {
+  const c = command.toLowerCase();
+  const hit = CLI_CATALOG.find((x) => new RegExp(`\\b${x.id}\\b`).test(c));
+  return hit ? { emoji: hit.emoji, label: hit.label } : null;
+}
+
+/** Tempo de sessão compacto: "agora", "12min", "2h5min". */
+function formatAge(ms: number): string {
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `${min}min`;
+  const h = Math.floor(min / 60);
+  const rem = min % 60;
+  return rem ? `${h}h${rem}min` : `${h}h`;
 }
 
 function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
@@ -66,6 +85,9 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const [dragOver, setDragOver] = useState(false);
   // Economia do OmniCompress (badge "▼ X% · Yk tok"). Só quando o nativo está ligado.
   const [savings, setSavings] = useState<SavingsReport | null>(null);
+  // Identidade do CLI (emoji + nome do catálogo) pro header + tick do tempo de sessão.
+  const meta = cliMeta(data.command);
+  const [, setAgeTick] = useState(0);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const homeSlotRef = useRef<HTMLDivElement | null>(null);
@@ -97,6 +119,13 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
     const tid = window.setTimeout(fit, 50);
     return () => window.clearTimeout(tid);
   }, [data.size?.width, data.size?.height, fit]);
+
+  // Tempo de sessão: re-render leve a cada 30s só pra atualizar o "há Xmin".
+  useEffect(() => {
+    if (!data.createdAt) return;
+    const iv = window.setInterval(() => setAgeTick((n) => n + 1), 30000);
+    return () => window.clearInterval(iv);
+  }, [data.createdAt]);
 
   // Foca o input quando entra em modo de edição
   useEffect(() => {
@@ -354,7 +383,13 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             "active:cursor-grabbing select-none",
           )}
         >
-          <TerminalIcon size={14} className="text-brand shrink-0" />
+          {meta ? (
+            <span className="text-sm leading-none shrink-0" title={meta.label}>
+              {meta.emoji}
+            </span>
+          ) : (
+            <TerminalIcon size={14} className="text-brand shrink-0" />
+          )}
           <StatusDot status={termStatus} />
 
           {editing ? (
@@ -387,9 +422,20 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             </span>
           )}
 
-          <span className="text-[10px] opacity-50 truncate shrink-0">
-            {data.role}
+          {/* Identidade do CLI (nome do catálogo) como badge; cai pro role cru se desconhecido. */}
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand/90 truncate shrink-0 max-w-[120px]">
+            {meta?.label ?? data.role}
           </span>
+
+          {/* Tempo de sessão — fail-soft: some sem createdAt (nodes antigos). */}
+          {data.createdAt && (
+            <span
+              className="text-[9px] font-mono tabular-nums px-1 rounded bg-green-500/10 text-green-400/90 shrink-0"
+              title={t("terminal.sessionTime", "Tempo de sessão")}
+            >
+              ⏱ {formatAge(Date.now() - data.createdAt)}
+            </span>
+          )}
 
           {data.compressor && (
             <span
@@ -414,10 +460,10 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
           {/* Process mgmt: RSS do processo (PID no tooltip). */}
           {proc?.alive && (
             <span
-              className="text-[9px] font-mono text-textMuted opacity-50 shrink-0 tabular-nums"
+              className="text-[9px] font-mono tabular-nums px-1 rounded bg-textMuted/10 text-textMuted shrink-0"
               title={`PID ${proc.pid} · ${(proc.rssKb / 1024).toFixed(1)} MB RSS`}
             >
-              {(proc.rssKb / 1024).toFixed(0)}M
+              💾 {(proc.rssKb / 1024).toFixed(0)}M
             </span>
           )}
 

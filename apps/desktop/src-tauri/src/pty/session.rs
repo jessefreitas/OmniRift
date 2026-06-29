@@ -422,6 +422,13 @@ fn build_command(cfg: &PtySpawnConfig) -> CommandBuilder {
             cmd.cwd(cwd);
         }
     }
+    // TERM/COLORTERM explícitos: garantem cor ANSI mesmo quando o OmniRift roda como
+    // app GUI (clicado do menu) — aí o processo pai NÃO tem TERM herdado e CLIs como o
+    // claude-code detectam "terminal burro" e emitem texto SEM cor (regressão visível só
+    // no app instalado, não no `tauri:dev` que herda o TERM do terminal). Setados ANTES
+    // do `cfg.env` pra um TERM custom do caller ainda poder sobrescrever.
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
     for (k, v) in &cfg.env {
         cmd.env(k, v);
     }
