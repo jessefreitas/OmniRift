@@ -103,7 +103,7 @@ export function OrchestratorDock() {
         <span className="flex-1" />
         <span
           className="text-[9px] text-textMuted opacity-70 truncate max-w-[110px]"
-          title={`${t("orchestrator.floor", "Floor")}: ${orch.floor.name}`}
+          title={`${t("orchestrator.floor", "Paralelo")}: ${orch.floor.name}`}
         >
           {orch.floor.name}
         </span>

@@ -255,7 +255,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     const s0 = get();
     const floor: Parallel = {
       id: nanoid(),
-      name: name?.trim() || `Floor ${s0.parallels.filter((f) => f.projectId === s0.activeProjectId).length + 1}`,
+      name: name?.trim() || `Paralelo ${s0.parallels.filter((f) => f.projectId === s0.activeProjectId).length + 1}`,
       cwd: g?.worktreePath ?? s0.currentCwd, // git → worktree; vazio → herda a pasta atual do projeto (não cai em null/HOME)
       projectId: s0.activeProjectId, // floor nasce no projeto ativo
       nodes: [],
@@ -313,7 +313,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   closeFolder: () =>
     set((s) => {
       const pid = s.activeProjectId;
-      const fresh: Parallel = { id: nanoid(), name: "Floor 1", cwd: null, projectId: pid, nodes: [], edges: [], hostId: LOCAL_HOST_ID };
+      const fresh: Parallel = { id: nanoid(), name: "Paralelo 1", cwd: null, projectId: pid, nodes: [], edges: [], hostId: LOCAL_HOST_ID };
       // Tira os floors do projeto ativo (terminais desmontam → PTYs morrem) + 1 floor limpo.
       const floors = [...s.parallels.filter((f) => f.projectId !== pid), fresh];
       return { parallels: floors, activeParallelId: fresh.id, currentCwd: null, dirtyFiles: new Set() };
