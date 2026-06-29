@@ -65,7 +65,6 @@ function detectShell(): string {
 export const ROLE_CLIS: RoleCli[] = [
   { id: "claude", label: "Claude Code", command: "claude", role: "claude-code", systemPromptFlag: "--append-system-prompt" },
   { id: "codex", label: "Codex", command: "codex", role: "codex" },
-  { id: "gemini", label: "Gemini CLI", command: "gemini", role: "custom" },
   { id: "opencode", label: "OpenCode", command: "opencode", role: "opencode" },
   { id: "antigravity", label: "Antigravity (agy)", command: "agy", role: "antigravity" },
   { id: "shell", label: "Shell (terminal puro)", command: detectShell(), role: "shell" },
