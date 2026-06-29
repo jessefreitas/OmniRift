@@ -69,7 +69,7 @@ use commands::git::{
     parallel_run_hook, git_repo_info,
 };
 use commands::mcp::{
-    agent_mcp_config, parallel_mirror_set, get_max_agents, mcp_inventory, mcp_list_agents, mcp_register_agent,
+    agent_mcp_config, parallel_mirror_set, canvas_agents_set, get_max_agents, mcp_inventory, mcp_list_agents, mcp_register_agent,
     mcp_server_url, mcp_unregister_agent, save_paste_image, set_max_agents,
 };
 use commands::memory::{
@@ -152,6 +152,10 @@ pub fn run() {
 
     let floor_mirror: Arc<parking_lot::Mutex<serde_json::Value>> =
         Arc::new(parking_lot::Mutex::new(serde_json::json!({ "floors": [], "activeFloorId": null })));
+    // Espelho dos agentes do canvas (TODOS os terminais) — lido pelo mobile via agents.list.
+    // Separado do floor_mirror e do AgentRegistry (canal curado do Orquestrador).
+    let canvas_agents: Arc<parking_lot::Mutex<serde_json::Value>> =
+        Arc::new(parking_lot::Mutex::new(serde_json::json!([])));
 
     // Registry de claims (Bloco E) — estado PURO (HashMap em Mutex). Sem threads,
     // sem IO no construtor: app.manage disto no boot nunca panica.
@@ -263,6 +267,7 @@ pub fn run() {
         .manage(pty_manager)
         .manage(agent_registry)
         .manage(floor_mirror)
+        .manage(crate::commands::mcp::CanvasAgentsMirror(canvas_agents))
         .manage(claims_registry)
         .manage(CodeWatchers::default())
         // Cache do painel "Saúde do Projeto" (Fase A) — state PURO (Mutex<HashMap>),
@@ -320,6 +325,7 @@ pub fn run() {
             set_max_agents,
             get_max_agents,
             parallel_mirror_set,
+            canvas_agents_set,
             save_paste_image,
             db_save_workspace,
             db_load_workspace,

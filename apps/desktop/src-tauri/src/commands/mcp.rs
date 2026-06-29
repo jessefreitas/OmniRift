@@ -79,6 +79,22 @@ pub fn parallel_mirror_set(
     *mirror.lock() = floors;
 }
 
+/// Espelho dos agentes do CANVAS (todos os terminais), separado do `AgentRegistry`
+/// (que é o canal CURADO do Orquestrador). O mobile (`agents.list`) lê ESTE espelho
+/// pra ver todos os agentes rodando — sem o usuário precisar ativar cada um no canal
+/// MCP. Newtype só pra não colidir com o `Arc<Mutex<Value>>` do `parallel_mirror`.
+pub struct CanvasAgentsMirror(pub std::sync::Arc<parking_lot::Mutex<serde_json::Value>>);
+
+/// O front espelha aqui TODOS os terminais do canvas — `[{sessionId, label, role, floor}]`.
+/// O `state` (working/idle/…) o `agents.list` resolve na hora via `PtyManager`.
+#[tauri::command]
+pub fn canvas_agents_set(
+    agents: serde_json::Value,
+    mirror: State<'_, CanvasAgentsMirror>,
+) {
+    *mirror.0.lock() = agents;
+}
+
 /// Detecta o binário do Serena (MCP de estrutura de código por linguagem).
 fn which(bin: &str) -> Option<String> {
     // `which` no Unix, `where` no Windows (resolve binário via PATH em ambos).

@@ -6,7 +6,7 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCanvasStore } from "@/store/canvas-store";
-import { floorMirrorSet, agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
+import { floorMirrorSet, canvasAgentsSet, agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
 import { parallelGitCreate } from "@/lib/git-client";
 import { workerClaudeArgs } from "@/lib/agent-contract";
 import { ROLE_CLIS } from "@/lib/agent-roles";
@@ -159,6 +159,16 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
       pf.map((f) => ({ id: f.id, name: f.name, nodes: f.nodes.length })),
       s.activeParallelId,
     ).catch(() => {});
+    // Espelha TODOS os terminais do canvas pro mobile (agents.list) — independente do
+    // canal MCP curado. Assim o celular vê os agentes rodando sem ativação manual.
+    const agents: { sessionId: string; label: string; role: string; floor: string | null }[] = [];
+    for (const f of pf) {
+      for (const n of f.nodes) {
+        if (n.kind !== "terminal") continue;
+        agents.push({ sessionId: n.session_id, label: n.label ?? n.command, role: n.role, floor: f.name });
+      }
+    }
+    canvasAgentsSet(agents).catch(() => {});
   };
   pushMirror();
   const unsubStore = useCanvasStore.subscribe(pushMirror);

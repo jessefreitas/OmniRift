@@ -86,6 +86,15 @@ export async function floorMirrorSet(
   await invoke("parallel_mirror_set", { floors: { floors, activeFloorId } });
 }
 
+/** Espelha TODOS os agentes do canvas pro backend — lido pelo mobile via `agents.list`.
+ *  Separado do canal MCP curado: o celular vê todos os terminais rodando, sem o usuário
+ *  precisar ativar cada um. O backend resolve o `state` (working/idle/…) ao vivo. */
+export async function canvasAgentsSet(
+  agents: { sessionId: string; label: string; role: string; floor: string | null }[],
+): Promise<void> {
+  await invoke("canvas_agents_set", { agents });
+}
+
 /**
  * Gera o comando para adicionar o MCP server ao Claude Code.
  * Deve ser digitado (ou injetado via PTY write) no terminal do Orquestrador.

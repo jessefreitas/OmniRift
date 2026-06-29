@@ -79,13 +79,47 @@ fn floor_count(ctx: &RpcContext) -> usize {
 // ---------------------------------------------------------------------------
 
 fn agents_list(_params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
+    // PtyManager dá o estado por sessão (AgentStateMap). Se faltar, estado = null.
+    let pty = ctx.app.try_state::<Arc<PtyManager>>();
+
+    // Fonte PRIMÁRIA: o espelho do CANVAS (todos os terminais), setado pelo front via
+    // `canvas_agents_set`. Assim o mobile vê TODOS os agentes rodando — não só os que o
+    // usuário ativou no canal MCP curado. `state` é resolvido aqui, ao vivo, pelo PtyManager.
+    let from_mirror: Option<Vec<Value>> = ctx
+        .app
+        .try_state::<crate::commands::mcp::CanvasAgentsMirror>()
+        .and_then(|m| {
+            let g = m.0.lock();
+            g.as_array().filter(|a| !a.is_empty()).cloned()
+        });
+
+    if let Some(raw) = from_mirror {
+        let agents: Vec<Value> = raw
+            .into_iter()
+            .map(|a| {
+                let sid = a.get("sessionId").and_then(|v| v.as_str()).unwrap_or("");
+                let state = pty
+                    .as_ref()
+                    .and_then(|m| m.agent_state(sid))
+                    .and_then(|s| serde_json::to_value(s).ok())
+                    .unwrap_or(Value::Null);
+                json!({
+                    "label": a.get("label").cloned().unwrap_or(Value::Null),
+                    "sessionId": sid,
+                    "state": state,
+                    "floor": a.get("floor").cloned().unwrap_or(Value::Null),
+                    "description": a.get("role").cloned().unwrap_or(Value::Null),
+                })
+            })
+            .collect();
+        return Ok(json!({ "agents": agents }));
+    }
+
+    // FALLBACK: AgentRegistry (canal curado) — front antigo que ainda não espelha o canvas.
     let registry = ctx
         .app
         .try_state::<Arc<AgentRegistry>>()
         .ok_or_else(|| RpcError::internal("AgentRegistry indisponível"))?;
-    // PtyManager dá o estado por sessão (AgentStateMap). Se faltar, estado = null.
-    let pty = ctx.app.try_state::<Arc<PtyManager>>();
-
     let agents: Vec<Value> = registry
         .list()
         .into_iter()
