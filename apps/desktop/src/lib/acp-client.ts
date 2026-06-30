@@ -34,6 +34,18 @@ export async function acpCancel(sessionId: string): Promise<void> {
   return invoke("acp_cancel", { sessionId });
 }
 
+/** Autentica a sessão (Codex/ChatGPT): escolhe um dos authMethods → backend faz session/new. */
+export async function acpAuthenticate(sessionId: string, methodId: string): Promise<void> {
+  return invoke("acp_authenticate", { sessionId, methodId });
+}
+
+/** Método de autenticação ofertado pelo adapter (ex: Codex/ChatGPT login). */
+export interface AcpAuthMethod {
+  id: string;
+  name?: string;
+  description?: string;
+}
+
 // --- Listeners (filtram por sessão na borda) ---
 
 interface BasePayload {
@@ -104,4 +116,28 @@ export function listenAcpExit(
   handler: () => void,
 ): Promise<UnlistenFn> {
   return onSession<BasePayload>("acp://exit", sessionId, () => handler());
+}
+
+/** O adapter exige login (ex: Codex) — `data` traz os authMethods ofertados. */
+export function listenAcpAuthRequired(
+  sessionId: string,
+  handler: (methods: AcpAuthMethod[]) => void,
+): Promise<UnlistenFn> {
+  return onSession<BasePayload & { data: AcpAuthMethod[] | null }>(
+    "acp://auth-required",
+    sessionId,
+    (p) => handler(Array.isArray(p.data) ? p.data : []),
+  );
+}
+
+/** A autenticação escolhida falhou — `data` traz o erro do adapter. */
+export function listenAcpAuthFailed(
+  sessionId: string,
+  handler: (err: unknown) => void,
+): Promise<UnlistenFn> {
+  return onSession<BasePayload & { data: unknown }>(
+    "acp://auth-failed",
+    sessionId,
+    (p) => handler(p.data),
+  );
 }

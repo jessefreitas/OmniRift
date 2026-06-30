@@ -26,18 +26,22 @@ import {
   acpPrompt,
   acpPermissionRespond,
   acpCancel,
+  acpAuthenticate,
   listenAcpReady,
   listenAcpUpdate,
   listenAcpPermission,
   listenAcpTurnDone,
   listenAcpExit,
+  listenAcpAuthRequired,
+  listenAcpAuthFailed,
+  type AcpAuthMethod,
 } from "@/lib/acp-client";
 import type { AgentNode as AgentNodeData } from "@/types/canvas";
 
 type AgentRfNode = Node<AgentNodeData & Record<string, unknown>, "agent">;
 type AgentNodeProps = NodeProps<AgentRfNode>;
 
-type Status = "starting" | "ready" | "thinking" | "dead";
+type Status = "starting" | "ready" | "thinking" | "dead" | "auth";
 interface Msg {
   role: "user" | "assistant" | "tool" | "system";
   text: string;
@@ -78,6 +82,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const [usage, setUsage] = useState<Usage>({});
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [perm, setPerm] = useState<Perm | null>(null);
+  const [authMethods, setAuthMethods] = useState<AcpAuthMethod[]>([]);
   const [input, setInput] = useState("");
 
   const sessionRef = useRef<string | null>(null);
@@ -169,6 +174,14 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           if (reply) emitAgentOutput(data.id, reply);
         }),
         listenAcpExit(id, () => setStatus("dead")),
+        listenAcpAuthRequired(id, (methods) => {
+          setAuthMethods(methods);
+          setStatus("auth");
+        }),
+        listenAcpAuthFailed(id, (err) => {
+          pushSys(`falha no login: ${typeof err === "string" ? err : JSON.stringify(err)}`);
+          setStatus("auth");
+        }),
       ]);
       if (!alive) {
         unsubs.forEach((u) => u());
@@ -223,6 +236,20 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     setPerm(null);
   }
 
+  // Auth (Codex/ChatGPT): escolhe um authMethod → backend faz session/new → vem acp://ready.
+  async function authenticate(methodId: string) {
+    const sid = sessionRef.current;
+    if (!sid) return;
+    setStatus("starting");
+    setAuthMethods([]);
+    try {
+      await acpAuthenticate(sid, methodId);
+    } catch (e) {
+      setMsgs((m) => [...m, { role: "system", text: `erro no login: ${e}` }]);
+      setStatus("auth");
+    }
+  }
+
   // Input roteado de upstream (conexão A→este nó): manda como prompt automaticamente.
   useEffect(() => {
     if (nodeInput?.text && status === "ready") void sendText(nodeInput.text);
@@ -270,6 +297,31 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       <div ref={bodyRef} className="flex-1 space-y-1.5 overflow-auto p-2">
         {status === "starting" && (
           <div className="text-text/50">{t("agent.starting", "iniciando agente (1ª vez baixa o adapter, ~30s)…")}</div>
+        )}
+        {status === "auth" && (
+          <div className="rounded border border-orange-500/30 bg-orange-500/5 p-2.5">
+            <div className="mb-1 font-semibold text-orange-300">
+              {t("agent.authNeeded", "Este provider precisa de login")}
+            </div>
+            <p className="mb-2 text-[11px] text-text/60">
+              {t("agent.authHint", "Escolha como entrar. O login abre no provider; ao concluir, a sessão inicia sozinha.")}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {authMethods.map((mth) => (
+                <button
+                  key={mth.id}
+                  onClick={() => authenticate(mth.id)}
+                  title={mth.description}
+                  className="rounded bg-orange-500/15 px-2.5 py-1 text-orange-200 hover:bg-orange-500/25"
+                >
+                  {t("agent.loginWith", "Entrar com {name}").replace("{name}", mth.name ?? mth.id)}
+                </button>
+              ))}
+              {authMethods.length === 0 && (
+                <span className="text-[11px] text-text/40">{t("agent.noAuthMethods", "Nenhum método de login ofertado pelo adapter.")}</span>
+              )}
+            </div>
+          </div>
         )}
         {status === "ready" && msgs.length === 0 && !perm && <AgentHelp provider={data.provider ?? "claude"} />}
         {msgs.map((m, i) => (
@@ -347,6 +399,7 @@ function StatusBadge({ status }: { status: Status }) {
     ready: ["bg-green-400", "pronto"],
     thinking: ["bg-brand animate-pulse", "pensando"],
     dead: ["bg-red-400", "encerrado"],
+    auth: ["bg-orange-400", "login"],
   };
   const [color, label] = map[status];
   return (

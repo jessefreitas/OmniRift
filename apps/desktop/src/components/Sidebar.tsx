@@ -216,6 +216,17 @@ const PRESETS: AgentPreset[] = [
     provider: "claude",
   },
   {
+    id: "omniagent-codex",
+    label: "OmniAgent · Codex",
+    command: "codex", // placeholder; ACP ignora command/role e usa o provider
+    role: "codex",
+    icon: Bot,
+    description: "OmniAgent via Codex (ChatGPT/API) — pede login na 1ª vez; mesmas tools de orquestração",
+    installCmd: INSTALL.codex,
+    acp: true,
+    provider: "codex",
+  },
+  {
     id: "orquestrador",
     label: "Orquestrador",
     command: "claude",
