@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import QRCode from "qrcode";
-import { Copy, RefreshCw, ShieldCheck, Smartphone, Trash2, X } from "lucide-react";
+import { Copy, Download, RefreshCw, ShieldCheck, Smartphone, Trash2, X } from "lucide-react";
 
 import {
   humanizeLastSeen,
@@ -21,6 +21,9 @@ import {
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import { confirmDialog, notify } from "@/lib/notify";
+
+/** Link de download do APK Android (servido pelo license-worker a partir do R2). */
+const APK_URL = "https://omnirift-license-worker.jesse-vieira-freitas.workers.dev/download/android";
 
 interface Props {
   onClose: () => void;
@@ -38,6 +41,7 @@ export function MobileDevicesModal({ onClose }: Props) {
   const [pair, setPair] = useState<PairState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [apkQr, setApkQr] = useState<string>("");
 
   const load = useCallback(async () => {
     setError(null);
@@ -49,6 +53,20 @@ export function MobileDevicesModal({ onClose }: Props) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // QR do link de download do APK (offline, dataURL) — escanear pra instalar no celular.
+  useEffect(() => {
+    void QRCode.toDataURL(APK_URL, { margin: 1, width: 160 }).then(setApkQr).catch(() => {});
+  }, []);
+
+  async function copyApk() {
+    try {
+      await navigator.clipboard.writeText(APK_URL);
+      await notify(t("mobile.copied", "Link copiado"));
+    } catch {
+      /* clipboard off */
+    }
+  }
 
   async function startPairing() {
     setBusy("pair");
@@ -147,6 +165,37 @@ export function MobileDevicesModal({ onClose }: Props) {
         )}
 
         <div className="flex-1 overflow-auto p-3 space-y-3">
+          {/* Baixe o app no celular */}
+          <div className="rounded-md border border-border bg-bg/40 p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Download size={14} className="text-brand" />
+              <span className="text-sm text-text font-medium flex-1">{t("mobile.getAppTitle", "Baixe o app no celular")}</span>
+            </div>
+            <p className="text-[11px] text-textMuted mb-2">
+              {t("mobile.getAppDesc", "Escaneie pra instalar o app OmniRift (Android). Depois pareie abaixo.")}
+            </p>
+            <div className="flex gap-3 items-start">
+              {apkQr && (
+                <img
+                  src={apkQr}
+                  alt={t("mobile.apkQrAlt", "QR de download do app")}
+                  width={120}
+                  height={120}
+                  className="rounded bg-white p-1 shrink-0"
+                />
+              )}
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <code className="text-[11px] text-text bg-bg border border-border rounded px-1.5 py-0.5 font-mono truncate flex-1">{APK_URL}</code>
+                  <button onClick={() => void copyApk()} title={t("mobile.copyApk", "Copiar link")} className="text-textMuted hover:text-brand p-1 shrink-0">
+                    <Copy size={12} />
+                  </button>
+                </div>
+                <p className="text-[10px] text-textMuted opacity-70">{t("mobile.getAppHint", "Android — instalação direta (.apk). iOS em breve.")}</p>
+              </div>
+            </div>
+          </div>
+
           {/* Parear */}
           <div className="rounded-md border border-border bg-bg/40 p-3">
             <div className="flex items-center gap-2 mb-1">

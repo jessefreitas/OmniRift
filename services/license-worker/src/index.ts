@@ -76,6 +76,11 @@ const R2_LATEST = {
     filename: "OmniRift.dmg",
     contentType: "application/octet-stream",
   },
+  android: {
+    key: "releases/latest/android.apk",
+    filename: "OmniRift.apk",
+    contentType: "application/vnd.android.package-archive",
+  },
 } as const;
 
 // Email single-line (sem CR/LF → barra SMTP header injection) + formato simples.
@@ -335,13 +340,13 @@ app.get("/download/:platform?", async (c) => {
     else if (/linux/i.test(ua) && !/android/i.test(ua)) platform = "linux";
     else if (/macintosh|mac os x/i.test(ua)) platform = "mac";
   }
-  if (platform !== "windows" && platform !== "linux" && platform !== "mac") return c.redirect(releasesPage, 302);
+  if (platform !== "windows" && platform !== "linux" && platform !== "mac" && platform !== "android") return c.redirect(releasesPage, 302);
 
   // ── R2 PRIMEIRO: serve o ponteiro estável releases/latest/<so> direto do bucket
   // (egress zero, sem rate limit do GitHub API). Objeto ausente OU erro → fallback
   // pro fluxo do GitHub abaixo (fail-open: nunca quebra o download).
   try {
-    const r2 = platform === "windows" ? R2_LATEST.windows : platform === "mac" ? R2_LATEST.mac : R2_LATEST.linux;
+    const r2 = platform === "windows" ? R2_LATEST.windows : platform === "mac" ? R2_LATEST.mac : platform === "android" ? R2_LATEST.android : R2_LATEST.linux;
     const obj = await env.RELEASES.get(r2.key);
     if (obj) {
       return new Response(obj.body, {
@@ -372,7 +377,7 @@ app.get("/download/:platform?", async (c) => {
     const assets = rel.assets ?? [];
     const pick = (exts: string[]) =>
       assets.find((a) => exts.some((e) => a.name.toLowerCase().endsWith(e) && !a.name.toLowerCase().endsWith(".sig")));
-    const asset = platform === "windows" ? pick([".exe", ".msi"]) : platform === "mac" ? pick([".dmg"]) : pick([".appimage", ".deb"]);
+    const asset = platform === "windows" ? pick([".exe", ".msi"]) : platform === "mac" ? pick([".dmg"]) : platform === "android" ? pick([".apk"]) : pick([".appimage", ".deb"]);
     return c.redirect(asset?.browser_download_url ?? releasesPage, 302);
   } catch {
     return c.redirect(releasesPage, 302);
