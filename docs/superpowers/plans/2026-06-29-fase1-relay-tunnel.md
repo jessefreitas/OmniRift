@@ -10,6 +10,12 @@
 
 ---
 
+## Progresso (em execução — 2026-06-29)
+
+- ✅ **Tasks 1–4 concluídas** (commits `5b3b4cd` relay-worker, `b30d9f6` SQLite+deploy).
+- 🌐 **Relay deployado (FREE, SQLite-backed DO):** base = `wss://omnirift-relay.jesse-vieira-freitas.workers.dev` → o código monta `{base}/r/{deviceToken}`. vitest 4/4 + smoke de produção OK (bridge entrega + rooms isolados).
+- ⏭️ **Próxima: Task 5** (desktop disca o relay). `relay_base` const = a URL acima. Token CF (deploy): cofre `credential.cloudflare.api_token` + account `0245b00ef3744d9e0e07f785971bb90a`; deploy com `new_sqlite_classes` (NÃO `new_classes` — exige Paid).
+
 ## File Structure
 
 | Arquivo | Responsabilidade |
