@@ -15,7 +15,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Brain, Maximize2, Minimize2, Send, UserRoundPlus, X } from "lucide-react";
+import { Brain, Maximize2, Minimize2, RotateCw, Send, UserRoundPlus, X } from "lucide-react";
 import { nanoid } from "nanoid";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -81,6 +81,15 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const nodeInput = useCanvasStore((s) => s.nodeInputs[data.id]);
   const teamBriefing = useCanvasStore((s) => s.teamBriefing);
   const openConnectMenu = useCanvasStore((s) => s.openConnectMenu);
+  // Subagentes plugados NESTE agente (derivado do canvas: subagent-nodes com parentAgentId =
+  // este id). String → compara por valor (sem re-render infinito de selector que devolve array).
+  const mySubagentLabels = useCanvasStore((s) => {
+    const f = s.parallels.find((p) => p.id === s.activeParallelId);
+    return (f?.nodes ?? [])
+      .filter((n) => n.kind === "subagent" && n.parentAgentId === data.id)
+      .map((n) => (n.kind === "subagent" ? n.label : ""))
+      .join(", ");
+  });
   const t = useT();
 
   // Abre o menu de SUBAGENTE (só roles) posicionado abaixo deste agente. O subagente
@@ -104,17 +113,45 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const [input, setInput] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0); // bumpar → re-spawna a sessão ACP (carrega .claude/agents novos)
 
   const sessionRef = useRef<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const lastReplyRef = useRef(""); // acumula a resposta do turno → vira "saída" no turn-done
   const firstSentRef = useRef(false); // prefixa o contrato de orquestrador só no 1º prompt
   const teamRef = useRef<string | null>(null); // roster pendente p/ injetar no próximo prompt
+  const subagentsSentRef = useRef(false); // a lista de subagentes já foi injetada num prompt?
+
+  // D2 — reload EXPLÍCITO: re-spawna a sessão ACP pra carregar os `.claude/agents` plugados
+  // DEPOIS do boot (o Claude Code só lê subagentes no início da sessão; o adapter não faz
+  // hot-reload). Perde a conversa atual — é a escolha v1 (avisa via system line).
+  function reloadSession() {
+    setMsgs([{ role: "system", text: t("agent.reloaded", "↻ Sessão recarregada — subagentes atualizados.") }]);
+    setStatus("starting");
+    setModel(null);
+    setUsage({});
+    setPerm(null);
+    setAuthMethods([]);
+    firstSentRef.current = false;
+    teamRef.current = null;
+    subagentsSentRef.current = false;
+    setReloadKey((k) => k + 1);
+  }
 
   // Autoscroll pro fim a cada novo conteúdo.
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [msgs, perm, status]);
+
+  // Subagente plugado/desplugado: o agente fica CIENTE (lista vai no próximo prompt), mas
+  // pra INVOCAR precisa recarregar (Claude Code lê .claude/agents no boot). Avisa via ↻.
+  useEffect(() => {
+    subagentsSentRef.current = false; // reinjeta a lista atualizada no próximo prompt
+    if (mySubagentLabels && (status === "ready" || status === "thinking")) {
+      setMsgs((m) => [...m, { role: "system", text: `🔌 ${t("agent.subagentPlugged", "Subagentes plugados: {list}. Clique ↻ pra carregar e invocá-los (Task tool).").replace("{list}", mySubagentLabels)}` }]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mySubagentLabels]);
 
   // Spawn + listeners no mount; cleanup no unmount.
   useEffect(() => {
@@ -225,8 +262,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       acpAgentUnregister(cmdLabel).catch(() => {});
       acpCancel(id).catch(() => {});
     };
+    // reloadKey: bumpar re-spawna a sessão (carrega .claude/agents plugados depois do boot).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reloadKey]);
 
   // `systemNote` → mostra uma linha de sistema em vez da bolha de usuário (ex: reação
   // automática a mudança de equipe), mas ainda envia `text` como o turno real.
@@ -241,6 +279,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     const prefixes: string[] = [];
     if (!firstSentRef.current) prefixes.push(ORCHESTRATOR_PROMPT);
     if (teamRef.current) { prefixes.push(teamRef.current); teamRef.current = null; }
+    if (!subagentsSentRef.current && mySubagentLabels) {
+      prefixes.push(`Subagentes plugados em você (invocáveis via Task tool): ${mySubagentLabels}. Se algum foi plugado depois que você abriu, peça ao usuário pra recarregar (↻).`);
+      subagentsSentRef.current = true;
+    }
     const payload = prefixes.length
       ? `${prefixes.join("\n\n")}\n\n---\nTarefa do usuário: ${text}`
       : text;
@@ -337,6 +379,17 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           <Badge title={t("agent.cost", "custo da sessão")}>${usage.costUsd.toFixed(3)}</Badge>
         )}
         <NodeHelp text={t("agent.help", "OmniAgent (ACP): peça uma tarefa e tecle Enter. As ações dele aparecem como tool-calls. ⤢ abre em tela cheia; ligue a saída dele em outro nó pelas alças. Ligar uma linha num terminal já o adiciona ao time MCP. A alça de baixo (ou +) pluga um SUBAGENTE privado.")} />
+        {/* Recarregar subagentes (re-spawna a sessão pra carregar os .claude/agents novos) */}
+        {mySubagentLabels && (
+          <button
+            onClick={(e) => { e.stopPropagation(); reloadSession(); }}
+            className="p-0.5 rounded text-text/50 hover:bg-white/10 hover:text-amber-300 transition-colors"
+            title={t("agent.reloadSubagents", "Recarregar subagentes ({list}) — re-spawna a sessão; perde a conversa atual").replace("{list}", mySubagentLabels)}
+            aria-label={t("agent.reloadSubagentsShort", "Recarregar subagentes")}
+          >
+            <RotateCw size={13} />
+          </button>
+        )}
         {/* Plugar subagente (privado deste agente) */}
         <button
           onClick={addSubagentHere}
