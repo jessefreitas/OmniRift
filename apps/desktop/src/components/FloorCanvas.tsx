@@ -186,20 +186,25 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       if (!connection.source || !connection.target) return;
       const srcNode = nodes.find((n) => n.id === connection.source);
       const dstNode = nodes.find((n) => n.id === connection.target);
-      if (srcNode?.kind === "terminal" && dstNode?.kind === "terminal") {
-        const srcLabel =
-          srcNode.kind === "terminal" ? (srcNode.label ?? srcNode.command) : connection.source!;
+      // "Ligar = montar equipe": QUALQUER linha que chega num terminal o marca como
+      // agente do time MCP (origem OmniAgent OU outro terminal). Roteia pelo mesmo
+      // toggleMcpAgent (backend + checkbox + sendTeamBriefing) → o Orquestrador é
+      // re-briefado a cada agente que entra. Vale uniformemente pros Orquestradores.
+      const dstIsTerminal = dstNode?.kind === "terminal";
+      if (dstIsTerminal) {
+        setRequestMcpMark(dstNode.session_id, dstNode.label ?? dstNode.command);
+      }
+      if (srcNode?.kind === "terminal" && dstIsTerminal) {
+        // terminal→terminal: mantém o pipe PTY (stdout vira input) ALÉM de marcar o time.
+        const srcLabel = srcNode.label ?? srcNode.command;
         ptyPipeCreate(connection.source, connection.target, srcLabel)
           .then(() => addEdge(connection.source!, connection.target!, "pty-pipe"))
           .catch((err) => {
             console.error("Falha ao criar pipe PTY:", err);
             addEdge(connection.source!, connection.target!, "generic");
           });
-      } else if (srcNode?.kind === "agent" && dstNode?.kind === "terminal") {
-        // Auto-conexão A→B: a linha do OmniAgent num terminal registra o terminal como
-        // agente MCP (mesmo efeito da checkbox "MCP AGENTS") → o OmniAgent passa a vê-lo
-        // via terminal_list. O Sidebar consome o sinal e chama o toggleMcpAgent real.
-        setRequestMcpMark(dstNode.session_id, dstNode.label ?? dstNode.command);
+      } else if (srcNode?.kind === "agent" && dstIsTerminal) {
+        // OmniAgent→terminal: marca o time (acima) + edge roxa de comando ACP.
         addEdge(connection.source, connection.target, "agent-link");
       } else {
         addEdge(connection.source, connection.target, "generic");

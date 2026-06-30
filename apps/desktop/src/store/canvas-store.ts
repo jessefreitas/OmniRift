@@ -51,6 +51,10 @@ interface CanvasState {
   requestMcpMark: { sid: string; label: string; seq: number } | null;
   setRequestMcpMark: (sid: string, label: string) => void;
   clearRequestMcpMark: () => void;
+  /** Briefing do time publicado pelo Sidebar (sendTeamBriefing) a CADA mudança de equipe.
+   *  Os OmniAgents (AgentNode) consomem → ficam sabendo do roster atual igual o Orquestrador. */
+  teamBriefing: { text: string; seq: number } | null;
+  publishTeamBriefing: (text: string) => void;
   workspaceName: string;
   currentCwd: string | null; // espelho do cwd do floor ativo
 
@@ -202,6 +206,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   nodeInputs: {},
   edgeFlow: {},
   requestMcpMark: null,
+  teamBriefing: null,
   workspaceName: "workspace",
   currentCwd: null,
   clipboardHistory: [],
@@ -612,6 +617,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   setRequestMcpMark: (sid, label) =>
     set((s) => ({ requestMcpMark: { sid, label, seq: (s.requestMcpMark?.seq ?? 0) + 1 } })),
   clearRequestMcpMark: () => set({ requestMcpMark: null }),
+  publishTeamBriefing: (text) =>
+    set((s) => ({ teamBriefing: { text, seq: (s.teamBriefing?.seq ?? 0) + 1 } })),
 
   removeNode: (id) =>
     set((s) => ({

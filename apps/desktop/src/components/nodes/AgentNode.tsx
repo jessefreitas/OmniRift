@@ -7,6 +7,7 @@
 // o nó só persiste config leve (label/cwd) no workspace.
 
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Handle,
   NodeResizer,
@@ -14,11 +15,12 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Brain, Send, X } from "lucide-react";
+import { Brain, Maximize2, Minimize2, Send, X } from "lucide-react";
 import { nanoid } from "nanoid";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import {
@@ -77,6 +79,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const emitAgentOutput = useCanvasStore((s) => s.emitAgentOutput);
   const nodeInput = useCanvasStore((s) => s.nodeInputs[data.id]);
+  const teamBriefing = useCanvasStore((s) => s.teamBriefing);
   const t = useT();
 
   const [status, setStatus] = useState<Status>("starting");
@@ -86,11 +89,14 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const [perm, setPerm] = useState<Perm | null>(null);
   const [authMethods, setAuthMethods] = useState<AcpAuthMethod[]>([]);
   const [input, setInput] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   const sessionRef = useRef<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const lastReplyRef = useRef(""); // acumula a resposta do turno → vira "saída" no turn-done
   const firstSentRef = useRef(false); // prefixa o contrato de orquestrador só no 1º prompt
+  const teamRef = useRef<string | null>(null); // roster pendente p/ injetar no próximo prompt
 
   // Autoscroll pro fim a cada novo conteúdo.
   useEffect(() => {
@@ -215,8 +221,14 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     lastReplyRef.current = "";
     setMsgs((m) => [...m, { role: "user", text }]);
     setStatus("thinking");
-    // 1º prompt: prefixa o contrato de orquestrador (invisível pro user) → estabelece papel + tools.
-    const payload = firstSentRef.current ? text : `${ORCHESTRATOR_PROMPT}\n\n---\nTarefa do usuário: ${text}`;
+    // Prefixos invisíveis: contrato de orquestrador (só no 1º prompt) + roster pendente da
+    // equipe (T2 — sempre que a equipe muda, o próximo prompt já leva a lista atualizada).
+    const prefixes: string[] = [];
+    if (!firstSentRef.current) prefixes.push(ORCHESTRATOR_PROMPT);
+    if (teamRef.current) { prefixes.push(teamRef.current); teamRef.current = null; }
+    const payload = prefixes.length
+      ? `${prefixes.join("\n\n")}\n\n---\nTarefa do usuário: ${text}`
+      : text;
     firstSentRef.current = true;
     try {
       await acpPrompt(sid, payload);
@@ -262,17 +274,28 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeInput?.seq]);
 
-  return (
-    <div
-      className={cn(
-        "flex h-full w-full flex-col rounded-lg border bg-bg text-xs",
-        selected ? "border-brand" : "border-white/10",
-      )}
-    >
-      <NodeResizer minWidth={320} minHeight={260} isVisible={selected} />
-      <Handle type="target" position={Position.Left} className="!bg-brand !border-surface1" />
-      <Handle type="source" position={Position.Right} className="!bg-brand !border-surface1" />
+  // T2 — o "principal" sabe na hora que a equipe mudou: guarda o roster pro próximo prompt
+  // (o OmniAgent já comanda via terminal_list, mas assim nasce ciente sem ter que perguntar)
+  // e mostra uma linha visível na conversa. Não dispara turno sozinho (evita custo/loop).
+  useEffect(() => {
+    if (!teamBriefing) return;
+    teamRef.current = teamBriefing.text;
+    if (status === "ready" || status === "thinking") {
+      setMsgs((m) => [...m, { role: "system", text: `📋 ${t("agent.teamUpdated", "Equipe atualizada — disponível via terminal_list.")}` }]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamBriefing?.seq]);
 
+  // ESC fecha o fullscreen.
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setIsFullscreen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFullscreen]);
+
+  const inner = (
+    <>
       {/* header */}
       <div className="node-drag-handle flex items-center gap-1.5 border-b border-white/10 px-2 py-1.5">
         <Brain size={13} className="text-brand" />
@@ -290,17 +313,31 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         {usage.costUsd != null && (
           <Badge title={t("agent.cost", "custo da sessão")}>${usage.costUsd.toFixed(3)}</Badge>
         )}
+        <NodeHelp text={t("agent.help", "OmniAgent (ACP): peça uma tarefa e tecle Enter. As ações dele aparecem como tool-calls. ⤢ abre em tela cheia; ligue a saída dele em outro nó pelas alças. Ligar uma linha num terminal já o adiciona ao time MCP.")} />
+        {/* Maximizar / restaurar */}
         <button
-          onClick={() => removeNode(data.id)}
-          className="text-text/50 hover:text-text"
+          onClick={(e) => { e.stopPropagation(); setIsFullscreen((v) => !v); }}
+          className="p-0.5 rounded text-text/50 hover:bg-white/10 hover:text-text transition-colors"
+          title={isFullscreen ? t("agent.restore", "Restaurar") : t("agent.fullscreen", "Tela cheia")}
+          aria-label={isFullscreen ? t("agent.restore", "Restaurar") : t("agent.fullscreen", "Tela cheia")}
+        >
+          {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); removeNode(data.id); }}
+          className="p-0.5 rounded text-text/50 hover:bg-white/10 hover:text-text transition-colors"
           title={t("common.close", "Fechar")}
         >
           <X size={13} />
         </button>
       </div>
 
-      {/* corpo */}
-      <div ref={bodyRef} className="flex-1 space-y-1.5 overflow-auto p-2">
+      {/* corpo — nowheel: scroll dentro não dá zoom no canvas; nodrag: não arrasta o nó */}
+      <div
+        ref={bodyRef}
+        className="nodrag nowheel flex-1 space-y-1.5 overflow-auto p-2"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         {status === "starting" && (
           <div className="text-text/50">{t("agent.starting", "iniciando agente (1ª vez baixa o adapter, ~30s)…")}</div>
         )}
@@ -387,6 +424,42 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           <Send size={13} />
         </button>
       </div>
+    </>
+  );
+
+  // Fullscreen: renderiza o mesmo conteúdo num overlay (igual ao terminal). Portal no
+  // body p/ escapar do transform do canvas; ESC fecha. Reusa o MESMO estado/handlers.
+  if (isFullscreen) {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[60] flex flex-col bg-bg text-xs"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {inner}
+      </div>,
+      document.body,
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex h-full w-full flex-col rounded-lg border bg-bg text-xs",
+        selected ? "border-brand" : "border-white/10",
+      )}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <NodeResizer
+        minWidth={320}
+        minHeight={260}
+        isVisible={selected || hovered}
+        color="rgb(167, 139, 250)"
+        handleStyle={{ width: 8, height: 8, borderRadius: 2 }}
+      />
+      <Handle type="target" position={Position.Left} className="!bg-brand !border-surface1" />
+      <Handle type="source" position={Position.Right} className="!bg-brand !border-surface1" />
+      {inner}
     </div>
   );
 }

@@ -356,6 +356,8 @@ export function Sidebar() {
   // Sinal de auto-conexão A→B (FloorCanvas onConnect agente→terminal pede marcar o terminal).
   const requestMcpMark = useCanvasStore((s) => s.requestMcpMark);
   const clearRequestMcpMark = useCanvasStore((s) => s.clearRequestMcpMark);
+  // Briefing do time → publicado a cada mudança de equipe; os OmniAgents (AgentNode) consomem.
+  const publishTeamBriefing = useCanvasStore((s) => s.publishTeamBriefing);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
   // Settings POR-AGENTE: o label embute no push-hook de status (/agent-hook/<label>).
@@ -811,7 +813,6 @@ export function Sidebar() {
     orchSid: string | null,
     allNodes: typeof terminals,
   ) => {
-    if (!orchSid) return;
     const agentNodes = allNodes.filter((n) => n.kind === "terminal" && newAgents.has(n.session_id));
     if (agentNodes.length === 0) return;
     const summary = agentNodes.map((n) => {
@@ -821,6 +822,13 @@ export function Sidebar() {
       const desc = newDescs[sid] ?? lbl;
       return `${toolName} (${desc})`;
     }).join(", ");
+
+    // OmniAgents (ACP) recebem o roster SEMPRE que a equipe muda — independe de haver
+    // Orquestrador-terminal. Assim o "principal" sabe na hora que um agente entrou
+    // (ex: já tem 4 → pode decidir colocar um code review). Os AgentNode consomem.
+    publishTeamBriefing(`Sua equipe atual (tools omnirift-agents): ${summary}. Delegue as próximas tarefas a esses agentes — não execute você mesmo. Se a equipe crescer, reavalie se falta algum papel (ex: code review).`);
+
+    if (!orchSid) return;
 
     // Duas escritas: display visual multi-linha + input real submetido ao Claude
     const display = agentNodes.map((n) => {
@@ -840,7 +848,7 @@ export function Sidebar() {
         invoke("pty_write", { sessionId: orchSid, data: "\r" }).catch(console.warn);
       }, 150);
     }, 200);
-  }, []);
+  }, [publishTeamBriefing]);
 
   const toggleMcpAgent = useCallback(async (sessionId: string, label: string) => {
     const registered = mcpAgents.has(sessionId);
