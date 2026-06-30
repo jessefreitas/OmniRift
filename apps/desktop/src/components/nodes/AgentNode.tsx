@@ -90,6 +90,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       .map((n) => (n.kind === "subagent" ? n.label : ""))
       .join(", ");
   });
+  // Fase 3 — nome do floor/time deste agente: vira o `scope` do blackboard (mural só do time).
+  // Com 1 floor o scope é igual pra todos (= global); com vários, isola o mural por time.
+  const myFloorName = useCanvasStore((s) => s.parallels.find((p) => p.nodes.some((n) => n.id === data.id))?.name ?? "");
   const t = useT();
 
   // Abre o menu de SUBAGENTE (só roles) posicionado abaixo deste agente. O subagente
@@ -277,7 +280,14 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     // Prefixos invisíveis: contrato de orquestrador (só no 1º prompt) + roster pendente da
     // equipe (T2 — sempre que a equipe muda, o próximo prompt já leva a lista atualizada).
     const prefixes: string[] = [];
-    if (!firstSentRef.current) prefixes.push(ORCHESTRATOR_PROMPT);
+    if (!firstSentRef.current) {
+      prefixes.push(ORCHESTRATOR_PROMPT);
+      // Fase 3 — blackboard namespaceado por time (floor). Usa o param `scope` que o
+      // memory_* já tem → o mural é só do seu time; com 1 floor vira o mural geral.
+      if (myFloorName) {
+        prefixes.push(`Mural do seu time: use SEMPRE scope='${myFloorName}' em memory_remember/memory_recall — é o blackboard compartilhado SÓ do seu time (floor "${myFloorName}"). Membros leem/escrevem nesse scope pra coordenar de forma assíncrona, sem falar direto.`);
+      }
+    }
     if (teamRef.current) { prefixes.push(teamRef.current); teamRef.current = null; }
     if (!subagentsSentRef.current && mySubagentLabels) {
       prefixes.push(`Subagentes plugados em você (invocáveis via Task tool): ${mySubagentLabels}. Se algum foi plugado depois que você abriu, peça ao usuário pra recarregar (↻).`);
