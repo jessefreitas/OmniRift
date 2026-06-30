@@ -273,6 +273,10 @@ export interface CanvasEdge {
   id: string;
   source: string;
   target: string;
+  /** Alça de origem específica (ex: "subagent" = a de baixo). undefined = default do React Flow. */
+  sourceHandle?: string;
+  /** Alça de destino específica. undefined = default. */
+  targetHandle?: string;
   /** Para terminais conectados, o output do source vai como input do target.
    *  "agent-link" = OmniAgent→terminal: a linha marca o terminal como agente MCP (auto-conexão).
    *  "subagent-link" = agente→subagente nativo (.claude/agents), vertical, privado do pai. */

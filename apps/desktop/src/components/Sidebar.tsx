@@ -1315,11 +1315,17 @@ export function Sidebar() {
         void notify(tr("sidebar.subagentWriteFailed", "Falha ao gravar o subagente:") + "\n" + String(e), "error");
         return;
       }
+      // Posiciona o subagente CENTRADO ABAIXO do pai (largura do sub = 240) → a linha
+      // vertical (alça de baixo) cai reta. Sem pai conhecido, usa o ponto do drop.
+      const pos = parent
+        ? { x: parent.position.x + parent.size.width / 2 - 120, y: parent.position.y + parent.size.height + 48 }
+        : req.flow;
       const sub = addSubagent({
         role: role.id, label: role.name, description,
-        parentAgentId: req.fromNodeId, parentLabel, cwd: dir, filePath, position: req.flow,
+        parentAgentId: req.fromNodeId, parentLabel, cwd: dir, filePath, position: pos,
       });
-      addEdge(req.fromNodeId, sub.id, "subagent-link");
+      // sourceHandle "subagent" = alça de BAIXO do pai → a linha sai de baixo, não do lado.
+      addEdge(req.fromNodeId, sub.id, "subagent-link", { sourceHandle: "subagent" });
       const scope = dir.trim()
         ? tr("sidebar.subagentScopeProject", "privado do projeto")
         : tr("sidebar.subagentScopeGlobal", "global (~/.claude/agents — sem projeto aberto)");

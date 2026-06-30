@@ -165,7 +165,7 @@ interface CanvasState {
   updateNodePosition: (id: string, position: { x: number; y: number }) => void;
   updateNodeSize: (id: string, size: { width: number; height: number }) => void;
   patchNode: (id: string, patch: CanvasNodePatch) => void;
-  addEdge: (source: string, target: string, kind?: CanvasEdge["kind"]) => void;
+  addEdge: (source: string, target: string, kind?: CanvasEdge["kind"], handles?: { sourceHandle?: string; targetHandle?: string }) => void;
   removeEdge: (id: string) => void;
 
   // clipboard (global)
@@ -747,13 +747,19 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       ),
     })),
 
-  addEdge: (source, target, kind = "generic") => {
+  addEdge: (source, target, kind = "generic", handles) => {
     if (source === target) return;
     set((s) => ({
       parallels: s.parallels.map((f) => {
         if (f.id !== s.activeParallelId) return f;
         if (f.edges.some((e) => e.source === source && e.target === target)) return f;
-        return { ...f, edges: [...f.edges, { id: nanoid(), source, target, kind }] };
+        return {
+          ...f,
+          edges: [
+            ...f.edges,
+            { id: nanoid(), source, target, kind, sourceHandle: handles?.sourceHandle, targetHandle: handles?.targetHandle },
+          ],
+        };
       }),
     }));
   },

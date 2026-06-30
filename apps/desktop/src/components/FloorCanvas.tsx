@@ -141,6 +141,8 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
         id: e.id,
         source: e.source,
         target: e.target,
+        ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
+        ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
         type: "flow",
         data: { kind: e.kind },
         animated: e.kind === "pty-pipe",
