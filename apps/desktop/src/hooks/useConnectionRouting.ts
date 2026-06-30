@@ -31,7 +31,11 @@ export function useConnectionRouting() {
       seenRef.current[sourceId] = out.seq;
       if (!out.text) continue;
 
-      const edges = active.edges.filter((e) => e.source === sourceId);
+      // Só roteia o output CRU em edges "generic" (cano explícito agente→agente). A
+      // `agent-link` (OmniAgent→terminal) é relação de TIME/comando via MCP — o OmniAgent
+      // comanda o terminal por terminal_send_text, NÃO despejando o chat dele no input.
+      // (subagent-link, pty-pipe [backend] e note-link também não recebem o output cru.)
+      const edges = active.edges.filter((e) => e.source === sourceId && e.kind === "generic");
       for (const edge of edges) {
         const target = active.nodes.find((n) => n.id === edge.target);
         if (!target) continue;
