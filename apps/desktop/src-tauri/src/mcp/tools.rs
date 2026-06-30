@@ -50,6 +50,23 @@ fn resolve(state: &McpState, terminal: &str) -> Result<String, String> {
         .ok_or_else(|| format!("terminal '{terminal}' não encontrado (use terminal_list)"))
 }
 
+/// Se `terminal` é um OmniAgent (ACP) registrado, roteia o texto como um PROMPT (turno)
+/// via AcpManager e devolve `Some(resposta)`. Senão `None` (cai no caminho PTY normal).
+/// Pra um agente ACP, "send_text" e "run" significam ambos "mande isto como prompt" —
+/// não existe digitar-sem-enter numa sessão estruturada.
+async fn acp_route_prompt(state: &McpState, terminal: &str, text: String) -> Option<String> {
+    let mgr = state
+        .app
+        .state::<std::sync::Arc<crate::acp::AcpManager>>()
+        .inner()
+        .clone();
+    let id = mgr.resolve_label(terminal)?;
+    Some(match mgr.prompt(&id, text).await {
+        Ok(()) => "ok — enviado ao OmniAgent (ACP)".into(),
+        Err(e) => format!("❌ {e}"),
+    })
+}
+
 fn arg_str(args: &Value, key: &str) -> String {
     args.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
 }
@@ -613,10 +630,14 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
     match tool {
         "terminal_list" => {
             let agents = state.agent_registry.list();
-            if agents.is_empty() {
-                return "Nenhum terminal-agente. Marque terminais na sidebar do OmniRift.".into();
+            let acp = state
+                .app
+                .state::<std::sync::Arc<crate::acp::AcpManager>>()
+                .labels_list();
+            if agents.is_empty() && acp.is_empty() {
+                return "Nenhum terminal-agente. Marque terminais na sidebar do OmniRift (ou ligue um OmniAgent num terminal).".into();
             }
-            agents
+            let mut lines: Vec<String> = agents
                 .iter()
                 .map(|(label, entry)| {
                     let st = state
@@ -626,8 +647,14 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                         .unwrap_or_else(|| "unknown".into());
                     format!("• {label} [{st}]{} — {}", floor_suffix(&entry.floor), entry.description)
                 })
-                .collect::<Vec<_>>()
-                .join("\n")
+                .collect();
+            for (label, _id, ready) in acp {
+                let st = if ready { "ready" } else { "starting" };
+                lines.push(format!(
+                    "• {label} [acp·{st}] — OmniAgent estruturado (ACP); comande igual a um terminal (terminal_send_text/terminal_run)."
+                ));
+            }
+            lines.join("\n")
         }
         "terminal_read" => {
             let terminal = arg_str(&args, "terminal");
@@ -646,6 +673,10 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
         "terminal_send_text" => {
             let terminal = arg_str(&args, "terminal");
             let text = arg_str(&args, "text");
+            // OmniAgent (ACP)? roteia como prompt. Senão, escreve no PTY (sem Enter).
+            if let Some(r) = acp_route_prompt(state, &terminal, text.clone()).await {
+                return r;
+            }
             match resolve(state, &terminal) {
                 Ok(id) => match state.pty_manager.write(&id, text.as_bytes()) {
                     Ok(()) => "ok".into(),
@@ -657,6 +688,10 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
         "terminal_run" => {
             let terminal = arg_str(&args, "terminal");
             let command = arg_str(&args, "command");
+            // OmniAgent (ACP)? roteia como prompt. Senão, envia comando + Enter no PTY.
+            if let Some(r) = acp_route_prompt(state, &terminal, command.clone()).await {
+                return r;
+            }
             match resolve(state, &terminal) {
                 Ok(id) => match state.pty_manager.write(&id, format!("{command}\r").as_bytes()) {
                     Ok(()) => "ok".into(),

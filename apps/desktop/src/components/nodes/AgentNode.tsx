@@ -27,6 +27,8 @@ import {
   acpPermissionRespond,
   acpCancel,
   acpAuthenticate,
+  acpAgentRegister,
+  acpAgentUnregister,
   listenAcpReady,
   listenAcpUpdate,
   listenAcpPermission,
@@ -99,6 +101,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   useEffect(() => {
     const id = nanoid();
     sessionRef.current = id;
+    const cmdLabel = data.label ?? "OmniAgent"; // label sob o qual o Orquestrador o comanda
     let unsubs: UnlistenFn[] = [];
     let alive = true;
 
@@ -163,6 +166,8 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           setModel(cur);
           setUsage((u) => ({ ...u, model: cur ?? undefined }));
           setStatus("ready");
+          // Torna-se COMANDÁVEL pelo Orquestrador-terminal (entra no terminal_list).
+          void acpAgentRegister(cmdLabel, id);
         }),
         listenAcpUpdate(id, applyUpdate),
         listenAcpPermission(id, (reqId, params) =>
@@ -198,6 +203,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     return () => {
       alive = false;
       unsubs.forEach((u) => u());
+      acpAgentUnregister(cmdLabel).catch(() => {});
       acpCancel(id).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

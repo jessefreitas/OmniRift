@@ -44,6 +44,10 @@ struct AcpSession {
 #[derive(Default)]
 pub struct AcpManager {
     sessions: DashMap<SessionId, Arc<AcpSession>>,
+    /// Label do OmniAgent (ex: "OmniAgent") → spawn id, pra o Orquestrador-terminal
+    /// COMANDAR um OmniAgent via MCP (terminal_send_text/terminal_run roteiam pra cá
+    /// quando o alvo é ACP). Populado pelo front quando o nó fica ready.
+    labels: DashMap<String, SessionId>,
 }
 
 impl AcpManager {
@@ -286,6 +290,46 @@ impl AcpManager {
             let _ = sess.child.lock().await.kill().await;
         }
         Ok(())
+    }
+
+    /// Registra um OmniAgent comandável (label → spawn id). O front chama quando o nó
+    /// fica `ready`. Idempotente: re-registrar atualiza o id (re-mount do nó).
+    pub fn register_label(&self, label: String, id: SessionId) {
+        self.labels.insert(label, id);
+    }
+
+    /// Remove o registro (o nó desmontou). No-op se ausente.
+    pub fn unregister_label(&self, label: &str) {
+        self.labels.remove(label);
+    }
+
+    /// Resolve o label de um OmniAgent → spawn id, se a sessão ainda existe (senão limpa
+    /// o registro órfão e devolve None). Usado por terminal_send_text/run pra rotear ACP.
+    pub fn resolve_label(&self, label: &str) -> Option<SessionId> {
+        let id = self.labels.get(label).map(|r| r.clone())?;
+        if self.sessions.contains_key(&id) {
+            Some(id)
+        } else {
+            self.labels.remove(label);
+            None
+        }
+    }
+
+    /// Lista os OmniAgents registrados: (label, id, ready). `ready` = sessão viva E já
+    /// passou do session/new (acp_session_id setado). Usado pelo terminal_list.
+    pub fn labels_list(&self) -> Vec<(String, SessionId, bool)> {
+        self.labels
+            .iter()
+            .map(|kv| {
+                let (label, id) = (kv.key().clone(), kv.value().clone());
+                let ready = self
+                    .sessions
+                    .get(&id)
+                    .map(|s| s.acp_session_id.lock().is_some())
+                    .unwrap_or(false);
+                (label, id, ready)
+            })
+            .collect()
     }
 
     fn session(&self, id: &str) -> Result<Arc<AcpSession>> {

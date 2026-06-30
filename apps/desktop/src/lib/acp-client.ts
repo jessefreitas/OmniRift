@@ -39,6 +39,17 @@ export async function acpAuthenticate(sessionId: string, methodId: string): Prom
   return invoke("acp_authenticate", { sessionId, methodId });
 }
 
+/** Registra o OmniAgent como COMANDÁVEL (label → sessão ACP) → entra no terminal_list e o
+ *  Orquestrador-terminal pode comandá-lo via terminal_send_text/run. Chamar quando ficar ready. */
+export async function acpAgentRegister(label: string, sessionId: string): Promise<void> {
+  return invoke("acp_agent_register", { label, sessionId });
+}
+
+/** Remove o registro de comando do OmniAgent (no unmount do nó). */
+export async function acpAgentUnregister(label: string): Promise<void> {
+  return invoke("acp_agent_unregister", { label });
+}
+
 /** Método de autenticação ofertado pelo adapter (ex: Codex/ChatGPT login). */
 export interface AcpAuthMethod {
   id: string;

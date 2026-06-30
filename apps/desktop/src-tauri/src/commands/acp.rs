@@ -65,3 +65,17 @@ pub async fn acp_cancel(
     let mgr = manager.inner().clone();
     mgr.cancel(&session_id).await.map_err(|e| format!("{e:#}"))
 }
+
+/// Registra um OmniAgent como COMANDÁVEL (label → spawn id) → ele passa a aparecer no
+/// terminal_list e o Orquestrador-terminal pode comandá-lo via terminal_send_text/run
+/// (roteado pra acp_prompt). O front chama quando o nó fica `ready`.
+#[tauri::command]
+pub fn acp_agent_register(label: String, session_id: SessionId, manager: State<'_, Arc<AcpManager>>) {
+    manager.register_label(label, session_id);
+}
+
+/// Remove o registro de um OmniAgent comandável (o nó desmontou).
+#[tauri::command]
+pub fn acp_agent_unregister(label: String, manager: State<'_, Arc<AcpManager>>) {
+    manager.unregister_label(&label);
+}
