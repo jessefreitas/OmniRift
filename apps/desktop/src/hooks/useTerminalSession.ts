@@ -53,7 +53,9 @@ interface UseTerminalSessionReturn {
    *  cancelado por exceder o teto de payload do IPC. */
   writeNotice: (msg: string) => void;
   /** Mata o PTY atual e re-spawna com a mesma config, sem recriar o xterm.js. */
-  reconnect: () => Promise<void>;
+  /** Re-spawna o PTY. `extraArgs` (ex: `["--continue"]`) são acrescentados aos args do
+   *  comando no respawn — usado pra recarregar subagentes do claude MANTENDO a conversa. */
+  reconnect: (extraArgs?: string[]) => Promise<void>;
   /**
    * Liga (foreground) / desliga (background) a escrita ao vivo no xterm (ref P0 #2).
    * O `TerminalNode` chama com o `inViewport`/visibilidade. Em background a saída é
@@ -502,7 +504,7 @@ export function useTerminalSession({
     terminalRef.current?.write(`\r\n\x1b[33m${msg}\x1b[0m\r\n`);
   }, []);
 
-  const reconnect = useCallback(async () => {
+  const reconnect = useCallback(async (extraArgs?: string[]) => {
     const term = terminalRef.current;
     const fitAddon = fitAddonRef.current;
     if (!term) return;
@@ -536,7 +538,8 @@ export function useTerminalSession({
     try {
       fitAddon?.fit();
       const { cols, rows } = term;
-      await ptySpawn(sessionId, { ...config, cols, rows });
+      const respawnArgs = extraArgs?.length ? [...(config.args ?? []), ...extraArgs] : config.args;
+      await ptySpawn(sessionId, { ...config, args: respawnArgs, cols, rows });
       // Novo PTY (mesmo sessionId): os listeners de output/exit do useEffect seguem ativos.
       sessionEndedRef.current = false; // exit REAL do novo PTY volta a contar [GLM-audit #1]
       reconnectingRef.current = false;

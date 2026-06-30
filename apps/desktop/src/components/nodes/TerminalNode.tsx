@@ -498,13 +498,14 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             </button>
           )}
 
-          {/* Recarregar subagentes: reinicia o claude (reconnect = kill+respawn) pra reler
-              o ~/.claude/agents — pega os subagentes criados DEPOIS do boot. Perde a sessão. */}
+          {/* Recarregar subagentes MANTENDO a conversa: reinicia o claude com --continue
+              (resume a sessão) → relê ~/.claude/agents no boot, pega subagentes criados
+              DEPOIS, e retoma a conversa de onde estava. */}
           {data.role === "claude-code" && mySubagentLabels && (
             <button
-              onClick={(e) => { e.stopPropagation(); void reconnect(); }}
+              onClick={(e) => { e.stopPropagation(); void reconnect(["--continue"]); }}
               className="p-1 rounded hover:bg-bg hover:text-amber-300 transition-colors"
-              title={t("terminal.reloadSubagents", "Recarregar subagentes ({list}) — reinicia o claude pra reler .claude/agents (perde a sessão)").replace("{list}", mySubagentLabels)}
+              title={t("terminal.reloadSubagents", "Recarregar subagentes ({list}) mantendo a conversa (claude --continue: relê .claude/agents e retoma a sessão)").replace("{list}", mySubagentLabels)}
               aria-label={t("terminal.reloadSubagentsShort", "Recarregar subagentes")}
             >
               <RotateCw size={12} />
