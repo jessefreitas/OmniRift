@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ProjectTabs } from "@/components/ProjectTabs";
 import { ResourceChip } from "@/components/ResourceChip";
 import { ResourcePanel } from "@/components/ResourcePanel";
+import { AcpDebugPanel } from "@/components/AcpDebugPanel";
 import { initOrchestrationBridge } from "@/lib/orchestration-client";
 import { initPersistence, flushPersistence } from "@/lib/persistence-client";
 import { initResourceStore } from "@/store/resource-store";
@@ -106,6 +107,7 @@ export default function App() {
       </main>
       <ResourceChip />
       <ResourcePanel />
+      <AcpDebugPanel />
     </div>
   );
 }

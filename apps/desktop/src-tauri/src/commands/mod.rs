@@ -1,3 +1,4 @@
+pub mod acp;
 pub mod agent_docs;
 pub mod browser;
 pub mod code;

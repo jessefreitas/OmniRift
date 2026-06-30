@@ -1,0 +1,265 @@
+//! Spike ACP (Agent Client Protocol) — agente estruturado via stdio JSON-RPC.
+//!
+//! O OmniRift age como **Client** ACP. O adapter (`npx @agentclientprotocol/claude-agent-acp`,
+//! herda a auth de `~/.claude`) é spawnado como subprocesso e fala JSON-RPC **newline-delimited**
+//! por stdin/stdout. Este manager é um **proxy transparente**: o read-loop faz o handshake
+//! (initialize → session/new) e repassa cada `session/update` e cada request do adapter como
+//! evento Tauri cru — o front renderiza a estrutura. Não modela o protocolo campo-a-campo de
+//! propósito (robusto a mudanças de schema). Spike descartável; produção pode migrar pro SDK Rust.
+//!
+//! Eventos emitidos: `acp://raw` (toda linha, debug), `acp://ready` (info do session/new:
+//! models+modes), `acp://update` (tool_call / agent_message_chunk / plan), `acp://permission`
+//! (pedido de permissão do agente), `acp://turn-done` (fim do prompt), `acp://exit` (EOF).
+
+use anyhow::{anyhow, Result};
+use dashmap::DashMap;
+use serde::Serialize;
+use serde_json::{json, Value};
+use std::process::Stdio;
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, Command};
+use tokio::sync::Mutex as AsyncMutex;
+
+pub type SessionId = String;
+
+const ADAPTER_PKG: &str = "@agentclientprotocol/claude-agent-acp";
+
+struct AcpSession {
+    /// stdin do adapter (compartilhado: handshake-task + comandos prompt/permission/cancel).
+    stdin: Arc<AsyncMutex<ChildStdin>>,
+    /// sessionId do ACP (preenchido quando o session/new responde).
+    acp_session_id: Arc<parking_lot::Mutex<Option<String>>>,
+    child: Arc<AsyncMutex<Child>>,
+}
+
+#[derive(Default)]
+pub struct AcpManager {
+    sessions: DashMap<SessionId, Arc<AcpSession>>,
+}
+
+impl AcpManager {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Spawna o adapter e dispara o handshake. `cwd` = diretório do workspace/floor.
+    /// `async` é obrigatório: `tokio::process::Command::spawn()` exige o reactor Tokio em
+    /// contexto — um comando Tauri SÍNCRONO roda fora do runtime e panica ("no reactor running").
+    pub async fn spawn(&self, id: SessionId, cwd: Option<String>, app: AppHandle) -> Result<SessionId> {
+        if self.sessions.contains_key(&id) {
+            return Err(anyhow!("sessão acp {id} já existe"));
+        }
+
+        // O adapter exige `cwd` ABSOLUTO no session/new — resolve aqui (None → cwd do processo).
+        let cwd_abs: String = match cwd.as_deref() {
+            Some(c) => std::fs::canonicalize(c)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| c.to_string()),
+            None => std::env::current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "/".to_string()),
+        };
+
+        let mut cmd = Command::new("npx");
+        cmd.args(["-y", ADAPTER_PKG]);
+        cmd.current_dir(&cwd_abs);
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| anyhow!("falha ao spawnar adapter acp ({ADAPTER_PKG}): {e}"))?;
+        let stdin = child.stdin.take().ok_or_else(|| anyhow!("adapter sem stdin"))?;
+        let stdout = child.stdout.take().ok_or_else(|| anyhow!("adapter sem stdout"))?;
+        let stderr = child.stderr.take().ok_or_else(|| anyhow!("adapter sem stderr"))?;
+
+        let session = Arc::new(AcpSession {
+            stdin: Arc::new(AsyncMutex::new(stdin)),
+            acp_session_id: Arc::new(parking_lot::Mutex::new(None)),
+            child: Arc::new(AsyncMutex::new(child)),
+        });
+        self.sessions.insert(id.clone(), session.clone());
+
+        // stderr do adapter → log (debug; não vai pro front).
+        {
+            let id_err = id.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    log::debug!("[acp {id_err}] stderr: {line}");
+                }
+            });
+        }
+
+        // Read-loop: handshake (initialize → session/new) + proxy de eventos.
+        let sid = id.clone();
+        let sess = session.clone();
+        let cwd_loop = cwd_abs.clone();
+        tauri::async_runtime::spawn(async move {
+            let init = json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "protocolVersion": 1,
+                    "clientCapabilities": { "fs": { "readTextFile": true, "writeTextFile": true }, "terminal": true },
+                    "clientInfo": { "name": "omnirift", "version": "0.1.0" }
+                }
+            });
+            if let Err(e) = write_line(&sess.stdin, &init).await {
+                log::error!("[acp {sid}] erro ao enviar initialize: {e}");
+                return;
+            }
+
+            let mut lines = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = app.emit("acp://raw", RawEvent { session_id: sid.clone(), line: line.clone() });
+                let msg: Value = match serde_json::from_str(&line) {
+                    Ok(v) => v,
+                    Err(_) => continue, // linha não-JSON (ruído) → ignora
+                };
+                let id_num = msg.get("id").and_then(|v| v.as_i64());
+                let method = msg.get("method").and_then(|m| m.as_str());
+
+                // Resposta do initialize → dispara session/new.
+                if id_num == Some(1) && msg.get("result").is_some() {
+                    let new = json!({
+                        "jsonrpc": "2.0", "id": 2, "method": "session/new",
+                        "params": { "cwd": cwd_loop.clone(), "mcpServers": [] }
+                    });
+                    if let Err(e) = write_line(&sess.stdin, &new).await {
+                        log::error!("[acp {sid}] erro ao enviar session/new: {e}");
+                    }
+                    continue;
+                }
+
+                // Resposta do session/new → guarda sessionId + emite ready (models/modes).
+                if id_num == Some(2) {
+                    if let Some(result) = msg.get("result") {
+                        if let Some(s) = result.get("sessionId").and_then(|v| v.as_str()) {
+                            *sess.acp_session_id.lock() = Some(s.to_string());
+                        }
+                        let _ = app.emit("acp://ready", GenericEvent { session_id: sid.clone(), data: result.clone() });
+                    } else if let Some(err) = msg.get("error") {
+                        log::error!("[acp {sid}] session/new falhou: {err}");
+                    }
+                    continue;
+                }
+
+                // Resposta do prompt (id=3) → fim de turno.
+                if id_num == Some(3) {
+                    let _ = app.emit("acp://turn-done", GenericEvent { session_id: sid.clone(), data: msg.clone() });
+                    continue;
+                }
+
+                // Notificação de progresso (tool_call, agent_message_chunk, plan, …).
+                if method == Some("session/update") {
+                    let update = msg.get("params").and_then(|p| p.get("update")).cloned().unwrap_or(Value::Null);
+                    let _ = app.emit("acp://update", GenericEvent { session_id: sid.clone(), data: update });
+                    continue;
+                }
+
+                // Pedido de permissão do agente (request COM id) → o front decide.
+                if method == Some("session/request_permission") {
+                    let _ = app.emit("acp://permission", PermissionEvent {
+                        session_id: sid.clone(),
+                        req_id: msg.get("id").cloned().unwrap_or(Value::Null),
+                        params: msg.get("params").cloned().unwrap_or(Value::Null),
+                    });
+                    continue;
+                }
+
+                // Outros requests do adapter (fs/read, terminal, …) — fora do spike: loga.
+                if method.is_some() && msg.get("id").is_some() {
+                    log::debug!("[acp {sid}] request não tratado no spike: {method:?}");
+                }
+            }
+            let _ = app.emit("acp://exit", GenericEvent { session_id: sid.clone(), data: Value::Null });
+        });
+
+        Ok(id)
+    }
+
+    /// Envia um prompt do usuário (turno). Pré-requisito: session/new já respondeu.
+    /// Spike: id=3 fixo (1 prompt por vez); produção usa contador + promptQueueing.
+    pub async fn prompt(&self, id: &str, text: String) -> Result<()> {
+        let sess = self.session(id)?;
+        let acp_sid = sess
+            .acp_session_id
+            .lock()
+            .clone()
+            .ok_or_else(|| anyhow!("sessão acp {id} ainda não inicializada (aguarde acp://ready)"))?;
+        let req = json!({
+            "jsonrpc": "2.0", "id": 3, "method": "session/prompt",
+            "params": { "sessionId": acp_sid, "prompt": [{ "type": "text", "text": text }] }
+        });
+        write_line(&sess.stdin, &req).await
+    }
+
+    /// Responde a um `session/request_permission`. `option_id = None` → cancelado.
+    pub async fn permission_respond(&self, id: &str, req_id: Value, option_id: Option<String>) -> Result<()> {
+        let sess = self.session(id)?;
+        let outcome = match option_id {
+            Some(opt) => json!({ "outcome": "selected", "optionId": opt }),
+            None => json!({ "outcome": "cancelled" }),
+        };
+        let resp = json!({ "jsonrpc": "2.0", "id": req_id, "result": { "outcome": outcome } });
+        write_line(&sess.stdin, &resp).await
+    }
+
+    /// Cancela o turno e encerra o subprocesso.
+    pub async fn cancel(&self, id: &str) -> Result<()> {
+        if let Some((_, sess)) = self.sessions.remove(id) {
+            // Clona o sessionId e SOLTA o guard parking_lot antes de qualquer await:
+            // um guard no scrutinee de `if let` viveria o bloco todo → future !Send.
+            let acp_sid = sess.acp_session_id.lock().clone();
+            if let Some(acp_sid) = acp_sid {
+                let cancel = json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": { "sessionId": acp_sid } });
+                let _ = write_line(&sess.stdin, &cancel).await;
+            }
+            let _ = sess.child.lock().await.kill().await;
+        }
+        Ok(())
+    }
+
+    fn session(&self, id: &str) -> Result<Arc<AcpSession>> {
+        self.sessions
+            .get(id)
+            .map(|r| r.clone())
+            .ok_or_else(|| anyhow!("sessão acp {id} não encontrada"))
+    }
+}
+
+/// Escreve um valor JSON como uma linha (newline-delimited) no stdin do adapter.
+async fn write_line(stdin: &Arc<AsyncMutex<ChildStdin>>, value: &Value) -> Result<()> {
+    let mut buf = serde_json::to_vec(value)?;
+    buf.push(b'\n');
+    let mut guard = stdin.lock().await;
+    guard.write_all(&buf).await?;
+    guard.flush().await?;
+    Ok(())
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RawEvent {
+    session_id: String,
+    line: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct GenericEvent {
+    session_id: String,
+    data: Value,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PermissionEvent {
+    session_id: String,
+    req_id: Value,
+    params: Value,
+}

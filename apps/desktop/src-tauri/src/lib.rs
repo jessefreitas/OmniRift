@@ -1,3 +1,4 @@
+pub mod acp;
 pub mod code;
 pub mod commands;
 pub mod compress;
@@ -80,6 +81,7 @@ use commands::pty::{
     pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
     pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_write,
 };
+use commands::acp::{acp_cancel, acp_permission_respond, acp_prompt, acp_spawn};
 use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
 use turbo::commands::{turbo_list, turbo_start, turbo_status, turbo_stop};
 use commands::workspace::{workspace_load, workspace_save};
@@ -148,6 +150,7 @@ pub fn run() {
 
     // Criados aqui para compartilhar Arc entre Tauri state e MCP server
     let pty_manager = Arc::new(PtyManager::new());
+    let acp_manager = Arc::new(crate::acp::AcpManager::new());
     let agent_registry = Arc::new(AgentRegistry::new());
 
     let floor_mirror: Arc<parking_lot::Mutex<serde_json::Value>> =
@@ -265,6 +268,7 @@ pub fn run() {
             Ok(())
         })
         .manage(pty_manager)
+        .manage(acp_manager)
         .manage(agent_registry)
         .manage(floor_mirror)
         .manage(crate::commands::mcp::CanvasAgentsMirror(canvas_agents))
@@ -301,6 +305,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
+            acp_spawn,
+            acp_prompt,
+            acp_permission_respond,
+            acp_cancel,
             pty_spawn,
             pty_write,
             pty_resize,
