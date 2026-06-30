@@ -114,7 +114,7 @@ sysinfo = "0.33"
 # Servidor WebSocket de LAN embutido (ws:// cru; a confidencialidade é E2EE de app,
 # não TLS — RN não pina cert). default-features = false: SEM TLS (não puxa native-tls
 # nem duplicar rustls); só o transporte WS plain sobre tokio.
-tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "rustls-tls-webpki-roots", "connect"] }
 # E2EE NaCl box (X25519 ECDH + XSalsa20-Poly1305) — interop byte-a-byte com tweetnacl
 # do app Expo/RN (fase 2). `SalsaBox` = exatamente o `nacl.box`. rand_core 0.6 (alinhado
 # com o curve25519-dalek já no tree via ed25519-dalek).

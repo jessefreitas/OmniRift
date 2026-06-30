@@ -167,8 +167,8 @@ async fn serve_connection(
     devices: Arc<DeviceRegistry>,
     keypair: Arc<super::keypair::E2eeKeypair>,
 ) -> Result<(), String> {
-    use futures_util::{SinkExt, StreamExt};
-    use tokio_tungstenite::tungstenite::protocol::{Message, WebSocketConfig};
+    use futures_util::StreamExt;
+    use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
     // Cap de mensagem imposto pelo protocolo: frame > 1 MiB é rejeitado pelo tungstenite
     // (fecha a conexão) — protege inclusive o tráfego pré-auth. [ref: maxPayload global]
@@ -181,21 +181,62 @@ async fn serve_connection(
     let ws = tokio_tungstenite::accept_async_with_config(stream, Some(config))
         .await
         .map_err(|e| format!("upgrade falhou: {e}"))?;
-    let (mut sink, mut source) = ws.split();
+    let (sink, source) = ws.split();
+
+    // LAN: pre-auth timeout curto (o celular conecta e manda o hello em segundos).
+    serve_session(
+        sink,
+        source,
+        format!("{peer}"),
+        Duration::from_millis(PRE_AUTH_TIMEOUT_MS.min(HANDSHAKE_TIMEOUT_MS)),
+        app,
+        registry,
+        devices,
+        keypair,
+    )
+    .await
+}
+
+/// Núcleo da sessão mobile, **genérico sobre o transporte WS** — serve tanto o LAN
+/// (`accept_async`, server) quanto o relay (`connect_async`, client; ver `relay_client.rs`).
+/// Faz o handshake E2EE (dentro de `pre_auth_timeout`) e roda o loop de RPC cifrado +
+/// heartbeat. O relay é cano burro: os frames passam cifrados, idênticos ao LAN.
+pub(crate) async fn serve_session<Si, St>(
+    mut sink: Si,
+    mut source: St,
+    peer_label: String,
+    pre_auth_timeout: Duration,
+    app: AppHandle,
+    registry: Arc<Registry>,
+    devices: Arc<DeviceRegistry>,
+    keypair: Arc<super::keypair::E2eeKeypair>,
+) -> Result<(), String>
+where
+    Si: futures_util::Sink<tokio_tungstenite::tungstenite::protocol::Message> + Unpin,
+    Si::Error: std::fmt::Display,
+    St: futures_util::Stream<
+            Item = Result<
+                tokio_tungstenite::tungstenite::protocol::Message,
+                tokio_tungstenite::tungstenite::Error,
+            >,
+        > + Unpin,
+{
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::protocol::Message;
 
     let mut channel = E2eeChannel::new(keypair.secret.clone());
 
-    // --- Handshake + auth, tudo dentro do pre-auth timeout (10s) ---
+    // --- Handshake + auth, dentro do pre-auth timeout ---
     let device: DeviceEntry = tokio::time::timeout(
-        Duration::from_millis(PRE_AUTH_TIMEOUT_MS.min(HANDSHAKE_TIMEOUT_MS)),
+        pre_auth_timeout,
         do_handshake(&mut sink, &mut source, &mut channel, &devices),
     )
     .await
-    .map_err(|_| format!("pre-auth timeout ({peer})"))??;
+    .map_err(|_| format!("pre-auth timeout ({peer_label})"))??;
 
     // 1º auth ok → marca visto (sai de "pending", entra em "paired").
     let _ = devices.touch_last_seen(&device.device_id);
-    log::info!("relay mobile: device '{}' autenticado ({peer})", device.name);
+    log::info!("relay mobile: device '{}' autenticado ({peer_label})", device.name);
 
     // --- Loop principal: RPC cifrado + heartbeat ---
     let ctx = RpcContext::new(app.clone());

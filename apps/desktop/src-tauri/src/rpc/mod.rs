@@ -26,6 +26,7 @@ pub mod devices;
 pub mod e2ee;
 pub mod keypair;
 pub mod pairing;
+pub mod relay_client;
 pub mod ws;
 
 pub use core::{dispatch, Handler, Registry, RpcContext, RpcError, RpcRequest, RpcResponse};
@@ -106,6 +107,14 @@ pub fn start_mobile_relay(app: AppHandle) {
     app.manage(Arc::clone(&relay));
 
     let registry = Arc::new(build_registry());
+    // Dialers de relay (fora da LAN/4G): 1 por device pareado, discam o CF Worker e rodam o
+    // MESMO loop E2EE do LAN. Clona o que compartilham; o spawn_server consome o resto.
+    relay_client::spawn_relay_dialers(
+        app.clone(),
+        Arc::clone(&registry),
+        Arc::clone(&devices),
+        Arc::clone(&keypair),
+    );
     ws::spawn_server(app, registry, devices, keypair, relay);
 }
 
