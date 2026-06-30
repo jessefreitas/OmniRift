@@ -290,7 +290,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     }
     if (teamRef.current) { prefixes.push(teamRef.current); teamRef.current = null; }
     if (!subagentsSentRef.current && mySubagentLabels) {
-      prefixes.push(`Subagentes plugados em você (invocáveis via Task tool): ${mySubagentLabels}. Se algum foi plugado depois que você abriu, peça ao usuário pra recarregar (↻).`);
+      prefixes.push(`No canvas você plugou: ${mySubagentLabels} — MAS isso NÃO é a lista completa: liste seus subagentes REAIS pelo que está carregado em .claude/agents (pode haver globais em ~/.claude/agents). Pra invocar um plugado DEPOIS do boot, recarregue (↻).`);
       subagentsSentRef.current = true;
     }
     const payload = prefixes.length

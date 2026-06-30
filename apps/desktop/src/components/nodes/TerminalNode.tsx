@@ -7,7 +7,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Terminal as TerminalIcon, X, Maximize2, Minimize2, RefreshCw, Crown, UserRoundPlus } from "lucide-react";
+import { Terminal as TerminalIcon, X, Maximize2, Minimize2, RefreshCw, Crown, UserRoundPlus, RotateCw } from "lucide-react";
 
 import { useTerminalSession } from "@/hooks/useTerminalSession";
 import { useT } from "@/lib/i18n";
@@ -64,6 +64,14 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const renameNode = useCanvasStore((s) => s.renameNode);
   const openConnectMenu = useCanvasStore((s) => s.openConnectMenu);
   const addToClipboard = useCanvasStore((s) => s.addToClipboard);
+  // Subagentes plugados NESTE terminal (canvas: subagent-nodes com parentAgentId = seu id).
+  const mySubagentLabels = useCanvasStore((s) => {
+    const f = s.parallels.find((p) => p.id === s.activeParallelId);
+    return (f?.nodes ?? [])
+      .filter((n) => n.kind === "subagent" && n.parentAgentId === id)
+      .map((n) => (n.kind === "subagent" ? n.label : ""))
+      .join(", ");
+  });
   const termStatus = useCanvasStore((s) => s.terminalStatuses[data.session_id] ?? "idle");
   const proc = useProcInfo(data.session_id, termStatus !== "dead");
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
@@ -490,6 +498,18 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             </button>
           )}
 
+          {/* Recarregar subagentes: reinicia o claude (reconnect = kill+respawn) pra reler
+              o ~/.claude/agents — pega os subagentes criados DEPOIS do boot. Perde a sessão. */}
+          {data.role === "claude-code" && mySubagentLabels && (
+            <button
+              onClick={(e) => { e.stopPropagation(); void reconnect(); }}
+              className="p-1 rounded hover:bg-bg hover:text-amber-300 transition-colors"
+              title={t("terminal.reloadSubagents", "Recarregar subagentes ({list}) — reinicia o claude pra reler .claude/agents (perde a sessão)").replace("{list}", mySubagentLabels)}
+              aria-label={t("terminal.reloadSubagentsShort", "Recarregar subagentes")}
+            >
+              <RotateCw size={12} />
+            </button>
+          )}
           {/* Plugar subagente nativo (só Claude Code: o .claude/agents é dele). */}
           {data.role === "claude-code" && (
             <button
