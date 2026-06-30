@@ -7,9 +7,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-/** Spawna o adapter ACP (npx @agentclientprotocol/claude-agent-acp) e inicia o handshake. */
-export async function acpSpawn(id: string, cwd?: string): Promise<string> {
-  return invoke<string>("acp_spawn", { id, cwd });
+/** Spawna o adapter ACP do provider (claude|codex) e inicia o handshake. */
+export async function acpSpawn(
+  id: string,
+  opts: { provider?: string; cwd?: string } = {},
+): Promise<string> {
+  return invoke<string>("acp_spawn", { id, provider: opts.provider, cwd: opts.cwd });
 }
 
 /** Envia um prompt (turno). Pré-requisito: já recebeu `acp://ready`. */

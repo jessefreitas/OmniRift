@@ -36,6 +36,9 @@ import { PreviewNode } from "@/components/nodes/PreviewNode";
 import { CodeNode } from "@/components/nodes/CodeNode";
 import { PdfNodeLazy } from "@/components/nodes/PdfNodeLazy";
 import { HtmlNode } from "@/components/nodes/HtmlNode";
+import { AgentNode } from "@/components/nodes/AgentNode";
+import { FlowEdge } from "@/components/edges/FlowEdge";
+import { useConnectionRouting } from "@/hooks/useConnectionRouting";
 import { useCanvasStore } from "@/store/canvas-store";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
 import type { CanvasNode } from "@/types/canvas";
@@ -65,7 +68,10 @@ const nodeTypes = {
   code: CodeNode,
   pdf: PdfNodeLazy, // pdf.js carrega sob demanda (code-split)
   html: HtmlNode,
+  agent: AgentNode,
 };
+
+const edgeTypes = { flow: FlowEdge };
 
 /** Cor de cada node no minimap, por tipo — pra dar pra "ler" o canvas de longe. */
 const MINIMAP_COLORS: Record<string, string> = {
@@ -83,12 +89,14 @@ const MINIMAP_COLORS: Record<string, string> = {
   code: "rgb(96, 165, 250)",
   pdf: "rgb(239, 68, 68)", // vermelho (ícone PDF clássico)
   html: "rgb(251, 146, 60)", // laranja (HTML5)
+  agent: "rgb(167, 139, 250)", // violeta (agente ACP estruturado)
 };
 function miniMapNodeColor(n: Node): string {
   return MINIMAP_COLORS[n.type ?? ""] ?? "rgb(120, 120, 130)";
 }
 
 export function FloorCanvas({ floorId }: { floorId: string }) {
+  useConnectionRouting(); // roteia saída de agente → entrada do nó conectado + anima a edge
   const floor = useCanvasStore((s) => s.parallels.find((f) => f.id === floorId));
   const updateNodePosition = useCanvasStore((s) => s.updateNodePosition);
   const updateNodeSize = useCanvasStore((s) => s.updateNodeSize);
@@ -124,6 +132,8 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
         id: e.id,
         source: e.source,
         target: e.target,
+        type: "flow",
+        data: { kind: e.kind },
         animated: e.kind === "pty-pipe",
         style:
           e.kind === "pty-pipe"
@@ -217,6 +227,7 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       nodes={rfNodes}
       edges={rfEdges}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}

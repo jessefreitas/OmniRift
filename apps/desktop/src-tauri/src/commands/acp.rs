@@ -9,13 +9,14 @@ use tauri::{AppHandle, State};
 #[tauri::command]
 pub async fn acp_spawn(
     id: SessionId,
+    provider: Option<String>,
     cwd: Option<String>,
     manager: State<'_, Arc<AcpManager>>,
     app: AppHandle,
 ) -> Result<SessionId, String> {
     // Clona o Arc pra não segurar o State através do await.
     let mgr = manager.inner().clone();
-    mgr.spawn(id, cwd, app).await.map_err(|e| format!("{e:#}"))
+    mgr.spawn(id, provider, cwd, app).await.map_err(|e| format!("{e:#}"))
 }
 
 /// Envia um prompt (turno) para a sessão.
@@ -42,6 +43,17 @@ pub async fn acp_permission_respond(
     mgr.permission_respond(&session_id, req_id, option_id)
         .await
         .map_err(|e| format!("{e:#}"))
+}
+
+/// Autentica a sessão (Codex/ChatGPT): envia o método ACP `authenticate` com o methodId escolhido.
+#[tauri::command]
+pub async fn acp_authenticate(
+    session_id: String,
+    method_id: String,
+    manager: State<'_, Arc<AcpManager>>,
+) -> Result<(), String> {
+    let mgr = manager.inner().clone();
+    mgr.authenticate(&session_id, method_id).await.map_err(|e| format!("{e:#}"))
 }
 
 /// Cancela o turno e encerra o subprocesso.

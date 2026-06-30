@@ -4,7 +4,7 @@
 // um criador do store; o node nasce numa posição default e o usuário arrasta.
 
 import type { LucideIcon } from "lucide-react";
-import { Activity, Braces, Database, FileCode2, FileText, FolderTree, Frame, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench, Zap } from "lucide-react";
+import { Activity, Braces, Brain, Database, FileCode2, FileText, FolderTree, Frame, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench, Zap } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { useCanvasStore } from "@/store/canvas-store";
@@ -50,6 +50,7 @@ export function CanvasToolbar() {
   const addExplainNode = useCanvasStore((s) => s.addExplainNode);
   const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
   const addCodeNode = useCanvasStore((s) => s.addCodeNode);
+  const addAgent = useCanvasStore((s) => s.addAgent);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
 
   async function pickAndAddCode() {
@@ -63,6 +64,11 @@ export function CanvasToolbar() {
         label={t("toolbar.terminal", "Terminal (shell)")}
         icon={TerminalSquare}
         onClick={() => addTerminal({ command: "bash", role: "shell", label: "shell" })}
+      />
+      <ToolBtn
+        label={t("toolbar.agent", "Agente (ACP — estruturado)")}
+        icon={Brain}
+        onClick={() => addAgent({})}
       />
       <ToolBtn label={t("toolbar.note", "Nota")} icon={StickyNote} onClick={() => addNote()} />
       <ToolBtn label={t("toolbar.group", "Grupo (frame)")} icon={Frame} onClick={() => addGroup()} />

@@ -81,7 +81,7 @@ use commands::pty::{
     pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
     pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_write,
 };
-use commands::acp::{acp_cancel, acp_permission_respond, acp_prompt, acp_spawn};
+use commands::acp::{acp_authenticate, acp_cancel, acp_permission_respond, acp_prompt, acp_spawn};
 use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
 use turbo::commands::{turbo_list, turbo_start, turbo_status, turbo_stop};
 use commands::workspace::{workspace_load, workspace_save};
@@ -308,6 +308,7 @@ pub fn run() {
             acp_spawn,
             acp_prompt,
             acp_permission_respond,
+            acp_authenticate,
             acp_cancel,
             pty_spawn,
             pty_write,

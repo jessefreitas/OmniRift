@@ -5,6 +5,7 @@ import { composedCompressorEnv } from "@/lib/compress-client";
 import { withinLimit } from "@/lib/license-client";
 import { useLicenseStore } from "@/store/license-store";
 import type {
+  AgentNode,
   ApiNode,
   CanvasEdge,
   CanvasNode,
@@ -36,6 +37,15 @@ interface CanvasState {
   /** TODOS os floors de TODOS os projetos (flat). O Canvas mostra só os do ativo. */
   parallels: Parallel[];
   activeParallelId: string;
+  /** Roteamento de conexões: última saída de um agente, publicada por nodeId (source). */
+  agentOutputs: Record<string, { text: string; seq: number }>;
+  /** Input roteado pra um nó (target) — o AgentNode-target consome e dá send. */
+  nodeInputs: Record<string, { text: string; seq: number }>;
+  /** Estado visual de cada edge (animação): idle/sending/received/error. */
+  edgeFlow: Record<string, "idle" | "sending" | "received" | "error">;
+  emitAgentOutput: (nodeId: string, text: string) => void;
+  emitNodeInput: (nodeId: string, text: string) => void;
+  setEdgeFlow: (edgeId: string, flow: "idle" | "sending" | "received" | "error") => void;
   workspaceName: string;
   currentCwd: string | null; // espelho do cwd do floor ativo
 
@@ -110,6 +120,7 @@ interface CanvasState {
   addCodeNode: (params: { filePath: string; position?: { x: number; y: number } }) => CodeNode;
   addPdfNode: (params: { filePath: string; position?: { x: number; y: number } }) => PdfNode;
   addHtmlNode: (params: { filePath: string; position?: { x: number; y: number } }) => HtmlNode;
+  addAgent: (params?: { label?: string; cwd?: string; provider?: "claude" | "codex"; position?: { x: number; y: number } }) => AgentNode;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
   reparentNode: (nodeId: string, parentId: string | null) => void;
@@ -182,6 +193,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   activeProjectId: FIRST_PROJECT.id,
   parallels: [FIRST_FLOOR],
   activeParallelId: FIRST_FLOOR.id,
+  agentOutputs: {},
+  nodeInputs: {},
+  edgeFlow: {},
   workspaceName: "workspace",
   currentCwd: null,
   clipboardHistory: [],
@@ -567,6 +581,28 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
   },
+
+  addAgent: ({ label, cwd, provider, position } = {}) => {
+    const node: AgentNode = {
+      id: nanoid(),
+      kind: "agent",
+      provider: provider ?? "claude",
+      label: label ?? "OmniAgent",
+      cwd,
+      createdAt: Date.now(),
+      position: position ?? defaultPosition(),
+      size: { width: 420, height: 480 },
+    };
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  emitAgentOutput: (nodeId, text) =>
+    set((s) => ({ agentOutputs: { ...s.agentOutputs, [nodeId]: { text, seq: (s.agentOutputs[nodeId]?.seq ?? 0) + 1 } } })),
+  emitNodeInput: (nodeId, text) =>
+    set((s) => ({ nodeInputs: { ...s.nodeInputs, [nodeId]: { text, seq: (s.nodeInputs[nodeId]?.seq ?? 0) + 1 } } })),
+  setEdgeFlow: (edgeId, flow) =>
+    set((s) => ({ edgeFlow: { ...s.edgeFlow, [edgeId]: flow } })),
 
   removeNode: (id) =>
     set((s) => ({

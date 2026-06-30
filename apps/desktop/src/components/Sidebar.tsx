@@ -186,6 +186,10 @@ interface AgentPreset {
   installCmd?: string;
   /** true = CLI personalizado do usuário (pode remover). */
   custom?: boolean;
+  /** true = cria um OmniAgent (AgentNode estruturado via ACP), não um TerminalNode/PTY. */
+  acp?: boolean;
+  /** Provider ACP quando acp=true (claude | codex). */
+  provider?: "claude" | "codex";
 }
 
 // Instaladores oficiais dos CLIs (rodados num terminal ao clicar "instalar").
@@ -201,6 +205,16 @@ const INSTALL = {
 // que TODO agente dispatched também receba o contrato).
 
 const PRESETS: AgentPreset[] = [
+  {
+    id: "omniagent",
+    label: "OmniAgent",
+    command: "claude", // placeholder; ACP ignora command/role e usa o provider
+    role: "claude-code",
+    icon: Bot,
+    description: "Agente estruturado via ACP — o app vê tool-calls, custo e contexto (não é PTY)",
+    acp: true,
+    provider: "claude",
+  },
   {
     id: "orquestrador",
     label: "Orquestrador",
@@ -282,6 +296,7 @@ function detectShell(): string {
 
 export function Sidebar() {
   const addTerminal = useCanvasStore((s) => s.addTerminal);
+  const addAgent = useCanvasStore((s) => s.addAgent);
   const tr = useT();
   const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
@@ -1798,6 +1813,7 @@ export function Sidebar() {
             >
               <button
                 onClick={() => {
+                  if (preset.acp) { addAgent({ provider: preset.provider, label: preset.label, cwd: currentCwd ?? undefined }); return; }
                   if (isOrch) { void spawnOrchestrator(orchCli); return; }
                   // CLI personalizado → caminho com wiring de skills (globais ∪ skills do CLI).
                   if (preset.custom) {

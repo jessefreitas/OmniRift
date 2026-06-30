@@ -41,7 +41,8 @@ export type NodeKind =
   | "preview"
   | "code"
   | "pdf"
-  | "html";
+  | "html"
+  | "agent";
 
 export interface BaseCanvasNode {
   id: string;
@@ -180,6 +181,18 @@ export interface HtmlNode extends BaseCanvasNode {
   filePath: string;
 }
 
+export interface AgentNode extends BaseCanvasNode {
+  kind: "agent";
+  /** Provider ACP: qual adapter de agente fala o protocolo (claude | codex). Default claude. */
+  provider?: "claude" | "codex";
+  /** Nome amigável do agente. */
+  label?: string;
+  /** Diretório de trabalho passado ao adapter ACP (resolvido p/ absoluto no backend). */
+  cwd?: string;
+  /** Epoch ms de criação. */
+  createdAt?: number;
+}
+
 export type CanvasNode =
   | TerminalNode
   | NoteNode
@@ -195,7 +208,8 @@ export type CanvasNode =
   | PreviewNode
   | CodeNode
   | PdfNode
-  | HtmlNode;
+  | HtmlNode
+  | AgentNode;
 
 /**
  * Patch parcial pra `patchNode` — todos os campos editáveis de qualquer node,

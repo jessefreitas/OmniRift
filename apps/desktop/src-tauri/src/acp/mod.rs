@@ -17,14 +17,21 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::process::Stdio;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::Mutex as AsyncMutex;
 
 pub type SessionId = String;
 
-const ADAPTER_PKG: &str = "@agentclientprotocol/claude-agent-acp";
+/// Pacote do adapter ACP por provider (via npx). Claude e Codex têm adapters maduros.
+/// Gemini/Antigravity entram quando o Antigravity CLI liberar o modo ACP (hoje só feature request).
+fn adapter_pkg(provider: &str) -> &'static str {
+    match provider {
+        "codex" => "@agentclientprotocol/codex-acp",
+        _ => "@agentclientprotocol/claude-agent-acp",
+    }
+}
 
 struct AcpSession {
     /// stdin do adapter (compartilhado: handshake-task + comandos prompt/permission/cancel).
@@ -47,7 +54,7 @@ impl AcpManager {
     /// Spawna o adapter e dispara o handshake. `cwd` = diretório do workspace/floor.
     /// `async` é obrigatório: `tokio::process::Command::spawn()` exige o reactor Tokio em
     /// contexto — um comando Tauri SÍNCRONO roda fora do runtime e panica ("no reactor running").
-    pub async fn spawn(&self, id: SessionId, cwd: Option<String>, app: AppHandle) -> Result<SessionId> {
+    pub async fn spawn(&self, id: SessionId, provider: Option<String>, cwd: Option<String>, app: AppHandle) -> Result<SessionId> {
         if self.sessions.contains_key(&id) {
             return Err(anyhow!("sessão acp {id} já existe"));
         }
@@ -62,8 +69,9 @@ impl AcpManager {
                 .unwrap_or_else(|_| "/".to_string()),
         };
 
+        let pkg = adapter_pkg(provider.as_deref().unwrap_or("claude"));
         let mut cmd = Command::new("npx");
-        cmd.args(["-y", ADAPTER_PKG]);
+        cmd.args(["-y", pkg]);
         cmd.current_dir(&cwd_abs);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -72,7 +80,7 @@ impl AcpManager {
 
         let mut child = cmd
             .spawn()
-            .map_err(|e| anyhow!("falha ao spawnar adapter acp ({ADAPTER_PKG}): {e}"))?;
+            .map_err(|e| anyhow!("falha ao spawnar adapter acp ({pkg}): {e}"))?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("adapter sem stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("adapter sem stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| anyhow!("adapter sem stderr"))?;
@@ -99,6 +107,18 @@ impl AcpManager {
         let sid = id.clone();
         let sess = session.clone();
         let cwd_loop = cwd_abs.clone();
+        // MCP do OmniRift injetado na sessão → o OmniAgent ganha as tools de orquestração
+        // (terminal_*, workspace_*, memory_*, claim_*), as MESMAS que o Orquestrador-terminal usa.
+        let mcp_token = app
+            .state::<std::sync::Arc<crate::mcp::server::McpAuthToken>>()
+            .inner()
+            .0
+            .clone();
+        let mcp_servers = json!([{
+            "type": "sse",
+            "name": "omnirift-agents",
+            "url": format!("http://127.0.0.1:{}/sse?token={}", crate::mcp::MCP_PORT, mcp_token)
+        }]);
         tauri::async_runtime::spawn(async move {
             let init = json!({
                 "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -123,14 +143,30 @@ impl AcpManager {
                 let id_num = msg.get("id").and_then(|v| v.as_i64());
                 let method = msg.get("method").and_then(|m| m.as_str());
 
-                // Resposta do initialize → dispara session/new.
-                if id_num == Some(1) && msg.get("result").is_some() {
-                    let new = json!({
-                        "jsonrpc": "2.0", "id": 2, "method": "session/new",
-                        "params": { "cwd": cwd_loop.clone(), "mcpServers": [] }
-                    });
-                    if let Err(e) = write_line(&sess.stdin, &new).await {
-                        log::error!("[acp {sid}] erro ao enviar session/new: {e}");
+                // Resposta do initialize → checa authMethods. Vazio = já autenticado
+                // (Claude herda ~/.claude) → session/new direto. Não-vazio (ex: Codex sem
+                // login) → emite auth-required e ESPERA o acp_authenticate antes do session/new.
+                if id_num == Some(1) {
+                    if let Some(result) = msg.get("result") {
+                        let needs_auth = result
+                            .get("authMethods")
+                            .and_then(|m| m.as_array())
+                            .map(|m| !m.is_empty())
+                            .unwrap_or(false);
+                        if needs_auth {
+                            let _ = app.emit("acp://auth-required", GenericEvent {
+                                session_id: sid.clone(),
+                                data: result.get("authMethods").cloned().unwrap_or(Value::Null),
+                            });
+                        } else {
+                            let new = json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
+                                "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } });
+                            if let Err(e) = write_line(&sess.stdin, &new).await {
+                                log::error!("[acp {sid}] erro ao enviar session/new: {e}");
+                            }
+                        }
+                    } else if let Some(err) = msg.get("error") {
+                        log::error!("[acp {sid}] initialize falhou: {err}");
                     }
                     continue;
                 }
@@ -144,6 +180,19 @@ impl AcpManager {
                         let _ = app.emit("acp://ready", GenericEvent { session_id: sid.clone(), data: result.clone() });
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] session/new falhou: {err}");
+                    }
+                    continue;
+                }
+
+                // Resposta do authenticate (id=4) → autenticado → cria a sessão.
+                if id_num == Some(4) {
+                    if msg.get("result").is_some() {
+                        let new = json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
+                            "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } });
+                        let _ = write_line(&sess.stdin, &new).await;
+                    } else if let Some(err) = msg.get("error") {
+                        log::error!("[acp {sid}] authenticate falhou: {err}");
+                        let _ = app.emit("acp://auth-failed", GenericEvent { session_id: sid.clone(), data: err.clone() });
                     }
                     continue;
                 }
@@ -195,6 +244,14 @@ impl AcpManager {
             "jsonrpc": "2.0", "id": 3, "method": "session/prompt",
             "params": { "sessionId": acp_sid, "prompt": [{ "type": "text", "text": text }] }
         });
+        write_line(&sess.stdin, &req).await
+    }
+
+    /// Envia o método ACP `authenticate` com o methodId escolhido pelo usuário (ex: Codex/ChatGPT).
+    pub async fn authenticate(&self, id: &str, method_id: String) -> Result<()> {
+        let sess = self.session(id)?;
+        let req = json!({ "jsonrpc": "2.0", "id": 4, "method": "authenticate",
+            "params": { "methodId": method_id } });
         write_line(&sess.stdin, &req).await
     }
 
