@@ -42,7 +42,8 @@ export type NodeKind =
   | "code"
   | "pdf"
   | "html"
-  | "agent";
+  | "agent"
+  | "subagent";
 
 export interface BaseCanvasNode {
   id: string;
@@ -193,6 +194,31 @@ export interface AgentNode extends BaseCanvasNode {
   createdAt?: number;
 }
 
+/**
+ * Subagente NATIVO do Claude Code: um nó-filho PRIVADO de um agente CLI (o pai). Materializa
+ * um `.claude/agents/<slug>.md` na pasta do pai → só aquele Claude o invoca (via Task tool),
+ * roda em contexto próprio e devolve o resultado. NÃO entra no time MCP. Liga ao pai por uma
+ * edge "subagent-link" (vertical). É uma DEFINIÇÃO (arquivo), não um processo vivo.
+ */
+export interface SubagentNode extends BaseCanvasNode {
+  kind: "subagent";
+  /** Id do role/persona de origem (catálogo de roles). */
+  role: string;
+  /** Função exibida (nome do role, ex: "Code Reviewer"). */
+  label: string;
+  /** Descrição curta (frontmatter description). */
+  description?: string;
+  /** Id do nó pai (agente CLI ao qual está plugado). */
+  parentAgentId?: string;
+  /** Label do pai — só p/ exibição ("privado de <pai>"). */
+  parentLabel?: string;
+  /** Pasta onde o `.claude/agents/<slug>.md` foi escrito. */
+  cwd?: string;
+  /** Caminho absoluto do arquivo materializado (retorno do subagent_write). */
+  filePath?: string;
+  createdAt?: number;
+}
+
 export type CanvasNode =
   | TerminalNode
   | NoteNode
@@ -209,7 +235,8 @@ export type CanvasNode =
   | CodeNode
   | PdfNode
   | HtmlNode
-  | AgentNode;
+  | AgentNode
+  | SubagentNode;
 
 /**
  * Patch parcial pra `patchNode` — todos os campos editáveis de qualquer node,
@@ -247,6 +274,7 @@ export interface CanvasEdge {
   source: string;
   target: string;
   /** Para terminais conectados, o output do source vai como input do target.
-   *  "agent-link" = OmniAgent→terminal: a linha marca o terminal como agente MCP (auto-conexão). */
-  kind: "pty-pipe" | "note-link" | "generic" | "agent-link";
+   *  "agent-link" = OmniAgent→terminal: a linha marca o terminal como agente MCP (auto-conexão).
+   *  "subagent-link" = agente→subagente nativo (.claude/agents), vertical, privado do pai. */
+  kind: "pty-pipe" | "note-link" | "generic" | "agent-link" | "subagent-link";
 }

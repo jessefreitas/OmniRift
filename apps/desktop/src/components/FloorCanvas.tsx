@@ -39,6 +39,7 @@ import { CodeNode } from "@/components/nodes/CodeNode";
 import { PdfNodeLazy } from "@/components/nodes/PdfNodeLazy";
 import { HtmlNode } from "@/components/nodes/HtmlNode";
 import { AgentNode } from "@/components/nodes/AgentNode";
+import { SubagentNode } from "@/components/nodes/SubagentNode";
 import { FlowEdge } from "@/components/edges/FlowEdge";
 import { useConnectionRouting } from "@/hooks/useConnectionRouting";
 import { useCanvasStore } from "@/store/canvas-store";
@@ -71,6 +72,7 @@ const nodeTypes = {
   pdf: PdfNodeLazy, // pdf.js carrega sob demanda (code-split)
   html: HtmlNode,
   agent: AgentNode,
+  subagent: SubagentNode,
 };
 
 const edgeTypes = { flow: FlowEdge };
@@ -92,6 +94,7 @@ const MINIMAP_COLORS: Record<string, string> = {
   pdf: "rgb(239, 68, 68)", // vermelho (ícone PDF clássico)
   html: "rgb(251, 146, 60)", // laranja (HTML5)
   agent: "rgb(167, 139, 250)", // violeta (agente ACP estruturado)
+  subagent: "rgb(251, 191, 36)", // âmbar (subagente nativo .claude/agents)
 };
 function miniMapNodeColor(n: Node): string {
   return MINIMAP_COLORS[n.type ?? ""] ?? "rgb(120, 120, 130)";
@@ -109,6 +112,7 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
   const setRequestMcpMark = useCanvasStore((s) => s.setRequestMcpMark);
   const openConnectMenu = useCanvasStore((s) => s.openConnectMenu);
   const connectingFrom = useRef<string | null>(null);
+  const connectingHandle = useRef<string | null>(null); // alça de origem ("subagent" = baixo)
 
   const nodes = useMemo(() => floor?.nodes ?? [], [floor]);
   const edges = useMemo(() => floor?.edges ?? [], [floor]);
@@ -221,11 +225,14 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
   // já conectado. onConnectStart guarda a origem; onConnectEnd detecta o drop no pane.
   const onConnectStart: OnConnectStart = useCallback((_e, params) => {
     connectingFrom.current = params.nodeId ?? null;
+    connectingHandle.current = params.handleId ?? null;
   }, []);
   const onConnectEnd: OnConnectEnd = useCallback(
     (event, connectionState) => {
       const fromNodeId = connectionState.fromNode?.id ?? connectingFrom.current;
+      const handleId = connectionState.fromHandle?.id ?? connectingHandle.current;
       connectingFrom.current = null;
+      connectingHandle.current = null;
       if (!fromNodeId) return;
       // Só quando soltou no fundo do canvas (pane), não num node/handle.
       const target = event.target as Element | null;
@@ -233,10 +240,13 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       const flow = connectionState.to;
       if (!flow) return;
       const pt = "changedTouches" in event ? event.changedTouches[0] : (event as MouseEvent);
+      // Alça de baixo ("subagent") → menu em modo subagente (só roles, privado do pai).
+      const mode = handleId === "subagent" ? "subagent" : "team";
       openConnectMenu({
         fromNodeId,
         flow: { x: flow.x, y: flow.y },
         screen: { x: pt.clientX, y: pt.clientY },
+        mode,
       });
     },
     [openConnectMenu],

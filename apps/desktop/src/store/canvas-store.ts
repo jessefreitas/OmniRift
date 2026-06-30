@@ -23,6 +23,7 @@ import type {
   NoteNode,
   PortalNode,
   SketchNode,
+  SubagentNode,
   TerminalNode,
 } from "@/types/canvas";
 import type { AnyWorkspaceFile, Parallel, Project, ProjectMeta, WorkspaceFileV3 } from "@/types/workspace";
@@ -61,9 +62,16 @@ interface CanvasState {
     fromNodeId: string;
     flow: { x: number; y: number };
     screen: { x: number; y: number };
+    /** "team" = par/equipe (alça direita); "subagent" = subagente privado (alça de baixo). */
+    mode: "team" | "subagent";
     seq: number;
   } | null;
-  openConnectMenu: (p: { fromNodeId: string; flow: { x: number; y: number }; screen: { x: number; y: number } }) => void;
+  openConnectMenu: (p: {
+    fromNodeId: string;
+    flow: { x: number; y: number };
+    screen: { x: number; y: number };
+    mode?: "team" | "subagent";
+  }) => void;
   clearConnectMenu: () => void;
   workspaceName: string;
   currentCwd: string | null; // espelho do cwd do floor ativo
@@ -140,6 +148,16 @@ interface CanvasState {
   addPdfNode: (params: { filePath: string; position?: { x: number; y: number } }) => PdfNode;
   addHtmlNode: (params: { filePath: string; position?: { x: number; y: number } }) => HtmlNode;
   addAgent: (params?: { label?: string; cwd?: string; provider?: "claude" | "codex"; position?: { x: number; y: number } }) => AgentNode;
+  addSubagent: (params: {
+    role: string;
+    label: string;
+    description?: string;
+    parentAgentId?: string;
+    parentLabel?: string;
+    cwd?: string;
+    filePath?: string;
+    position?: { x: number; y: number };
+  }) => SubagentNode;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
   reparentNode: (nodeId: string, parentId: string | null) => void;
@@ -619,6 +637,25 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     return node;
   },
 
+  addSubagent: ({ role, label, description, parentAgentId, parentLabel, cwd, filePath, position }) => {
+    const node: SubagentNode = {
+      id: nanoid(),
+      kind: "subagent",
+      role,
+      label,
+      description,
+      parentAgentId,
+      parentLabel,
+      cwd,
+      filePath,
+      createdAt: Date.now(),
+      position: position ?? defaultPosition(),
+      size: { width: 240, height: 120 },
+    };
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
   emitAgentOutput: (nodeId, text) =>
     set((s) => ({ agentOutputs: { ...s.agentOutputs, [nodeId]: { text, seq: (s.agentOutputs[nodeId]?.seq ?? 0) + 1 } } })),
   emitNodeInput: (nodeId, text) =>
@@ -630,8 +667,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   clearRequestMcpMark: () => set({ requestMcpMark: null }),
   publishTeamBriefing: (text) =>
     set((s) => ({ teamBriefing: { text, seq: (s.teamBriefing?.seq ?? 0) + 1 } })),
-  openConnectMenu: ({ fromNodeId, flow, screen }) =>
-    set((s) => ({ requestConnectMenu: { fromNodeId, flow, screen, seq: (s.requestConnectMenu?.seq ?? 0) + 1 } })),
+  openConnectMenu: ({ fromNodeId, flow, screen, mode = "team" }) =>
+    set((s) => ({ requestConnectMenu: { fromNodeId, flow, screen, mode, seq: (s.requestConnectMenu?.seq ?? 0) + 1 } })),
   clearConnectMenu: () => set({ requestConnectMenu: null }),
 
   removeNode: (id) =>

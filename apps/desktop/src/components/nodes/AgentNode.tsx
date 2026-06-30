@@ -15,7 +15,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Brain, Maximize2, Minimize2, Send, X } from "lucide-react";
+import { Brain, Maximize2, Minimize2, Send, UserRoundPlus, X } from "lucide-react";
 import { nanoid } from "nanoid";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -80,7 +80,20 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const emitAgentOutput = useCanvasStore((s) => s.emitAgentOutput);
   const nodeInput = useCanvasStore((s) => s.nodeInputs[data.id]);
   const teamBriefing = useCanvasStore((s) => s.teamBriefing);
+  const openConnectMenu = useCanvasStore((s) => s.openConnectMenu);
   const t = useT();
+
+  // Abre o menu de SUBAGENTE (só roles) posicionado abaixo deste agente. O subagente
+  // nasce como nó-filho privado e materializa um .claude/agents/<role>.md na pasta do pai.
+  function addSubagentHere(e: React.MouseEvent) {
+    e.stopPropagation();
+    openConnectMenu({
+      fromNodeId: data.id,
+      flow: { x: (data.position?.x ?? 0) + 24, y: (data.position?.y ?? 0) + (data.size?.height ?? 480) + 48 },
+      screen: { x: e.clientX, y: e.clientY },
+      mode: "subagent",
+    });
+  }
 
   const [status, setStatus] = useState<Status>("starting");
   const [model, setModel] = useState<string | null>(null);
@@ -323,7 +336,16 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         {usage.costUsd != null && (
           <Badge title={t("agent.cost", "custo da sessão")}>${usage.costUsd.toFixed(3)}</Badge>
         )}
-        <NodeHelp text={t("agent.help", "OmniAgent (ACP): peça uma tarefa e tecle Enter. As ações dele aparecem como tool-calls. ⤢ abre em tela cheia; ligue a saída dele em outro nó pelas alças. Ligar uma linha num terminal já o adiciona ao time MCP.")} />
+        <NodeHelp text={t("agent.help", "OmniAgent (ACP): peça uma tarefa e tecle Enter. As ações dele aparecem como tool-calls. ⤢ abre em tela cheia; ligue a saída dele em outro nó pelas alças. Ligar uma linha num terminal já o adiciona ao time MCP. A alça de baixo (ou +) pluga um SUBAGENTE privado.")} />
+        {/* Plugar subagente (privado deste agente) */}
+        <button
+          onClick={addSubagentHere}
+          className="p-0.5 rounded text-text/50 hover:bg-white/10 hover:text-amber-300 transition-colors"
+          title={t("agent.addSubagent", "Plugar subagente (privado deste agente)")}
+          aria-label={t("agent.addSubagent", "Plugar subagente")}
+        >
+          <UserRoundPlus size={13} />
+        </button>
         {/* Maximizar / restaurar */}
         <button
           onClick={(e) => { e.stopPropagation(); setIsFullscreen((v) => !v); }}
@@ -469,6 +491,8 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       />
       <Handle type="target" position={Position.Left} className="!bg-brand !border-surface1" />
       <Handle type="source" position={Position.Right} className="!bg-brand !border-surface1" />
+      {/* Alça de baixo = SUBAGENTE (privado); a da direita = time/par. */}
+      <Handle type="source" id="subagent" position={Position.Bottom} className="!bg-amber-400 !border-surface1" />
       {inner}
     </div>
   );

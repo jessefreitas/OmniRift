@@ -26,12 +26,15 @@ export function ConnectionDropMenu({
   x,
   y,
   items,
+  mode = "team",
   onPick,
   onClose,
 }: {
   x: number;
   y: number;
   items: DropMenuItem[];
+  /** "subagent" = plugar subagente privado (só roles); "team" = conectar par/equipe. */
+  mode?: "team" | "subagent";
   onPick: (item: DropMenuItem) => void;
   onClose: () => void;
 }) {
@@ -99,13 +102,22 @@ export function ConnectionDropMenu({
       style={{ left, top, width: W, maxHeight: MAXH }}
       onMouseDown={(e) => e.stopPropagation()}
     >
+      {mode === "subagent" && (
+        <div className="border-b border-amber-500/20 bg-amber-500/5 px-2 py-1.5 text-[10px] leading-snug text-amber-300/90">
+          {t("connectMenu.subagentBanner", "Plugar SUBAGENTE — privado deste agente (.claude/agents), não entra no time MCP.")}
+        </div>
+      )}
       <div className="flex items-center gap-1.5 border-b border-border px-2 py-1.5">
         <Search size={12} className="shrink-0 text-textMuted" />
         <input
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder={t("connectMenu.search", "Conectar a um agente ou role…")}
+          placeholder={
+            mode === "subagent"
+              ? t("connectMenu.searchRole", "Escolha a função do subagente…")
+              : t("connectMenu.search", "Conectar a um agente ou role…")
+          }
           className="w-full bg-transparent text-xs text-text outline-none placeholder:text-textMuted"
         />
       </div>

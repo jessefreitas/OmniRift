@@ -364,6 +364,7 @@ export function Sidebar() {
   const clearConnectMenu = useCanvasStore((s) => s.clearConnectMenu);
   const addEdge = useCanvasStore((s) => s.addEdge);
   const updateNodePosition = useCanvasStore((s) => s.updateNodePosition);
+  const addSubagent = useCanvasStore((s) => s.addSubagent);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
   // Settings POR-AGENTE: o label embute no push-hook de status (/agent-hook/<label>).
@@ -1291,6 +1292,37 @@ export function Sidebar() {
       const st = useCanvasStore.getState();
       return st.parallels.find((f) => f.id === st.activeParallelId)?.nodes ?? [];
     };
+
+    // Modo SUBAGENTE: cria um nó-filho privado + escreve .claude/agents/<role>.md na
+    // pasta do pai (cwd do agente, senão o do projeto). NÃO entra no time MCP.
+    if (req.mode === "subagent") {
+      const role = roles.find((r) => r.id === item.id);
+      if (!role) return;
+      const parent = floorNodes().find((n) => n.id === req.fromNodeId);
+      const parentLabel =
+        parent?.kind === "terminal" ? (parent.label ?? parent.command)
+        : parent?.kind === "agent" ? (parent.label ?? "OmniAgent")
+        : undefined;
+      const dir =
+        (parent?.kind === "terminal" || parent?.kind === "agent" ? parent.cwd : undefined) ?? currentCwd ?? "";
+      const description = role.prompt.replace(/\s+/g, " ").trim().slice(0, 120);
+      let filePath: string | undefined;
+      try {
+        filePath = await invoke<string>("subagent_write", {
+          dir, name: role.name, description, prompt: role.prompt, tools: null, model: null,
+        });
+      } catch (e) {
+        void notify(tr("sidebar.subagentWriteFailed", "Falha ao gravar o subagente:") + "\n" + String(e), "error");
+        return;
+      }
+      const sub = addSubagent({
+        role: role.id, label: role.name, description,
+        parentAgentId: req.fromNodeId, parentLabel, cwd: dir, filePath, position: req.flow,
+      });
+      addEdge(req.fromNodeId, sub.id, "subagent-link");
+      return;
+    }
+
     const before = new Set(floorNodes().map((n) => n.id));
     if (item.group === "agent") {
       const preset = agentList.find((p) => p.id === item.id);
@@ -2089,14 +2121,18 @@ export function Sidebar() {
         <ConnectionDropMenu
           x={requestConnectMenu.screen.x}
           y={requestConnectMenu.screen.y}
+          mode={requestConnectMenu.mode}
           items={[
-            ...agentList.map((p): DropMenuItem => ({
-              id: p.id,
-              label: tr("preset." + p.id, p.label),
-              hint: tr("presetDesc." + p.id, p.description),
-              group: "agent",
-              icon: p.icon,
-            })),
+            // Modo subagente lista só roles (a função do subagente). Time lista agentes + roles.
+            ...(requestConnectMenu.mode === "subagent"
+              ? []
+              : agentList.map((p): DropMenuItem => ({
+                  id: p.id,
+                  label: tr("preset." + p.id, p.label),
+                  hint: tr("presetDesc." + p.id, p.description),
+                  group: "agent",
+                  icon: p.icon,
+                }))),
             ...roles.map((r): DropMenuItem => ({
               id: r.id,
               label: r.name,

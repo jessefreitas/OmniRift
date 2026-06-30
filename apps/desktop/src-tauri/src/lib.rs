@@ -21,7 +21,7 @@ pub mod rpc;
 pub mod spec;
 pub mod turbo;
 
-use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles};
+use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles, subagent_write};
 use commands::skills::{skills_import_github, skills_import_md, skills_list};
 use commands::skill_wiring::{agent_skills_config, list_installed_skills};
 use commands::usage::{budget_remove, budget_set, usage_budget_status, usage_scan};
@@ -376,6 +376,7 @@ pub fn run() {
             agent_docs_status,
             agent_docs_sync,
             discover_roles,
+            subagent_write,
             role_import_file,
             role_template,
             role_template_save,

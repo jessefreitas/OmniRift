@@ -7,7 +7,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Terminal as TerminalIcon, X, Maximize2, Minimize2, RefreshCw, Crown } from "lucide-react";
+import { Terminal as TerminalIcon, X, Maximize2, Minimize2, RefreshCw, Crown, UserRoundPlus } from "lucide-react";
 
 import { useTerminalSession } from "@/hooks/useTerminalSession";
 import { useT } from "@/lib/i18n";
@@ -62,6 +62,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const t = useT();
   const removeNode = useCanvasStore((s) => s.removeNode);
   const renameNode = useCanvasStore((s) => s.renameNode);
+  const openConnectMenu = useCanvasStore((s) => s.openConnectMenu);
   const addToClipboard = useCanvasStore((s) => s.addToClipboard);
   const termStatus = useCanvasStore((s) => s.terminalStatuses[data.session_id] ?? "idle");
   const proc = useProcInfo(data.session_id, termStatus !== "dead");
@@ -375,6 +376,13 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
           position={Position.Right}
           className="!bg-brand !border-surface1"
         />
+        {/* Alça de baixo = SUBAGENTE privado (.claude/agents); a da direita = time/par. */}
+        <Handle
+          type="source"
+          id="subagent"
+          position={Position.Bottom}
+          className="!bg-amber-400 !border-surface1"
+        />
 
         <header
           className={cn(
@@ -482,7 +490,26 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             </button>
           )}
 
-          <NodeHelp text={t("terminal.help", "Terminal/agente: digite normalmente. Duplo-clique no nome pra renomear. Ligue a saída deste node na entrada de outro pelas alças laterais (pipe A→B). ⤢ abre em tela cheia; ⟳ reconecta se o processo morrer.")} />
+          {/* Plugar subagente nativo (só Claude Code: o .claude/agents é dele). */}
+          {data.role === "claude-code" && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                openConnectMenu({
+                  fromNodeId: id,
+                  flow: { x: (data.position?.x ?? 0) + 24, y: (data.position?.y ?? 0) + (data.size?.height ?? 320) + 48 },
+                  screen: { x: e.clientX, y: e.clientY },
+                  mode: "subagent",
+                });
+              }}
+              className="p-1 rounded hover:bg-bg hover:text-amber-300 transition-colors"
+              title={t("terminal.addSubagent", "Plugar subagente (privado deste agente)")}
+              aria-label={t("terminal.addSubagent", "Plugar subagente")}
+            >
+              <UserRoundPlus size={12} />
+            </button>
+          )}
+          <NodeHelp text={t("terminal.help", "Terminal/agente: digite normalmente. Duplo-clique no nome pra renomear. Ligue a saída deste node na entrada de outro pelas alças laterais (pipe A→B). ⤢ abre em tela cheia; ⟳ reconecta se o processo morrer. A alça de baixo (ou +) pluga um SUBAGENTE privado.")} />
           {/* Botão maximizar */}
           <button
             onClick={(e) => {
