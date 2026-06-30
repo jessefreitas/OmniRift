@@ -55,6 +55,16 @@ interface CanvasState {
    *  Os OmniAgents (AgentNode) consomem → ficam sabendo do roster atual igual o Orquestrador. */
   teamBriefing: { text: string; seq: number } | null;
   publishTeamBriefing: (text: string) => void;
+  /** Soltar uma linha no vazio (FloorCanvas onConnectEnd) → pede o menu de criar agente/role.
+   *  O Sidebar (que tem o catálogo + spawns) consome, cria o nó na posição e já conecta. */
+  requestConnectMenu: {
+    fromNodeId: string;
+    flow: { x: number; y: number };
+    screen: { x: number; y: number };
+    seq: number;
+  } | null;
+  openConnectMenu: (p: { fromNodeId: string; flow: { x: number; y: number }; screen: { x: number; y: number } }) => void;
+  clearConnectMenu: () => void;
   workspaceName: string;
   currentCwd: string | null; // espelho do cwd do floor ativo
 
@@ -207,6 +217,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   edgeFlow: {},
   requestMcpMark: null,
   teamBriefing: null,
+  requestConnectMenu: null,
   workspaceName: "workspace",
   currentCwd: null,
   clipboardHistory: [],
@@ -619,6 +630,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   clearRequestMcpMark: () => set({ requestMcpMark: null }),
   publishTeamBriefing: (text) =>
     set((s) => ({ teamBriefing: { text, seq: (s.teamBriefing?.seq ?? 0) + 1 } })),
+  openConnectMenu: ({ fromNodeId, flow, screen }) =>
+    set((s) => ({ requestConnectMenu: { fromNodeId, flow, screen, seq: (s.requestConnectMenu?.seq ?? 0) + 1 } })),
+  clearConnectMenu: () => set({ requestConnectMenu: null }),
 
   removeNode: (id) =>
     set((s) => ({

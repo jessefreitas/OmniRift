@@ -215,11 +215,13 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function sendText(text: string) {
+  // `systemNote` → mostra uma linha de sistema em vez da bolha de usuário (ex: reação
+  // automática a mudança de equipe), mas ainda envia `text` como o turno real.
+  async function sendText(text: string, systemNote?: string) {
     const sid = sessionRef.current;
     if (!sid || status !== "ready" || !text.trim()) return;
     lastReplyRef.current = "";
-    setMsgs((m) => [...m, { role: "user", text }]);
+    setMsgs((m) => [...m, systemNote ? { role: "system", text: systemNote } : { role: "user", text }]);
     setStatus("thinking");
     // Prefixos invisíveis: contrato de orquestrador (só no 1º prompt) + roster pendente da
     // equipe (T2 — sempre que a equipe muda, o próximo prompt já leva a lista atualizada).
@@ -274,14 +276,22 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeInput?.seq]);
 
-  // T2 — o "principal" sabe na hora que a equipe mudou: guarda o roster pro próximo prompt
-  // (o OmniAgent já comanda via terminal_list, mas assim nasce ciente sem ter que perguntar)
-  // e mostra uma linha visível na conversa. Não dispara turno sozinho (evita custo/loop).
+  // T2 — o "principal" sabe na hora que a equipe mudou. Ocioso (ready) → REAGE na hora:
+  // manda um turno curto de reavaliação (ex: "entrou o 4º agente, falta code review?").
+  // Ocupado/iniciando → guarda o roster pro próximo prompt (lazy) pra não atropelar o turno.
   useEffect(() => {
     if (!teamBriefing) return;
-    teamRef.current = teamBriefing.text;
-    if (status === "ready" || status === "thinking") {
-      setMsgs((m) => [...m, { role: "system", text: `📋 ${t("agent.teamUpdated", "Equipe atualizada — disponível via terminal_list.")}` }]);
+    if (status === "ready") {
+      teamRef.current = null;
+      void sendText(
+        `${teamBriefing.text}\n\n[Atualização automática de equipe] Reavalie rapidamente se a equipe cobre a tarefa atual. Se faltar um papel (ex: code review, testes), diga objetivamente o que falta — não execute nada ainda.`,
+        `📋 ${t("agent.teamUpdated", "Equipe atualizada — reavaliando a cobertura…")}`,
+      );
+    } else {
+      teamRef.current = teamBriefing.text;
+      if (status === "thinking") {
+        setMsgs((m) => [...m, { role: "system", text: `📋 ${t("agent.teamUpdatedQueued", "Equipe atualizada — considero no próximo passo.")}` }]);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamBriefing?.seq]);

@@ -121,6 +121,7 @@ import { ToolsSection } from "@/components/sidebar/ToolsSection";
 import { SpecsSection } from "@/components/sidebar/SpecsSection";
 import { RolesSection } from "@/components/sidebar/RolesSection";
 import { McpAgentsSection } from "@/components/sidebar/McpAgentsSection";
+import { ConnectionDropMenu, type DropMenuItem } from "@/components/ConnectionDropMenu";
 import { loadPolicy } from "@/lib/review-policy";
 import { loadDefaultCompressor } from "@/lib/compress-client";
 import { loadLlmConfig } from "@/lib/llm-client";
@@ -358,6 +359,11 @@ export function Sidebar() {
   const clearRequestMcpMark = useCanvasStore((s) => s.clearRequestMcpMark);
   // Briefing do time → publicado a cada mudança de equipe; os OmniAgents (AgentNode) consomem.
   const publishTeamBriefing = useCanvasStore((s) => s.publishTeamBriefing);
+  // Menu "criar agente/role" ao soltar uma linha no vazio (FloorCanvas onConnectEnd).
+  const requestConnectMenu = useCanvasStore((s) => s.requestConnectMenu);
+  const clearConnectMenu = useCanvasStore((s) => s.clearConnectMenu);
+  const addEdge = useCanvasStore((s) => s.addEdge);
+  const updateNodePosition = useCanvasStore((s) => s.updateNodePosition);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
   // Settings POR-AGENTE: o label embute no push-hook de status (/agent-hook/<label>).
@@ -1255,6 +1261,55 @@ export function Sidebar() {
     }
   }
 
+  // Spawn unificado de um preset do catálogo (mesmas regras do clique no painel "Novo
+  // agente"): ACP→addAgent, Orquestrador→spawnOrchestrator, custom→spawnCustomCli, senão
+  // addTerminal. Extraído pra ser reusado pelo menu de conexão (soltar linha no vazio).
+  async function spawnAgentPreset(preset: AgentPreset): Promise<void> {
+    if (preset.acp) { addAgent({ provider: preset.provider, label: preset.label, cwd: currentCwd ?? undefined }); return; }
+    if (preset.id === "orquestrador") { await spawnOrchestrator(orchCli); return; }
+    if (preset.custom) { await spawnCustomCli(preset, customClis.find((c) => `custom:${c.id}` === preset.id)); return; }
+    const executionHost = resolveExecutionHost();
+    const args = await argsWithMcp(preset);
+    addTerminal({
+      command: preset.command,
+      args,
+      role: preset.role,
+      label: preset.label,
+      compressor: loadDefaultCompressor(),
+      executionHost,
+    });
+  }
+
+  // Pick no menu de conexão: cria o agente/role escolhido, move pra posição do drop e
+  // conecta origem→novo. Usa diff de nós (antes/depois) p/ achar o id criado — funciona
+  // pros spawns que não retornam (role/orquestrador). Novo terminal já entra no time MCP.
+  async function onDropPick(item: DropMenuItem): Promise<void> {
+    const req = requestConnectMenu;
+    clearConnectMenu();
+    if (!req) return;
+    const floorNodes = () => {
+      const st = useCanvasStore.getState();
+      return st.parallels.find((f) => f.id === st.activeParallelId)?.nodes ?? [];
+    };
+    const before = new Set(floorNodes().map((n) => n.id));
+    if (item.group === "agent") {
+      const preset = agentList.find((p) => p.id === item.id);
+      if (preset) await spawnAgentPreset(preset);
+    } else {
+      const role = roles.find((r) => r.id === item.id);
+      if (role) await spawnRole(role);
+    }
+    const created = floorNodes().find((n) => !before.has(n.id));
+    if (!created) return;
+    updateNodePosition(created.id, req.flow);
+    const srcKind = floorNodes().find((n) => n.id === req.fromNodeId)?.kind;
+    addEdge(req.fromNodeId, created.id, srcKind === "agent" ? "agent-link" : "generic");
+    // "ligar = montar equipe": o novo terminal entra no time MCP (mesmo do onConnect).
+    if (created.kind === "terminal" && !mcpAgents.has(created.session_id)) {
+      toggleMcpAgent(created.session_id, created.label ?? created.command);
+    }
+  }
+
   // Descobre roles do projeto (.claude/agents/*.md) e importa os que ainda não existem.
   async function discoverProjectRoles() {
     if (!currentCwd) return;
@@ -1844,26 +1899,7 @@ export function Sidebar() {
               className="group flex items-center rounded-md hover:bg-surface2 transition-colors"
             >
               <button
-                onClick={() => {
-                  if (preset.acp) { addAgent({ provider: preset.provider, label: preset.label, cwd: currentCwd ?? undefined }); return; }
-                  if (isOrch) { void spawnOrchestrator(orchCli); return; }
-                  // CLI personalizado → caminho com wiring de skills (globais ∪ skills do CLI).
-                  if (preset.custom) {
-                    void spawnCustomCli(preset, customClis.find((c) => `custom:${c.id}` === preset.id));
-                    return;
-                  }
-                  const executionHost = resolveExecutionHost();
-                  void argsWithMcp(preset).then((args) =>
-                    addTerminal({
-                      command: preset.command,
-                      args,
-                      role: preset.role,
-                      label: preset.label,
-                      compressor: loadDefaultCompressor(),
-                      executionHost,
-                    }),
-                  );
-                }}
+                onClick={() => { void spawnAgentPreset(preset); }}
                 title={isOrch ? tr("sidebar.orchRunningIn", "Orquestrador rodando em {cli} — só decompõe e delega").replace("{cli}", orchLabel) : tr("presetDesc." + preset.id, preset.description)}
                 className="flex-1 min-w-0 text-left flex items-start gap-3 px-2 py-2"
               >
@@ -2047,6 +2083,29 @@ export function Sidebar() {
           role={launchPickerRole}
           onLaunch={(skillIds) => { void spawnRole(launchPickerRole, skillIds); }}
           onClose={() => setLaunchPickerRole(null)}
+        />
+      )}
+      {requestConnectMenu && (
+        <ConnectionDropMenu
+          x={requestConnectMenu.screen.x}
+          y={requestConnectMenu.screen.y}
+          items={[
+            ...agentList.map((p): DropMenuItem => ({
+              id: p.id,
+              label: tr("preset." + p.id, p.label),
+              hint: tr("presetDesc." + p.id, p.description),
+              group: "agent",
+              icon: p.icon,
+            })),
+            ...roles.map((r): DropMenuItem => ({
+              id: r.id,
+              label: r.name,
+              hint: r.prompt.slice(0, 90),
+              group: "role",
+            })),
+          ]}
+          onPick={(it) => { void onDropPick(it); }}
+          onClose={clearConnectMenu}
         />
       )}
       {diffFloor && (

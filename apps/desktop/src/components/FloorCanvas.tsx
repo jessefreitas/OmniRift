@@ -3,7 +3,7 @@
 // Um ReactFlow por floor. Os inativos ficam em display:none (mantêm os
 // TerminalNode/xterm montados → PTYs vivos), então só o ativo é interativo.
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import {
   ReactFlow,
   Background,
@@ -17,6 +17,8 @@ import {
   type Node,
   type NodeChange,
   type EdgeChange,
+  type OnConnectStart,
+  type OnConnectEnd,
 } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
@@ -105,6 +107,8 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const reparentNode = useCanvasStore((s) => s.reparentNode);
   const setRequestMcpMark = useCanvasStore((s) => s.setRequestMcpMark);
+  const openConnectMenu = useCanvasStore((s) => s.openConnectMenu);
+  const connectingFrom = useRef<string | null>(null);
 
   const nodes = useMemo(() => floor?.nodes ?? [], [floor]);
   const edges = useMemo(() => floor?.edges ?? [], [floor]);
@@ -213,6 +217,31 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
     [nodes, addEdge, setRequestMcpMark],
   );
 
+  // Puxar uma linha e soltar NO VAZIO (não num handle) → abre o menu de criar agente/role
+  // já conectado. onConnectStart guarda a origem; onConnectEnd detecta o drop no pane.
+  const onConnectStart: OnConnectStart = useCallback((_e, params) => {
+    connectingFrom.current = params.nodeId ?? null;
+  }, []);
+  const onConnectEnd: OnConnectEnd = useCallback(
+    (event, connectionState) => {
+      const fromNodeId = connectionState.fromNode?.id ?? connectingFrom.current;
+      connectingFrom.current = null;
+      if (!fromNodeId) return;
+      // Só quando soltou no fundo do canvas (pane), não num node/handle.
+      const target = event.target as Element | null;
+      if (!target?.classList?.contains("react-flow__pane")) return;
+      const flow = connectionState.to;
+      if (!flow) return;
+      const pt = "changedTouches" in event ? event.changedTouches[0] : (event as MouseEvent);
+      openConnectMenu({
+        fromNodeId,
+        flow: { x: flow.x, y: flow.y },
+        screen: { x: pt.clientX, y: pt.clientY },
+      });
+    },
+    [openConnectMenu],
+  );
+
   // Ao soltar um node: se o centro dele caiu dentro de um GroupNode, vira filho do
   // grupo (move junto); se saiu de um grupo, solta. Grupos não viram filhos.
   const onNodeDragStop = useCallback(
@@ -243,6 +272,8 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
+      onConnectStart={onConnectStart}
+      onConnectEnd={onConnectEnd}
       onNodeDragStop={onNodeDragStop}
       proOptions={{ hideAttribution: true }}
       minZoom={0.15}
