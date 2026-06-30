@@ -56,6 +56,11 @@ interface CanvasState {
    *  Os OmniAgents (AgentNode) consomem → ficam sabendo do roster atual igual o Orquestrador. */
   teamBriefing: { text: string; seq: number } | null;
   publishTeamBriefing: (text: string) => void;
+  /** Reação PROATIVA: quando a equipe muda, o orquestrador DISPARA um turno sozinho (gasta
+   *  token). Default OFF. A AWARENESS (roster no próximo prompt + terminal_list/memory) é
+   *  sempre ligada e de graça — isto controla só o auto-disparo. */
+  proactiveTeamReact: boolean;
+  setProactiveTeamReact: (b: boolean) => void;
   /** Soltar uma linha no vazio (FloorCanvas onConnectEnd) → pede o menu de criar agente/role.
    *  O Sidebar (que tem o catálogo + spawns) consome, cria o nó na posição e já conecta. */
   requestConnectMenu: {
@@ -236,6 +241,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   requestMcpMark: null,
   teamBriefing: null,
   requestConnectMenu: null,
+  proactiveTeamReact:
+    typeof localStorage !== "undefined" && localStorage.getItem("omnirift-proactive-team-react") === "1",
   workspaceName: "workspace",
   currentCwd: null,
   clipboardHistory: [],
@@ -667,6 +674,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   clearRequestMcpMark: () => set({ requestMcpMark: null }),
   publishTeamBriefing: (text) =>
     set((s) => ({ teamBriefing: { text, seq: (s.teamBriefing?.seq ?? 0) + 1 } })),
+  setProactiveTeamReact: (b) => {
+    try { localStorage.setItem("omnirift-proactive-team-react", b ? "1" : "0"); } catch { /* ignore */ }
+    set({ proactiveTeamReact: b });
+  },
   openConnectMenu: ({ fromNodeId, flow, screen, mode = "team" }) =>
     set((s) => ({ requestConnectMenu: { fromNodeId, flow, screen, mode, seq: (s.requestConnectMenu?.seq ?? 0) + 1 } })),
   clearConnectMenu: () => set({ requestConnectMenu: null }),

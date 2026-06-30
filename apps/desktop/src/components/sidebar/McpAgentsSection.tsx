@@ -5,6 +5,7 @@ import { Tooltip } from "@/components/Tooltip";
 import { StatusDot } from "@/components/StatusDot";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
+import { useCanvasStore } from "@/store/canvas-store";
 import type { TerminalNode } from "@/types/canvas";
 import type { AgentState } from "@/types/pty";
 
@@ -56,11 +57,24 @@ export function McpAgentsSection({
   secStyle,
 }: McpAgentsSectionProps) {
   const tr = useT();
+  const proactiveTeamReact = useCanvasStore((s) => s.proactiveTeamReact);
+  const setProactiveTeamReact = useCanvasStore((s) => s.setProactiveTeamReact);
   return (
     <div className="px-2 py-2.5 border-t border-border" style={secStyle("mcp")}>
       <div className="flex items-center justify-between px-2 mb-1.5 gap-2">
         {sectionTitle("mcp", tr("section.mcp"))}
         <div className="flex items-center gap-2 shrink-0">
+          <Tooltip label={tr("sidebar.proactiveReactTip", "Reagir na hora: quando a equipe muda, o orquestrador DISPARA um turno sozinho (gasta token). Desligado = ele fica ciente de graça e usa no próximo passo.")} side="bottom">
+            <label className="flex items-center gap-1 text-[10px] text-textMuted cursor-pointer">
+              <input
+                type="checkbox"
+                checked={proactiveTeamReact}
+                onChange={(e) => setProactiveTeamReact(e.target.checked)}
+                className="accent-brand"
+              />
+              ⚡{tr("sidebar.proactiveReact", "reagir")}
+            </label>
+          </Tooltip>
           <Tooltip label={tr("sidebar.maxAgentsTip", "Teto de agentes simultâneos do Orquestrador (ele pergunta antes de abrir; o resto roda em ondas)")} side="bottom">
             <label className="flex items-center gap-1 text-[10px] text-textMuted">
               {tr("sidebar.max", "máx")}

@@ -289,22 +289,22 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeInput?.seq]);
 
-  // T2 — o "principal" sabe na hora que a equipe mudou. Ocioso (ready) → REAGE na hora:
-  // manda um turno curto de reavaliação (ex: "entrou o 4º agente, falta code review?").
-  // Ocupado/iniciando → guarda o roster pro próximo prompt (lazy) pra não atropelar o turno.
+  // O OmniAgent fica SEMPRE antenado: o roster atualizado entra no PRÓXIMO prompt dele
+  // (lazy, de graça) e ele tem terminal_list/memory pra consultar tudo. O AUTO-DISPARO de
+  // um turno (que gasta token) é opt-in via `proactiveTeamReact` (default OFF).
   useEffect(() => {
     if (!teamBriefing) return;
-    if (status === "ready") {
-      teamRef.current = null;
+    teamRef.current = teamBriefing.text; // antenado: vai no próximo prompt, sempre
+    const proactive = useCanvasStore.getState().proactiveTeamReact;
+    if (proactive && status === "ready") {
+      teamRef.current = null; // consome agora (já vai no turno disparado)
       void sendText(
         `${teamBriefing.text}\n\n[Atualização automática de equipe] Reavalie rapidamente se a equipe cobre a tarefa atual. Se faltar um papel (ex: code review, testes), diga objetivamente o que falta — não execute nada ainda.`,
         `📋 ${t("agent.teamUpdated", "Equipe atualizada — reavaliando a cobertura…")}`,
       );
     } else {
-      teamRef.current = teamBriefing.text;
-      if (status === "thinking") {
-        setMsgs((m) => [...m, { role: "system", text: `📋 ${t("agent.teamUpdatedQueued", "Equipe atualizada — considero no próximo passo.")}` }]);
-      }
+      // Token-safe: só registra que está ciente; usa no próximo passo sem gastar.
+      setMsgs((m) => [...m, { role: "system", text: `📋 ${t("agent.teamUpdatedAware", "Equipe atualizada — ciente (considero no próximo passo).")}` }]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamBriefing?.seq]);

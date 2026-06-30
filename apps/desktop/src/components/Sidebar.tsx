@@ -837,23 +837,15 @@ export function Sidebar() {
 
     if (!orchSid) return;
 
-    // Duas escritas: display visual multi-linha + input real submetido ao Claude
-    const display = agentNodes.map((n) => {
-      const lbl = n.kind === "terminal" ? (n.label ?? n.command) : n.id;
-      const sid = n.kind === "terminal" ? n.session_id : n.id;
-      const toolName = lbl.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-      const desc = newDescs[sid] ?? lbl;
-      return `  • ${toolName} — ${desc}`;
-    }).join("\n");
-    invoke("pty_write", { sessionId: orchSid, data: `\n[OmniRift] Equipe disponível via MCP:\n${display}\n` }).catch(console.warn);
-
-    // Input real: texto primeiro, depois \r como chamada separada (evita chunk único ignorar Enter)
-    const inputText = `${ORCHESTRATOR_CONTRACT}\n\nSua equipe atual (tools omnirift-agents): ${summary}. Delegue TODAS as próximas tarefas a esses agentes — não execute nada você mesmo.`;
+    // Auto-aviso no PTY do Orquestrador-terminal: SÓ se a reação proativa estiver ON
+    // (gasta um turno dele). Default OFF → sem dump, sem token; o Orq sabe a equipe via
+    // terminal_list quando agir. Antes despejava o ORCHESTRATOR_CONTRACT (20 linhas) a cada
+    // mudança → virava "[Pasted text +N linhas]" que nem submetia. Agora: roster CURTO só.
+    if (!useCanvasStore.getState().proactiveTeamReact) return;
+    const note = `[OmniRift] Sua equipe MCP agora: ${summary}. Delegue a esses agentes.`;
     setTimeout(() => {
-      invoke("pty_write", { sessionId: orchSid, data: inputText }).catch(console.warn);
-      setTimeout(() => {
-        invoke("pty_write", { sessionId: orchSid, data: "\r" }).catch(console.warn);
-      }, 150);
+      invoke("pty_write", { sessionId: orchSid, data: note }).catch(console.warn);
+      setTimeout(() => invoke("pty_write", { sessionId: orchSid, data: "\r" }).catch(console.warn), 150);
     }, 200);
   }, [publishTeamBriefing]);
 
