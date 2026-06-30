@@ -1320,6 +1320,14 @@ export function Sidebar() {
         parentAgentId: req.fromNodeId, parentLabel, cwd: dir, filePath, position: req.flow,
       });
       addEdge(req.fromNodeId, sub.id, "subagent-link");
+      const scope = dir.trim()
+        ? tr("sidebar.subagentScopeProject", "privado do projeto")
+        : tr("sidebar.subagentScopeGlobal", "global (~/.claude/agents — sem projeto aberto)");
+      void notify(
+        tr("sidebar.subagentWritten", "Subagente \"{name}\" criado ({scope}):\n{path}")
+          .replace("{name}", role.name).replace("{scope}", scope).replace("{path}", filePath ?? ""),
+        "info",
+      );
       return;
     }
 

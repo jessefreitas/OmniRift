@@ -94,10 +94,18 @@ pub fn subagent_write(
     if slug.is_empty() {
         return Err("nome do subagente vazio".into());
     }
-    if dir.trim().is_empty() {
-        return Err("sem pasta de projeto: o agente pai precisa de um cwd p/ gravar .claude/agents".into());
-    }
-    let agents_dir = Path::new(&dir).join(".claude").join("agents");
+    // Sem pasta de projeto → cai pro user-global `~/.claude/agents` (local NATIVO do Claude
+    // Code p/ subagentes do usuário: todo Claude lê de lá, independente do cwd). Assim
+    // funciona mesmo sem projeto aberto; com projeto, fica privado naquela pasta.
+    let base = if dir.trim().is_empty() {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "sem pasta de projeto e sem HOME p/ gravar .claude/agents".to_string())?;
+        std::path::PathBuf::from(home)
+    } else {
+        std::path::PathBuf::from(&dir)
+    };
+    let agents_dir = base.join(".claude").join("agents");
     std::fs::create_dir_all(&agents_dir)
         .map_err(|e| format!("não consegui criar .claude/agents: {e}"))?;
     let path = agents_dir.join(format!("{slug}.md"));
