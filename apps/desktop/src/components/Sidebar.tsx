@@ -342,6 +342,9 @@ export function Sidebar() {
   // Orquestrador agora vive no store (compartilhado com o dock onipresente).
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
   const setOrchestratorSid = useCanvasStore((s) => s.setOrchestratorSid);
+  // Sinal de auto-conexão A→B (FloorCanvas onConnect agente→terminal pede marcar o terminal).
+  const requestMcpMark = useCanvasStore((s) => s.requestMcpMark);
+  const clearRequestMcpMark = useCanvasStore((s) => s.clearRequestMcpMark);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [mcpConfigPath, setMcpConfigPath] = useState<string | null>(null);
   // Settings POR-AGENTE: o label embute no push-hook de status (/agent-hook/<label>).
@@ -850,6 +853,16 @@ export function Sidebar() {
       sendTeamBriefing(next, agentDescriptions, orchestratorSid, terminals);
     }
   }, [mcpAgents, agentDescriptions, orchestratorSid, terminals, sendTeamBriefing, floorNameOf]);
+
+  // Auto-conexão A→B: quando o canvas pede marcar um terminal (linha OmniAgent→terminal),
+  // registra via o MESMO toggleMcpAgent (backend + checkbox + briefing). Só marca se ainda
+  // não estiver registrado (toggleMcpAgent alterna; aqui o intent é garantir registrado).
+  useEffect(() => {
+    if (!requestMcpMark) return;
+    const { sid, label } = requestMcpMark;
+    if (!mcpAgents.has(sid)) toggleMcpAgent(sid, label);
+    clearRequestMcpMark();
+  }, [requestMcpMark, mcpAgents, toggleMcpAgent, clearRequestMcpMark]);
 
   const copyMcpCmd = useCallback(async () => {
     await navigator.clipboard.writeText(await mcpAddCommand());

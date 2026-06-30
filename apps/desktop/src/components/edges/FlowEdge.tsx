@@ -30,8 +30,11 @@ export function FlowEdge({
   const flow = useCanvasStore((s) => s.edgeFlow[id]) ?? "idle";
   const [path] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   const active = flow === "sending" || flow === "received";
-  // cor idle por tipo: pipe de terminal = cyan (já tem roteamento backend); senão branco.
-  const idleColor = (data as { kind?: string } | undefined)?.kind === "pty-pipe" ? "rgb(41, 162, 167)" : COLORS.idle;
+  // cor idle por tipo: pipe de terminal = cyan (roteamento backend), link de agente MCP
+  // = roxo (OmniAgent comanda o terminal), senão branco.
+  const kind = (data as { kind?: string } | undefined)?.kind;
+  const idleColor =
+    kind === "pty-pipe" ? "rgb(41, 162, 167)" : kind === "agent-link" ? "rgb(167, 139, 250)" : COLORS.idle;
   const stroke = flow !== "idle" ? COLORS[flow] ?? COLORS.idle : idleColor;
 
   return (

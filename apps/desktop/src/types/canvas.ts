@@ -246,6 +246,7 @@ export interface CanvasEdge {
   id: string;
   source: string;
   target: string;
-  /** Para terminais conectados, o output do source vai como input do target. */
-  kind: "pty-pipe" | "note-link" | "generic";
+  /** Para terminais conectados, o output do source vai como input do target.
+   *  "agent-link" = OmniAgent→terminal: a linha marca o terminal como agente MCP (auto-conexão). */
+  kind: "pty-pipe" | "note-link" | "generic" | "agent-link";
 }

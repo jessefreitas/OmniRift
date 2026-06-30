@@ -104,6 +104,7 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
   const removeEdge = useCanvasStore((s) => s.removeEdge);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const reparentNode = useCanvasStore((s) => s.reparentNode);
+  const setRequestMcpMark = useCanvasStore((s) => s.setRequestMcpMark);
 
   const nodes = useMemo(() => floor?.nodes ?? [], [floor]);
   const edges = useMemo(() => floor?.edges ?? [], [floor]);
@@ -194,11 +195,17 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
             console.error("Falha ao criar pipe PTY:", err);
             addEdge(connection.source!, connection.target!, "generic");
           });
+      } else if (srcNode?.kind === "agent" && dstNode?.kind === "terminal") {
+        // Auto-conexão A→B: a linha do OmniAgent num terminal registra o terminal como
+        // agente MCP (mesmo efeito da checkbox "MCP AGENTS") → o OmniAgent passa a vê-lo
+        // via terminal_list. O Sidebar consome o sinal e chama o toggleMcpAgent real.
+        setRequestMcpMark(dstNode.session_id, dstNode.label ?? dstNode.command);
+        addEdge(connection.source, connection.target, "agent-link");
       } else {
         addEdge(connection.source, connection.target, "generic");
       }
     },
-    [nodes, addEdge],
+    [nodes, addEdge, setRequestMcpMark],
   );
 
   // Ao soltar um node: se o centro dele caiu dentro de um GroupNode, vira filho do

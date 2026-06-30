@@ -46,6 +46,11 @@ interface CanvasState {
   emitAgentOutput: (nodeId: string, text: string) => void;
   emitNodeInput: (nodeId: string, text: string) => void;
   setEdgeFlow: (edgeId: string, flow: "idle" | "sending" | "received" | "error") => void;
+  /** Sinal canvas→Sidebar: pede pra marcar um terminal como agente MCP (auto-conexão A→B).
+   *  O onConnect (agente→terminal) seta; o Sidebar consome via toggleMcpAgent e limpa. */
+  requestMcpMark: { sid: string; label: string; seq: number } | null;
+  setRequestMcpMark: (sid: string, label: string) => void;
+  clearRequestMcpMark: () => void;
   workspaceName: string;
   currentCwd: string | null; // espelho do cwd do floor ativo
 
@@ -196,6 +201,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   agentOutputs: {},
   nodeInputs: {},
   edgeFlow: {},
+  requestMcpMark: null,
   workspaceName: "workspace",
   currentCwd: null,
   clipboardHistory: [],
@@ -603,6 +609,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     set((s) => ({ nodeInputs: { ...s.nodeInputs, [nodeId]: { text, seq: (s.nodeInputs[nodeId]?.seq ?? 0) + 1 } } })),
   setEdgeFlow: (edgeId, flow) =>
     set((s) => ({ edgeFlow: { ...s.edgeFlow, [edgeId]: flow } })),
+  setRequestMcpMark: (sid, label) =>
+    set((s) => ({ requestMcpMark: { sid, label, seq: (s.requestMcpMark?.seq ?? 0) + 1 } })),
+  clearRequestMcpMark: () => set({ requestMcpMark: null }),
 
   removeNode: (id) =>
     set((s) => ({
