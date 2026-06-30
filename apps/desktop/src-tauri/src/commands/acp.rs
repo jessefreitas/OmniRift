@@ -11,12 +11,13 @@ pub async fn acp_spawn(
     id: SessionId,
     provider: Option<String>,
     cwd: Option<String>,
+    resume_session_id: Option<String>,
     manager: State<'_, Arc<AcpManager>>,
     app: AppHandle,
 ) -> Result<SessionId, String> {
     // Clona o Arc pra não segurar o State através do await.
     let mgr = manager.inner().clone();
-    mgr.spawn(id, provider, cwd, app).await.map_err(|e| format!("{e:#}"))
+    mgr.spawn(id, provider, cwd, resume_session_id, app).await.map_err(|e| format!("{e:#}"))
 }
 
 /// Envia um prompt (turno) para a sessão.

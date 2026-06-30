@@ -58,7 +58,9 @@ impl AcpManager {
     /// Spawna o adapter e dispara o handshake. `cwd` = diretório do workspace/floor.
     /// `async` é obrigatório: `tokio::process::Command::spawn()` exige o reactor Tokio em
     /// contexto — um comando Tauri SÍNCRONO roda fora do runtime e panica ("no reactor running").
-    pub async fn spawn(&self, id: SessionId, provider: Option<String>, cwd: Option<String>, app: AppHandle) -> Result<SessionId> {
+    /// `resume_session_id`: se presente, faz `session/load` (resume a sessão ACP persistida)
+    /// no lugar de `session/new` → recarrega `.claude/agents` MANTENDO a conversa (D2-v2).
+    pub async fn spawn(&self, id: SessionId, provider: Option<String>, cwd: Option<String>, resume_session_id: Option<String>, app: AppHandle) -> Result<SessionId> {
         if self.sessions.contains_key(&id) {
             return Err(anyhow!("sessão acp {id} já existe"));
         }
@@ -111,6 +113,7 @@ impl AcpManager {
         let sid = id.clone();
         let sess = session.clone();
         let cwd_loop = cwd_abs.clone();
+        let resume_loop = resume_session_id.clone();
         // MCP do OmniRift injetado na sessão → o OmniAgent ganha as tools de orquestração
         // (terminal_*, workspace_*, memory_*, claim_*), as MESMAS que o Orquestrador-terminal usa.
         let mcp_token = app
@@ -169,10 +172,14 @@ impl AcpManager {
                                 data: result.get("authMethods").cloned().unwrap_or(Value::Null),
                             });
                         } else {
-                            let new = json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
-                                "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } });
-                            if let Err(e) = write_line(&sess.stdin, &new).await {
-                                log::error!("[acp {sid}] erro ao enviar session/new: {e}");
+                            let req = match &resume_loop {
+                                Some(rs) => json!({ "jsonrpc": "2.0", "id": 5, "method": "session/load",
+                                    "params": { "sessionId": rs, "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } }),
+                                None => json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
+                                    "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } }),
+                            };
+                            if let Err(e) = write_line(&sess.stdin, &req).await {
+                                log::error!("[acp {sid}] erro ao enviar session/new|load: {e}");
                             }
                         }
                     } else if let Some(err) = msg.get("error") {
@@ -195,12 +202,37 @@ impl AcpManager {
                     continue;
                 }
 
-                // Resposta do authenticate (id=4) → autenticado → cria a sessão.
-                if id_num == Some(4) {
+                // Resposta do session/load (id=5) → sessão RESUMIDA (conversa mantida). O
+                // sessionId é o que pedimos (resume). Se falhar, fallback p/ session/new.
+                if id_num == Some(5) {
                     if msg.get("result").is_some() {
+                        if let Some(rs) = &resume_loop {
+                            *sess.acp_session_id.lock() = Some(rs.clone());
+                        }
+                        log::info!("[acp {sid}] session/load OK — sessao resumida (conversa mantida)");
+                        let _ = app.emit("acp://ready", GenericEvent {
+                            session_id: sid.clone(),
+                            data: msg.get("result").cloned().unwrap_or(Value::Null),
+                        });
+                    } else if let Some(err) = msg.get("error") {
+                        log::error!("[acp {sid}] session/load falhou: {err} — fallback session/new");
                         let new = json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
                             "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } });
                         let _ = write_line(&sess.stdin, &new).await;
+                    }
+                    continue;
+                }
+
+                // Resposta do authenticate (id=4) → autenticado → cria OU resume a sessão.
+                if id_num == Some(4) {
+                    if msg.get("result").is_some() {
+                        let req = match &resume_loop {
+                            Some(rs) => json!({ "jsonrpc": "2.0", "id": 5, "method": "session/load",
+                                "params": { "sessionId": rs, "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } }),
+                            None => json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
+                                "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } }),
+                        };
+                        let _ = write_line(&sess.stdin, &req).await;
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] authenticate falhou: {err}");
                         let _ = app.emit("acp://auth-failed", GenericEvent { session_id: sid.clone(), data: err.clone() });

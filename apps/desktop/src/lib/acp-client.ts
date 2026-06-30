@@ -7,12 +7,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-/** Spawna o adapter ACP do provider (claude|codex) e inicia o handshake. */
+/** Spawna o adapter ACP do provider (claude|codex) e inicia o handshake.
+ *  `resumeSessionId`: se passado, o backend faz session/load (resume a conversa) em vez de
+ *  session/new → recarrega .claude/agents MANTENDO a conversa. */
 export async function acpSpawn(
   id: string,
-  opts: { provider?: string; cwd?: string } = {},
+  opts: { provider?: string; cwd?: string; resumeSessionId?: string } = {},
 ): Promise<string> {
-  return invoke<string>("acp_spawn", { id, provider: opts.provider, cwd: opts.cwd });
+  return invoke<string>("acp_spawn", {
+    id,
+    provider: opts.provider,
+    cwd: opts.cwd,
+    resumeSessionId: opts.resumeSessionId,
+  });
 }
 
 /** Envia um prompt (turno). Pré-requisito: já recebeu `acp://ready`. */

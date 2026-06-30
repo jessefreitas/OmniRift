@@ -124,15 +124,23 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const firstSentRef = useRef(false); // prefixa o contrato de orquestrador só no 1º prompt
   const teamRef = useRef<string | null>(null); // roster pendente p/ injetar no próximo prompt
   const subagentsSentRef = useRef(false); // a lista de subagentes já foi injetada num prompt?
+  const acpSessionIdRef = useRef<string | null>(null); // sessionId do ADAPTER (p/ session/load)
+  const resumeRef = useRef<string | null>(null); // pendente: resumir esta sessão no próximo spawn
 
-  // D2 — reload EXPLÍCITO: re-spawna a sessão ACP pra carregar os `.claude/agents` plugados
-  // DEPOIS do boot (o Claude Code só lê subagentes no início da sessão; o adapter não faz
-  // hot-reload). Perde a conversa atual — é a escolha v1 (avisa via system line).
+  // D2-v2 — reload re-spawna a sessão ACP pra carregar os `.claude/agents` plugados DEPOIS do
+  // boot (o adapter não faz hot-reload). Se já temos o sessionId do adapter, faz `session/load`
+  // → MANTÉM a conversa; senão `session/new` (perde). Avisa via system line.
   function reloadSession() {
-    setMsgs([{ role: "system", text: t("agent.reloaded", "↻ Sessão recarregada — subagentes atualizados.") }]);
+    const resume = acpSessionIdRef.current;
+    resumeRef.current = resume;
+    if (resume) {
+      setMsgs((m) => [...m, { role: "system", text: t("agent.reloadingKeep", "↻ Recarregando subagentes (mantendo a conversa)…") }]);
+    } else {
+      setMsgs([{ role: "system", text: t("agent.reloaded", "↻ Sessão recarregada — subagentes atualizados.") }]);
+      setModel(null);
+      setUsage({});
+    }
     setStatus("starting");
-    setModel(null);
-    setUsage({});
     setPerm(null);
     setAuthMethods([]);
     firstSentRef.current = false;
@@ -222,8 +230,12 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             | { availableModels?: { modelId: string }[]; currentModelId?: string }
             | undefined;
           const cur = models?.currentModelId ?? models?.availableModels?.[0]?.modelId ?? null;
-          setModel(cur);
-          setUsage((u) => ({ ...u, model: cur ?? undefined }));
+          if (cur) setModel(cur);
+          if (cur) setUsage((u) => ({ ...u, model: cur }));
+          // Guarda o sessionId do ADAPTER (session/new traz; session/load não → mantém o anterior)
+          // pra poder dar session/load num reload futuro (mantém a conversa).
+          const sessId = (info as { sessionId?: string }).sessionId;
+          if (sessId) acpSessionIdRef.current = sessId;
           setStatus("ready");
           // Torna-se COMANDÁVEL pelo Orquestrador-terminal (entra no terminal_list).
           void acpAgentRegister(cmdLabel, id);
@@ -252,7 +264,8 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         return;
       }
       try {
-        await acpSpawn(id, { provider: data.provider, cwd: data.cwd });
+        await acpSpawn(id, { provider: data.provider, cwd: data.cwd, resumeSessionId: resumeRef.current ?? undefined });
+        resumeRef.current = null; // consumido
       } catch (e) {
         pushSys(`erro ao iniciar: ${e}`);
         setStatus("dead");
