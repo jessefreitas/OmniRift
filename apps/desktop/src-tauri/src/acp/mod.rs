@@ -98,7 +98,7 @@ impl AcpManager {
             tauri::async_runtime::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    log::debug!("[acp {id_err}] stderr: {line}");
+                    log::info!("[acp {id_err}] adapter: {line}");
                 }
             });
         }
@@ -114,10 +114,16 @@ impl AcpManager {
             .inner()
             .0
             .clone();
+        // O adapter ACP fala MCP "streamable-http" (POST único); o nosso server é SSE clássico
+        // (GET /sse + POST /message → POST /sse dá 405). Ponte: mcp-remote (stdio) conecta no
+        // nosso SSE e expõe pro adapter via stdio, contornando o mismatch de transport.
+        let mcp_url = format!("http://127.0.0.1:{}/sse?token={}", crate::mcp::MCP_PORT, mcp_token);
         let mcp_servers = json!([{
-            "type": "sse",
+            "type": "stdio",
             "name": "omnirift-agents",
-            "url": format!("http://127.0.0.1:{}/sse?token={}", crate::mcp::MCP_PORT, mcp_token)
+            "command": "npx",
+            "args": ["-y", "mcp-remote", mcp_url],
+            "env": []
         }]);
         tauri::async_runtime::spawn(async move {
             let init = json!({
@@ -177,6 +183,7 @@ impl AcpManager {
                         if let Some(s) = result.get("sessionId").and_then(|v| v.as_str()) {
                             *sess.acp_session_id.lock() = Some(s.to_string());
                         }
+                        log::info!("[acp {sid}] session/new OK — MCP de orquestracao injetado");
                         let _ = app.emit("acp://ready", GenericEvent { session_id: sid.clone(), data: result.clone() });
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] session/new falhou: {err}");
@@ -222,7 +229,7 @@ impl AcpManager {
 
                 // Outros requests do adapter (fs/read, terminal, …) — fora do spike: loga.
                 if method.is_some() && msg.get("id").is_some() {
-                    log::debug!("[acp {sid}] request não tratado no spike: {method:?}");
+                    log::info!("[acp {sid}] request do adapter: {method:?}");
                 }
             }
             let _ = app.emit("acp://exit", GenericEvent { session_id: sid.clone(), data: Value::Null });
