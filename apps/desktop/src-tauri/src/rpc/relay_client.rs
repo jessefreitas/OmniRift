@@ -33,6 +33,12 @@ fn relay_base() -> String {
     std::env::var("OMNIRIFT_RELAY_URL").unwrap_or_else(|_| DEFAULT_RELAY_BASE.to_string())
 }
 
+/// URL do room deste device no relay (`{base}/r/<token>`). Usada pelo pairing offer (Task 6)
+/// pra o celular ter o endpoint de fora da LAN além do `endpoint` (LAN).
+pub fn relay_url(device_token: &str) -> String {
+    format!("{}/r/{}", relay_base(), device_token)
+}
+
 /// Sobe um dialer de relay por device pareado. Degrade limpo: cada dialer só loga.
 pub fn spawn_relay_dialers(
     app: AppHandle,

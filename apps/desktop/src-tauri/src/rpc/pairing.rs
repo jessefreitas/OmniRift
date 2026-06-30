@@ -22,8 +22,12 @@ pub const PAIRING_OFFER_VERSION: u8 = 2;
 #[serde(rename_all = "camelCase")]
 pub struct PairingOffer {
     pub v: u8,
-    /// ex.: `ws://192.168.0.42:6768`
+    /// LAN: ex. `ws://192.168.0.42:6768` (caminho direto, tentado primeiro).
     pub endpoint: String,
+    /// Relay (fora da LAN/4G): `wss://relay…/r/<token>`. Opcional p/ back-compat com apps
+    /// v2 (ignoram o campo). O app novo tenta `endpoint` (LAN) e cai pro `relay`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay: Option<String>,
     /// token-por-dispositivo (hex de 24 bytes).
     pub device_token: String,
     /// a Curve25519 PÚBLICA do desktop, base64-std (32 bytes).
@@ -57,9 +61,13 @@ impl std::fmt::Display for PairingError {
 /// (token, pública) vêm de fora (devices.rs + keypair.rs).
 pub fn create_pairing_offer(port: u16, device_token: String, public_key_b64: String) -> PairingOffer {
     let host = lan_ip();
+    // Relay endpoint (fora da LAN): o room deste device no CF Worker. Montado internamente
+    // — a assinatura não muda, o offer ganha o `relay` de graça.
+    let relay = Some(super::relay_client::relay_url(&device_token));
     PairingOffer {
         v: PAIRING_OFFER_VERSION,
         endpoint: format!("ws://{host}:{port}"),
+        relay,
         device_token,
         public_key_b64,
     }
@@ -147,6 +155,7 @@ mod tests {
         let bad = PairingOffer {
             v: 1,
             endpoint: "ws://x:1".into(),
+            relay: None,
             device_token: "t".into(),
             public_key_b64: "k".into(),
         };
@@ -162,6 +171,7 @@ mod tests {
         let bad = PairingOffer {
             v: 2,
             endpoint: "ws://x:1".into(),
+            relay: None,
             device_token: String::new(), // vazio!
             public_key_b64: "k".into(),
         };
