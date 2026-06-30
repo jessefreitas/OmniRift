@@ -216,6 +216,10 @@ export interface SubagentNode extends BaseCanvasNode {
   cwd?: string;
   /** Caminho absoluto do arquivo materializado (retorno do subagent_write). */
   filePath?: string;
+  /** Escopo REAL no filesystem: "global" = ~/.claude/agents (visível a TODOS os agentes
+   *  Claude), "project" = <projeto>/.claude/agents (privado daquela pasta). O label "privado
+   *  de <pai>" só é verdade quando "project" — daí mostramos o escopo honesto. */
+  scope?: "global" | "project";
   createdAt?: number;
 }
 

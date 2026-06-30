@@ -161,6 +161,7 @@ interface CanvasState {
     parentLabel?: string;
     cwd?: string;
     filePath?: string;
+    scope?: "global" | "project";
     position?: { x: number; y: number };
   }) => SubagentNode;
   removeNode: (id: string) => void;
@@ -644,7 +645,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     return node;
   },
 
-  addSubagent: ({ role, label, description, parentAgentId, parentLabel, cwd, filePath, position }) => {
+  addSubagent: ({ role, label, description, parentAgentId, parentLabel, cwd, filePath, scope, position }) => {
     const node: SubagentNode = {
       id: nanoid(),
       kind: "subagent",
@@ -655,6 +656,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       parentLabel,
       cwd,
       filePath,
+      scope,
       createdAt: Date.now(),
       position: position ?? defaultPosition(),
       size: { width: 240, height: 120 },

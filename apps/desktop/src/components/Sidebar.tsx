@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect, useMemo, lazy, Suspense } fro
 import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { homeDir } from "@tauri-apps/api/path";
 import {
   Bookmark,
   Bot,
@@ -1307,6 +1308,13 @@ export function Sidebar() {
         void notify(tr("sidebar.subagentWriteFailed", "Falha ao gravar o subagente:") + "\n" + String(e), "error");
         return;
       }
+      // Escopo REAL: global se o arquivo caiu em ~/.claude/agents (visível a todos os
+      // agentes Claude), senão privado daquela pasta de projeto. O label honesto evita o
+      // "privado de <pai>" enganoso (Fase 0 do spec times-grupo).
+      const home = await homeDir().catch(() => "");
+      const homeAgents = home ? `${home.replace(/\/$/, "")}/.claude/agents` : "";
+      const scope: "global" | "project" =
+        !dir.trim() || (!!homeAgents && !!filePath && filePath.startsWith(homeAgents)) ? "global" : "project";
       // Posiciona o subagente CENTRADO ABAIXO do pai (largura do sub = 240) → a linha
       // vertical (alça de baixo) cai reta. Sem pai conhecido, usa o ponto do drop.
       const pos = parent
@@ -1314,16 +1322,16 @@ export function Sidebar() {
         : req.flow;
       const sub = addSubagent({
         role: role.id, label: role.name, description,
-        parentAgentId: req.fromNodeId, parentLabel, cwd: dir, filePath, position: pos,
+        parentAgentId: req.fromNodeId, parentLabel, cwd: dir, filePath, scope, position: pos,
       });
       // sourceHandle "subagent" = alça de BAIXO do pai → a linha sai de baixo, não do lado.
       addEdge(req.fromNodeId, sub.id, "subagent-link", { sourceHandle: "subagent" });
-      const scope = dir.trim()
-        ? tr("sidebar.subagentScopeProject", "privado do projeto")
-        : tr("sidebar.subagentScopeGlobal", "global (~/.claude/agents — sem projeto aberto)");
+      const scopeLabel = scope === "project"
+        ? tr("sidebar.subagentScopeProject", "privado do projeto — visível só aqui")
+        : tr("sidebar.subagentScopeGlobal", "GLOBAL (~/.claude/agents) — visível a TODOS os agentes");
       void notify(
         tr("sidebar.subagentWritten", "Subagente \"{name}\" criado ({scope}):\n{path}")
-          .replace("{name}", role.name).replace("{scope}", scope).replace("{path}", filePath ?? ""),
+          .replace("{name}", role.name).replace("{scope}", scopeLabel).replace("{path}", filePath ?? ""),
         "info",
       );
       return;

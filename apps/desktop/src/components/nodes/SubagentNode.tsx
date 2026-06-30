@@ -46,12 +46,24 @@ function SubagentNodeImpl({ data, selected }: NodeProps<SubagentRfNode>) {
       </div>
 
       <div className="flex-1 space-y-1 overflow-hidden p-2">
-        {data.parentLabel && (
+        {/* Escopo HONESTO: global (~/.claude/agents, todos veem) vs privado de um projeto.
+            "privado de <pai>" só vale quando o subagente está num cwd próprio (project). */}
+        {data.scope === "global" ? (
+          <div className="flex items-center gap-1 text-[10px] text-amber-300/90" title={t("subagent.globalTip", "Está em ~/.claude/agents — qualquer agente Claude no seu PC enxerga. Abra um projeto p/ deixá-lo privado.")}>
+            <span className="rounded bg-amber-500/20 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide">{t("subagent.global", "global")}</span>
+            {t("subagent.globalScope", "visível a TODOS os agentes")}
+          </div>
+        ) : data.scope === "project" ? (
+          <div className="text-[10px] text-text/50">
+            {t("subagent.privateProject", "privado do projeto")}{" "}
+            <span className="font-medium text-text/80">{(data.cwd ?? "").split("/").filter(Boolean).pop() ?? data.parentLabel}</span>
+          </div>
+        ) : data.parentLabel ? (
           <div className="text-[10px] text-text/50">
             {t("subagent.privateOf", "privado de")}{" "}
             <span className="font-medium text-text/80">{data.parentLabel}</span>
           </div>
-        )}
+        ) : null}
         {data.description && (
           <div className="line-clamp-2 text-[10px] leading-snug text-text/60">{data.description}</div>
         )}
