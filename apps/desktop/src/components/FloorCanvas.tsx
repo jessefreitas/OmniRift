@@ -117,6 +117,7 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
   const reparentNode = useCanvasStore((s) => s.reparentNode);
   const setRequestMcpMark = useCanvasStore((s) => s.setRequestMcpMark);
   const openConnectMenu = useCanvasStore((s) => s.openConnectMenu);
+  const clearConnectMenu = useCanvasStore((s) => s.clearConnectMenu);
   const connectingFrom = useRef<string | null>(null);
   const connectingHandle = useRef<string | null>(null); // alça de origem ("subagent" = baixo)
 
@@ -199,6 +200,7 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      clearConnectMenu(); // completou uma conexão num nó → fecha o menu se estava aberto
       if (!connection.source || !connection.target) return;
       const srcNode = nodes.find((n) => n.id === connection.source);
       const dstNode = nodes.find((n) => n.id === connection.target);
@@ -229,15 +231,16 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
         addEdge(connection.source, connection.target, "generic");
       }
     },
-    [nodes, addEdge, setRequestMcpMark],
+    [nodes, addEdge, setRequestMcpMark, clearConnectMenu],
   );
 
   // Puxar uma linha e soltar NO VAZIO (não num handle) → abre o menu de criar agente/role
   // já conectado. onConnectStart guarda a origem; onConnectEnd detecta o drop no pane.
   const onConnectStart: OnConnectStart = useCallback((_e, params) => {
+    clearConnectMenu(); // começou outra linha → fecha um menu que ficou aberto
     connectingFrom.current = params.nodeId ?? null;
     connectingHandle.current = params.handleId ?? null;
-  }, []);
+  }, [clearConnectMenu]);
   const onConnectEnd: OnConnectEnd = useCallback(
     (event, connectionState) => {
       const fromNodeId = connectionState.fromNode?.id ?? connectingFrom.current;
