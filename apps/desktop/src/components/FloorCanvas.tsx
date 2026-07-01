@@ -318,6 +318,7 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       nodeDragThreshold={4}
       deleteKeyCode={["Backspace", "Delete"]}
       colorMode="dark"
+      connectionRadius={55}
     >
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="rgb(46, 45, 50)" />
       <Controls position="bottom-left" showInteractive={false} />

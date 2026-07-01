@@ -53,6 +53,26 @@
   font-family: inherit;
 }
 
+/* Handles MAIORES + área de clique folgada — puxar/conectar linha era muito difícil com o
+   dot minúsculo default. Visual 12px; hit-area invisível ~26px (::after) pra acertar fácil. */
+.react-flow__handle {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+.react-flow__handle::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 9999px;
+}
+/* Ao passar o mouse no nó, os handles crescem e ganham brilho → ficam óbvios de agarrar. */
+.react-flow__node:hover .react-flow__handle {
+  width: 15px;
+  height: 15px;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
+}
+
 /* Markdown renderizado no Preview node (sem @tailwindcss/typography). */
 .md-preview {
   line-height: 1.55;
