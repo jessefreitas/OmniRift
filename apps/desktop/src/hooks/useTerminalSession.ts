@@ -29,7 +29,7 @@ import {
 } from "@/lib/pty-client";
 import { useCanvasStore } from "@/store/canvas-store";
 import { sessionStart, sessionEvent, sessionEnd } from "@/lib/session-client";
-import { pasteText } from "@/lib/clipboard";
+import { pasteText, copyText } from "@/lib/clipboard";
 import type { PtySpawnConfig, SessionId } from "@/types/pty";
 
 interface UseTerminalSessionOptions {
@@ -420,7 +420,22 @@ export function useTerminalSession({
             else void pasteText().then((text) => (text ? ptyWrite(sessionId, text) : undefined));
             return false;
           }
+          // Ctrl/Cmd+Shift+C → COPIA a seleção pro clipboard do SO (o menu de contexto está
+          // desabilitado no WebKitGTK; Ctrl+C puro é SIGINT). Sem isto, o que se copia do
+          // terminal não colava em lugar nenhum.
+          if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "c" || e.key === "C")) {
+            const s = term.getSelection();
+            if (s) void copyText(s);
+            return false;
+          }
           return true;
+        });
+
+        // Auto-copia ao SELECIONAR (X11 primary-selection style) → selecionar no terminal já
+        // manda pro clipboard do SO, mesmo sem Ctrl+Shift+C. É o que resolve "copio e não colo".
+        term.onSelectionChange(() => {
+          const s = term.getSelection();
+          if (s && s.trim()) void copyText(s);
         });
 
         // Reage a resize do xterm
