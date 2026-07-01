@@ -7,6 +7,7 @@
 
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react";
 import { useCanvasStore } from "@/store/canvas-store";
+import { ptyPipeRemove } from "@/lib/pty-client";
 
 const COLORS: Record<string, string> = {
   idle: "rgba(255,255,255,0.22)",
@@ -21,6 +22,9 @@ const PAYLOAD_BADGE: Record<string, string> = { diff: "📄 diff", result: "✅ 
 export function FlowEdge({
   id,
   data,
+  source,
+  target,
+  selected,
   sourceX,
   sourceY,
   targetX,
@@ -30,6 +34,7 @@ export function FlowEdge({
   markerEnd,
 }: EdgeProps) {
   const flow = useCanvasStore((s) => s.edgeFlow[id]) ?? "idle";
+  const removeEdge = useCanvasStore((s) => s.removeEdge);
   const payloadKind = useCanvasStore((s) => s.edgePayloadKind[id]);
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   const active = flow === "sending" || flow === "received" || flow === "review";
@@ -48,6 +53,14 @@ export function FlowEdge({
             : COLORS.idle;
   const stroke = flow !== "idle" ? COLORS[flow] ?? COLORS.idle : idleColor;
 
+  // Deleta a linha: se for pipe PTY, desfaz o pipe no backend (igual o onEdgesChange), depois
+  // remove do canvas. Aparece um × ao SELECIONAR a linha (clicar) — mais óbvio que Delete.
+  function del(e: { stopPropagation: () => void }) {
+    e.stopPropagation();
+    if (kind === "pty-pipe" && source && target) ptyPipeRemove(source, target).catch(() => {});
+    removeEdge(id);
+  }
+
   return (
     <>
       <BaseEdge
@@ -55,8 +68,8 @@ export function FlowEdge({
         path={path}
         markerEnd={markerEnd}
         style={{
-          stroke,
-          strokeWidth: active ? 2.5 : 1.5,
+          stroke: selected ? "#ef4444" : stroke,
+          strokeWidth: selected ? 3 : active ? 2.5 : 1.5,
           strokeDasharray: flow === "sending" ? "6 4" : undefined,
           animation:
             flow === "sending"
@@ -67,6 +80,18 @@ export function FlowEdge({
           transition: "stroke 0.3s ease",
         }}
       />
+      {selected && (
+        <EdgeLabelRenderer>
+          <button
+            className="nodrag nopan absolute flex h-5 w-5 items-center justify-center rounded-full border border-red-400/60 bg-bg text-[12px] leading-none text-red-300 shadow hover:bg-red-500 hover:text-white"
+            style={{ transform: `translate(-50%,-50%) translate(${labelX}px,${labelY}px)`, pointerEvents: "all" }}
+            onClick={del}
+            title="Remover linha (ou Delete)"
+          >
+            ×
+          </button>
+        </EdgeLabelRenderer>
+      )}
       {payloadKind && (flow === "sending" || flow === "review") && (
         <EdgeLabelRenderer>
           <div
