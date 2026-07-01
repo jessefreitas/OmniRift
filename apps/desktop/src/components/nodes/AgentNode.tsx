@@ -144,6 +144,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const subagentsSentRef = useRef(false); // a lista de subagentes já foi injetada num prompt?
   const acpSessionIdRef = useRef<string | null>(null); // sessionId do ADAPTER (p/ session/load)
   const resumeRef = useRef<string | null>(null); // pendente: resumir esta sessão no próximo spawn
+  const spawnedResumeRef = useRef(false); // o spawn atual usou resume? (pra fallback se o resume morrer 129)
   // Config BYOK do Hermes escolhida no wizard (com a key) — em memória só (a key NUNCA vai pro
   // store/disco). data.providerConfig persiste só {provider,model}; a key mora no keychain do SO.
   const hermesCfgRef = useRef<HermesProviderConfig | null>(null);
@@ -376,6 +377,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           // pra poder dar session/load num reload futuro (mantém a conversa).
           const sessId = (info as { sessionId?: string }).sessionId;
           if (sessId) acpSessionIdRef.current = sessId;
+          spawnedResumeRef.current = false; // ficou ready → uma morte futura é morte real, não resume-fail
           setStatus("ready");
           // Torna-se COMANDÁVEL pelo Orquestrador-terminal (entra no terminal_list).
           void acpAgentRegister(cmdLabel, id);
@@ -454,7 +456,20 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             }
           }
         }),
-        listenAcpExit(id, () => setStatus("dead")),
+        listenAcpExit(id, () => {
+          // Resume falhou rápido: o spawn pediu session/load mas o processo morreu ANTES de ficar
+          // ready (ex: `claude --resume` sai 129/SIGHUP quando o adapter não retoma a sessão). Em vez
+          // de deixar o agente MORTO, sobe uma sessão NOVA (perde a conversa, mas o agente volta).
+          if (spawnedResumeRef.current && statusRef.current === "starting") {
+            spawnedResumeRef.current = false;
+            acpSessionIdRef.current = null;
+            resumeRef.current = null;
+            pushSys(t("agent.resumeFellBack", "↻ o resume falhou (o adapter não retomou a sessão) — subindo uma sessão nova…"));
+            setReloadKey((k) => k + 1);
+            return;
+          }
+          setStatus("dead");
+        }),
         listenAcpAuthRequired(id, (methods) => {
           setAuthMethods(methods);
           setStatus("auth");
@@ -469,6 +484,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         return;
       }
       try {
+        spawnedResumeRef.current = !!resumeRef.current; // este spawn é um resume? (pro fallback do exit)
         await acpSpawn(id, {
           provider: data.provider,
           cwd: data.cwd,
