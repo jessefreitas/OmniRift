@@ -5,12 +5,13 @@
 // espera o usuário APROVAR (encaminha adiante via emitAgentOutput → o roteamento carrega pros
 // nós seguintes) ou REJEITAR (dropa). É o review-na-linha visual, o diferencial da Fase 2.
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { GitPullRequestArrow, Check, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { DiffLines } from "@/components/DiffViewerModal";
+import { ptyWrite } from "@/lib/pty-client";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import type { ReviewNode as ReviewNodeData } from "@/types/canvas";
@@ -22,15 +23,34 @@ function ReviewNodeImpl({ data, selected }: NodeProps<ReviewRfNode>) {
   const payload = useCanvasStore((s) => s.reviewPayloads[data.id]);
   const setReviewPayload = useCanvasStore((s) => s.setReviewPayload);
   const emitAgentOutput = useCanvasStore((s) => s.emitAgentOutput);
+  const emitNodeInput = useCanvasStore((s) => s.emitNodeInput);
   const t = useT();
+  const [reason, setReason] = useState("");
 
   const approve = () => {
     if (!payload) return;
     // Encaminha o payload aprovado → o roteamento (source = este id) carrega pros próximos nós.
     emitAgentOutput(data.id, payload.text, { kind: payload.kind, diff: payload.diff, path: payload.path });
     setReviewPayload(data.id, null);
+    setReason("");
   };
-  const reject = () => setReviewPayload(data.id, null);
+
+  // Rejeitar COM MOTIVO → manda o feedback DE VOLTA pro autor (source da edge de entrada),
+  // fechando o loop de refino: ele recebe "rejeitado: <motivo>" e corrige.
+  const reject = () => {
+    const fb = reason.trim();
+    if (fb) {
+      const st = useCanvasStore.getState();
+      const floor = st.parallels.find((p) => p.id === st.activeParallelId);
+      const inEdge = floor?.edges.find((e) => e.target === data.id && e.kind === "generic");
+      const producer = floor?.nodes.find((n) => n.id === inEdge?.source);
+      const msg = `❌ Review rejeitou este ${payload?.kind === "diff" ? "diff" : "resultado"}. Motivo: ${fb}. Corrija e reenvie.`;
+      if (producer?.kind === "agent") emitNodeInput(producer.id, msg);
+      else if (producer?.kind === "terminal") void ptyWrite(producer.session_id, msg + "\n");
+    }
+    setReviewPayload(data.id, null);
+    setReason("");
+  };
 
   const pending = !!payload;
 
@@ -73,19 +93,29 @@ function ReviewNodeImpl({ data, selected }: NodeProps<ReviewRfNode>) {
       </div>
 
       {payload && (
-        <div className="flex gap-1 border-t border-white/10 p-1.5">
-          <button
-            onClick={approve}
-            className="flex flex-1 items-center justify-center gap-1 rounded bg-green-500/15 px-2 py-1 text-green-300 hover:bg-green-500/25"
-          >
-            <Check size={13} /> {t("review.approve", "Aprovar")}
-          </button>
-          <button
-            onClick={reject}
-            className="flex flex-1 items-center justify-center gap-1 rounded bg-red-500/10 px-2 py-1 text-red-300 hover:bg-red-500/20"
-          >
-            <X size={13} /> {t("review.reject", "Rejeitar")}
-          </button>
+        <div className="space-y-1.5 border-t border-white/10 p-1.5">
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            onPointerDown={(e) => e.stopPropagation()}
+            placeholder={t("review.reasonPh", "Motivo (ao rejeitar, volta pro autor corrigir)…")}
+            className="nodrag w-full rounded bg-black/20 px-2 py-1 text-[11px] text-text outline-none placeholder:text-textMuted"
+          />
+          <div className="flex gap-1">
+            <button
+              onClick={approve}
+              className="flex flex-1 items-center justify-center gap-1 rounded bg-green-500/15 px-2 py-1 text-green-300 hover:bg-green-500/25"
+            >
+              <Check size={13} /> {t("review.approve", "Aprovar")}
+            </button>
+            <button
+              onClick={reject}
+              title={reason.trim() ? t("review.rejectWithReason", "Rejeita e manda o motivo pro autor") : t("review.rejectDrop", "Rejeita e dropa (sem motivo, não avisa o autor)")}
+              className="flex flex-1 items-center justify-center gap-1 rounded bg-red-500/10 px-2 py-1 text-red-300 hover:bg-red-500/20"
+            >
+              <X size={13} /> {t("review.reject", "Rejeitar")}
+            </button>
+          </div>
         </div>
       )}
     </div>
