@@ -186,8 +186,8 @@ export interface HtmlNode extends BaseCanvasNode {
 
 export interface AgentNode extends BaseCanvasNode {
   kind: "agent";
-  /** Provider ACP: qual adapter de agente fala o protocolo (claude | codex). Default claude. */
-  provider?: "claude" | "codex";
+  /** Provider ACP: qual adapter de agente fala o protocolo (claude | codex | hermes). Default claude. */
+  provider?: "claude" | "codex" | "hermes";
   /** Nome amigável do agente. */
   label?: string;
   /** Diretório de trabalho passado ao adapter ACP (resolvido p/ absoluto no backend). */

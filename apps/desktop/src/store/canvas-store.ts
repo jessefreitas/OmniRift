@@ -171,7 +171,7 @@ interface CanvasState {
   addCodeNode: (params: { filePath: string; position?: { x: number; y: number } }) => CodeNode;
   addPdfNode: (params: { filePath: string; position?: { x: number; y: number } }) => PdfNode;
   addHtmlNode: (params: { filePath: string; position?: { x: number; y: number } }) => HtmlNode;
-  addAgent: (params?: { label?: string; cwd?: string; provider?: "claude" | "codex"; position?: { x: number; y: number } }) => AgentNode;
+  addAgent: (params?: { label?: string; cwd?: string; provider?: "claude" | "codex" | "hermes"; position?: { x: number; y: number } }) => AgentNode;
   addSubagent: (params: {
     role: string;
     label: string;

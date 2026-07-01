@@ -190,8 +190,8 @@ interface AgentPreset {
   custom?: boolean;
   /** true = cria um OmniAgent (AgentNode estruturado via ACP), não um TerminalNode/PTY. */
   acp?: boolean;
-  /** Provider ACP quando acp=true (claude | codex). */
-  provider?: "claude" | "codex";
+  /** Provider ACP quando acp=true (claude | codex | hermes). */
+  provider?: "claude" | "codex" | "hermes";
 }
 
 // Instaladores oficiais dos CLIs (rodados num terminal ao clicar "instalar").
@@ -227,6 +227,16 @@ const PRESETS: AgentPreset[] = [
     installCmd: INSTALL.codex,
     acp: true,
     provider: "codex",
+  },
+  {
+    id: "omniagent-hermes",
+    label: "OmniAgent · Hermes",
+    command: "hermes", // placeholder; ACP ignora command/role e usa o provider
+    role: "claude-code",
+    icon: Bot,
+    description: "OmniAgent via Hermes (open-source) — modelo LOCAL/GRÁTIS ou API (Ollama/OpenRouter). 1ª vez: uvx baixa o pacote + `hermes model` p/ apontar o modelo",
+    acp: true,
+    provider: "hermes",
   },
   {
     id: "orquestrador",

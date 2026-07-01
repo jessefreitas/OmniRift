@@ -24,12 +24,15 @@ use tokio::sync::Mutex as AsyncMutex;
 
 pub type SessionId = String;
 
-/// Pacote do adapter ACP por provider (via npx). Claude e Codex têm adapters maduros.
-/// Gemini/Antigravity entram quando o Antigravity CLI liberar o modo ACP (hoje só feature request).
-fn adapter_pkg(provider: &str) -> &'static str {
+/// Comando de launch do adapter ACP por provider → (binário, args). Claude/Codex via `npx`;
+/// Hermes (Nous Research, open-source) via `uvx` (roda o pacote python `hermes-agent[acp]` como
+/// subprocesso ACP — modelo-agnóstico: aponta pra Ollama/OpenRouter/API por `hermes model`).
+/// O `uvx` é achado via `inherit_login_shell_path()` (o PATH do login já inclui ~/.local/bin).
+fn adapter_cmd(provider: &str) -> (&'static str, Vec<&'static str>) {
     match provider {
-        "codex" => "@agentclientprotocol/codex-acp",
-        _ => "@agentclientprotocol/claude-agent-acp",
+        "codex" => ("npx", vec!["-y", "@agentclientprotocol/codex-acp"]),
+        "hermes" => ("uvx", vec!["--from", "hermes-agent[acp]==0.17.0", "hermes-acp"]),
+        _ => ("npx", vec!["-y", "@agentclientprotocol/claude-agent-acp"]),
     }
 }
 
@@ -75,9 +78,9 @@ impl AcpManager {
                 .unwrap_or_else(|_| "/".to_string()),
         };
 
-        let pkg = adapter_pkg(provider.as_deref().unwrap_or("claude"));
-        let mut cmd = Command::new("npx");
-        cmd.args(["-y", pkg]);
+        let (bin, args) = adapter_cmd(provider.as_deref().unwrap_or("claude"));
+        let mut cmd = Command::new(bin);
+        cmd.args(&args);
         cmd.current_dir(&cwd_abs);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -86,7 +89,7 @@ impl AcpManager {
 
         let mut child = cmd
             .spawn()
-            .map_err(|e| anyhow!("falha ao spawnar adapter acp ({pkg}): {e}"))?;
+            .map_err(|e| anyhow!("falha ao spawnar adapter acp ({bin} {args:?}): {e}"))?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("adapter sem stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("adapter sem stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| anyhow!("adapter sem stderr"))?;
