@@ -34,6 +34,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
   const [cli, setCli] = useState(role.cli ?? "claude");
   const [startupCmd, setStartupCmd] = useState(role.startupCmd ?? "");
   const [skills, setSkills] = useState<string[]>(role.skills ?? []);
+  const [skillQuery, setSkillQuery] = useState("");
   const [available, setAvailable] = useState<SkillInfo[]>([]);
   const [mcpInv, setMcpInv] = useState<McpInventoryItem[]>([]);
   // null = role sem curadoria de MCP (undefined no disco). Vira lista concreta quando
@@ -288,8 +289,22 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
                   : t("roleEdit.openProjectToList", "Abra um projeto pra listar as skills de .claude/skills.")}
               </p>
             ) : (
-              <div className="mt-1 max-h-36 overflow-auto rounded-md border border-border divide-y divide-border/40">
-                {available.map((s) => (
+              <>
+                {available.length > 6 && (
+                  <input
+                    value={skillQuery}
+                    onChange={(e) => setSkillQuery(e.target.value)}
+                    placeholder={t("roleEdit.searchSkills", "buscar skill (nome ou descrição)…")}
+                    className="mt-1 w-full rounded-md border border-border bg-bg px-2 py-1 text-[11px] text-text outline-none focus:border-brand"
+                  />
+                )}
+                <div className="mt-1 max-h-36 overflow-auto rounded-md border border-border divide-y divide-border/40">
+                  {available
+                    .filter((s) => {
+                      const q = skillQuery.trim().toLowerCase();
+                      return !q || s.name.toLowerCase().includes(q) || (s.description ?? "").toLowerCase().includes(q);
+                    })
+                    .map((s) => (
                   <label key={`${s.source}:${s.name}`} className="flex items-start gap-2 px-2 py-1.5 hover:bg-surface2 cursor-pointer">
                     <input type="checkbox" checked={skills.includes(s.name)} onChange={() => toggleSkill(s.name)} className="mt-0.5" />
                     <span className="min-w-0 flex-1">
@@ -301,7 +316,8 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
                     </span>
                   </label>
                 ))}
-              </div>
+                </div>
+              </>
             )}
             <p className="mt-1 text-[10px] text-textMuted opacity-60">{t("roleEdit.skillsFooter", "As marcadas entram na persona do agente no spawn (ele prioriza usá-las).")}</p>
           </div>
