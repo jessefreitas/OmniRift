@@ -23,6 +23,7 @@ pub mod mcp;
 pub mod mcp_servers;
 pub mod memory;
 pub mod metrics;
+pub mod pipeline;
 pub mod providers;
 pub mod pty;
 pub mod review_cfg;

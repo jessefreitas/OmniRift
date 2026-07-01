@@ -86,6 +86,7 @@ use commands::acp::{
     acp_prompt, acp_set_config_option, acp_set_model, acp_spawn, hermes_list_models,
 };
 use commands::folder_canvas::{folder_canvas_load, folder_canvas_save};
+use commands::pipeline::{pipeline_load, pipeline_save};
 use commands::providers::{
     provider_delete, provider_list_models, provider_resolve, provider_save, providers_list,
 };
@@ -329,6 +330,8 @@ pub fn run() {
             provider_list_models,
             folder_canvas_save,
             folder_canvas_load,
+            pipeline_save,
+            pipeline_load,
             pty_spawn,
             pty_write,
             pty_resize,
