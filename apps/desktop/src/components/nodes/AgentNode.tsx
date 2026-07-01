@@ -150,6 +150,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // Claude expõe o modelo como configOption (não `models`). Quando é o caso, guardamos o configId
   // ("model") aqui → o dropdown troca via session/set_config_option em vez de session/set_model.
   const modelConfigIdRef = useRef<string | null>(null);
+  const personaSentRef = useRef(false); // persona injetada 1x quando ready (não re-injeta no reload)
   // 🎯 Goal (loop autônomo por-agente) + 🔁 Loop (timer). Os refs guardam o run ATIVO (estáveis
   // no closure do turn-done, sem stale state); goalRun alimenta o badge no header.
   const goalRef = useRef<{ objective: string; condition: string; maxIter: number } | null>(null);
@@ -165,6 +166,20 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  // Persona: quando fica ready pela 1ª vez, injeta o papel como prompt de priming. Trocar o modelo
+  // depois NÃO re-spawna → a persona (já na conversa) permanece. "Sai do Sonnet, vai pro Kimi,
+  // continua Arquiteto." (No reload/resume, personaSentRef já é true e não re-injeta.)
+  useEffect(() => {
+    if (status === "ready" && data.persona && !personaSentRef.current) {
+      personaSentRef.current = true;
+      void sendText(
+        `A partir de agora você atua com este papel/persona (mantenha-o independente do modelo):\n\n${data.persona}`,
+        `🎭 ${t("agent.personaSet", "persona definida")}: ${data.persona.slice(0, 48)}`,
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, data.persona]);
 
   // 🔁 Loop: re-manda o prompt a cada N min (só se ready e ocioso). Reusa acpPrompt. Persistido
   // em data.loop; ligar/desligar via o painel Loop. Não dispara no meio de um turno (thinking).
@@ -871,6 +886,13 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onDoubleClick={(e) => {
+        // Duplo-clique abre em tela cheia — menos nos controles (botões/input/select) e no corpo
+        // rolável (pra não atrapalhar seleção de texto). Basicamente: duplo-clique no header/vazio.
+        const el = e.target as HTMLElement;
+        if (el.closest("button,input,textarea,select,a")) return;
+        setIsFullscreen(true);
+      }}
     >
       <NodeResizer
         minWidth={320}

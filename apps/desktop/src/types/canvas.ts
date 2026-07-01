@@ -200,6 +200,12 @@ export interface AgentNode extends BaseCanvasNode {
    */
   providerConfig?: { provider: string; model: string };
   /**
+   * Persona do agente (papel/role) — injetada como prompt de PRIMING quando a sessão fica ready.
+   * Independente do MODELO: trocar o modelo (dropdown) não re-spawna, então a persona (que já
+   * está na conversa) permanece. É o "sai do Sonnet, vai pro Kimi, mas continua Arquiteto".
+   */
+  persona?: string;
+  /**
    * 🎯 Goal (loop autônomo por-agente): objetivo + condição de parada verificável (comando shell,
    * exit 0 = pronto). O agente tenta, roda a condição a cada turno, corrige o erro e repete até
    * passar (ou `maxIter`). Reusa o motor do TURBO (`run_check`). Persiste a ÚLTIMA config; o estado

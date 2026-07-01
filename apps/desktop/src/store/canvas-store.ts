@@ -174,7 +174,7 @@ interface CanvasState {
   addCodeNode: (params: { filePath: string; position?: { x: number; y: number } }) => CodeNode;
   addPdfNode: (params: { filePath: string; position?: { x: number; y: number } }) => PdfNode;
   addHtmlNode: (params: { filePath: string; position?: { x: number; y: number } }) => HtmlNode;
-  addAgent: (params?: { label?: string; cwd?: string; provider?: "claude" | "codex" | "hermes"; providerConfig?: { provider: string; model: string }; position?: { x: number; y: number } }) => AgentNode;
+  addAgent: (params?: { label?: string; cwd?: string; provider?: "claude" | "codex" | "hermes"; providerConfig?: { provider: string; model: string }; persona?: string; position?: { x: number; y: number } }) => AgentNode;
   addSubagent: (params: {
     role: string;
     label: string;
@@ -660,7 +660,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     return node;
   },
 
-  addAgent: ({ label, cwd, provider, providerConfig, position } = {}) => {
+  addAgent: ({ label, cwd, provider, providerConfig, persona, position } = {}) => {
     const node: AgentNode = {
       id: nanoid(),
       kind: "agent",
@@ -668,6 +668,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       label: label ?? "OmniAgent",
       cwd,
       providerConfig,
+      persona,
       createdAt: Date.now(),
       position: position ?? defaultPosition(),
       size: { width: 420, height: 480 },

@@ -79,7 +79,11 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
       const wave = a.wave ?? 1;
       const col = byWave.get(wave) ?? 0;
       byWave.set(wave, col + 1);
-      const node = addAgent({ label: a.role, position: { x: 80 + wave * 360, y: 80 + col * 200 } });
+      const node = addAgent({
+        label: a.role,
+        persona: `Você é o ${a.role} deste time. ${a.why}`,
+        position: { x: 80 + wave * 360, y: 80 + col * 200 },
+      });
       idByRole.set(a.role.toLowerCase(), node.id);
     }
     for (const c of plan.connections) {
