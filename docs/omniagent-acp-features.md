@@ -30,7 +30,18 @@ Um novo tipo de nó no canvas, **aditivo** (coexiste com os terminais PTY).
 |---|---|---|
 | **Claude** | OmniAgent via `@agentclientprotocol/claude-agent-acp` (herda `~/.claude`, zero setup) | Preset "OmniAgent" |
 | **Codex** | OmniAgent via `@agentclientprotocol/codex-acp` (GPT-5) | Preset "OmniAgent · Codex" |
+| **Hermes (BYOK)** | OmniAgent model-agnostic via `hermes-agent[acp]` (`uvx`) — **wizard** escolhe provider + modelo | Preset "OmniAgent · Hermes" |
 | **Login (Entrar)** | Quando o provider exige (Codex): botão "Entrar com ChatGPT / API Key" | Card mostra sozinho |
+
+### 2.1 Wizard do Hermes (provider → BYOK → modelo)
+
+O Hermes é **model-agnostic**; o card abre um **wizard de 3 passos** em vez de um login travado:
+
+1. **Provider** — Ollama Cloud (`ollama.com/v1`) · OpenRouter (aggregator, centenas de modelos) · Local (LM Studio/Ollama, sem key).
+2. **Key (BYOK)** — cola a sua API key; fica no **keychain do SO** (`memory/secret_store.rs`), **host-gated** (o Hermes só manda `OLLAMA_API_KEY` p/ ollama.com, `OPENROUTER_API_KEY` p/ openrouter — não vaza entre endpoints). A key **não** é serializada no canvas; nos re-spawns o backend a resolve do keychain.
+3. **Modelo** — lista **ao vivo** via `GET /v1/models` (backend Rust, `hermes_list_models`) com busca; fallback pra digitar o id à mão.
+
+Ao concluir, o backend injeta `HERMES_INFERENCE_PROVIDER` + `HERMES_INFERENCE_MODEL` + `<PROV>_API_KEY` no spawn → o `initialize` volta **sem authMethods** (autenticado) → `session/new` direto, **sem o setup interativo de terminal** (que travava no ACP). O seletor de modelo do card (`session/set_model`) segue trocando modelo dentro da sessão.
 
 ## 3. Conexões & Linhas — o que cada linha faz
 
