@@ -68,25 +68,56 @@ fn acct(id: &str) -> String {
 /// Lista os providers salvos (sem as chaves). `hasKey` reflete o keychain.
 #[tauri::command]
 pub fn providers_list() -> Result<Vec<LlmProvider>, String> {
-    let mut list = read_at(&providers_path()?)?;
+    let path = providers_path()?;
+    let mut list = read_at(&path)?;
     for p in &mut list {
         p.has_key = crate::memory::secret_store::get(&acct(&p.id)).is_some();
     }
-    Ok(list)
+    // Self-heal: colapsa duplicatas por kind+baseUrl (mantém a que TEM chave; senão a 1ª) e
+    // reescreve o arquivo — limpa as duplicatas que os saves antigos (ids inconsistentes) deixaram.
+    let before = list.len();
+    let mut deduped: Vec<LlmProvider> = Vec::new();
+    for p in list.into_iter() {
+        match deduped
+            .iter()
+            .position(|x| x.kind == p.kind && x.base_url.trim() == p.base_url.trim())
+        {
+            Some(pos) => {
+                if p.has_key && !deduped[pos].has_key {
+                    deduped[pos] = p;
+                }
+            }
+            None => deduped.push(p),
+        }
+    }
+    if deduped.len() != before {
+        let _ = write_at(&path, &deduped);
+    }
+    Ok(deduped)
 }
 
 /// Salva/atualiza um provider (upsert por id). `apiKey` (opcional) vai pro keychain; None =
 /// mantém a chave existente. Retorna a entrada persistida (com `hasKey`).
 #[tauri::command]
 pub fn provider_save(mut entry: LlmProvider, api_key: Option<String>) -> Result<LlmProvider, String> {
-    if entry.id.trim().is_empty() {
-        return Err("id vazio".into());
-    }
     if entry.kind.trim().is_empty() || entry.base_url.trim().is_empty() {
         return Err("kind e baseUrl são obrigatórios".into());
     }
     let path = providers_path()?;
     let mut list = read_at(&path)?;
+    // Dedup: os 3 pontos de save (wizard Hermes, config do review, modal Central) usavam ids
+    // diferentes p/ o mesmo provider → duplicatas. Se já existe uma entrada com o MESMO id OU
+    // o mesmo kind+baseUrl, reusa o id dela (ATUALIZA em vez de duplicar). 1 chave por (kind,url).
+    let existing_id = list
+        .iter()
+        .find(|p| p.id == entry.id || (p.kind == entry.kind && p.base_url.trim() == entry.base_url.trim()))
+        .map(|p| p.id.clone());
+    if let Some(id) = existing_id {
+        entry.id = id;
+    }
+    if entry.id.trim().is_empty() {
+        return Err("id vazio".into());
+    }
     if let Some(key) = api_key.filter(|k| !k.trim().is_empty()) {
         crate::memory::secret_store::set(&acct(&entry.id), key.trim());
     }
