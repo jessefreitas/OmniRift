@@ -64,3 +64,6 @@ apps/desktop/src-tauri/icons/ios/
 
 # ref reverse-engineering artifacts (AppImage, extracted squashfs, source ref)
 ref/
+
+# ferramenta de scan externa (não versionar — 319MB)
+bin/endorctl

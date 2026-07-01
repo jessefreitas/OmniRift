@@ -192,6 +192,13 @@ export interface AgentNode extends BaseCanvasNode {
   label?: string;
   /** Diretório de trabalho passado ao adapter ACP (resolvido p/ absoluto no backend). */
   cwd?: string;
+  /**
+   * Config BYOK do Hermes (model-agnostic): qual provider de inferência + modelo. Preenchido
+   * pelo HermesWizard. A API **key NÃO vive aqui** (nem é serializada) — fica no keychain do SO
+   * (`memory/secret_store.rs`, conta `hermes.<provider>.api_key`); o backend resolve no spawn.
+   * Injetado como `HERMES_INFERENCE_PROVIDER`/`HERMES_INFERENCE_MODEL` + `<PROV>_API_KEY`.
+   */
+  providerConfig?: { provider: string; model: string };
   /** Epoch ms de criação. */
   createdAt?: number;
 }
@@ -299,6 +306,7 @@ export interface CanvasNodePatch {
   path?: string;
   filePath?: string;
   comment?: string;
+  providerConfig?: { provider: string; model: string };
 }
 
 /** Conexão entre nós. */

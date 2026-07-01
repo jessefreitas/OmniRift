@@ -234,7 +234,7 @@ const PRESETS: AgentPreset[] = [
     command: "hermes", // placeholder; ACP ignora command/role e usa o provider
     role: "claude-code",
     icon: Bot,
-    description: "OmniAgent via Hermes (open-source) — modelo LOCAL/GRÁTIS ou API (Ollama/OpenRouter). 1ª vez: uvx baixa o pacote + `hermes model` p/ apontar o modelo",
+    description: "OmniAgent via Hermes (open-source) — escolha provider + modelo no wizard (Ollama Cloud / OpenRouter / Local, BYOK). 1ª vez: uvx baixa o pacote (~30s)",
     acp: true,
     provider: "hermes",
   },

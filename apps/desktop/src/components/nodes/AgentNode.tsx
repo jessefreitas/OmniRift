@@ -42,11 +42,12 @@ import {
   type AcpAuthMethod,
 } from "@/lib/acp-client";
 import type { AgentNode as AgentNodeData } from "@/types/canvas";
+import { HermesWizard, type HermesProviderConfig } from "./HermesWizard";
 
 type AgentRfNode = Node<AgentNodeData & Record<string, unknown>, "agent">;
 type AgentNodeProps = NodeProps<AgentRfNode>;
 
-type Status = "starting" | "ready" | "thinking" | "dead" | "auth";
+type Status = "starting" | "ready" | "thinking" | "dead" | "auth" | "config";
 interface Msg {
   role: "user" | "assistant" | "tool" | "system";
   text: string;
@@ -89,6 +90,7 @@ const ORCHESTRATOR_PROMPT = `Você é o ORQUESTRADOR do OmniRift: você COORDENA
 
 function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const removeNode = useCanvasStore((s) => s.removeNode);
+  const patchNode = useCanvasStore((s) => s.patchNode);
   const emitAgentOutput = useCanvasStore((s) => s.emitAgentOutput);
   const nodeInput = useCanvasStore((s) => s.nodeInputs[data.id]);
   const teamBriefing = useCanvasStore((s) => s.teamBriefing);
@@ -139,6 +141,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const subagentsSentRef = useRef(false); // a lista de subagentes já foi injetada num prompt?
   const acpSessionIdRef = useRef<string | null>(null); // sessionId do ADAPTER (p/ session/load)
   const resumeRef = useRef<string | null>(null); // pendente: resumir esta sessão no próximo spawn
+  // Config BYOK do Hermes escolhida no wizard (com a key) — em memória só (a key NUNCA vai pro
+  // store/disco). data.providerConfig persiste só {provider,model}; a key mora no keychain do SO.
+  const hermesCfgRef = useRef<HermesProviderConfig | null>(null);
   const lastDiffRef = useRef<{ diff: string; path?: string } | null>(null); // diff do turno (Fase 2a)
 
   // D2-v2 — reload re-spawna a sessão ACP pra carregar os `.claude/agents` plugados DEPOIS do
@@ -196,6 +201,20 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     const cmdLabel = data.label ?? "OmniAgent"; // label sob o qual o Orquestrador o comanda
     let unsubs: UnlistenFn[] = [];
     let alive = true;
+
+    // Hermes BYOK: sem provider+modelo escolhidos ainda → abre o wizard em vez de spawnar cego.
+    // hermesCfgRef (com a key, em memória) tem precedência; senão data.providerConfig (persistido,
+    // key vazia → o backend resolve do keychain no spawn). Outros providers: sempre null (spawn direto).
+    const hermesCfg: HermesProviderConfig | null =
+      data.provider === "hermes"
+        ? hermesCfgRef.current ?? (data.providerConfig ? { ...data.providerConfig, key: "" } : null)
+        : null;
+    if (data.provider === "hermes" && !hermesCfg) {
+      setStatus("config");
+      return () => {
+        alive = false;
+      };
+    }
 
     const pushSys = (text: string) => setMsgs((m) => [...m, { role: "system", text }]);
 
@@ -310,7 +329,12 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         return;
       }
       try {
-        await acpSpawn(id, { provider: data.provider, cwd: data.cwd, resumeSessionId: resumeRef.current ?? undefined });
+        await acpSpawn(id, {
+          provider: data.provider,
+          cwd: data.cwd,
+          resumeSessionId: resumeRef.current ?? undefined,
+          providerConfig: hermesCfg ?? undefined,
+        });
         resumeRef.current = null; // consumido
       } catch (e) {
         pushSys(`erro ao iniciar: ${e}`);
@@ -392,6 +416,15 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       setMsgs((m) => [...m, { role: "system", text: `erro no login: ${e}` }]);
       setStatus("auth");
     }
+  }
+
+  // Wizard Hermes concluído: guarda a config (com a key, em memória) + persiste só {provider,model}
+  // no nó, e re-spawna (o backend injeta as env vars → sessão nasce autenticada, sem login travado).
+  function configureHermes(cfg: HermesProviderConfig) {
+    hermesCfgRef.current = cfg;
+    patchNode(data.id, { providerConfig: { provider: cfg.provider, model: cfg.model } });
+    setStatus("starting");
+    setReloadKey((k) => k + 1);
   }
 
   // Input roteado de upstream (conexão A→este nó): manda como prompt automaticamente.
@@ -508,6 +541,14 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       >
         {status === "starting" && (
           <div className="text-text/50">{t("agent.starting", "iniciando agente (1ª vez baixa o adapter, ~30s)…")}</div>
+        )}
+        {status === "config" && (
+          <div className="space-y-1.5">
+            <p className="text-[11px] text-text/60">
+              {t("agent.hermesConfig", "Escolha o provider de inferência e o modelo (BYOK). Depois a sessão inicia sozinha.")}
+            </p>
+            <HermesWizard onDone={configureHermes} />
+          </div>
         )}
         {status === "auth" && (
           <div className="rounded border border-orange-500/30 bg-orange-500/5 p-2.5">
@@ -649,6 +690,7 @@ function StatusBadge({ status }: { status: Status }) {
     thinking: ["bg-brand animate-pulse", "pensando"],
     dead: ["bg-red-400", "encerrado"],
     auth: ["bg-orange-400", "login"],
+    config: ["bg-orange-400", "configurar"],
   };
   const [color, label] = map[status];
   return (

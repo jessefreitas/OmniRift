@@ -7,19 +7,40 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-/** Spawna o adapter ACP do provider (claude|codex) e inicia o handshake.
+/** Config BYOK do Hermes passada no spawn: provider de inferência + modelo + key (a key vai só
+ *  no spawn; o backend a persiste no keychain e passa vazia nos próximos re-spawns). */
+export interface HermesSpawnConfig {
+  provider: string;
+  model: string;
+  key?: string;
+  baseUrl?: string;
+}
+
+/** Spawna o adapter ACP do provider (claude|codex|hermes) e inicia o handshake.
  *  `resumeSessionId`: se passado, o backend faz session/load (resume a conversa) em vez de
- *  session/new → recarrega .claude/agents MANTENDO a conversa. */
+ *  session/new → recarrega .claude/agents MANTENDO a conversa.
+ *  `providerConfig`: só p/ Hermes (BYOK) → o backend injeta HERMES_INFERENCE_* + <PROV>_API_KEY. */
 export async function acpSpawn(
   id: string,
-  opts: { provider?: string; cwd?: string; resumeSessionId?: string } = {},
+  opts: { provider?: string; cwd?: string; resumeSessionId?: string; providerConfig?: HermesSpawnConfig } = {},
 ): Promise<string> {
   return invoke<string>("acp_spawn", {
     id,
     provider: opts.provider,
     cwd: opts.cwd,
     resumeSessionId: opts.resumeSessionId,
+    providerConfig: opts.providerConfig,
   });
+}
+
+/** Lista os modelos de um provider OpenAI-compat (GET {base}/v1/models) via backend Rust
+ *  (a key não trafega pelo front além do necessário). Usado pelo HermesWizard. */
+export async function hermesListModels(
+  provider: string,
+  key: string,
+  baseUrl?: string,
+): Promise<string[]> {
+  return invoke<string[]>("hermes_list_models", { provider, key, baseUrl });
 }
 
 /** Envia um prompt (turno). Pré-requisito: já recebeu `acp://ready`. */

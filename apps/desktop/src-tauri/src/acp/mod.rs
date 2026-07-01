@@ -36,6 +36,61 @@ fn adapter_cmd(provider: &str) -> (&'static str, Vec<&'static str>) {
     }
 }
 
+/// Config BYOK do Hermes vinda do `HermesWizard` (front): provider de inferência + modelo + key.
+/// `base_url` só p/ endpoint custom (local). A key chega no spawn e é persistida no keychain;
+/// nos re-spawns o front manda `key` vazia e o backend a resolve do keychain.
+#[derive(serde::Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderConfig {
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub key: String,
+    #[serde(default)]
+    pub base_url: Option<String>,
+}
+
+/// Mapeia config BYOK do Hermes ACP para as variáveis de ambiente do adapter Hermes.
+/// A env var da key é HOST-GATED por provider (o Hermes só usa `OLLAMA_API_KEY` p/ ollama.com,
+/// `OPENROUTER_API_KEY` p/ openrouter, etc. — não vaza credencial entre endpoints).
+fn hermes_provider_env(provider: &str, model: &str, key: &str, base_url: Option<&str>) -> Vec<(String, String)> {
+    fn prefix(provider: &str) -> String {
+        if provider.starts_with("ollama") {
+            "OLLAMA".to_string()
+        } else if provider == "openrouter" {
+            "OPENROUTER".to_string()
+        } else if provider == "openai" {
+            "OPENAI".to_string()
+        } else if matches!(provider, "local" | "lmstudio" | "lm-studio") {
+            "LM".to_string()
+        } else {
+            provider.to_uppercase().replace('-', "_")
+        }
+    }
+
+    if provider.is_empty() {
+        return Vec::new();
+    }
+
+    let p = prefix(provider);
+    let mut envs = Vec::with_capacity(4);
+    envs.push(("HERMES_INFERENCE_PROVIDER".to_string(), provider.to_string()));
+
+    if !model.is_empty() {
+        envs.push(("HERMES_INFERENCE_MODEL".to_string(), model.to_string()));
+    }
+
+    if !key.is_empty() {
+        envs.push((format!("{}_API_KEY", p), key.to_string()));
+    }
+
+    if let Some(url) = base_url.filter(|s| !s.is_empty()) {
+        envs.push((format!("{}_BASE_URL", p), url.to_string()));
+    }
+
+    envs
+}
+
 struct AcpSession {
     /// stdin do adapter (compartilhado: handshake-task + comandos prompt/permission/cancel).
     stdin: Arc<AsyncMutex<ChildStdin>>,
@@ -63,7 +118,7 @@ impl AcpManager {
     /// contexto — um comando Tauri SÍNCRONO roda fora do runtime e panica ("no reactor running").
     /// `resume_session_id`: se presente, faz `session/load` (resume a sessão ACP persistida)
     /// no lugar de `session/new` → recarrega `.claude/agents` MANTENDO a conversa (D2-v2).
-    pub async fn spawn(&self, id: SessionId, provider: Option<String>, cwd: Option<String>, resume_session_id: Option<String>, app: AppHandle) -> Result<SessionId> {
+    pub async fn spawn(&self, id: SessionId, provider: Option<String>, cwd: Option<String>, resume_session_id: Option<String>, provider_config: Option<ProviderConfig>, app: AppHandle) -> Result<SessionId> {
         if self.sessions.contains_key(&id) {
             return Err(anyhow!("sessão acp {id} já existe"));
         }
@@ -82,6 +137,26 @@ impl AcpManager {
         let mut cmd = Command::new(bin);
         cmd.args(&args);
         cmd.current_dir(&cwd_abs);
+
+        // BYOK do Hermes: injeta HERMES_INFERENCE_PROVIDER/MODEL + <PROV>_API_KEY (host-gated) no
+        // ambiente do adapter → a sessão nasce autenticada (authMethods vazio → session/new direto),
+        // sem o wizard interativo do Hermes. A key é persistida no keychain no 1º spawn; nos
+        // re-spawns o front manda vazia e resolvemos daqui (nunca serializada no canvas).
+        if provider.as_deref() == Some("hermes") {
+            if let Some(pc) = provider_config.as_ref().filter(|p| !p.provider.is_empty()) {
+                let account = format!("hermes.{}.api_key", pc.provider);
+                let key_eff = if !pc.key.is_empty() {
+                    let _ = crate::memory::secret_store::set(&account, &pc.key);
+                    pc.key.clone()
+                } else {
+                    crate::memory::secret_store::get(&account).unwrap_or_default()
+                };
+                for (k, v) in hermes_provider_env(&pc.provider, &pc.model, &key_eff, pc.base_url.as_deref()) {
+                    cmd.env(k, v);
+                }
+            }
+        }
+
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
