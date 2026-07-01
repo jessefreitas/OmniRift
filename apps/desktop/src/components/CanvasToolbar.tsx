@@ -4,7 +4,7 @@
 // um criador do store; o node nasce numa posição default e o usuário arrasta.
 
 import type { LucideIcon } from "lucide-react";
-import { Activity, Braces, Brain, Database, FileCode2, FileText, FolderTree, Frame, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench, Zap } from "lucide-react";
+import { Activity, Braces, Brain, Database, FileCode2, FileText, Filter, FolderTree, Frame, GitPullRequestArrow, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench, Zap } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { useCanvasStore } from "@/store/canvas-store";
@@ -51,6 +51,8 @@ export function CanvasToolbar() {
   const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
   const addCodeNode = useCanvasStore((s) => s.addCodeNode);
   const addAgent = useCanvasStore((s) => s.addAgent);
+  const addReviewNode = useCanvasStore((s) => s.addReviewNode);
+  const addFilterNode = useCanvasStore((s) => s.addFilterNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
 
   async function pickAndAddCode() {
@@ -70,6 +72,8 @@ export function CanvasToolbar() {
         icon={Brain}
         onClick={() => addAgent({})}
       />
+      <ToolBtn label={t("toolbar.review", "Review (gate de diff na linha)")} icon={GitPullRequestArrow} onClick={() => addReviewNode()} />
+      <ToolBtn label={t("toolbar.filter", "Filtro (roteamento por conteúdo)")} icon={Filter} onClick={() => addFilterNode()} />
       <ToolBtn label={t("toolbar.note", "Nota")} icon={StickyNote} onClick={() => addNote()} />
       <ToolBtn label={t("toolbar.group", "Grupo (frame)")} icon={Frame} onClick={() => addGroup()} />
       <ToolBtn

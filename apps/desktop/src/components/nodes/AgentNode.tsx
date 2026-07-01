@@ -71,6 +71,17 @@ function fmtTokens(n?: number): string {
   return String(n);
 }
 
+/** Monta um patch unificado cru (sem lib) do old/new do ACP → renderiza no DiffLines.
+ *  Cru de propósito (v1): old inteiro como `-`, new inteiro como `+`, capado a 200 linhas. */
+function buildPatch(path: string | undefined, oldText: string, newText: string): string {
+  const cap = (s: string) => s.split("\n").slice(0, 200);
+  const p = path ?? "arquivo";
+  const head = `--- a/${p}\n+++ b/${p}\n@@ @@`;
+  const minus = oldText ? cap(oldText).map((l) => `-${l}`).join("\n") : "";
+  const plus = newText ? cap(newText).map((l) => `+${l}`).join("\n") : "";
+  return [head, minus, plus].filter(Boolean).join("\n");
+}
+
 // Contrato injetado (invisível) no 1º prompt → faz o OmniAgent agir como orquestrador,
 // usando as tools MCP do OmniRift (injetadas no session/new pelo backend).
 const ORCHESTRATOR_PROMPT = `Você é o ORQUESTRADOR do OmniRift: você COORDENA agentes em vez de executar tudo sozinho. Você tem ferramentas MCP do OmniRift disponíveis: terminal_list (ver os agentes ativos), terminal_spawn_on_floor (criar um agente num worktree git isolado), terminal_run e terminal_send_text (comandar um agente), terminal_wait_status (esperar um agente concluir), memory_remember e memory_recall (blackboard compartilhado), claim_acquire e claim_release (evitar conflito de edição). Ao receber uma tarefa: decomponha em subtarefas, delegue a agentes (listando os existentes ou criando novos), acompanhe a conclusão e sintetize o resultado. Prefira DELEGAR a executar você mesmo.`;
@@ -126,6 +137,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const subagentsSentRef = useRef(false); // a lista de subagentes já foi injetada num prompt?
   const acpSessionIdRef = useRef<string | null>(null); // sessionId do ADAPTER (p/ session/load)
   const resumeRef = useRef<string | null>(null); // pendente: resumir esta sessão no próximo spawn
+  const lastDiffRef = useRef<{ diff: string; path?: string } | null>(null); // diff do turno (Fase 2a)
 
   // D2-v2 — reload re-spawna a sessão ACP pra carregar os `.claude/agents` plugados DEPOIS do
   // boot (o adapter não faz hot-reload). Se já temos o sessionId do adapter, faz `session/load`
@@ -192,6 +204,18 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         const title = up.title as string | undefined;
         const tk = up.kind as string | undefined;
         const st = up.status as string | undefined;
+        // Fase 2a — captura o DIFF do tool_call (content[].type === "diff") pra virar payload
+        // estruturado na linha. ACP dá {path, oldText, newText} (ou um patch pronto).
+        const content = up.content as Array<Record<string, unknown>> | undefined;
+        if (Array.isArray(content)) {
+          const d = content.find((c) => c?.type === "diff") as
+            | { path?: string; oldText?: string; newText?: string; diff?: string }
+            | undefined;
+          if (d) {
+            const patch = d.diff ?? buildPatch(d.path, d.oldText ?? "", d.newText ?? "");
+            lastDiffRef.current = { diff: patch, path: d.path };
+          }
+        }
         setMsgs((m) => {
           const idx = tcId ? m.findIndex((x) => x.role === "tool" && x.toolCallId === tcId) : -1;
           if (idx >= 0) {
@@ -247,7 +271,14 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         listenAcpTurnDone(id, () => {
           setStatus("ready");
           const reply = lastReplyRef.current.trim();
-          if (reply) emitAgentOutput(data.id, reply);
+          const diff = lastDiffRef.current;
+          lastDiffRef.current = null;
+          if (diff) {
+            // Fase 2a: um diff produzido no turno vira payload "diff" na linha (não só texto).
+            emitAgentOutput(data.id, reply || `diff em ${diff.path ?? "arquivo"}`, { kind: "diff", diff: diff.diff, path: diff.path });
+          } else if (reply) {
+            emitAgentOutput(data.id, reply);
+          }
         }),
         listenAcpExit(id, () => setStatus("dead")),
         listenAcpAuthRequired(id, (methods) => {

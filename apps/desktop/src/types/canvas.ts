@@ -43,7 +43,9 @@ export type NodeKind =
   | "pdf"
   | "html"
   | "agent"
-  | "subagent";
+  | "subagent"
+  | "review"
+  | "filter";
 
 export interface BaseCanvasNode {
   id: string;
@@ -223,6 +225,31 @@ export interface SubagentNode extends BaseCanvasNode {
   createdAt?: number;
 }
 
+/**
+ * ReviewNode (Fase 2b) — GATE na linha: recebe um payload estruturado (diff/result) de um
+ * agente, SEGURA até o usuário aprovar/rejeitar (mostra o diff no DiffViewer), e só encaminha
+ * pros nós seguintes se aprovado. O payload retido vive em `store.reviewPayloads[id]`.
+ */
+export interface ReviewNode extends BaseCanvasNode {
+  kind: "review";
+  label?: string;
+  createdAt?: number;
+}
+
+/**
+ * FilterNode (Fase 2c) — roteamento por CONTEÚDO: só deixa passar o payload que casa a condição
+ * (por tipo, regex no texto, ou path do diff). O que não casa é dropado (não flui adiante).
+ */
+export interface FilterNode extends BaseCanvasNode {
+  kind: "filter";
+  /** Modo da condição. */
+  mode: "kind" | "regex" | "path";
+  /** Valor: "diff"|"result"|"text" (kind), um regex (regex), ou um glob-ish de path (path). */
+  value: string;
+  label?: string;
+  createdAt?: number;
+}
+
 export type CanvasNode =
   | TerminalNode
   | NoteNode
@@ -240,7 +267,9 @@ export type CanvasNode =
   | PdfNode
   | HtmlNode
   | AgentNode
-  | SubagentNode;
+  | SubagentNode
+  | ReviewNode
+  | FilterNode;
 
 /**
  * Patch parcial pra `patchNode` — todos os campos editáveis de qualquer node,

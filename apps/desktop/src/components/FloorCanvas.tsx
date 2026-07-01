@@ -40,6 +40,8 @@ import { PdfNodeLazy } from "@/components/nodes/PdfNodeLazy";
 import { HtmlNode } from "@/components/nodes/HtmlNode";
 import { AgentNode } from "@/components/nodes/AgentNode";
 import { SubagentNode } from "@/components/nodes/SubagentNode";
+import { ReviewNode } from "@/components/nodes/ReviewNode";
+import { FilterNode } from "@/components/nodes/FilterNode";
 import { FlowEdge } from "@/components/edges/FlowEdge";
 import { useConnectionRouting } from "@/hooks/useConnectionRouting";
 import { useCanvasStore } from "@/store/canvas-store";
@@ -73,6 +75,8 @@ const nodeTypes = {
   html: HtmlNode,
   agent: AgentNode,
   subagent: SubagentNode,
+  review: ReviewNode,
+  filter: FilterNode,
 };
 
 const edgeTypes = { flow: FlowEdge };
@@ -95,6 +99,8 @@ const MINIMAP_COLORS: Record<string, string> = {
   html: "rgb(251, 146, 60)", // laranja (HTML5)
   agent: "rgb(167, 139, 250)", // violeta (agente ACP estruturado)
   subagent: "rgb(251, 191, 36)", // âmbar (subagente nativo .claude/agents)
+  review: "rgb(250, 204, 21)", // amarelo (gate de review na linha)
+  filter: "rgb(56, 189, 248)", // sky (filtro de conteúdo)
 };
 function miniMapNodeColor(n: Node): string {
   return MINIMAP_COLORS[n.type ?? ""] ?? "rgb(120, 120, 130)";

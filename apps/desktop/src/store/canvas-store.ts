@@ -22,6 +22,8 @@ import type {
   GroupNode,
   NoteNode,
   PortalNode,
+  ReviewNode,
+  FilterNode,
   SketchNode,
   SubagentNode,
   TerminalNode,
@@ -29,6 +31,17 @@ import type {
 import type { AnyWorkspaceFile, Parallel, Project, ProjectMeta, WorkspaceFileV3 } from "@/types/workspace";
 import { LOCAL_HOST_ID, migrateWorkspace, normalizeParallelHostId } from "@/types/workspace";
 import type { AgentRole, AgentState } from "@/types/pty";
+
+/** Fase 2 (conexões semânticas): a saída de um agente carrega TIPO, não só texto.
+ *  "diff" traz o patch + o path (do tool_call.content do ACP); "result"/"text" = texto. */
+export type AgentOutputKind = "text" | "diff" | "result";
+export interface AgentOutput {
+  text: string;
+  kind: AgentOutputKind;
+  diff?: string;
+  path?: string;
+  seq: number;
+}
 
 interface CanvasState {
   /** Projetos (canvas isolados, metadados). Os floors vivem FLAT em `floors` (todos
@@ -38,15 +51,21 @@ interface CanvasState {
   /** TODOS os floors de TODOS os projetos (flat). O Canvas mostra só os do ativo. */
   parallels: Parallel[];
   activeParallelId: string;
-  /** Roteamento de conexões: última saída de um agente, publicada por nodeId (source). */
-  agentOutputs: Record<string, { text: string; seq: number }>;
+  /** Roteamento de conexões: última saída (TIPADA) de um agente, publicada por nodeId (source). */
+  agentOutputs: Record<string, AgentOutput>;
   /** Input roteado pra um nó (target) — o AgentNode-target consome e dá send. */
   nodeInputs: Record<string, { text: string; seq: number }>;
-  /** Estado visual de cada edge (animação): idle/sending/received/error. */
-  edgeFlow: Record<string, "idle" | "sending" | "received" | "error">;
-  emitAgentOutput: (nodeId: string, text: string) => void;
+  /** Estado visual de cada edge: idle/sending/received/error + "review" (Fase 2b: aguarda aprovação). */
+  edgeFlow: Record<string, "idle" | "sending" | "received" | "error" | "review">;
+  /** Último tipo de payload que passou por cada edge (badge 📄diff/✅result na FlowEdge). */
+  edgePayloadKind: Record<string, AgentOutputKind>;
+  /** Fase 2b: payload RETIDO num ReviewNode aguardando aprovação (null = nada pendente). */
+  reviewPayloads: Record<string, AgentOutput | null>;
+  emitAgentOutput: (nodeId: string, text: string, extra?: { kind?: AgentOutputKind; diff?: string; path?: string }) => void;
   emitNodeInput: (nodeId: string, text: string) => void;
-  setEdgeFlow: (edgeId: string, flow: "idle" | "sending" | "received" | "error") => void;
+  setEdgeFlow: (edgeId: string, flow: "idle" | "sending" | "received" | "error" | "review") => void;
+  setEdgePayloadKind: (edgeId: string, kind: AgentOutputKind) => void;
+  setReviewPayload: (nodeId: string, payload: AgentOutput | null) => void;
   /** Sinal canvas→Sidebar: pede pra marcar um terminal como agente MCP (auto-conexão A→B).
    *  O onConnect (agente→terminal) seta; o Sidebar consome via toggleMcpAgent e limpa. */
   requestMcpMark: { sid: string; label: string; seq: number } | null;
@@ -164,6 +183,9 @@ interface CanvasState {
     scope?: "global" | "project";
     position?: { x: number; y: number };
   }) => SubagentNode;
+  addReviewNode: (params?: { position?: { x: number; y: number } }) => ReviewNode;
+  addFilterNode: (params?: { mode?: FilterNode["mode"]; value?: string; position?: { x: number; y: number } }) => FilterNode;
+  updateFilterNode: (id: string, patch: { mode?: FilterNode["mode"]; value?: string }) => void;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
   reparentNode: (nodeId: string, parentId: string | null) => void;
@@ -239,6 +261,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   agentOutputs: {},
   nodeInputs: {},
   edgeFlow: {},
+  edgePayloadKind: {},
+  reviewPayloads: {},
   requestMcpMark: null,
   teamBriefing: null,
   requestConnectMenu: null,
@@ -665,12 +689,62 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     return node;
   },
 
-  emitAgentOutput: (nodeId, text) =>
-    set((s) => ({ agentOutputs: { ...s.agentOutputs, [nodeId]: { text, seq: (s.agentOutputs[nodeId]?.seq ?? 0) + 1 } } })),
+  addReviewNode: ({ position } = {}) => {
+    const node: ReviewNode = {
+      id: nanoid(),
+      kind: "review",
+      label: "Review",
+      createdAt: Date.now(),
+      position: position ?? defaultPosition(),
+      size: { width: 340, height: 260 },
+    };
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  addFilterNode: ({ mode = "kind", value = "diff", position } = {}) => {
+    const node: FilterNode = {
+      id: nanoid(),
+      kind: "filter",
+      mode,
+      value,
+      label: "Filtro",
+      createdAt: Date.now(),
+      position: position ?? defaultPosition(),
+      size: { width: 240, height: 130 },
+    };
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  updateFilterNode: (id, patch) =>
+    set((s) => ({
+      parallels: mapActiveNodes(s, (ns) =>
+        ns.map((n) => (n.id === id && n.kind === "filter" ? ({ ...n, ...patch } as FilterNode) : n)),
+      ),
+    })),
+
+  emitAgentOutput: (nodeId, text, extra) =>
+    set((s) => ({
+      agentOutputs: {
+        ...s.agentOutputs,
+        [nodeId]: {
+          text,
+          kind: extra?.kind ?? "text",
+          diff: extra?.diff,
+          path: extra?.path,
+          seq: (s.agentOutputs[nodeId]?.seq ?? 0) + 1,
+        },
+      },
+    })),
   emitNodeInput: (nodeId, text) =>
     set((s) => ({ nodeInputs: { ...s.nodeInputs, [nodeId]: { text, seq: (s.nodeInputs[nodeId]?.seq ?? 0) + 1 } } })),
   setEdgeFlow: (edgeId, flow) =>
     set((s) => ({ edgeFlow: { ...s.edgeFlow, [edgeId]: flow } })),
+  setEdgePayloadKind: (edgeId, kind) =>
+    set((s) => ({ edgePayloadKind: { ...s.edgePayloadKind, [edgeId]: kind } })),
+  setReviewPayload: (nodeId, payload) =>
+    set((s) => ({ reviewPayloads: { ...s.reviewPayloads, [nodeId]: payload } })),
   setRequestMcpMark: (sid, label) =>
     set((s) => ({ requestMcpMark: { sid, label, seq: (s.requestMcpMark?.seq ?? 0) + 1 } })),
   clearRequestMcpMark: () => set({ requestMcpMark: null }),

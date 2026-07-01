@@ -1,23 +1,42 @@
 // src/hooks/useConnectionRouting.ts
 //
-// Coordenador de roteamento das conexões (edges) do canvas. Quando um AgentNode
-// publica uma saída (no turn-done → store.agentOutputs), este hook empurra o texto
-// pras conexões que saem dele:
-//   - target AgentNode  → store.nodeInputs (o nó-alvo dá send automático)
-//   - target Terminal    → stdin do PTY (ptyWrite)
-// e pinta o estado da edge (store.edgeFlow) pra animação: sending → received → idle.
-//
-// Montado uma vez (no FloorCanvas). Frontend-driven (v1): simples e usa o texto que o
-// AgentNode já acumulou; produção pode migrar pro backend.
+// Coordenador de roteamento das conexões (edges) do canvas — Fase 2 (conexões semânticas).
+// Quando um nó publica uma SAÍDA TIPADA (store.agentOutputs = {kind,text,diff?,path?}), este
+// hook empurra o PAYLOAD pras conexões que saem dele, respeitando o tipo do nó-alvo:
+//   - AgentNode   → store.nodeInputs (o alvo dá send automático)          [cano de chat/dados]
+//   - Terminal    → stdin do PTY (ptyWrite, serializa pra texto)          [fallback]
+//   - ReviewNode  → store.reviewPayloads[id] (SEGURA até aprovar)         [gate, Fase 2b]
+//   - FilterNode  → avalia a condição; se passa, RE-EMITE (encaminha)     [Fase 2c]
+// Review/Filter também são FONTES: quando aprovam/passam, chamam emitAgentOutput no próprio id
+// → este mesmo hook carrega adiante (roteamento é source-based, sem recursão).
+// Só roteia edges "generic" (a agent-link é time/comando via MCP, não cano de dados).
 
 import { useEffect, useRef } from "react";
-import { useCanvasStore } from "@/store/canvas-store";
+import { useCanvasStore, type AgentOutput } from "@/store/canvas-store";
+import type { FilterNode } from "@/types/canvas";
 import { ptyWrite } from "@/lib/pty-client";
+
+/** Condição do FilterNode: por tipo (kind), regex no texto+diff, ou substring de path. */
+function passesFilter(out: AgentOutput, f: FilterNode): boolean {
+  if (f.mode === "kind") return out.kind === f.value;
+  if (f.mode === "regex") {
+    try {
+      return new RegExp(f.value, "i").test(`${out.text}\n${out.diff ?? ""}`);
+    } catch {
+      return true; // regex inválido → não bloqueia (fail-open)
+    }
+  }
+  if (f.mode === "path") return (out.path ?? "").includes(f.value);
+  return true;
+}
 
 export function useConnectionRouting() {
   const agentOutputs = useCanvasStore((s) => s.agentOutputs);
   const emitNodeInput = useCanvasStore((s) => s.emitNodeInput);
+  const emitAgentOutput = useCanvasStore((s) => s.emitAgentOutput);
   const setEdgeFlow = useCanvasStore((s) => s.setEdgeFlow);
+  const setEdgePayloadKind = useCanvasStore((s) => s.setEdgePayloadKind);
+  const setReviewPayload = useCanvasStore((s) => s.setReviewPayload);
   const seenRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
@@ -26,26 +45,36 @@ export function useConnectionRouting() {
     if (!active) return;
 
     for (const [sourceId, out] of Object.entries(agentOutputs)) {
-      // só processa saídas novas (seq mudou)
-      if (seenRef.current[sourceId] === out.seq) continue;
+      if (seenRef.current[sourceId] === out.seq) continue; // só saídas novas
       seenRef.current[sourceId] = out.seq;
-      if (!out.text) continue;
+      if (!out.text && !out.diff) continue;
 
-      // Só roteia o output CRU em edges "generic" (cano explícito agente→agente). A
-      // `agent-link` (OmniAgent→terminal) é relação de TIME/comando via MCP — o OmniAgent
-      // comanda o terminal por terminal_send_text, NÃO despejando o chat dele no input.
-      // (subagent-link, pty-pipe [backend] e note-link também não recebem o output cru.)
+      // Só edges "generic" carregam dados; agent-link (time/comando) não.
       const edges = active.edges.filter((e) => e.source === sourceId && e.kind === "generic");
       for (const edge of edges) {
         const target = active.nodes.find((n) => n.id === edge.target);
         if (!target) continue;
 
         setEdgeFlow(edge.id, "sending");
+        setEdgePayloadKind(edge.id, out.kind);
         try {
           if (target.kind === "agent") {
             emitNodeInput(target.id, out.text);
           } else if (target.kind === "terminal") {
-            void ptyWrite(target.session_id, out.text + "\n");
+            ptyWrite(target.session_id, out.text + "\n").catch(() => {});
+          } else if (target.kind === "review") {
+            // Gate: segura o payload no ReviewNode; a edge fica em "review" (aguardando).
+            setReviewPayload(target.id, out);
+            setEdgeFlow(edge.id, "review");
+            continue; // não anima received; o ReviewNode encaminha ao aprovar
+          } else if (target.kind === "filter") {
+            // Roteamento por conteúdo: só encaminha se casar a condição.
+            if (passesFilter(out, target)) {
+              emitAgentOutput(target.id, out.text, { kind: out.kind, diff: out.diff, path: out.path });
+            } else {
+              setEdgeFlow(edge.id, "idle");
+              continue; // dropado (não passou no filtro)
+            }
           } else {
             setEdgeFlow(edge.id, "idle");
             continue;
@@ -60,5 +89,5 @@ export function useConnectionRouting() {
         window.setTimeout(() => setEdgeFlow(eid, "idle"), 1600);
       }
     }
-  }, [agentOutputs, emitNodeInput, setEdgeFlow]);
+  }, [agentOutputs, emitNodeInput, emitAgentOutput, setEdgeFlow, setEdgePayloadKind, setReviewPayload]);
 }

@@ -29,7 +29,7 @@ function statusBadge(s: string): { cls: string; label: string } {
 }
 
 /** Renderiza um patch unificado com linhas coloridas. */
-function DiffLines({ patch }: { patch: string }) {
+export function DiffLines({ patch }: { patch: string }) {
   const lines = patch.split("\n");
   return (
     <pre className="text-[11px] font-mono leading-[1.45]">
