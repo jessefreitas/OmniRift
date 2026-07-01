@@ -46,6 +46,11 @@ export async function acpAuthenticate(sessionId: string, methodId: string): Prom
   return invoke("acp_authenticate", { sessionId, methodId });
 }
 
+/** Troca o modelo do agente (ACP session/set_model). `modelId` vem do availableModels. */
+export async function acpSetModel(sessionId: string, modelId: string): Promise<void> {
+  return invoke("acp_set_model", { sessionId, modelId });
+}
+
 /** Registra o OmniAgent como COMANDÁVEL (label → sessão ACP) → entra no terminal_list e o
  *  Orquestrador-terminal pode comandá-lo via terminal_send_text/run. Chamar quando ficar ready. */
 export async function acpAgentRegister(label: string, sessionId: string): Promise<void> {

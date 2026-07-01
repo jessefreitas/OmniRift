@@ -80,3 +80,14 @@ pub fn acp_agent_register(label: String, session_id: SessionId, manager: State<'
 pub fn acp_agent_unregister(label: String, manager: State<'_, Arc<AcpManager>>) {
     manager.unregister_label(&label);
 }
+
+/// Troca o modelo do agente (ACP session/set_model). `model_id` vem do availableModels.
+#[tauri::command]
+pub async fn acp_set_model(
+    session_id: String,
+    model_id: String,
+    manager: State<'_, Arc<AcpManager>>,
+) -> Result<(), String> {
+    let mgr = manager.inner().clone();
+    mgr.set_model(&session_id, model_id).await.map_err(|e| format!("{e:#}"))
+}

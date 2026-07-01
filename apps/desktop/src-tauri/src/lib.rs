@@ -83,7 +83,7 @@ use commands::pty::{
 };
 use commands::acp::{
     acp_agent_register, acp_agent_unregister, acp_authenticate, acp_cancel, acp_permission_respond,
-    acp_prompt, acp_spawn,
+    acp_prompt, acp_set_model, acp_spawn,
 };
 use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
 use turbo::commands::{turbo_list, turbo_start, turbo_status, turbo_stop};
@@ -315,6 +315,7 @@ pub fn run() {
             acp_cancel,
             acp_agent_register,
             acp_agent_unregister,
+            acp_set_model,
             pty_spawn,
             pty_write,
             pty_resize,

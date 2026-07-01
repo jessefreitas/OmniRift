@@ -29,6 +29,7 @@ import {
   acpPermissionRespond,
   acpCancel,
   acpAuthenticate,
+  acpSetModel,
   acpAgentRegister,
   acpAgentUnregister,
   listenAcpReady,
@@ -120,6 +121,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
 
   const [status, setStatus] = useState<Status>("starting");
   const [model, setModel] = useState<string | null>(null);
+  const [availableModels, setAvailableModels] = useState<{ modelId: string; name?: string }[]>([]);
   const [usage, setUsage] = useState<Usage>({});
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [perm, setPerm] = useState<Perm | null>(null);
@@ -159,6 +161,17 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     teamRef.current = null;
     subagentsSentRef.current = false;
     setReloadKey((k) => k + 1);
+  }
+
+  // Troca o modelo do agente (ACP session/set_model). Útil pra rodar um agente barato
+  // (ex: validador) num modelo leve, e o autor num modelo forte.
+  function changeModel(modelId: string) {
+    const sid = acpSessionIdRef.current;
+    if (!sid || !modelId || modelId === model) return;
+    setModel(modelId);
+    setUsage((u) => ({ ...u, model: modelId }));
+    void acpSetModel(sid, modelId);
+    setMsgs((m) => [...m, { role: "system", text: `⚙️ ${t("agent.modelChanged", "modelo")} → ${availableModels.find((x) => x.modelId === modelId)?.name ?? modelId}` }]);
   }
 
   // Autoscroll pro fim a cada novo conteúdo.
@@ -251,9 +264,11 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       unsubs = await Promise.all([
         listenAcpReady(id, (info) => {
           const models = info.models as
-            | { availableModels?: { modelId: string }[]; currentModelId?: string }
+            | { availableModels?: { modelId: string; name?: string }[]; currentModelId?: string }
             | undefined;
-          const cur = models?.currentModelId ?? models?.availableModels?.[0]?.modelId ?? null;
+          const avail = models?.availableModels ?? [];
+          if (avail.length) setAvailableModels(avail);
+          const cur = models?.currentModelId ?? avail[0]?.modelId ?? null;
           if (cur) setModel(cur);
           if (cur) setUsage((u) => ({ ...u, model: cur }));
           // Guarda o sessionId do ADAPTER (session/new traz; session/load não → mantém o anterior)
@@ -422,7 +437,21 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         <span className="text-[10px] uppercase text-text/40">{data.provider ?? "claude"}</span>
         <StatusBadge status={status} />
         <div className="flex-1" />
-        {model && <Badge>{model}</Badge>}
+        {availableModels.length > 1 ? (
+          <select
+            value={model ?? ""}
+            onChange={(e) => changeModel(e.target.value)}
+            onPointerDown={(e) => e.stopPropagation()}
+            title={t("agent.pickModel", "Trocar o modelo do agente (ex: um mais barato pra validar)")}
+            className="nodrag max-w-[130px] truncate rounded bg-white/5 px-1 py-0.5 text-[10px] text-text/80 outline-none focus:bg-black/40"
+          >
+            {availableModels.map((m) => (
+              <option key={m.modelId} value={m.modelId}>{m.name ?? m.modelId}</option>
+            ))}
+          </select>
+        ) : model ? (
+          <Badge>{model}</Badge>
+        ) : null}
         {usage.used != null && (
           <Badge title={t("agent.context", "contexto usado")}>
             {fmtTokens(usage.used)}

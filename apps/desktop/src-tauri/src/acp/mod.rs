@@ -298,6 +298,20 @@ impl AcpManager {
         write_line(&sess.stdin, &req).await
     }
 
+    /// Troca o modelo do agente (ACP `session/set_model`) — o `model_id` vem do
+    /// `availableModels` que o session/new devolveu. Ex: validador num modelo barato.
+    pub async fn set_model(&self, id: &str, model_id: String) -> Result<()> {
+        let sess = self.session(id)?;
+        let acp_sid = sess
+            .acp_session_id
+            .lock()
+            .clone()
+            .ok_or_else(|| anyhow!("sessão acp {id} ainda não inicializada"))?;
+        let req = json!({ "jsonrpc": "2.0", "id": 6, "method": "session/set_model",
+            "params": { "sessionId": acp_sid, "modelId": model_id } });
+        write_line(&sess.stdin, &req).await
+    }
+
     /// Responde a um `session/request_permission`. `option_id = None` → cancelado.
     pub async fn permission_respond(&self, id: &str, req_id: Value, option_id: Option<String>) -> Result<()> {
         let sess = self.session(id)?;
