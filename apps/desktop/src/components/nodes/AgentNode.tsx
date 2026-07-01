@@ -45,6 +45,7 @@ import {
 } from "@/lib/acp-client";
 import type { AgentNode as AgentNodeData } from "@/types/canvas";
 import { HermesWizard, type HermesProviderConfig } from "./HermesWizard";
+import { pasteText } from "@/lib/clipboard";
 
 type AgentRfNode = Node<AgentNodeData & Record<string, unknown>, "agent">;
 type AgentNodeProps = NodeProps<AgentRfNode>;
@@ -811,6 +812,19 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               send();
+              return;
+            }
+            // WebKitGTK/Linux: Ctrl/Cmd+V nativo não cola em <input> → lê o clipboard pelo plugin
+            // (mesmo workaround do terminal) e insere no cursor.
+            if ((e.ctrlKey || e.metaKey) && (e.key === "v" || e.key === "V")) {
+              e.preventDefault();
+              const el = e.currentTarget;
+              const start = el.selectionStart ?? el.value.length;
+              const end = el.selectionEnd ?? el.value.length;
+              const before = el.value;
+              void pasteText().then((clip) => {
+                if (clip) setInput(before.slice(0, start) + clip + before.slice(end));
+              });
             }
           }}
           disabled={status !== "ready"}
