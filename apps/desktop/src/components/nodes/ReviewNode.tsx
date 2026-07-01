@@ -140,8 +140,10 @@ function ReviewNodeImpl({ data, selected }: NodeProps<ReviewRfNode>) {
       <div className="nodrag nowheel flex-1 overflow-auto p-2" onPointerDown={(e) => e.stopPropagation()}>
         {!payload ? (
           <div className="space-y-1.5 text-[11px] leading-relaxed text-text/50">
-            <p>{t("review.empty", "Ligue a saída de um agente aqui. Quando ele produzir um diff/resultado, SEGURA aqui pra aprovar antes de fluir.")}</p>
-            <p className="text-text/40">{t("review.emptyValidator", "Dica: ligue a alça de baixo num OmniAgent revisor → ele valida sozinho e decide.")}</p>
+            <p className="font-medium text-text/70">{t("review.emptyWhat", "Gate de aprovação na linha.")}</p>
+            <p>{t("review.empty", "Ligue Agente → Review → outro nó. Quando o agente produzir um diff/resultado, ele SEGURA aqui — só flui pro próximo depois que você Aprovar. Sem commit automático.")}</p>
+            <p className="text-text/40">{t("review.emptyReject", "Rejeitar com motivo → o feedback volta pro autor corrigir (fecha o loop).")}</p>
+            <p className="text-text/40">{t("review.emptyValidator", "✨ Ligue a alça de baixo num OmniAgent revisor → ele valida sozinho (APPROVE/REJECT) e decide por você.")}</p>
           </div>
         ) : payload.kind === "diff" && payload.diff ? (
           <>

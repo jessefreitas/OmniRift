@@ -61,11 +61,14 @@ interface CanvasState {
   edgePayloadKind: Record<string, AgentOutputKind>;
   /** Fase 2b: payload RETIDO num ReviewNode aguardando aprovação (null = nada pendente). */
   reviewPayloads: Record<string, AgentOutput | null>;
+  /** Modo `ai` do FilterNode: payload retido aguardando o veredito do LLM (async, no nó). */
+  filterPending: Record<string, AgentOutput | null>;
   emitAgentOutput: (nodeId: string, text: string, extra?: { kind?: AgentOutputKind; diff?: string; path?: string }) => void;
   emitNodeInput: (nodeId: string, text: string) => void;
   setEdgeFlow: (edgeId: string, flow: "idle" | "sending" | "received" | "error" | "review") => void;
   setEdgePayloadKind: (edgeId: string, kind: AgentOutputKind) => void;
   setReviewPayload: (nodeId: string, payload: AgentOutput | null) => void;
+  setFilterPending: (nodeId: string, payload: AgentOutput | null) => void;
   /** Sinal canvas→Sidebar: pede pra marcar um terminal como agente MCP (auto-conexão A→B).
    *  O onConnect (agente→terminal) seta; o Sidebar consome via toggleMcpAgent e limpa. */
   requestMcpMark: { sid: string; label: string; seq: number } | null;
@@ -185,7 +188,7 @@ interface CanvasState {
   }) => SubagentNode;
   addReviewNode: (params?: { position?: { x: number; y: number } }) => ReviewNode;
   addFilterNode: (params?: { mode?: FilterNode["mode"]; value?: string; position?: { x: number; y: number } }) => FilterNode;
-  updateFilterNode: (id: string, patch: { mode?: FilterNode["mode"]; value?: string }) => void;
+  updateFilterNode: (id: string, patch: { mode?: FilterNode["mode"]; value?: string; providerId?: string; model?: string; criterion?: string }) => void;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
   reparentNode: (nodeId: string, parentId: string | null) => void;
@@ -263,6 +266,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   edgeFlow: {},
   edgePayloadKind: {},
   reviewPayloads: {},
+  filterPending: {},
   requestMcpMark: null,
   teamBriefing: null,
   requestConnectMenu: null,
@@ -746,6 +750,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     set((s) => ({ edgePayloadKind: { ...s.edgePayloadKind, [edgeId]: kind } })),
   setReviewPayload: (nodeId, payload) =>
     set((s) => ({ reviewPayloads: { ...s.reviewPayloads, [nodeId]: payload } })),
+  setFilterPending: (nodeId, payload) =>
+    set((s) => ({ filterPending: { ...s.filterPending, [nodeId]: payload } })),
   setRequestMcpMark: (sid, label) =>
     set((s) => ({ requestMcpMark: { sid, label, seq: (s.requestMcpMark?.seq ?? 0) + 1 } })),
   clearRequestMcpMark: () => set({ requestMcpMark: null }),

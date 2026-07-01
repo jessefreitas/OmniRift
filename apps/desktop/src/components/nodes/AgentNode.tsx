@@ -150,6 +150,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const goalRef = useRef<{ objective: string; condition: string; maxIter: number } | null>(null);
   const goalStatusRef = useRef<"running" | "done" | "stopped" | "fail" | null>(null);
   const goalIterRef = useRef(0);
+  // Saída da condição na iteração anterior — se repetir idêntica, o agente está preso num
+  // raciocínio circular (aplicou o mesmo fix que não muda nada) → aborta (detecção de estagnação).
+  const goalLastOutRef = useRef<string | null>(null);
   const statusRef = useRef<Status>("starting");
   const [goalRun, setGoalRun] = useState<{ iter: number; status: "running" | "done" | "stopped" | "fail" } | null>(null);
   const [panel, setPanel] = useState<"none" | "goal" | "loop">("none");
@@ -377,9 +380,21 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             }
             if (res.exit === 0) {
               goalStatusRef.current = "done";
+              goalLastOutRef.current = null;
               setGoalRun((r) => (r ? { ...r, status: "done" } : r));
               pushSys(`🎯 Goal concluído — \`${g.condition}\` passou (exit 0). Revise o diff e commite.`);
             } else {
+              const out = res.output.slice(0, 2000);
+              // Detecção de estagnação (ponto do Jessé): a condição falhou EXATAMENTE igual à
+              // iteração anterior → o agente está preso (mesmo fix que não muda nada). Aborta —
+              // é mais barato que rodar até maxIter num loop circular.
+              if (goalLastOutRef.current !== null && out === goalLastOutRef.current) {
+                goalStatusRef.current = "stopped";
+                setGoalRun((r) => (r ? { ...r, status: "stopped" } : r));
+                pushSys(`🎯 Goal parou — estagnado: a condição falhou idêntica 2× (raciocínio circular). Revise manualmente.`);
+                return;
+              }
+              goalLastOutRef.current = out;
               const it = goalIterRef.current + 1;
               if (it > g.maxIter) {
                 goalStatusRef.current = "fail";
@@ -390,10 +405,15 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
                 setGoalRun({ iter: it, status: "running" });
                 pushSys(`🎯 iteração ${it}/${g.maxIter} — condição falhou (exit ${res.exit}), corrigindo…`);
                 setStatus("thinking");
-                const out = res.output.slice(0, 2000);
+                // Reinjeta o OBJETIVO a cada iteração (ponto #4 do Jessé): o goal vive no goalRef
+                // (estado separado), mas o Claude Code compacta o contexto → o objetivo original
+                // some. Reinjetar mantém o norte + exige VERIFICAÇÃO articulada (adapta finish_task).
                 await acpPrompt(
                   id,
-                  `A condição \`${g.condition}\` ainda FALHA (exit ${res.exit}). Saída:\n${out}\n\nCorrija a causa e continue até ela sair com exit 0. Não pare antes disso.`,
+                  `OBJETIVO (não perca de vista):\n${g.objective}\n\n` +
+                    `A condição de PRONTO \`${g.condition}\` ainda FALHA (exit ${res.exit}). Saída:\n${out}\n\n` +
+                    `Corrija a causa raiz e continue até \`${g.condition}\` sair com exit 0. ` +
+                    `NÃO diga que terminou sem rodar a condição você mesmo; relate COMO verificou.`,
                 );
               }
             }
@@ -486,10 +506,14 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     goalRef.current = cfg;
     goalStatusRef.current = "running";
     goalIterRef.current = 1;
+    goalLastOutRef.current = null;
     setGoalRun({ iter: 1, status: "running" });
     setPanel("none");
     void sendText(
-      `OBJETIVO:\n${cfg.objective}\n\nCONDIÇÃO DE PRONTO (comando que DEVE sair com exit 0):\n${cfg.condition}\n\nImplemente. Ao terminar, a condição roda automaticamente; se falhar, você recebe o erro e continua até passar.`,
+      `OBJETIVO:\n${cfg.objective}\n\n` +
+        `CONDIÇÃO DE PRONTO (comando que DEVE sair com exit 0):\n${cfg.condition}\n\n` +
+        `Implemente. Ao terminar, a condição roda automaticamente; se falhar, você recebe o erro e continua até passar. ` +
+        `NÃO declare pronto sem rodar a condição você mesmo — relate COMO verificou (teste rodou, diff aplicado, build passou).`,
       `🎯 Goal iniciado (iter 1/${cfg.maxIter})`,
     );
   }
@@ -497,6 +521,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   function stopGoal() {
     goalRef.current = null;
     goalStatusRef.current = null;
+    goalLastOutRef.current = null;
     setGoalRun(null);
   }
 

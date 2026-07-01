@@ -261,10 +261,16 @@ export interface ReviewNode extends BaseCanvasNode {
  */
 export interface FilterNode extends BaseCanvasNode {
   kind: "filter";
-  /** Modo da condição. */
-  mode: "kind" | "regex" | "path";
+  /** Modo da condição. `ai` = um LLM (da Central) decide por SIGNIFICADO (async, no FilterNode). */
+  mode: "kind" | "regex" | "path" | "ai";
   /** Valor: "diff"|"result"|"text" (kind), um regex (regex), ou um glob-ish de path (path). */
   value: string;
+  /** Modo `ai`: id do provider salvo na Central de API (resolve chave+baseUrl no keychain). */
+  providerId?: string;
+  /** Modo `ai`: modelo a usar (ex: kimi-k2.7-code). */
+  model?: string;
+  /** Modo `ai`: critério em linguagem natural (ex: "só mudanças de segurança/autenticação"). */
+  criterion?: string;
   label?: string;
   createdAt?: number;
 }

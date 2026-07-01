@@ -37,6 +37,7 @@ export function useConnectionRouting() {
   const setEdgeFlow = useCanvasStore((s) => s.setEdgeFlow);
   const setEdgePayloadKind = useCanvasStore((s) => s.setEdgePayloadKind);
   const setReviewPayload = useCanvasStore((s) => s.setReviewPayload);
+  const setFilterPending = useCanvasStore((s) => s.setFilterPending);
   const seenRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
@@ -68,7 +69,14 @@ export function useConnectionRouting() {
             setEdgeFlow(edge.id, "review");
             continue; // não anima received; o ReviewNode encaminha ao aprovar
           } else if (target.kind === "filter") {
-            // Roteamento por conteúdo: só encaminha se casar a condição.
+            if (target.mode === "ai") {
+              // Modo IA: não decide aqui (a avaliação é async, via LLM). Segura o payload → o
+              // FilterNode manda pro modelo da Central, e re-emite (emitAgentOutput) se aprovar.
+              setFilterPending(target.id, out);
+              setEdgeFlow(edge.id, "review");
+              continue;
+            }
+            // Roteamento por conteúdo (determinístico): só encaminha se casar a condição.
             if (passesFilter(out, target)) {
               emitAgentOutput(target.id, out.text, { kind: out.kind, diff: out.diff, path: out.path });
             } else {
@@ -89,5 +97,5 @@ export function useConnectionRouting() {
         window.setTimeout(() => setEdgeFlow(eid, "idle"), 1600);
       }
     }
-  }, [agentOutputs, emitNodeInput, emitAgentOutput, setEdgeFlow, setEdgePayloadKind, setReviewPayload]);
+  }, [agentOutputs, emitNodeInput, emitAgentOutput, setEdgeFlow, setEdgePayloadKind, setReviewPayload, setFilterPending]);
 }
