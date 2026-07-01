@@ -1286,6 +1286,16 @@ export function Sidebar() {
       return st.parallels.find((f) => f.id === st.activeParallelId)?.nodes ?? [];
     };
 
+    // Modo VALIDADOR (alça de baixo da Review): cria um OmniAgent revisor e liga por
+    // "validator-link". Tem que ser ACP (só OmniAgent produz output pra Review parsear).
+    if (req.mode === "validator") {
+      const preset = agentList.find((p) => p.id === item.id);
+      if (!preset?.acp) return;
+      const rev = addAgent({ provider: preset.provider, label: "Revisor", cwd: currentCwd ?? undefined, position: req.flow });
+      addEdge(req.fromNodeId, rev.id, "validator-link", { sourceHandle: "validator" });
+      return;
+    }
+
     // Modo SUBAGENTE: cria um nó-filho privado + escreve .claude/agents/<role>.md na
     // pasta do pai (cwd do agente, senão o do projeto). NÃO entra no time MCP.
     if (req.mode === "subagent") {
@@ -2136,24 +2146,34 @@ export function Sidebar() {
           x={requestConnectMenu.screen.x}
           y={requestConnectMenu.screen.y}
           mode={requestConnectMenu.mode}
-          items={[
-            // Modo subagente lista só roles (a função do subagente). Time lista agentes + roles.
-            ...(requestConnectMenu.mode === "subagent"
-              ? []
-              : agentList.map((p): DropMenuItem => ({
+          items={
+            // validador → só OmniAgents (ACP); subagente → só roles; time → agentes + roles.
+            requestConnectMenu.mode === "validator"
+              ? agentList.filter((p) => p.acp).map((p): DropMenuItem => ({
                   id: p.id,
                   label: tr("preset." + p.id, p.label),
                   hint: tr("presetDesc." + p.id, p.description),
                   group: "agent",
                   icon: p.icon,
-                }))),
-            ...roles.map((r): DropMenuItem => ({
-              id: r.id,
-              label: r.name,
-              hint: r.prompt.slice(0, 90),
-              group: "role",
-            })),
-          ]}
+                }))
+              : [
+                  ...(requestConnectMenu.mode === "subagent"
+                    ? []
+                    : agentList.map((p): DropMenuItem => ({
+                        id: p.id,
+                        label: tr("preset." + p.id, p.label),
+                        hint: tr("presetDesc." + p.id, p.description),
+                        group: "agent",
+                        icon: p.icon,
+                      }))),
+                  ...roles.map((r): DropMenuItem => ({
+                    id: r.id,
+                    label: r.name,
+                    hint: r.prompt.slice(0, 90),
+                    group: "role",
+                  })),
+                ]
+          }
           onPick={(it) => { void onDropPick(it); }}
           onClose={clearConnectMenu}
         />

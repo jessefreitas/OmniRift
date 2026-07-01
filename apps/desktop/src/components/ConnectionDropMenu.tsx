@@ -33,8 +33,9 @@ export function ConnectionDropMenu({
   x: number;
   y: number;
   items: DropMenuItem[];
-  /** "subagent" = plugar subagente privado (só roles); "team" = conectar par/equipe. */
-  mode?: "team" | "subagent";
+  /** "subagent" = plugar subagente privado (só roles); "validator" = revisor IA da Review
+   *  (só OmniAgents); "team" = conectar par/equipe. */
+  mode?: "team" | "subagent" | "validator";
   onPick: (item: DropMenuItem) => void;
   onClose: () => void;
 }) {
@@ -105,6 +106,11 @@ export function ConnectionDropMenu({
       {mode === "subagent" && (
         <div className="border-b border-amber-500/20 bg-amber-500/5 px-2 py-1.5 text-[10px] leading-snug text-amber-300/90">
           {t("connectMenu.subagentBanner", "Plugar SUBAGENTE — privado deste agente (.claude/agents), não entra no time MCP.")}
+        </div>
+      )}
+      {mode === "validator" && (
+        <div className="border-b border-brand/20 bg-brand/5 px-2 py-1.5 text-[10px] leading-snug text-brand/90">
+          {t("connectMenu.validatorBanner", "Escolha o OmniAgent REVISOR — ele valida o diff sozinho e decide (APPROVE/REJECT).")}
         </div>
       )}
       <div className="flex items-center gap-1.5 border-b border-border px-2 py-1.5">

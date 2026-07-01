@@ -86,15 +86,15 @@ interface CanvasState {
     fromNodeId: string;
     flow: { x: number; y: number };
     screen: { x: number; y: number };
-    /** "team" = par/equipe (alça direita); "subagent" = subagente privado (alça de baixo). */
-    mode: "team" | "subagent";
+    /** "team" = par/equipe; "subagent" = subagente privado; "validator" = revisor IA da Review. */
+    mode: "team" | "subagent" | "validator";
     seq: number;
   } | null;
   openConnectMenu: (p: {
     fromNodeId: string;
     flow: { x: number; y: number };
     screen: { x: number; y: number };
-    mode?: "team" | "subagent";
+    mode?: "team" | "subagent" | "validator";
   }) => void;
   clearConnectMenu: () => void;
   workspaceName: string;

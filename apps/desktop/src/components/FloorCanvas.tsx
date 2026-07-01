@@ -251,8 +251,9 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       const flow = connectionState.to;
       if (!flow) return;
       const pt = "changedTouches" in event ? event.changedTouches[0] : (event as MouseEvent);
-      // Alça de baixo ("subagent") → menu em modo subagente (só roles, privado do pai).
-      const mode = handleId === "subagent" ? "subagent" : "team";
+      // Alça: "subagent" → menu de roles (subagente privado); "validator" (alça de baixo da
+      // Review) → menu de OmniAgents (revisor IA); senão → time (agentes + roles).
+      const mode = handleId === "subagent" ? "subagent" : handleId === "validator" ? "validator" : "team";
       openConnectMenu({
         fromNodeId,
         flow: { x: flow.x, y: flow.y },
