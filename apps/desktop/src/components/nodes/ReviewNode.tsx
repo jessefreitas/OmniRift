@@ -2,12 +2,16 @@
 //
 // Fase 2b — GATE na linha. Recebe um payload estruturado (diff/result/text) de um agente,
 // SEGURA em store.reviewPayloads[id], mostra o diff (reusa DiffLines do DiffViewerModal) e
-// espera o usuário APROVAR (encaminha adiante via emitAgentOutput → o roteamento carrega pros
-// nós seguintes) ou REJEITAR (dropa). É o review-na-linha visual, o diferencial da Fase 2.
+// espera APROVAR (encaminha via emitAgentOutput → o roteamento carrega adiante) ou REJEITAR
+// (com motivo → volta pro autor). É o review-na-linha visual.
+//
+// Idea 2A — VALIDADOR IA CONECTADO: ligue a alça de baixo desta Review num OmniAgent revisor
+// (edge "validator-link"). Quando chega um payload, a Review manda pro revisor, que responde
+// "APPROVE" ou "REJECT: <motivo>"; a Review AGE no veredito (auto-aprova / auto-rejeita c/ motivo).
 
-import { memo, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { GitPullRequestArrow, Check, X } from "lucide-react";
+import { GitPullRequestArrow, Check, X, Bot } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { DiffLines } from "@/components/DiffViewerModal";
@@ -24,21 +28,36 @@ function ReviewNodeImpl({ data, selected }: NodeProps<ReviewRfNode>) {
   const setReviewPayload = useCanvasStore((s) => s.setReviewPayload);
   const emitAgentOutput = useCanvasStore((s) => s.emitAgentOutput);
   const emitNodeInput = useCanvasStore((s) => s.emitNodeInput);
+  // Validador conectado (edge "validator-link" que SAI desta Review → um OmniAgent).
+  const validatorId = useCanvasStore((s) => {
+    const f = s.parallels.find((p) => p.id === s.activeParallelId);
+    return f?.edges.find((e) => e.source === data.id && e.kind === "validator-link")?.target ?? "";
+  });
+  const validatorLabel = useCanvasStore((s) => {
+    if (!validatorId) return "";
+    const n = s.parallels.find((p) => p.id === s.activeParallelId)?.nodes.find((x) => x.id === validatorId);
+    return n?.kind === "agent" ? (n.label ?? "OmniAgent") : "";
+  });
+  const validatorSeq = useCanvasStore((s) => (validatorId ? s.agentOutputs[validatorId]?.seq ?? 0 : 0));
   const t = useT();
   const [reason, setReason] = useState("");
+  const [validating, setValidating] = useState(false);
+  const validatingRef = useRef(false);
+  const baseSeqRef = useRef(0);
+
+  const finishValidation = () => { validatingRef.current = false; setValidating(false); };
 
   const approve = () => {
     if (!payload) return;
-    // Encaminha o payload aprovado → o roteamento (source = este id) carrega pros próximos nós.
     emitAgentOutput(data.id, payload.text, { kind: payload.kind, diff: payload.diff, path: payload.path });
     setReviewPayload(data.id, null);
     setReason("");
+    finishValidation();
   };
 
-  // Rejeitar COM MOTIVO → manda o feedback DE VOLTA pro autor (source da edge de entrada),
-  // fechando o loop de refino: ele recebe "rejeitado: <motivo>" e corrige.
-  const reject = () => {
-    const fb = reason.trim();
+  // Rejeitar COM MOTIVO → feedback DE VOLTA pro autor (source da edge de entrada). Fecha o loop.
+  const reject = (reasonArg?: string) => {
+    const fb = (reasonArg ?? reason).trim();
     if (fb) {
       const st = useCanvasStore.getState();
       const floor = st.parallels.find((p) => p.id === st.activeParallelId);
@@ -50,7 +69,41 @@ function ReviewNodeImpl({ data, selected }: NodeProps<ReviewRfNode>) {
     }
     setReviewPayload(data.id, null);
     setReason("");
+    finishValidation();
   };
+
+  // Auto-validar: chegou payload + tem validador conectado → manda pro revisor IA.
+  useEffect(() => {
+    if (!payload || !validatorId || validatingRef.current) return;
+    validatingRef.current = true;
+    setValidating(true);
+    baseSeqRef.current = useCanvasStore.getState().agentOutputs[validatorId]?.seq ?? 0;
+    const body = payload.kind === "diff" ? (payload.diff ?? payload.text) : payload.text;
+    emitNodeInput(
+      validatorId,
+      `Você é um revisor de código RIGOROSO. Analise a mudança abaixo e responda APENAS com:\n` +
+        `• "APPROVE" — se estiver correta e segura; OU\n` +
+        `• "REJECT: <motivo curto e específico>" — se houver bug, risco de segurança, ou problema.\n\n---\n${body}`,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payload, validatorId]);
+
+  // Veredito: o validador respondeu (seq subiu) → parseia APPROVE/REJECT e age.
+  useEffect(() => {
+    if (!validatingRef.current || validatorSeq <= baseSeqRef.current) return;
+    const verdict = (useCanvasStore.getState().agentOutputs[validatorId]?.text ?? "").trim();
+    if (/\bREJECT\b/i.test(verdict)) {
+      const m = verdict.match(/REJECT:?\s*([\s\S]*)/i);
+      const why = (m?.[1] ?? verdict).replace(/\s+/g, " ").trim().slice(0, 200) || t("review.autoRejected", "reprovado pelo validador");
+      setReason(why);
+      reject(why);
+    } else if (/\bAPPROVE\b/i.test(verdict)) {
+      approve();
+    } else {
+      finishValidation(); // não parseou → deixa pro humano
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [validatorSeq]);
 
   const pending = !!payload;
 
@@ -63,13 +116,20 @@ function ReviewNodeImpl({ data, selected }: NodeProps<ReviewRfNode>) {
     >
       <Handle type="target" position={Position.Left} className="!bg-yellow-400 !border-surface1" />
       <Handle type="source" position={Position.Right} className="!bg-yellow-400 !border-surface1" />
+      {/* Alça de baixo = VALIDADOR: ligue num OmniAgent revisor. */}
+      <Handle type="source" id="validator" position={Position.Bottom} className="!bg-brand !border-surface1" />
 
       <div className="node-drag-handle flex items-center gap-1.5 border-b border-white/10 px-2 py-1.5">
         <GitPullRequestArrow size={13} className="text-yellow-400" />
         <span className="flex-1 truncate font-semibold text-text">{data.label ?? "Review"}</span>
+        {validatorLabel && (
+          <span className="flex shrink-0 items-center gap-0.5 rounded bg-brand/15 px-1 py-0.5 text-[8px] text-brand" title={t("review.validatorTip", "Validador IA conectado — revisa sozinho e decide")}>
+            <Bot size={9} /> {validatorLabel}
+          </span>
+        )}
         {pending && (
           <span className="rounded bg-yellow-500/20 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-yellow-300">
-            {t("review.pending", "pendente")}
+            {validating ? t("review.validating", "validando…") : t("review.pending", "pendente")}
           </span>
         )}
         <button onClick={(e) => { e.stopPropagation(); removeNode(data.id); }} className="p-0.5 text-text/50 hover:text-text" title={t("common.close", "Fechar")}>
@@ -79,8 +139,9 @@ function ReviewNodeImpl({ data, selected }: NodeProps<ReviewRfNode>) {
 
       <div className="nodrag nowheel flex-1 overflow-auto p-2" onPointerDown={(e) => e.stopPropagation()}>
         {!payload ? (
-          <div className="text-[11px] leading-relaxed text-text/50">
-            {t("review.empty", "Ligue a saída de um agente aqui. Quando ele produzir um diff/resultado, ele SEGURA aqui pra você aprovar antes de fluir pro próximo nó.")}
+          <div className="space-y-1.5 text-[11px] leading-relaxed text-text/50">
+            <p>{t("review.empty", "Ligue a saída de um agente aqui. Quando ele produzir um diff/resultado, SEGURA aqui pra aprovar antes de fluir.")}</p>
+            <p className="text-text/40">{t("review.emptyValidator", "Dica: ligue a alça de baixo num OmniAgent revisor → ele valida sozinho e decide.")}</p>
           </div>
         ) : payload.kind === "diff" && payload.diff ? (
           <>
@@ -94,6 +155,11 @@ function ReviewNodeImpl({ data, selected }: NodeProps<ReviewRfNode>) {
 
       {payload && (
         <div className="space-y-1.5 border-t border-white/10 p-1.5">
+          {validating && (
+            <div className="flex items-center gap-1 text-[10px] text-brand/90">
+              <Bot size={11} className="animate-pulse" /> {t("review.validatingWith", "validando com {v}…").replace("{v}", validatorLabel || "validador")}
+            </div>
+          )}
           <input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -109,7 +175,7 @@ function ReviewNodeImpl({ data, selected }: NodeProps<ReviewRfNode>) {
               <Check size={13} /> {t("review.approve", "Aprovar")}
             </button>
             <button
-              onClick={reject}
+              onClick={() => reject()}
               title={reason.trim() ? t("review.rejectWithReason", "Rejeita e manda o motivo pro autor") : t("review.rejectDrop", "Rejeita e dropa (sem motivo, não avisa o autor)")}
               className="flex flex-1 items-center justify-center gap-1 rounded bg-red-500/10 px-2 py-1 text-red-300 hover:bg-red-500/20"
             >

@@ -312,6 +312,7 @@ export interface CanvasEdge {
   targetHandle?: string;
   /** Para terminais conectados, o output do source vai como input do target.
    *  "agent-link" = OmniAgent→terminal: a linha marca o terminal como agente MCP (auto-conexão).
-   *  "subagent-link" = agente→subagente nativo (.claude/agents), vertical, privado do pai. */
-  kind: "pty-pipe" | "note-link" | "generic" | "agent-link" | "subagent-link";
+   *  "subagent-link" = agente→subagente nativo (.claude/agents), vertical, privado do pai.
+   *  "validator-link" = ReviewNode→OmniAgent revisor: valida o payload (não é cano de dados). */
+  kind: "pty-pipe" | "note-link" | "generic" | "agent-link" | "subagent-link" | "validator-link";
 }

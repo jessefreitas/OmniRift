@@ -43,7 +43,9 @@ export function FlowEdge({
         ? "rgb(167, 139, 250)"
         : kind === "subagent-link"
           ? "rgb(251, 191, 36)"
-          : COLORS.idle;
+          : kind === "validator-link"
+            ? "rgb(41, 162, 167)"
+            : COLORS.idle;
   const stroke = flow !== "idle" ? COLORS[flow] ?? COLORS.idle : idleColor;
 
   return (

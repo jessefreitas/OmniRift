@@ -222,6 +222,9 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       } else if (srcNode?.kind === "agent" && dstIsTerminal) {
         // OmniAgent→terminal: marca o time (acima) + edge roxa de comando ACP.
         addEdge(connection.source, connection.target, "agent-link");
+      } else if (srcNode?.kind === "review" && connection.sourceHandle === "validator" && dstNode?.kind === "agent") {
+        // ReviewNode (alça de baixo "validator") → OmniAgent revisor: valida o payload.
+        addEdge(connection.source, connection.target, "validator-link", { sourceHandle: "validator" });
       } else {
         addEdge(connection.source, connection.target, "generic");
       }
