@@ -248,6 +248,10 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       connectingFrom.current = null;
       connectingHandle.current = null;
       if (!fromNodeId) return;
+      // Conexão VÁLIDA (encaixou num nó — ex: Filter/Review) → NÃO abre o menu. O React Flow
+      // encaixa a linha num handle próximo pelo raio de conexão mesmo o mouse soltando sobre o
+      // pane; sem este guard o onConnect cria a edge E o menu abria por cima (bug da "caixa que fica").
+      if (connectionState.isValid || connectionState.toNode) return;
       // Só quando soltou no fundo do canvas (pane), não num node/handle.
       const target = event.target as Element | null;
       if (!target?.classList?.contains("react-flow__pane")) return;
