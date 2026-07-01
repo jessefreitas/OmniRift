@@ -19,6 +19,18 @@ use super::{list_runs, load_run, now_ms, save_run, turbo_dir, TurboRun, TurboSta
 /// absurdo vindo da UI). 1..=MAX.
 const MAX_ITER_CEIL: u32 = 50;
 
+/// Roda uma condição de parada (comando shell) em `cwd` e devolve `{exit, output}`.
+/// Reusa o `run_condition` do driver do TURBO — é o que o **Goal** do AgentNode usa pra
+/// checar "pronto?" (exit 0) a cada turno, sem precisar do loop headless do TURBO inteiro.
+/// `spawn_blocking`: o `run_condition` é síncrono (std::process) → não trava o reactor.
+#[tauri::command]
+pub async fn run_check(cwd: String, condition: String) -> Result<serde_json::Value, String> {
+    let r = tokio::task::spawn_blocking(move || driver::run_condition(&cwd, &condition))
+        .await
+        .map_err(|e| format!("run_check panicou: {e}"))?;
+    Ok(serde_json::json!({ "exit": r.exit, "output": r.output }))
+}
+
 /// Inicia um run TURBO: valida as entradas, gera um id, persiste o estado inicial
 /// (status "running") e spawna o loop em background. Retorna o `id` imediatamente
 /// (o progresso chega via `turbo://update` + persistência). NÃO bloqueia.

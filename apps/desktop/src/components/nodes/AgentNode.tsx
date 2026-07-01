@@ -15,7 +15,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Brain, Maximize2, Minimize2, RotateCw, Send, UserRoundPlus, X } from "lucide-react";
+import { Brain, Maximize2, Minimize2, Repeat, RotateCw, Send, Target, UserRoundPlus, X } from "lucide-react";
 import { nanoid } from "nanoid";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -32,6 +32,7 @@ import {
   acpSetModel,
   acpAgentRegister,
   acpAgentUnregister,
+  runCheck,
   listenAcpReady,
   listenAcpUpdate,
   listenAcpPermission,
@@ -144,6 +145,34 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // Config BYOK do Hermes escolhida no wizard (com a key) — em memória só (a key NUNCA vai pro
   // store/disco). data.providerConfig persiste só {provider,model}; a key mora no keychain do SO.
   const hermesCfgRef = useRef<HermesProviderConfig | null>(null);
+  // 🎯 Goal (loop autônomo por-agente) + 🔁 Loop (timer). Os refs guardam o run ATIVO (estáveis
+  // no closure do turn-done, sem stale state); goalRun alimenta o badge no header.
+  const goalRef = useRef<{ objective: string; condition: string; maxIter: number } | null>(null);
+  const goalStatusRef = useRef<"running" | "done" | "stopped" | "fail" | null>(null);
+  const goalIterRef = useRef(0);
+  const statusRef = useRef<Status>("starting");
+  const [goalRun, setGoalRun] = useState<{ iter: number; status: "running" | "done" | "stopped" | "fail" } | null>(null);
+  const [panel, setPanel] = useState<"none" | "goal" | "loop">("none");
+  // Espelha o status num ref (o timer do 🔁 Loop e o turn-done do 🎯 Goal leem sem stale state).
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  // 🔁 Loop: re-manda o prompt a cada N min (só se ready e ocioso). Reusa acpPrompt. Persistido
+  // em data.loop; ligar/desligar via o painel Loop. Não dispara no meio de um turno (thinking).
+  useEffect(() => {
+    const lp = data.loop;
+    if (!lp?.active || !lp.prompt.trim()) return;
+    const ms = Math.max(1, lp.everyMin) * 60_000;
+    const timer = window.setInterval(() => {
+      if (statusRef.current === "ready" && sessionRef.current) {
+        void acpPrompt(sessionRef.current, lp.prompt);
+        setMsgs((m) => [...m, { role: "system", text: `🔁 loop — disparando (a cada ${lp.everyMin} min)` }]);
+      }
+    }, ms);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.loop?.active, data.loop?.everyMin, data.loop?.prompt]);
   const lastDiffRef = useRef<{ diff: string; path?: string } | null>(null); // diff do turno (Fase 2a)
 
   // D2-v2 — reload re-spawna a sessão ACP pra carregar os `.claude/agents` plugados DEPOIS do
@@ -317,7 +346,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         listenAcpPermission(id, (reqId, params) =>
           setPerm({ reqId, options: (params.options as Perm["options"]) ?? [] }),
         ),
-        listenAcpTurnDone(id, () => {
+        listenAcpTurnDone(id, async () => {
           setStatus("ready");
           const reply = lastReplyRef.current.trim();
           const diff = lastDiffRef.current;
@@ -327,6 +356,47 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             emitAgentOutput(data.id, reply || `diff em ${diff.path ?? "arquivo"}`, { kind: "diff", diff: diff.diff, path: diff.path });
           } else if (reply) {
             emitAgentOutput(data.id, reply);
+          }
+          // 🎯 Goal: o turno acabou → roda a condição (exit 0 = pronto) e decide. Continua até
+          // passar ou estourar maxIter. Reusa o motor do TURBO (run_check). Sem commit automático.
+          const g = goalRef.current;
+          if (g && goalStatusRef.current === "running") {
+            const cwd = data.cwd || useCanvasStore.getState().currentCwd || "";
+            if (!cwd) {
+              goalStatusRef.current = "stopped";
+              setGoalRun((r) => (r ? { ...r, status: "stopped" } : r));
+              pushSys("🎯 Goal parou — sem pasta de projeto pra rodar a condição.");
+              return;
+            }
+            let res: { exit: number | null; output: string };
+            try {
+              res = await runCheck(cwd, g.condition);
+            } catch (e) {
+              pushSys(`🎯 erro ao rodar a condição: ${e}`);
+              return;
+            }
+            if (res.exit === 0) {
+              goalStatusRef.current = "done";
+              setGoalRun((r) => (r ? { ...r, status: "done" } : r));
+              pushSys(`🎯 Goal concluído — \`${g.condition}\` passou (exit 0). Revise o diff e commite.`);
+            } else {
+              const it = goalIterRef.current + 1;
+              if (it > g.maxIter) {
+                goalStatusRef.current = "fail";
+                setGoalRun((r) => (r ? { ...r, status: "fail" } : r));
+                pushSys(`🎯 Goal parou — ${g.maxIter} iterações sem passar a condição.`);
+              } else {
+                goalIterRef.current = it;
+                setGoalRun({ iter: it, status: "running" });
+                pushSys(`🎯 iteração ${it}/${g.maxIter} — condição falhou (exit ${res.exit}), corrigindo…`);
+                setStatus("thinking");
+                const out = res.output.slice(0, 2000);
+                await acpPrompt(
+                  id,
+                  `A condição \`${g.condition}\` ainda FALHA (exit ${res.exit}). Saída:\n${out}\n\nCorrija a causa e continue até ela sair com exit 0. Não pare antes disso.`,
+                );
+              }
+            }
           }
         }),
         listenAcpExit(id, () => setStatus("dead")),
@@ -408,6 +478,26 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     const text = input.trim();
     setInput("");
     await sendText(text);
+  }
+
+  // 🎯 Inicia um Goal: persiste a config, arma os refs e manda o 1º prompt (objetivo + condição).
+  function startGoal(cfg: { objective: string; condition: string; maxIter: number }) {
+    patchNode(data.id, { goal: cfg });
+    goalRef.current = cfg;
+    goalStatusRef.current = "running";
+    goalIterRef.current = 1;
+    setGoalRun({ iter: 1, status: "running" });
+    setPanel("none");
+    void sendText(
+      `OBJETIVO:\n${cfg.objective}\n\nCONDIÇÃO DE PRONTO (comando que DEVE sair com exit 0):\n${cfg.condition}\n\nImplemente. Ao terminar, a condição roda automaticamente; se falhar, você recebe o erro e continua até passar.`,
+      `🎯 Goal iniciado (iter 1/${cfg.maxIter})`,
+    );
+  }
+
+  function stopGoal() {
+    goalRef.current = null;
+    goalStatusRef.current = null;
+    setGoalRun(null);
   }
 
   async function respond(optionId: string | null) {
@@ -521,6 +611,30 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             <RotateCw size={13} />
           </button>
         )}
+        {/* 🎯 Goal — loop autônomo até a condição passar */}
+        <button
+          onClick={(e) => { e.stopPropagation(); setPanel((p) => (p === "goal" ? "none" : "goal")); }}
+          className={cn(
+            "p-0.5 rounded hover:bg-white/10 transition-colors",
+            goalRun?.status === "running" ? "text-cyan-400" : "text-text/50 hover:text-cyan-300",
+          )}
+          title={t("agent.goal", "Goal — roda até a condição passar (exit 0)")}
+          aria-label={t("agent.goal", "Goal")}
+        >
+          <Target size={13} />
+        </button>
+        {/* 🔁 Loop — re-dispara um prompt num timer */}
+        <button
+          onClick={(e) => { e.stopPropagation(); setPanel((p) => (p === "loop" ? "none" : "loop")); }}
+          className={cn(
+            "p-0.5 rounded hover:bg-white/10 transition-colors",
+            data.loop?.active ? "text-emerald-400" : "text-text/50 hover:text-emerald-300",
+          )}
+          title={t("agent.loop", "Loop — re-dispara um prompt a cada N min")}
+          aria-label={t("agent.loop", "Loop")}
+        >
+          <Repeat size={13} />
+        </button>
         {/* Plugar subagente (privado deste agente) */}
         <button
           onClick={addSubagentHere}
@@ -554,6 +668,32 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         className="nodrag nowheel flex-1 space-y-1.5 overflow-auto p-2"
         onPointerDown={(e) => e.stopPropagation()}
       >
+        {/* 🎯 chip de status do Goal em execução */}
+        {goalRun && (
+          <div className="flex items-center gap-2 rounded border border-cyan-500/30 bg-cyan-500/5 px-2 py-1 text-[11px]">
+            <Target size={12} className={goalRun.status === "running" ? "text-cyan-400 animate-pulse" : "text-cyan-300"} />
+            <span className="text-cyan-200">
+              {t("agent.goalIter", "iter")} {goalRun.iter}/{data.goal?.maxIter ?? "?"} ·{" "}
+              {goalRun.status === "running" ? t("agent.goalRunning", "rodando…")
+                : goalRun.status === "done" ? t("agent.goalDone", "✅ pronto")
+                : t("agent.goalStopped", "⏹ parado")}
+            </span>
+            <button onClick={stopGoal} className="ml-auto rounded px-1.5 py-0.5 text-text/60 hover:bg-white/10 hover:text-text">
+              {t("common.stop", "parar")}
+            </button>
+          </div>
+        )}
+        {panel === "goal" && (
+          <GoalForm initial={data.goal} onStart={startGoal} onCancel={() => setPanel("none")} />
+        )}
+        {panel === "loop" && (
+          <LoopForm
+            initial={data.loop}
+            onSave={(cfg) => { patchNode(data.id, { loop: cfg }); setPanel("none"); }}
+            onStop={() => { patchNode(data.id, { loop: { prompt: data.loop?.prompt ?? "", everyMin: data.loop?.everyMin ?? 10, active: false } }); }}
+            onCancel={() => setPanel("none")}
+          />
+        )}
         {status === "starting" && (
           <div className="text-text/50">{t("agent.starting", "iniciando agente (1ª vez baixa o adapter, ~30s)…")}</div>
         )}
@@ -668,7 +808,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   return (
     <div
       className={cn(
-        "flex h-full w-full flex-col rounded-lg border bg-bg text-xs",
+        "flex h-full w-full flex-col overflow-hidden rounded-lg border bg-bg text-xs",
         selected ? "border-brand" : "border-white/10",
       )}
       onMouseEnter={() => setHovered(true)}
@@ -762,6 +902,125 @@ function AgentHelp({ provider }: { provider: string }) {
       <p className="text-text/40">
         Provider: {provider} · roda o mesmo Claude/Codex, mas como sessão estruturada — não é um terminal PTY.
       </p>
+    </div>
+  );
+}
+
+/** Form do 🎯 Goal: objetivo + condição de parada (comando exit 0) + máx iterações. */
+function GoalForm({
+  initial,
+  onStart,
+  onCancel,
+}: {
+  initial?: { objective: string; condition: string; maxIter: number };
+  onStart: (cfg: { objective: string; condition: string; maxIter: number }) => void;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  const [objective, setObjective] = useState(initial?.objective ?? "");
+  const [condition, setCondition] = useState(initial?.condition ?? "");
+  const [maxIter, setMaxIter] = useState(initial?.maxIter ?? 8);
+  const ok = objective.trim() !== "" && condition.trim() !== "";
+  return (
+    <div className="space-y-1.5 rounded border border-cyan-500/30 bg-cyan-500/5 p-2.5">
+      <div className="font-semibold text-cyan-300">🎯 {t("agent.goalTitle", "Goal — roda até passar")}</div>
+      <textarea
+        value={objective}
+        onChange={(e) => setObjective(e.target.value)}
+        placeholder={t("agent.goalObjective", "objetivo — o que o agente deve fazer")}
+        rows={2}
+        className="w-full resize-none rounded bg-white/5 px-2 py-1 text-text outline-none"
+      />
+      <input
+        value={condition}
+        onChange={(e) => setCondition(e.target.value)}
+        placeholder={t("agent.goalCondition", "condição: comando que sai exit 0 (ex: cargo test)")}
+        className="w-full rounded bg-white/5 px-2 py-1 font-mono text-[11px] text-text outline-none"
+      />
+      <div className="flex items-center gap-2">
+        <label className="text-[11px] text-text/60">{t("agent.goalMaxIter", "máx iter")}</label>
+        <input
+          type="number"
+          min={1}
+          max={50}
+          value={maxIter}
+          onChange={(e) => setMaxIter(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+          className="w-14 rounded bg-white/5 px-2 py-1 text-text outline-none"
+        />
+        <div className="ml-auto flex gap-1.5">
+          <button onClick={onCancel} className="rounded bg-white/5 px-2 py-1 text-text/70 hover:bg-white/10">
+            {t("common.cancel", "Cancelar")}
+          </button>
+          <button
+            disabled={!ok}
+            onClick={() => onStart({ objective: objective.trim(), condition: condition.trim(), maxIter })}
+            className="rounded bg-cyan-500/20 px-2.5 py-1 text-cyan-200 hover:bg-cyan-500/30 disabled:opacity-50"
+          >
+            {t("agent.goalStart", "Iniciar")}
+          </button>
+        </div>
+      </div>
+      <p className="text-[10px] text-text/40">
+        {t("agent.goalHint", "o agente tenta, roda a condição e corrige até exit 0. Sem commit automático — você revisa.")}
+      </p>
+    </div>
+  );
+}
+
+/** Form do 🔁 Loop: prompt recorrente a cada N min. */
+function LoopForm({
+  initial,
+  onSave,
+  onStop,
+  onCancel,
+}: {
+  initial?: { prompt: string; everyMin: number; active: boolean };
+  onSave: (cfg: { prompt: string; everyMin: number; active: boolean }) => void;
+  onStop: () => void;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  const [prompt, setPrompt] = useState(initial?.prompt ?? "");
+  const [everyMin, setEveryMin] = useState(initial?.everyMin ?? 10);
+  const active = initial?.active ?? false;
+  const ok = prompt.trim() !== "";
+  return (
+    <div className="space-y-1.5 rounded border border-emerald-500/30 bg-emerald-500/5 p-2.5">
+      <div className="font-semibold text-emerald-300">🔁 {t("agent.loopTitle", "Loop — a cada N min")}</div>
+      <textarea
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        placeholder={t("agent.loopPrompt", "prompt a re-enviar (ex: rode os testes e me avise se quebrar)")}
+        rows={2}
+        className="w-full resize-none rounded bg-white/5 px-2 py-1 text-text outline-none"
+      />
+      <div className="flex items-center gap-2">
+        <label className="text-[11px] text-text/60">{t("agent.loopEvery", "a cada (min)")}</label>
+        <input
+          type="number"
+          min={1}
+          value={everyMin}
+          onChange={(e) => setEveryMin(Math.max(1, Number(e.target.value) || 1))}
+          className="w-16 rounded bg-white/5 px-2 py-1 text-text outline-none"
+        />
+        <div className="ml-auto flex gap-1.5">
+          <button onClick={onCancel} className="rounded bg-white/5 px-2 py-1 text-text/70 hover:bg-white/10">
+            {t("common.cancel", "Cancelar")}
+          </button>
+          {active && (
+            <button onClick={onStop} className="rounded bg-white/10 px-2 py-1 text-text/80 hover:bg-white/20">
+              {t("agent.loopStop", "Desativar")}
+            </button>
+          )}
+          <button
+            disabled={!ok}
+            onClick={() => onSave({ prompt: prompt.trim(), everyMin, active: true })}
+            className="rounded bg-emerald-500/20 px-2.5 py-1 text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-50"
+          >
+            {active ? t("agent.loopUpdate", "Atualizar") : t("agent.loopActivate", "Ativar")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

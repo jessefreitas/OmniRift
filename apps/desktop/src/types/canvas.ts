@@ -199,6 +199,18 @@ export interface AgentNode extends BaseCanvasNode {
    * Injetado como `HERMES_INFERENCE_PROVIDER`/`HERMES_INFERENCE_MODEL` + `<PROV>_API_KEY`.
    */
   providerConfig?: { provider: string; model: string };
+  /**
+   * 🎯 Goal (loop autônomo por-agente): objetivo + condição de parada verificável (comando shell,
+   * exit 0 = pronto). O agente tenta, roda a condição a cada turno, corrige o erro e repete até
+   * passar (ou `maxIter`). Reusa o motor do TURBO (`run_check`). Persiste a ÚLTIMA config; o estado
+   * do run (iteração/status) é em memória.
+   */
+  goal?: { objective: string; condition: string; maxIter: number };
+  /**
+   * 🔁 Loop (recorrente por-agente): re-manda `prompt` a cada `everyMin` minutos (se ready e ocioso).
+   * `active` liga/desliga. Reusa `acp_prompt`. Persiste a config.
+   */
+  loop?: { prompt: string; everyMin: number; active: boolean };
   /** Epoch ms de criação. */
   createdAt?: number;
 }
@@ -307,6 +319,8 @@ export interface CanvasNodePatch {
   filePath?: string;
   comment?: string;
   providerConfig?: { provider: string; model: string };
+  goal?: { objective: string; condition: string; maxIter: number };
+  loop?: { prompt: string; everyMin: number; active: boolean };
 }
 
 /** Conexão entre nós. */

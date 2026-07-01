@@ -43,6 +43,15 @@ export async function hermesListModels(
   return invoke<string[]>("hermes_list_models", { provider, key, baseUrl });
 }
 
+/** Roda a condição de parada de um 🎯 Goal (comando shell em `cwd`) → `{exit, output}`.
+ *  exit === 0 = pronto. Reusa o motor do TURBO (`run_condition`). Usado pelo AgentNode. */
+export async function runCheck(
+  cwd: string,
+  condition: string,
+): Promise<{ exit: number | null; output: string }> {
+  return invoke("run_check", { cwd, condition });
+}
+
 /** Envia um prompt (turno). Pré-requisito: já recebeu `acp://ready`. */
 export async function acpPrompt(sessionId: string, text: string): Promise<void> {
   return invoke("acp_prompt", { sessionId, text });

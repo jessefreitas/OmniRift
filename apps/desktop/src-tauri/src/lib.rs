@@ -86,7 +86,7 @@ use commands::acp::{
     acp_prompt, acp_set_model, acp_spawn, hermes_list_models,
 };
 use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
-use turbo::commands::{turbo_list, turbo_start, turbo_status, turbo_stop};
+use turbo::commands::{run_check, turbo_list, turbo_start, turbo_status, turbo_stop};
 use commands::workspace::{workspace_load, workspace_save};
 use db::{
     db_load_workspace, db_save_workspace, memory_add, memory_delete, memory_query, reminder_add,
@@ -441,6 +441,7 @@ pub fn run() {
             turbo_status,
             turbo_list,
             turbo_stop,
+            run_check,
             debug_request,
             metrics_snapshot,
             compressor_list,
