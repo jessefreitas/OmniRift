@@ -2,8 +2,8 @@
 
 ## O que é este projeto
 
-Canvas infinito para orquestrar agentes de IA (Claude Code, Codex, shell), terminais PTY, sketches e notas.
-Equivalente open-source do [Maestri](https://www.themaestri.app/pt-br) para Linux/Windows.
+Canvas infinito para orquestrar agentes de IA (Claude Code, Codex, Hermes, shell), terminais PTY, sketches e notas.
+Um canvas de orquestração de agentes, open-source, para Linux e Windows.
 
 ## Stack
 

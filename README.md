@@ -16,7 +16,7 @@
 
 ## O que é
 
-OmniRift é um app desktop **open-source** (Tauri 2 + Rust + React) que reúne num **canvas infinito**: agentes de IA (Claude Code, Codex, shell), terminais PTY reais, paralelos que são **worktrees git de verdade**, notas, sketches e navegadores embutidos. **100% local, sem conta.** É o equivalente open-source do Maestri para Linux e Windows.
+OmniRift é um app desktop **open-source** (Tauri 2 + Rust + React) que reúne num **canvas infinito**: agentes de IA (Claude Code, Codex, Hermes, shell), terminais PTY reais, paralelos que são **worktrees git de verdade**, notas, sketches e navegadores embutidos. **100% local, sem conta** — um canvas de orquestração de agentes para Linux e Windows.
 
 > Você orquestra; os agentes trabalham.
 
@@ -33,6 +33,21 @@ OmniRift é um app desktop **open-source** (Tauri 2 + Rust + React) que reúne n
 - **Conexões agente → agente** (a saída de A alimenta B).
 - **Roles** (personas reutilizáveis) + **Skills** por CLI.
 - **Fan-out paralelo** e **execução remota via SSH**.
+
+### 🧠 OmniAgent — agentes estruturados (ACP)
+Além dos terminais, o OmniRift trata agentes como **objetos estruturados** via **ACP (Agent Client Protocol)** — o app *entende* o que o agente faz, não só repassa texto.
+- **Providers plugáveis:** Claude Code, Codex e **Hermes** (open-source, roda modelo **local/grátis** via Ollama/OpenRouter). ACP = qualquer agente do ecossistema.
+- **Seletor de modelo** por agente — rode tarefas caras num modelo forte e as baratas num leve.
+- **Tool-calls ao vivo**, badges reais de **modelo · contexto · custo**, e **permissões** aprovadas no próprio card.
+- **Orquestração:** o OmniAgent recebe as tools MCP do OmniRift e **coordena** os outros agentes; e pode ser comandado pelo Orquestrador-terminal.
+- **Subagentes nativos** (`.claude/agents`) plugados por agente, com **recarga (↻) mantendo a conversa**.
+
+### 🔗 Conexões semânticas
+A linha entre agentes carrega **estrutura**, não só texto:
+- **Diff na linha** — quando um agente edita, a saída vira um payload tipado (📄 diff) legível na conexão.
+- **Review (gate)** — um nó que **segura** o diff, mostra renderizado, e você **Aprova / Rejeita** (com motivo que volta pro autor corrigir) antes de fluir pro próximo nó.
+- **Validador IA** — ligue um agente revisor na Review e ele **valida sozinho** (APPROVE/REJECT) — a IA revisa a IA.
+- **Filtro** — roteamento por conteúdo (por tipo, regex ou caminho).
 
 ### 🌿 Floors (paralelos = worktrees git)
 - Cada floor é um **worktree git real** — várias versões do projeto lado a lado.
