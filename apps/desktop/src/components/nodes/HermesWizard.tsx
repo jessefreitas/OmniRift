@@ -1,6 +1,14 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type MouseEvent } from "react";
+import { X } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { hermesListModels } from "@/lib/acp-client";
+import {
+  llmProvidersList,
+  llmProviderSave,
+  llmProviderDelete,
+  llmProviderResolve,
+  type LlmProvider,
+} from "@/lib/llm-providers-client";
 
 type Provider = {
   id: string;
@@ -40,6 +48,14 @@ export function HermesWizard({
   const [manualModel, setManualModel] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<boolean>(false);
+  // Central de Providers: as chaves já cadastradas (uma vez) — selecionar em vez de re-colar.
+  const [saved, setSaved] = useState<LlmProvider[]>([]);
+  const reloadSaved = useCallback(() => {
+    llmProvidersList().then(setSaved).catch(() => setSaved([]));
+  }, []);
+  useEffect(() => {
+    reloadSaved();
+  }, [reloadSaved]);
 
   const fetchModels = useCallback(async (p: Provider, k: string) => {
     setLoading(true);
@@ -73,9 +89,44 @@ export function HermesWizard({
 
   const handleContinueFromKey = useCallback(() => {
     if (!provider || !provider.needsKey || key.trim() === "") return;
+    // Central de Providers: salva a chave UMA vez (upsert por kind) → reusável em qualquer lugar.
+    void llmProviderSave(
+      { id: provider.id, label: provider.label, kind: provider.id, baseUrl: provider.baseUrl, model: "" },
+      key.trim(),
+    ).then(reloadSaved).catch(() => {});
     setStep(3);
     void fetchModels(provider, key.trim());
-  }, [fetchModels, provider, key]);
+  }, [fetchModels, provider, key, reloadSaved]);
+
+  // Selecionar um provider JÁ salvo: resolve a chave (keychain) → pula direto pro modelo.
+  const handleSelectSaved = useCallback(
+    async (sp: LlmProvider) => {
+      try {
+        const r = await llmProviderResolve(sp.id);
+        const syn: Provider = { id: sp.kind, label: sp.label, baseUrl: r.baseUrl, needsKey: true, hint: sp.kind };
+        setProvider(syn);
+        setKey(r.key);
+        setModels([]);
+        setSearch("");
+        setManualModel("");
+        setError(false);
+        setStep(3);
+        void fetchModels(syn, r.key);
+      } catch {
+        setError(true);
+      }
+    },
+    [fetchModels],
+  );
+
+  const handleDeleteSaved = useCallback(
+    async (id: string, e: MouseEvent) => {
+      e.stopPropagation();
+      await llmProviderDelete(id).catch(() => {});
+      reloadSaved();
+    },
+    [reloadSaved],
+  );
 
   const handlePickModel = useCallback(
     (modelId: string) => {
@@ -130,8 +181,43 @@ export function HermesWizard({
     <div className="rounded border border-orange-500/30 bg-orange-500/5 p-2.5">
       {step === 1 && (
         <div>
+          {/* Central de Providers: chaves já cadastradas → seleciona em vez de re-colar */}
+          {saved.length > 0 && (
+            <div className="mb-2">
+              <h3 className="mb-1 font-semibold text-orange-300">
+                {t("hermes.saved", "Providers salvos")}
+              </h3>
+              <div className="space-y-1.5">
+                {saved.map((sp) => (
+                  <div
+                    key={sp.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => void handleSelectSaved(sp)}
+                    className="flex cursor-pointer items-center gap-2 rounded border border-emerald-500/20 bg-emerald-500/10 p-2 hover:bg-emerald-500/20"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm text-text">{sp.label}</div>
+                      <div className="text-[11px] text-text/60">
+                        {sp.kind}
+                        {sp.hasKey ? " · 🔑 chave salva" : ""}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => void handleDeleteSaved(sp.id, e)}
+                      title={t("hermes.removeSaved", "Remover provider salvo")}
+                      className="shrink-0 rounded p-0.5 text-text/40 hover:bg-white/10 hover:text-red-300"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <h3 className="mb-1 font-semibold text-orange-300">
-            {t("hermes.step1", "Provider")}
+            {saved.length > 0 ? t("hermes.step1New", "Novo provider") : t("hermes.step1", "Provider")}
           </h3>
           <div className="space-y-1.5">
             {PROVIDERS.map((p) => (
