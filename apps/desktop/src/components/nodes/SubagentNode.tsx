@@ -5,7 +5,8 @@
 // subagent_write). É PRIVADO do pai — só aquele Claude o invoca (Task tool); NÃO entra no
 // time MCP. É uma DEFINIÇÃO (arquivo), não um processo vivo: nó leve, sem PTY/ACP.
 
-import { memo } from "react";
+import { memo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { UserRoundCheck, X } from "lucide-react";
 
@@ -16,9 +17,36 @@ import type { SubagentNode as SubagentNodeData } from "@/types/canvas";
 
 type SubagentRfNode = Node<SubagentNodeData & Record<string, unknown>, "subagent">;
 
+/** Modelos do Claude Code p/ subagente (frontmatter `model:`). "" = herda do pai. */
+const SUB_MODELS = ["", "haiku", "sonnet", "opus"];
+
 function SubagentNodeImpl({ data, selected }: NodeProps<SubagentRfNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode);
+  const patchNode = useCanvasStore((s) => s.patchNode);
   const t = useT();
+  const [saving, setSaving] = useState(false);
+
+  // Troca o modelo do subagente: persiste no nó + RE-ESCREVE o .claude/agents/<slug>.md com o
+  // novo `model:` (ex: haiku pra tarefa barata). "" = remove o campo → herda o modelo do pai.
+  async function changeModel(model: string) {
+    patchNode(data.id, { model });
+    if (!data.prompt) return; // sem o prompt guardado não dá pra re-escrever (subagente antigo)
+    setSaving(true);
+    try {
+      await invoke("subagent_write", {
+        dir: data.cwd ?? "",
+        name: data.label,
+        description: data.description ?? "",
+        prompt: data.prompt,
+        tools: null,
+        model: model || null,
+      });
+    } catch {
+      /* falha ao gravar → o nó já reflete a escolha; tenta de novo no próximo change */
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div
@@ -69,6 +97,21 @@ function SubagentNodeImpl({ data, selected }: NodeProps<SubagentRfNode>) {
         )}
         <div className="truncate text-[9px] font-mono text-text/35" title={data.filePath}>
           {data.filePath ? `.claude/agents/${data.filePath.split("/").pop()}` : ".claude/agents/…"}
+        </div>
+        {/* Modelo do subagente — rode barato (haiku) numa tarefa simples em vez do modelo caro do pai. */}
+        <div className="nodrag flex items-center gap-1 pt-0.5" onPointerDown={(e) => e.stopPropagation()}>
+          <span className="text-[9px] text-text/40">{t("subagent.model", "modelo")}</span>
+          <select
+            value={data.model ?? ""}
+            onChange={(e) => void changeModel(e.target.value)}
+            className="flex-1 rounded bg-black/20 px-1 py-0.5 text-[10px] text-text outline-none"
+            title={t("subagent.modelTip", "Modelo do subagente (frontmatter). Vazio = herda o do pai.")}
+          >
+            {SUB_MODELS.map((m) => (
+              <option key={m || "inherit"} value={m}>{m || t("subagent.modelInherit", "herda do pai")}</option>
+            ))}
+          </select>
+          {saving && <span className="text-[9px] text-amber-300/70">…</span>}
         </div>
       </div>
     </div>

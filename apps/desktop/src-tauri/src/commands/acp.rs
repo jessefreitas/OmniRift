@@ -170,3 +170,16 @@ pub async fn acp_set_model(
     let mgr = manager.inner().clone();
     mgr.set_model(&session_id, model_id).await.map_err(|e| format!("{e:#}"))
 }
+
+/// Troca uma opção de config da sessão (ACP session/set_config_option). Usado pro MODELO do
+/// adapter Claude (`config_id="model"`), que não expõe `models`/`set_model`.
+#[tauri::command]
+pub async fn acp_set_config_option(
+    session_id: String,
+    config_id: String,
+    value: String,
+    manager: State<'_, Arc<AcpManager>>,
+) -> Result<(), String> {
+    let mgr = manager.inner().clone();
+    mgr.set_config_option(&session_id, config_id, value).await.map_err(|e| format!("{e:#}"))
+}

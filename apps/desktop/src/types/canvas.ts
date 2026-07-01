@@ -241,6 +241,10 @@ export interface SubagentNode extends BaseCanvasNode {
    *  Claude), "project" = <projeto>/.claude/agents (privado daquela pasta). O label "privado
    *  de <pai>" só é verdade quando "project" — daí mostramos o escopo honesto. */
   scope?: "global" | "project";
+  /** System prompt do subagente (guardado p/ re-escrever o .md ao trocar o modelo). */
+  prompt?: string;
+  /** Modelo do subagente (frontmatter `model:` — ex: haiku/sonnet/opus). Vazio = herda do pai. */
+  model?: string;
   createdAt?: number;
 }
 
@@ -327,6 +331,8 @@ export interface CanvasNodePatch {
   providerConfig?: { provider: string; model: string };
   goal?: { objective: string; condition: string; maxIter: number };
   loop?: { prompt: string; everyMin: number; active: boolean };
+  model?: string;
+  prompt?: string;
 }
 
 /** Conexão entre nós. */

@@ -81,6 +81,12 @@ export async function acpSetModel(sessionId: string, modelId: string): Promise<v
   return invoke("acp_set_model", { sessionId, modelId });
 }
 
+/** Troca uma opção de config da sessão (ACP session/set_config_option). O adapter do Claude
+ *  expõe o MODELO como configOption (`configId="model"`), não via set_model. */
+export async function acpSetConfigOption(sessionId: string, configId: string, value: string): Promise<void> {
+  return invoke("acp_set_config_option", { sessionId, configId, value });
+}
+
 /** Registra o OmniAgent como COMANDÁVEL (label → sessão ACP) → entra no terminal_list e o
  *  Orquestrador-terminal pode comandá-lo via terminal_send_text/run. Chamar quando ficar ready. */
 export async function acpAgentRegister(label: string, sessionId: string): Promise<void> {

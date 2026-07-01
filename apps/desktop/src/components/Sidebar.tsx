@@ -1348,7 +1348,7 @@ export function Sidebar() {
         ? { x: parent.position.x + parent.size.width / 2 - 120, y: parent.position.y + parent.size.height + 48 }
         : req.flow;
       const sub = addSubagent({
-        role: role.id, label: role.name, description,
+        role: role.id, label: role.name, description, prompt: role.prompt,
         parentAgentId: req.fromNodeId, parentLabel, cwd: dir, filePath, scope, position: pos,
       });
       // sourceHandle "subagent" = alça de BAIXO do pai → a linha sai de baixo, não do lado.

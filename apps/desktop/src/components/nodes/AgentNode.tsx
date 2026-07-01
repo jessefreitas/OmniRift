@@ -30,6 +30,7 @@ import {
   acpCancel,
   acpAuthenticate,
   acpSetModel,
+  acpSetConfigOption,
   acpAgentRegister,
   acpAgentUnregister,
   runCheck,
@@ -145,6 +146,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // Config BYOK do Hermes escolhida no wizard (com a key) — em memória só (a key NUNCA vai pro
   // store/disco). data.providerConfig persiste só {provider,model}; a key mora no keychain do SO.
   const hermesCfgRef = useRef<HermesProviderConfig | null>(null);
+  // Claude expõe o modelo como configOption (não `models`). Quando é o caso, guardamos o configId
+  // ("model") aqui → o dropdown troca via session/set_config_option em vez de session/set_model.
+  const modelConfigIdRef = useRef<string | null>(null);
   // 🎯 Goal (loop autônomo por-agente) + 🔁 Loop (timer). Os refs guardam o run ATIVO (estáveis
   // no closure do turn-done, sem stale state); goalRun alimenta o badge no header.
   const goalRef = useRef<{ objective: string; condition: string; maxIter: number } | null>(null);
@@ -203,11 +207,13 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // Troca o modelo do agente (ACP session/set_model). Útil pra rodar um agente barato
   // (ex: validador) num modelo leve, e o autor num modelo forte.
   function changeModel(modelId: string) {
-    const sid = acpSessionIdRef.current;
+    const sid = sessionRef.current; // id do FRONT (chave do AcpManager), não o sessionId ACP
     if (!sid || !modelId || modelId === model) return;
     setModel(modelId);
     setUsage((u) => ({ ...u, model: modelId }));
-    void acpSetModel(sid, modelId);
+    // Claude: modelo é configOption → set_config_option; Hermes/Zed: models → set_model.
+    if (modelConfigIdRef.current) void acpSetConfigOption(sid, modelConfigIdRef.current, modelId);
+    else void acpSetModel(sid, modelId);
     setMsgs((m) => [...m, { role: "system", text: `⚙️ ${t("agent.modelChanged", "modelo")} → ${availableModels.find((x) => x.modelId === modelId)?.name ?? modelId}` }]);
   }
 
@@ -317,9 +323,22 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           const models = info.models as
             | { availableModels?: { modelId: string; name?: string }[]; currentModelId?: string }
             | undefined;
-          const avail = models?.availableModels ?? [];
-          if (avail.length) setAvailableModels(avail);
+          let avail = models?.availableModels ?? [];
           let cur = models?.currentModelId ?? avail[0]?.modelId ?? null;
+          // Claude não usa `models`: expõe o modelo como um configOption (id="model"). Se `models`
+          // veio vazio, procura o configOption de modelo → vira o dropdown (troca via set_config_option).
+          if (avail.length === 0) {
+            const cfgOpts = (info.configOptions as
+              | { id?: string; category?: string; currentValue?: string; options?: { value: string; name?: string }[] }[]
+              | undefined) ?? [];
+            const modelOpt = cfgOpts.find((o) => o.id === "model" || o.category === "model");
+            if (modelOpt?.options?.length) {
+              modelConfigIdRef.current = modelOpt.id ?? "model";
+              avail = modelOpt.options.map((o) => ({ modelId: o.value, name: o.name ?? o.value }));
+              cur = modelOpt.currentValue ?? avail[0]?.modelId ?? null;
+            }
+          }
+          if (avail.length) setAvailableModels(avail);
           // BYOK Hermes: o HERMES_INFERENCE_MODEL não pega no ACP (inicia no default do provider) →
           // aplica o modelo escolhido no wizard via session/set_model, com o formato `provider/model`
           // (com BARRA — com `:` o Hermes misrouteia "kimi" pro provider kimi-coding). hermesCfgRef

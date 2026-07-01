@@ -83,7 +83,7 @@ use commands::pty::{
 };
 use commands::acp::{
     acp_agent_register, acp_agent_unregister, acp_authenticate, acp_cancel, acp_permission_respond,
-    acp_prompt, acp_set_model, acp_spawn, hermes_list_models,
+    acp_prompt, acp_set_config_option, acp_set_model, acp_spawn, hermes_list_models,
 };
 use commands::folder_canvas::{folder_canvas_load, folder_canvas_save};
 use commands::providers::{
@@ -320,6 +320,7 @@ pub fn run() {
             acp_agent_register,
             acp_agent_unregister,
             acp_set_model,
+            acp_set_config_option,
             hermes_list_models,
             providers_list,
             provider_save,

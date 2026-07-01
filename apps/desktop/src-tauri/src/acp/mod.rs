@@ -411,6 +411,21 @@ impl AcpManager {
         write_line(&sess.stdin, &req).await
     }
 
+    /// Troca uma opção de config da sessão (ACP `session/set_config_option`). O adapter do Claude
+    /// expõe o MODELO como um configOption (`configId="model"`), não via `models`/`set_model` — daí
+    /// o dropdown do OmniAgent Claude troca por aqui (`{configId:"model", value:"sonnet"}`).
+    pub async fn set_config_option(&self, id: &str, config_id: String, value: String) -> Result<()> {
+        let sess = self.session(id)?;
+        let acp_sid = sess
+            .acp_session_id
+            .lock()
+            .clone()
+            .ok_or_else(|| anyhow!("sessão acp {id} ainda não inicializada"))?;
+        let req = json!({ "jsonrpc": "2.0", "id": 7, "method": "session/set_config_option",
+            "params": { "sessionId": acp_sid, "configId": config_id, "value": value } });
+        write_line(&sess.stdin, &req).await
+    }
+
     /// Responde a um `session/request_permission`. `option_id = None` → cancelado.
     pub async fn permission_respond(&self, id: &str, req_id: Value, option_id: Option<String>) -> Result<()> {
         let sess = self.session(id)?;
