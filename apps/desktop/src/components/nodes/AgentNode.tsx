@@ -287,7 +287,22 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             | undefined;
           const avail = models?.availableModels ?? [];
           if (avail.length) setAvailableModels(avail);
-          const cur = models?.currentModelId ?? avail[0]?.modelId ?? null;
+          let cur = models?.currentModelId ?? avail[0]?.modelId ?? null;
+          // BYOK Hermes: o HERMES_INFERENCE_MODEL não pega no ACP (inicia no default do provider) →
+          // aplica o modelo escolhido no wizard via session/set_model, com o formato `provider/model`
+          // (com BARRA — com `:` o Hermes misrouteia "kimi" pro provider kimi-coding). hermesCfgRef
+          // (sessão atual, tem a escolha) ou data.providerConfig (persistido) trazem o modelo.
+          const wantModel = hermesCfgRef.current?.model ?? data.providerConfig?.model;
+          const wantProvider = hermesCfgRef.current?.provider ?? data.providerConfig?.provider ?? data.provider;
+          if (data.provider === "hermes" && wantModel) {
+            const fullId = wantModel.includes("/") ? wantModel : `${wantProvider}/${wantModel}`;
+            if (fullId !== cur) void acpSetModel(id, fullId);
+            cur = fullId;
+            // reflete no dropdown (o availableModels curado do Hermes pode não conter este modelo)
+            setAvailableModels((prev) =>
+              prev.some((m) => m.modelId === fullId) ? prev : [{ modelId: fullId, name: wantModel }, ...prev],
+            );
+          }
           if (cur) setModel(cur);
           if (cur) setUsage((u) => ({ ...u, model: cur }));
           // Guarda o sessionId do ADAPTER (session/new traz; session/load não → mantém o anterior)

@@ -73,12 +73,13 @@ fn hermes_provider_env(provider: &str, model: &str, key: &str, base_url: Option<
     }
 
     let p = prefix(provider);
-    let mut envs = Vec::with_capacity(4);
+    let mut envs = Vec::with_capacity(3);
     envs.push(("HERMES_INFERENCE_PROVIDER".to_string(), provider.to_string()));
 
-    if !model.is_empty() {
-        envs.push(("HERMES_INFERENCE_MODEL".to_string(), model.to_string()));
-    }
+    // NB: HERMES_INFERENCE_MODEL é IGNORADO no modo ACP (o adapter inicia no default do provider).
+    // O modelo escolhido no wizard é aplicado via `session/set_model` (formato `provider/model`)
+    // depois do ready — ver AgentNode.listenAcpReady. `model` fica no provider_config só pra isso.
+    let _ = model;
 
     if !key.is_empty() {
         envs.push((format!("{}_API_KEY", p), key.to_string()));
@@ -192,6 +193,10 @@ impl AcpManager {
         let sess = session.clone();
         let cwd_loop = cwd_abs.clone();
         let resume_loop = resume_session_id.clone();
+        // BYOK Hermes: o loop usa isto pra AUTO-autenticar (em vez de mostrar login) — o Hermes
+        // sempre anuncia authMethods, mas com a env key injetada o método "runtime credentials"
+        // (id == provider) autentica na hora.
+        let pc_loop = provider_config.clone();
         // MCP do OmniRift injetado na sessão → o OmniAgent ganha as tools de orquestração
         // (terminal_*, workspace_*, memory_*, claim_*), as MESMAS que o Orquestrador-terminal usa.
         let mcp_token = app
@@ -239,12 +244,28 @@ impl AcpManager {
                 // login) → emite auth-required e ESPERA o acp_authenticate antes do session/new.
                 if id_num == Some(1) {
                     if let Some(result) = msg.get("result") {
-                        let needs_auth = result
-                            .get("authMethods")
-                            .and_then(|m| m.as_array())
-                            .map(|m| !m.is_empty())
-                            .unwrap_or(false);
-                        if needs_auth {
+                        let auth_arr = result.get("authMethods").and_then(|m| m.as_array());
+                        let needs_auth = auth_arr.map(|m| !m.is_empty()).unwrap_or(false);
+                        // BYOK Hermes: o Hermes SEMPRE anuncia authMethods. Se temos provider_config,
+                        // auto-autenticamos com o método "runtime credentials" (id == provider, ou o 1º
+                        // que não seja o setup interativo `type:"terminal"`) — a env key já foi injetada.
+                        // Assim a sessão nasce sem mostrar o login. Sem provider_config → login normal.
+                        let auto_mid: Option<String> = pc_loop.as_ref().filter(|_| needs_auth).and_then(|pc| {
+                            auth_arr.and_then(|arr| {
+                                arr.iter()
+                                    .find(|m| m.get("id").and_then(|v| v.as_str()) == Some(pc.provider.as_str()))
+                                    .or_else(|| arr.iter().find(|m| m.get("type").and_then(|t| t.as_str()) != Some("terminal")))
+                                    .and_then(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
+                            })
+                        });
+                        if let Some(mid) = auto_mid {
+                            log::info!("[acp {sid}] BYOK: auto-authenticate com método '{mid}'");
+                            let req = json!({ "jsonrpc": "2.0", "id": 4, "method": "authenticate",
+                                "params": { "methodId": mid } });
+                            if let Err(e) = write_line(&sess.stdin, &req).await {
+                                log::error!("[acp {sid}] erro no auto-authenticate: {e}");
+                            }
+                        } else if needs_auth {
                             let _ = app.emit("acp://auth-required", GenericEvent {
                                 session_id: sid.clone(),
                                 data: result.get("authMethods").cloned().unwrap_or(Value::Null),
