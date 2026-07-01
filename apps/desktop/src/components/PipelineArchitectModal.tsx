@@ -5,6 +5,7 @@
 // GRAVA por projeto (revisitável) e pode MONTAR no canvas real.
 
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
 import { Network, Save, Sparkles, X } from "lucide-react";
 
@@ -29,6 +30,15 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   const currentCwd = useCanvasStore((s) => s.currentCwd) ?? "";
   const addAgent = useCanvasStore((s) => s.addAgent);
   const addEdge = useCanvasStore((s) => s.addEdge);
+  const addSubagent = useCanvasStore((s) => s.addSubagent);
+  // Andamento: labels dos agentes/terminais já montados no floor ativo (pra o diff plano × canvas).
+  const builtLabels = useCanvasStore((s) => {
+    const active = s.parallels.find((p) => p.id === s.activeParallelId);
+    return (active?.nodes ?? [])
+      .filter((n) => n.kind === "agent" || n.kind === "terminal")
+      .map((n) => ("label" in n ? (n.label ?? "") : "").toLowerCase())
+      .filter(Boolean);
+  });
 
   const [providers, setProviders] = useState<LlmProvider[]>([]);
   const [providerId, setProviderId] = useState("");
@@ -69,22 +79,82 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
     setSavedAt(Date.now());
   }
 
-  // Monta a topologia no canvas: um OmniAgent por agente (label = role), posicionado por onda,
-  // + as conexões. É um esqueleto visual — você refina (troca provider/modelo, vira terminal, etc).
+  // Monta a topologia COMPLETA no canvas: um OmniAgent por agente (por onda) COM um BRIEF
+  // COMPARTILHADO (objetivo + time + fatia + conexões + trava de não-re-orquestrar) + o pontapé
+  // nos agentes de entrada, os SUBAGENTES de cada um (`.claude/agents/<role>.md` com o model:)
+  // e as conexões. Sem o brief comum, cada agente só se apresentava e perguntava "qual a tarefa?"
+  // (e só quem recebia msg trabalhava). Com o brief, o time todo sabe o objetivo e a própria parte.
   function build() {
     if (!plan) return;
+    const teamLine = plan.agents.map((a) => a.role).join(", ");
+    const repoHint = currentCwd ? `o repositório em ${currentCwd}` : "o repositório do projeto";
+    const upstream = (role: string) =>
+      plan.connections.filter((c) => c.to.toLowerCase() === role.toLowerCase()).map((c) => c.from);
+    const downstream = (role: string) =>
+      plan.connections.filter((c) => c.from.toLowerCase() === role.toLowerCase()).map((c) => c.to);
+
     const idByRole = new Map<string, string>();
     const byWave = new Map<number, number>();
     for (const a of plan.agents) {
       const wave = a.wave ?? 1;
       const col = byWave.get(wave) ?? 0;
       byWave.set(wave, col + 1);
+      const x = 80 + wave * 360;
+      const y = 80 + col * 240;
+      const ups = upstream(a.role);
+      const downs = downstream(a.role);
+      const isSource = ups.length === 0; // ponto de entrada → recebe o pontapé imediato
+      const persona =
+        `Você faz parte de um TIME montado no OmniRift. OBJETIVO DO PROJETO: ${plan.summary}\n` +
+        `TIME (${plan.agents.length}): ${teamLine}.\n` +
+        `VOCÊ é o ${a.role}. Sua fatia: ${a.why}` +
+        (a.model ? ` (modelo sugerido: ${a.model})` : "") +
+        (a.floor && plan.floors.length > 1 ? ` — paralelo ${a.floor}` : "") + ".\n" +
+        (ups.length ? `Você RECEBE trabalho de: ${ups.join(", ")}. ` : "Você é um ponto de ENTRADA do fluxo. ") +
+        (downs.length ? `Você ENTREGA para: ${downs.join(", ")}.\n` : "\n") +
+        `REGRA DO TIME: você é UM membro focado. Faça SÓ a sua fatia. NÃO crie sub-times, NÃO rode ` +
+        `dispatch/squad/multi_agent_dispatch, NÃO re-orquestre — quem coordena é o canvas do OmniRift ` +
+        `(sua saída já alimenta o próximo pela conexão). ` +
+        `MEMÓRIA COMPARTILHADA: no começo rode memory_recall pra ver o que o time já registrou; ao ` +
+        `terminar sua fatia, rode memory_remember gravando suas decisões e saídas pro próximo agente ` +
+        `puxar (é assim que o time colabora — o blackboard começa vazio e enche com o trabalho de vocês). ` +
+        `COMMIT: se você editou arquivos, faça commit da sua fatia (git add -A && git commit -m "...") ` +
+        `no worktree ao concluir — sem commit não há baseline e o review_current/gate reporta "sem diff". ` +
+        (isSource
+          ? `COMECE AGORA pela sua parte do objetivo acima; se faltar contexto, leia ${repoHint} antes de perguntar.`
+          : `Prepare sua fatia agora lendo ${repoHint}; execute quando ${ups.join(", ")} te entregar o trabalho.`);
       const node = addAgent({
         label: a.role,
-        persona: `Você é o ${a.role} deste time. ${a.why}`,
-        position: { x: 80 + wave * 360, y: 80 + col * 200 },
+        persona,
+        position: { x, y },
       });
       idByRole.set(a.role.toLowerCase(), node.id);
+      // Subagentes deste agente: cria o nó + escreve o `.claude/agents/<role>.md` com o model:
+      // (o addSubagent+SubagentNode materializam; aqui passamos prompt/model do plano).
+      const subs = plan.subagents.filter((s) => s.parent.toLowerCase() === a.role.toLowerCase());
+      subs.forEach((s, i) => {
+        const sub = addSubagent({
+          role: s.role.toLowerCase().replace(/\s+/g, "-"),
+          label: s.role,
+          description: s.why.slice(0, 120),
+          prompt: `Você é o ${s.role} (subagente do ${a.role}). ${s.why}`,
+          parentAgentId: node.id,
+          parentLabel: a.role,
+          cwd: currentCwd || undefined,
+          model: s.model,
+          position: { x: x + i * 250, y: y + 260 },
+        });
+        // Materializa o arquivo do subagente (.claude/agents/<role>.md) com o model: no frontmatter.
+        void invoke("subagent_write", {
+          dir: currentCwd || "",
+          name: s.role,
+          description: s.why.slice(0, 120),
+          prompt: `Você é o ${s.role} (subagente do ${a.role}). ${s.why}`,
+          tools: null,
+          model: s.model || null,
+        }).catch(() => {});
+        addEdge(node.id, sub.id, "subagent-link", { sourceHandle: "subagent" });
+      });
     }
     for (const c of plan.connections) {
       const from = idByRole.get(c.from.toLowerCase());
@@ -135,7 +205,20 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
           {/* Plano renderizado */}
           {plan && (
             <div className="space-y-3 rounded-md border border-border p-3">
-              <p className="text-[13px] text-text">{plan.summary}</p>
+              <div className="flex items-start gap-2">
+                <p className="flex-1 text-[13px] text-text">{plan.summary}</p>
+                {(() => {
+                  const built = plan.agents.filter((a) => builtLabels.includes(a.role.toLowerCase())).length;
+                  return (
+                    <span
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${built === 0 ? "bg-white/5 text-textMuted" : built === plan.agents.length ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-200"}`}
+                      title={t("pipe.progressT", "agentes deste plano já montados no canvas")}
+                    >
+                      {built}/{plan.agents.length} {t("pipe.built", "montados")}
+                    </span>
+                  );
+                })()}
+              </div>
 
               {plan.floors.length > 1 && (
                 <div className="text-[11px] text-textMuted">
