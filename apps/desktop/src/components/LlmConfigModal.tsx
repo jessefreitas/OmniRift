@@ -3,11 +3,17 @@
 // Config do LLM (BYOK) usado pelo Code Review (e reusável). Provider preset +
 // baseUrl + apiKey + model + testar. Persiste em localStorage (key → keychain Fase 2).
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Cpu, X } from "lucide-react";
 
 import { LLM_PRESETS, llmChat, llmListModels, loadLlmConfig, saveLlmConfig, type LlmConfig, type LlmProvider } from "@/lib/llm-client";
+import {
+  llmProvidersList,
+  llmProviderSave,
+  llmProviderResolve,
+  type LlmProvider as CentralProvider,
+} from "@/lib/llm-providers-client";
 import { persistReviewConfig } from "@/lib/review-config-sync";
 import { useT } from "@/lib/i18n";
 
@@ -28,6 +34,37 @@ export function LlmConfigModal({ onClose, embedded }: Props) {
   const [testing, setTesting] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  // Central de Providers: chaves cadastradas 1x → selecionar em vez de re-colar.
+  const [saved, setSaved] = useState<CentralProvider[]>([]);
+  useEffect(() => {
+    llmProvidersList().then(setSaved).catch(() => setSaved([]));
+  }, []);
+
+  // Carrega um provider salvo da Central no form (resolve a chave do keychain).
+  async function useSaved(id: string) {
+    if (!id) return;
+    try {
+      const r = await llmProviderResolve(id);
+      setProvider(r.kind === "anthropic" ? "anthropic" : "openai");
+      setBaseUrl(r.baseUrl);
+      setApiKey(r.key);
+      if (r.model) setModel(r.model);
+      setTest(`✓ ${t("llmConfig.loadedFromCentral", "carregado da Central")}`);
+    } catch (e) {
+      setTest(`✗ ${String(e)}`);
+    }
+  }
+
+  // Deriva o `kind` canônico da Central a partir da baseUrl (pra espelhar ao salvar).
+  function centralKind(): string {
+    const u = baseUrl.toLowerCase();
+    if (u.includes("ollama.com")) return "ollama-cloud";
+    if (u.includes("openrouter")) return "openrouter";
+    if (u.includes("anthropic")) return "anthropic";
+    if (u.includes("api.openai.com")) return "openai";
+    if (u.includes("localhost") || u.includes("127.0.0.1")) return "local";
+    return provider;
+  }
 
   async function listModels() {
     setLoadingModels(true);
@@ -71,6 +108,18 @@ export function LlmConfigModal({ onClose, embedded }: Props) {
   function save() {
     saveLlmConfig(current());
     void persistReviewConfig(); // espelha pro backend (Stop hook / MCP review)
+    // Espelha pra Central de Providers (chave no keychain) → reusável no Hermes/agentes.
+    const kind = centralKind();
+    void llmProviderSave(
+      {
+        id: kind,
+        label: LLM_PRESETS.find((p) => p.baseUrl === baseUrl.trim())?.label ?? kind,
+        kind,
+        baseUrl: baseUrl.trim(),
+        model: model.trim(),
+      },
+      apiKey.trim() || undefined,
+    ).catch(() => {});
     onClose();
   }
 
@@ -82,6 +131,22 @@ export function LlmConfigModal({ onClose, embedded }: Props) {
           {!embedded && <button onClick={onClose} className="text-textMuted hover:text-text" title={t("llmConfig.close", "Fechar")}><X size={16} /></button>}
         </header>
         <div className="p-4 space-y-3">
+          {saved.length > 0 && (
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-emerald-400">{t("llmConfig.fromCentral", "Provider salvo (Central)")}</label>
+              <select
+                defaultValue=""
+                onChange={(e) => void useSaved(e.target.value)}
+                className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-emerald-500/30 text-text focus:outline-none focus:border-emerald-400"
+              >
+                <option value="">{t("llmConfig.chooseFromCentral", "— usar uma chave já salva —")}</option>
+                {saved.map((sp) => (
+                  <option key={sp.id} value={sp.id}>{sp.label}{sp.hasKey ? " · 🔑" : ""}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10px] text-textMuted opacity-60">{t("llmConfig.centralHint", "cadastradas 1x — servem OmniPartner, review e Hermes")}</p>
+            </div>
+          )}
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("llmConfig.provider", "Provider")}</label>
             <select
