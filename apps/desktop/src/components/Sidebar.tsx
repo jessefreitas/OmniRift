@@ -28,6 +28,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plug,
+  KeyRound,
   Plus,
   RefreshCw,
   Repeat,
@@ -103,6 +104,7 @@ const CompanionModal = lazy(() => import("@/components/CompanionModal").then((m)
 const AppearanceModal = lazy(() => import("@/components/AppearanceModal").then((m) => ({ default: m.AppearanceModal })));
 const UsageModal = lazy(() => import("@/components/UsageModal").then((m) => ({ default: m.UsageModal })));
 const ConnectionsModal = lazy(() => import("@/components/ConnectionsModal").then((m) => ({ default: m.ConnectionsModal })));
+const ProvidersCentralModal = lazy(() => import("@/components/ProvidersCentralModal").then((m) => ({ default: m.ProvidersCentralModal })));
 const MobileDevicesModal = lazy(() => import("@/components/MobileDevicesModal").then((m) => ({ default: m.MobileDevicesModal })));
 const HelpModal = lazy(() => import("@/components/HelpModal").then((m) => ({ default: m.HelpModal })));
 const McpServersModal = lazy(() => import("@/components/McpServersModal").then((m) => ({ default: m.McpServersModal })));
@@ -148,6 +150,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "compressors", icon: Gauge, label: "Compressores de token", desc: "Instalar/gerenciar compressores (RTK, Headroom) que cortam tokens dos agentes" },
   { id: "skills", icon: Sparkles, label: "Skills dos agentes", desc: "Selecionar skills globais (todo agente recebe) e por agente (cada role escolhe as suas)" },
   { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
+  { id: "llm-providers", icon: KeyRound, label: "Central de API", desc: "Chaves de API dos providers de LLM — cadastra 1x, usa no Hermes, OmniPartner e review" },
   { id: "mobile", icon: Smartphone, label: "Dispositivos móveis", desc: "Parear o celular (QR), listar pareados, revogar e conceder controle (steering)" },
   { id: "history", icon: History, label: "Histórico de sessões", desc: "Sessões anteriores gravadas dos agentes" },
   { id: "hooks", icon: Webhook, label: "Hooks do paralelo", desc: "Comandos disparados em eventos do paralelo (pre/post)" },
@@ -442,6 +445,7 @@ export function Sidebar() {
     setOrchMenu(false);
   }
   const [showConnections, setShowConnections] = useState(false);
+  const [showLlmProviders, setShowLlmProviders] = useState(false);
   const [showMobile, setShowMobile] = useState(false);
   const [reviewFloor, setReviewFloor] = useState<Parallel | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
@@ -489,6 +493,7 @@ export function Sidebar() {
     companion: () => setShowCompanion(true),
     git: () => setShowGitRepos(true),
     connections: () => setShowConnections(true),
+    "llm-providers": () => setShowLlmProviders(true),
     mobile: () => setShowMobile(true),
     "review-ai": () => setShowReviewAi(true),
     appearance: () => setShowAppearance(true),
@@ -522,6 +527,7 @@ export function Sidebar() {
         case "memory": setShowMemory(true); break;
         case "history": setShowHistory(true); break;
         case "connections": setShowConnections(true); break;
+        case "llm-providers": setShowLlmProviders(true); break;
         case "mobile": setShowMobile(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "project-health": setShowHealth(true); break;
@@ -2199,6 +2205,7 @@ export function Sidebar() {
       {showReminders && <RemindersModal onClose={() => setShowReminders(false)} />}
       {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
+      {showLlmProviders && <ProvidersCentralModal onClose={() => setShowLlmProviders(false)} />}
       {showMobile && <MobileDevicesModal onClose={() => setShowMobile(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
