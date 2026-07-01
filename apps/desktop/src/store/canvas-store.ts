@@ -942,9 +942,17 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
           ? ({ ...n, id: newId, session_id: newId } as CanvasNode)
           : ({ ...n, id: newId } as CanvasNode);
       });
-      const nodes: CanvasNode[] = remapped.map((n) =>
-        n.parentId ? ({ ...n, parentId: idMap.get(n.parentId) } as CanvasNode) : n,
-      );
+      const nodes: CanvasNode[] = remapped.map((n) => {
+        let out = n;
+        // Group node: parentId aponta pro container. Remapeia pro id novo.
+        if (out.parentId) out = { ...out, parentId: idMap.get(out.parentId) ?? out.parentId } as CanvasNode;
+        // Subagente: parentAgentId liga ao agente-pai. Sem remapear, o subagente vira ÓRFÃO ao
+        // reabrir o projeto (o pai ganhou id novo) → o ↻ "Recarregar subagentes" some e não dá
+        // pra invocar. (Era o bug do "cadê o recarregar" / links quebrados no restore.)
+        if (out.kind === "subagent" && out.parentAgentId)
+          out = { ...out, parentAgentId: idMap.get(out.parentAgentId) ?? out.parentAgentId } as CanvasNode;
+        return out;
+      });
       const edges: CanvasEdge[] = f.edges.map((e) => ({
         ...e,
         id: nanoid(),
