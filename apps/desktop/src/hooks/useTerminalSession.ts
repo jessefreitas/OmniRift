@@ -300,7 +300,15 @@ export function useTerminalSession({
           if (seq !== undefined && seq > lastSeqRef.current) lastSeqRef.current = seq;
         };
 
+        let lastPulseTs = 0;
         unlistenOutput = await listenPtyOutput(sessionId, (data, seq) => {
+          // Conexões animadas p/ terminais: na atividade (output), pulsa verde as linhas ligadas
+          // a este terminal. Throttle 500ms pra não spammar o store num agente barulhento.
+          const now = performance.now();
+          if (now - lastPulseTs > 500) {
+            lastPulseTs = now;
+            useCanvasStore.getState().pulseTerminalEdges(sessionId);
+          }
           // Durante o await do snapshot, bufferiza — reaplica com o mesmo filtro de
           // seq quando o snapshot resolver (anti-corrida snapshot×live).
           if (snapshotInFlightRef.current) {

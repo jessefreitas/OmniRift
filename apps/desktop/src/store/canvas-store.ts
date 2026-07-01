@@ -66,6 +66,9 @@ interface CanvasState {
   emitAgentOutput: (nodeId: string, text: string, extra?: { kind?: AgentOutputKind; diff?: string; path?: string }) => void;
   emitNodeInput: (nodeId: string, text: string) => void;
   setEdgeFlow: (edgeId: string, flow: "idle" | "sending" | "received" | "error" | "review") => void;
+  /** Pulsa (verde) as linhas ligadas a um terminal quando ele tem atividade (output). Dá a
+   *  "conexão animada" também pros terminais (o roteamento ACP só anima edges generic). */
+  pulseTerminalEdges: (sessionId: string) => void;
   setEdgePayloadKind: (edgeId: string, kind: AgentOutputKind) => void;
   setReviewPayload: (nodeId: string, payload: AgentOutput | null) => void;
   setFilterPending: (nodeId: string, payload: AgentOutput | null) => void;
@@ -751,6 +754,27 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     set((s) => ({ nodeInputs: { ...s.nodeInputs, [nodeId]: { text, seq: (s.nodeInputs[nodeId]?.seq ?? 0) + 1 } } })),
   setEdgeFlow: (edgeId, flow) =>
     set((s) => ({ edgeFlow: { ...s.edgeFlow, [edgeId]: flow } })),
+  pulseTerminalEdges: (sessionId) => {
+    const s = get();
+    const active = s.parallels.find((p) => p.id === s.activeParallelId);
+    if (!active) return;
+    const node = active.nodes.find((n) => n.kind === "terminal" && n.session_id === sessionId);
+    if (!node) return;
+    const ids = active.edges.filter((e) => e.source === node.id || e.target === node.id).map((e) => e.id);
+    if (!ids.length) return;
+    set((st) => {
+      const flow = { ...st.edgeFlow };
+      for (const id of ids) flow[id] = "received";
+      return { edgeFlow: flow };
+    });
+    for (const id of ids) {
+      window.setTimeout(() => {
+        if (get().edgeFlow[id] === "received") {
+          set((st) => ({ edgeFlow: { ...st.edgeFlow, [id]: "idle" } }));
+        }
+      }, 700);
+    }
+  },
   setEdgePayloadKind: (edgeId, kind) =>
     set((s) => ({ edgePayloadKind: { ...s.edgePayloadKind, [edgeId]: kind } })),
   setReviewPayload: (nodeId, payload) =>
