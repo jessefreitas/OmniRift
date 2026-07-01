@@ -85,6 +85,7 @@ use commands::acp::{
     acp_agent_register, acp_agent_unregister, acp_authenticate, acp_cancel, acp_permission_respond,
     acp_prompt, acp_set_model, acp_spawn, hermes_list_models,
 };
+use commands::folder_canvas::{folder_canvas_load, folder_canvas_save};
 use commands::providers::{
     provider_delete, provider_list_models, provider_resolve, provider_save, providers_list,
 };
@@ -325,6 +326,8 @@ pub fn run() {
             provider_delete,
             provider_resolve,
             provider_list_models,
+            folder_canvas_save,
+            folder_canvas_load,
             pty_spawn,
             pty_write,
             pty_resize,

@@ -12,6 +12,7 @@
 import { useCanvasStore } from "@/store/canvas-store";
 import { dbLoadWorkspace, dbSaveWorkspace } from "@/lib/db-client";
 import { snapshotCreate } from "@/lib/snapshot-client";
+import { folderCanvasSave } from "@/lib/folder-canvas-client";
 import { migrateWorkspace } from "@/types/workspace";
 
 // Garante que o auto-load só roda uma vez por processo (evita re-load no
@@ -95,9 +96,11 @@ export async function initPersistence(): Promise<() => void> {
     if (pendingTimer !== undefined) window.clearTimeout(pendingTimer);
     pendingTimer = window.setTimeout(() => {
       pendingTimer = undefined;
-      dbSaveWorkspace(JSON.stringify(s.getWorkspaceSnapshot())).catch((e) =>
-        console.warn("[persistence] save falhou:", e),
-      );
+      const doc = JSON.stringify(s.getWorkspaceSnapshot());
+      dbSaveWorkspace(doc).catch((e) => console.warn("[persistence] save falhou:", e));
+      // Canvas por pasta: além do slot único (boot limpo), salva atrelado ao cwd atual → ao
+      // reabrir a pasta, os agentes daquele projeto voltam (folderCanvasLoad no pickFolder).
+      if (s.currentCwd) folderCanvasSave(s.currentCwd, doc).catch(() => {});
     }, 600);
   });
 

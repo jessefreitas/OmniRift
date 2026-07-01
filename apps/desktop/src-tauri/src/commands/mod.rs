@@ -9,6 +9,7 @@ pub mod debug;
 pub mod diagnostics;
 pub mod editor;
 pub mod explain;
+pub mod folder_canvas;
 pub mod fsinfo;
 pub mod fs;
 pub mod git;

@@ -53,6 +53,7 @@ import { nanoid } from "nanoid";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
+import { folderCanvasSave, folderCanvasLoad } from "@/lib/folder-canvas-client";
 import { snapshotCreate } from "@/lib/snapshot-client";
 import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig, setMaxAgents, mcpAddCommand } from "@/lib/mcp-client";
 import { parallelGitCreate, parallelGitLand } from "@/lib/git-client";
@@ -1477,7 +1478,18 @@ export function Sidebar() {
 
   async function pickFolder() {
     const selected = await open({ directory: true, multiple: false, title: tr("sidebar.pickProjectFolderTitle", "Selecionar pasta do projeto") });
-    if (typeof selected === "string") setCurrentCwd(selected);
+    if (typeof selected !== "string") return;
+    // Canvas por pasta: salva o canvas atual atrelado à pasta ATUAL (se houver) antes de trocar.
+    if (currentCwd) {
+      await folderCanvasSave(currentCwd, JSON.stringify(getWorkspaceSnapshot())).catch(() => {});
+    }
+    setCurrentCwd(selected);
+    // Restaura o canvas salvo daquela pasta → "os agentes daquele projeto voltam". Pasta nova
+    // (sem canvas salvo) → mantém o canvas atual (não limpa).
+    try {
+      const saved = await folderCanvasLoad(selected);
+      if (saved) restoreWorkspace(JSON.parse(saved));
+    } catch { /* canvas corrompido → ignora, segue com o atual */ }
   }
 
   async function handleSave() {
