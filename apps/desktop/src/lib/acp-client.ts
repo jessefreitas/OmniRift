@@ -200,3 +200,16 @@ export function listenAcpAuthFailed(
     (p) => handler(p.data),
   );
 }
+
+/** O adapter RECUSOU o set_model/set_config_option — `data` traz o erro. Sem isso a UI
+ *  ficava otimista mostrando um modelo que não estava valendo (ex: Hermes preso no default). */
+export function listenAcpModelRejected(
+  sessionId: string,
+  handler: (err: unknown) => void,
+): Promise<UnlistenFn> {
+  return onSession<BasePayload & { data: unknown }>(
+    "acp://model-rejected",
+    sessionId,
+    (p) => handler(p.data),
+  );
+}

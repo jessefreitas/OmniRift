@@ -335,6 +335,7 @@ export interface CanvasNodePatch {
   filePath?: string;
   comment?: string;
   providerConfig?: { provider: string; model: string };
+  provider?: "claude" | "codex" | "hermes";
   goal?: { objective: string; condition: string; maxIter: number };
   loop?: { prompt: string; everyMin: number; active: boolean };
   model?: string;

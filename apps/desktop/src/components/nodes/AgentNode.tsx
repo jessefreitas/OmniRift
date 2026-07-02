@@ -41,6 +41,7 @@ import {
   listenAcpExit,
   listenAcpAuthRequired,
   listenAcpAuthFailed,
+  listenAcpModelRejected,
   type AcpAuthMethod,
 } from "@/lib/acp-client";
 import type { AgentNode as AgentNodeData } from "@/types/canvas";
@@ -152,6 +153,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // ("model") aqui → o dropdown troca via session/set_config_option em vez de session/set_model.
   const modelConfigIdRef = useRef<string | null>(null);
   const personaSentRef = useRef(false); // persona injetada 1x quando ready (não re-injeta no reload)
+  // Último modelo CONFIRMADO pelo adapter (ready) — se o set_model for recusado, o badge volta
+  // pra cá em vez de mentir o modelo pedido (Task #6: Hermes preso no default ministral).
+  const confirmedModelRef = useRef<string | null>(null);
   // 🎯 Goal (loop autônomo por-agente) + 🔁 Loop (timer). Os refs guardam o run ATIVO (estáveis
   // no closure do turn-done, sem stale state); goalRun alimenta o badge no header.
   const goalRef = useRef<{ objective: string; condition: string; maxIter: number } | null>(null);
@@ -232,6 +236,34 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     if (modelConfigIdRef.current) void acpSetConfigOption(sid, modelConfigIdRef.current, modelId);
     else void acpSetModel(sid, modelId);
     setMsgs((m) => [...m, { role: "system", text: `⚙️ ${t("agent.modelChanged", "modelo")} → ${availableModels.find((x) => x.modelId === modelId)?.name ?? modelId}` }]);
+  }
+
+  // Persona ≠ engine parte 2: troca o PROVIDER (adapter ACP) mantendo a persona. Adapters não
+  // compartilham sessão (session/load é por-adapter) → força session/new e RE-INJETA a persona
+  // no novo ready (personaSentRef=false). A conversa anterior se perde — mesmo custo do reload
+  // sem resume. É o escape-hatch de contexto: "Sonnet cheio → Kimi 1M, continua Arquiteto."
+  function changeProvider(next: "claude" | "codex" | "hermes") {
+    if (next === (data.provider ?? "claude")) return;
+    patchNode(data.id, { provider: next });
+    acpSessionIdRef.current = null;
+    resumeRef.current = null;
+    spawnedResumeRef.current = false;
+    personaSentRef.current = false;
+    modelConfigIdRef.current = null;
+    firstSentRef.current = false;
+    teamRef.current = null;
+    subagentsSentRef.current = false;
+    setModel(null);
+    setAvailableModels([]);
+    setUsage({});
+    setPerm(null);
+    setAuthMethods([]);
+    setMsgs((m) => [
+      ...m,
+      { role: "system", text: `⇄ ${t("agent.providerChanged", "trocando o motor")} → ${next}${data.persona ? ` — ${t("agent.personaKept", "mantendo a persona (nova conversa)")}` : ""}` },
+    ]);
+    setStatus("starting");
+    setReloadKey((k) => k + 1);
   }
 
   // Autoscroll pro fim a cada novo conteúdo.
@@ -356,6 +388,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             }
           }
           if (avail.length) setAvailableModels(avail);
+          confirmedModelRef.current = cur; // verdade do adapter, ANTES do otimismo abaixo
           // BYOK Hermes: o HERMES_INFERENCE_MODEL não pega no ACP (inicia no default do provider) →
           // aplica o modelo escolhido no wizard via session/set_model, com o formato `provider/model`
           // (com BARRA — com `:` o Hermes misrouteia "kimi" pro provider kimi-coding). hermesCfgRef
@@ -370,6 +403,17 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             setAvailableModels((prev) =>
               prev.some((m) => m.modelId === fullId) ? prev : [{ modelId: fullId, name: wantModel }, ...prev],
             );
+          } else if (wantModel && modelConfigIdRef.current) {
+            // Claude: o modelo sugerido pelo plano (Montar) vem como "haiku|sonnet|opus" — casa com
+            // o configOption real por substring e aplica via set_config_option (mesmo cano do dropdown).
+            const want = wantModel.toLowerCase();
+            const hit = avail.find(
+              (m) => m.modelId.toLowerCase().includes(want) || (m.name ?? "").toLowerCase().includes(want),
+            );
+            if (hit && hit.modelId !== cur) {
+              void acpSetConfigOption(id, modelConfigIdRef.current, hit.modelId);
+              cur = hit.modelId;
+            }
           }
           if (cur) setModel(cur);
           if (cur) setUsage((u) => ({ ...u, model: cur }));
@@ -477,6 +521,18 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         listenAcpAuthFailed(id, (err) => {
           pushSys(`falha no login: ${typeof err === "string" ? err : JSON.stringify(err)}`);
           setStatus("auth");
+        }),
+        // O adapter RECUSOU o modelo pedido (set_model/set_config_option) → badge volta pro
+        // modelo confirmado e avisa, em vez de mentir. (Task #6: Hermes voltando pro ministral.)
+        listenAcpModelRejected(id, (err) => {
+          const fallback = confirmedModelRef.current;
+          if (fallback) {
+            setModel(fallback);
+            setUsage((u) => ({ ...u, model: fallback }));
+          }
+          pushSys(
+            `⚠️ ${t("agent.modelRejected", "o adapter recusou a troca de modelo")}${fallback ? ` — ${t("agent.modelStayed", "segue em")} ${fallback}` : ""}: ${typeof err === "string" ? err : JSON.stringify(err)}`,
+          );
         }),
       ]);
       if (!alive) {
@@ -648,7 +704,17 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       <div className="node-drag-handle flex items-center gap-1.5 border-b border-white/10 px-2 py-1.5">
         <Brain size={13} className="text-brand" />
         <span className="font-semibold text-text">{data.label ?? "OmniAgent"}</span>
-        <span className="text-[10px] uppercase text-text/40">{data.provider ?? "claude"}</span>
+        <select
+          value={data.provider ?? "claude"}
+          onChange={(e) => changeProvider(e.target.value as "claude" | "codex" | "hermes")}
+          onPointerDown={(e) => e.stopPropagation()}
+          title={t("agent.pickProvider", "Trocar o MOTOR (adapter ACP) mantendo a persona — abre uma conversa nova")}
+          className="nodrag rounded bg-transparent px-0.5 text-[10px] uppercase text-text/40 outline-none hover:bg-white/5 focus:bg-black/40"
+        >
+          <option value="claude">claude</option>
+          <option value="codex">codex</option>
+          <option value="hermes">hermes</option>
+        </select>
         <StatusBadge status={status} />
         <div className="flex-1" />
         {availableModels.length > 1 ? (

@@ -345,6 +345,20 @@ impl AcpManager {
                     continue;
                 }
 
+                // Resposta do set_model (id=6) / set_config_option (id=7). Antes caía no vazio →
+                // adapter recusava o modelo (ex: Hermes preso no default ministral) e NINGUÉM sabia;
+                // o badge da UI ficava otimista mostrando um modelo que não estava valendo. Agora o
+                // erro vira evento → o front corrige o badge e avisa (Task #6).
+                if id_num == Some(6) || id_num == Some(7) {
+                    if let Some(err) = msg.get("error") {
+                        log::error!("[acp {sid}] set_model/set_config_option (id={id_num:?}) recusado: {err}");
+                        let _ = app.emit("acp://model-rejected", GenericEvent { session_id: sid.clone(), data: err.clone() });
+                    } else {
+                        log::info!("[acp {sid}] set_model/set_config_option (id={id_num:?}) OK");
+                    }
+                    continue;
+                }
+
                 // Notificação de progresso (tool_call, agent_message_chunk, plan, …).
                 if method == Some("session/update") {
                     let update = msg.get("params").and_then(|p| p.get("update")).cloned().unwrap_or(Value::Null);
