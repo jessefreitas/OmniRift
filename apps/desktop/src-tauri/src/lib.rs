@@ -94,7 +94,8 @@ use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_un
 use turbo::commands::{run_check, turbo_list, turbo_start, turbo_status, turbo_stop};
 use commands::workspace::{workspace_load, workspace_save};
 use db::{
-    db_load_workspace, db_save_workspace, memory_add, memory_delete, memory_query, reminder_add,
+    db_load_workspace, db_save_workspace, kanban_card_create, kanban_card_delete,
+    kanban_card_move, kanban_card_update, kanban_query, memory_add, memory_delete, memory_query, reminder_add,
     reminder_delete, reminder_set_done, reminders_list, session_end, session_event,
     session_events_list, session_start, sessions_list, snapshot_create, snapshot_delete,
     snapshot_get, snapshot_prune_auto, snapshots_list,
@@ -368,6 +369,11 @@ pub fn run() {
             memory_query,
             memory_delete,
             memory_add,
+            kanban_query,
+            kanban_card_create,
+            kanban_card_move,
+            kanban_card_update,
+            kanban_card_delete,
             snapshot_create,
             snapshot_prune_auto,
             snapshots_list,

@@ -1084,6 +1084,117 @@ pub async fn review_dispatch(state: &McpState, args: Value) -> String {
     }
 }
 
+// ---- Kanban: acompanhamento visual do projeto — os AGENTES movem os cards ----
+
+pub fn kanban_tool_defs() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "kanban_list",
+            "description": "Lista os cards do Kanban do projeto (acompanhamento visual no painel do OmniRift). Use pra ver o que está em backlog/doing/review/done e achar o id do SEU card.",
+            "inputSchema": { "type": "object", "properties": {
+                "project": { "type": "string", "description": "Caminho (cwd) do projeto." }
+            }, "required": ["project"] }
+        }),
+        json!({
+            "name": "kanban_card_create",
+            "description": "Cria um card no Kanban do projeto (aparece no painel visual do OmniRift).",
+            "inputSchema": { "type": "object", "properties": {
+                "project": { "type": "string", "description": "Caminho (cwd) do projeto." },
+                "title": { "type": "string", "description": "Título curto do card." },
+                "column": { "type": "string", "enum": ["backlog", "doing", "review", "done"], "description": "Coluna inicial (default backlog)." },
+                "body": { "type": "string", "description": "Descrição opcional." },
+                "agent": { "type": "string", "description": "Seu papel/nome de agente." }
+            }, "required": ["project", "title"] }
+        }),
+        json!({
+            "name": "kanban_card_move",
+            "description": "Move um card do Kanban pra outra coluna (ao começar sua fatia → doing; ao terminar → review).",
+            "inputSchema": { "type": "object", "properties": {
+                "id": { "type": "number", "description": "ID do card (veja kanban_list)." },
+                "column": { "type": "string", "enum": ["backlog", "doing", "review", "done"] }
+            }, "required": ["id", "column"] }
+        }),
+        json!({
+            "name": "kanban_card_note",
+            "description": "Adiciona uma nota curta de progresso ao card do Kanban (vira bullet no corpo).",
+            "inputSchema": { "type": "object", "properties": {
+                "id": { "type": "number", "description": "ID do card." },
+                "note": { "type": "string", "description": "Nota de progresso." }
+            }, "required": ["id", "note"] }
+        }),
+    ]
+}
+
+pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    let db = state.app.state::<crate::db::Db>();
+    match tool {
+        "kanban_list" => {
+            let Some(project) = args.get("project").and_then(|v| v.as_str()).filter(|p| !p.is_empty()) else {
+                return "parâmetro 'project' é obrigatório".into();
+            };
+            match db.kanban_list(project) {
+                Ok(cards) => serde_json::to_string_pretty(&cards).unwrap_or_else(|_| "[]".into()),
+                Err(e) => format!("erro ao listar cards: {e:#}"),
+            }
+        }
+        "kanban_card_create" => {
+            let Some(project) = args.get("project").and_then(|v| v.as_str()).filter(|p| !p.is_empty()) else {
+                return "parâmetro 'project' é obrigatório".into();
+            };
+            let Some(title) = args.get("title").and_then(|v| v.as_str()).filter(|t| !t.is_empty()) else {
+                return "parâmetro 'title' é obrigatório".into();
+            };
+            let column = args.get("column").and_then(|v| v.as_str()).unwrap_or("backlog");
+            if !crate::db::kanban_valid_col(column) {
+                return "coluna inválida: use backlog|doing|review|done".into();
+            }
+            let body = args.get("body").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+            let agent = args.get("agent").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+            match db.kanban_create(project, column, title, body, agent, None) {
+                Ok(id) => {
+                    let _ = state.app.emit("kanban://changed", ());
+                    format!("card #{id} criado em {column}")
+                }
+                Err(e) => format!("erro ao criar card: {e:#}"),
+            }
+        }
+        "kanban_card_move" => {
+            let Some(id) = args.get("id").and_then(|v| v.as_i64()).filter(|i| *i > 0) else {
+                return "parâmetro 'id' deve ser um número positivo".into();
+            };
+            let Some(column) = args.get("column").and_then(|v| v.as_str()).filter(|c| !c.is_empty()) else {
+                return "parâmetro 'column' é obrigatório".into();
+            };
+            if !crate::db::kanban_valid_col(column) {
+                return "coluna inválida: use backlog|doing|review|done".into();
+            }
+            match db.kanban_move(id, column) {
+                Ok(()) => {
+                    let _ = state.app.emit("kanban://changed", ());
+                    format!("card #{id} movido para {column}")
+                }
+                Err(e) => format!("erro ao mover card: {e:#}"),
+            }
+        }
+        "kanban_card_note" => {
+            let Some(id) = args.get("id").and_then(|v| v.as_i64()).filter(|i| *i > 0) else {
+                return "parâmetro 'id' deve ser um número positivo".into();
+            };
+            let Some(note) = args.get("note").and_then(|v| v.as_str()).filter(|n| !n.is_empty()) else {
+                return "parâmetro 'note' é obrigatório".into();
+            };
+            match db.kanban_note(id, note) {
+                Ok(()) => {
+                    let _ = state.app.emit("kanban://changed", ());
+                    format!("nota adicionada ao card #{id}")
+                }
+                Err(e) => format!("erro ao anotar card: {e:#}"),
+            }
+        }
+        _ => "tool kanban desconhecida".into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

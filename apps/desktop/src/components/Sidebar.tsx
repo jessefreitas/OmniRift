@@ -43,6 +43,7 @@ import {
   Smartphone,
   Trash2,
   Sparkles,
+  SquareKanban,
   TerminalSquare,
   Upload,
   Webhook,
@@ -121,6 +122,7 @@ const ReviewSettingsModal = lazy(() => import("@/components/ReviewSettingsModal"
 const SkillLaunchPickerModal = lazy(() => import("@/components/SkillLaunchPicker").then((m) => ({ default: m.SkillLaunchPicker })));
 const DiagnosticsModal = lazy(() => import("@/components/DiagnosticsModal").then((m) => ({ default: m.DiagnosticsModal })));
 const SkillsCenterModal = lazy(() => import("@/components/SkillsCenterModal").then((m) => ({ default: m.SkillsCenterModal })));
+const KanbanPanel = lazy(() => import("@/components/KanbanPanel").then((m) => ({ default: m.KanbanPanel })));
 const ProjectHealthPanel = lazy(() => import("@/components/health/ProjectHealthPanel").then((m) => ({ default: m.ProjectHealthPanel })));
 const TurboPanel = lazy(() => import("@/components/turbo/TurboPanel").then((m) => ({ default: m.TurboPanel })));
 import { ToolsSection } from "@/components/sidebar/ToolsSection";
@@ -155,6 +157,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
   { id: "llm-providers", icon: KeyRound, label: "Central de API", desc: "Chaves de API dos providers de LLM — cadastra 1x, usa no Hermes, OmniPartner e review" },
   { id: "pipeline", icon: Network, label: "Arquiteto de Pipeline", desc: "Descreve o projeto → um LLM monta o time (agentes, subagentes, conexões, paralelos, ondas) + grava e monta no canvas" },
+  { id: "kanban", icon: SquareKanban, label: "Kanban do projeto", desc: "Acompanhamento visual: backlog / em andamento / review / concluído — os agentes movem os cards via tools kanban_*" },
   { id: "mobile", icon: Smartphone, label: "Dispositivos móveis", desc: "Parear o celular (QR), listar pareados, revogar e conceder controle (steering)" },
   { id: "history", icon: History, label: "Histórico de sessões", desc: "Sessões anteriores gravadas dos agentes" },
   { id: "hooks", icon: Webhook, label: "Hooks do paralelo", desc: "Comandos disparados em eventos do paralelo (pre/post)" },
@@ -421,6 +424,7 @@ export function Sidebar() {
   const [showClis, setShowClis] = useState(false);
   const [showCompressors, setShowCompressors] = useState(false);
   const [showSkillsCenter, setShowSkillsCenter] = useState(false);
+  const [showKanban, setShowKanban] = useState(false);
   const [showDiag, setShowDiag] = useState(false);
   // Host de execução do "novo agente" (ref §3.1). "local" = máquina atual (default);
   // outros = ids do registry SSH (~/.omnirift/hosts.json). Injetado no addTerminal.
@@ -513,6 +517,7 @@ export function Sidebar() {
     clis: () => setShowClis(true),
     compressors: () => setShowCompressors(true),
     skills: () => setShowSkillsCenter(true),
+    kanban: () => setShowKanban(true),
     snapshots: () => setShowSnapshots(true),
     hooks: () => setShowHooks(true),
     turbo: () => setShowTurbo(true),
@@ -528,6 +533,7 @@ export function Sidebar() {
         case "clis": setShowClis(true); break;
         case "compressors": setShowCompressors(true); break;
         case "skills": setShowSkillsCenter(true); break;
+        case "kanban": setShowKanban(true); break;
         case "snapshots": setShowSnapshots(true); break;
         case "hooks": setShowHooks(true); break;
         case "memory": setShowMemory(true); break;
@@ -2245,6 +2251,7 @@ export function Sidebar() {
       {showClis && <ClisModal onClose={() => setShowClis(false)} />}
       {showCompressors && <CompressorsModal onClose={() => setShowCompressors(false)} />}
       {showSkillsCenter && <SkillsCenterModal cwd={currentCwd} roles={roles} customClis={customClis} onUpdateRoleSkills={updateRoleSkills} onUpdateCliSkills={updateCliSkills} onClose={() => setShowSkillsCenter(false)} />}
+      {showKanban && <KanbanPanel project={currentCwd ?? ""} onClose={() => setShowKanban(false)} />}
       {showDiag && <DiagnosticsModal onClose={() => setShowDiag(false)} />}
       {closingFolder && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={() => setClosingFolder(false)}>

@@ -325,6 +325,7 @@ async fn handle_jsonrpc(state: Arc<McpState>, req: Value) -> Value {
                 }));
             }
             tools.extend(crate::mcp::tools::terminal_tool_defs());
+            tools.extend(crate::mcp::tools::kanban_tool_defs());
             tools.push(crate::mcp::tools::review_tool_def());
             json!({ "tools": tools })
         }
@@ -401,6 +402,11 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
 
         t if t.starts_with("claim_") => {
             let text = crate::mcp::tools::claim_dispatch(&state, t, args);
+            json!({ "content": [{ "type": "text", "text": text }] })
+        }
+
+        t if t.starts_with("kanban_") => {
+            let text = crate::mcp::tools::kanban_dispatch(&state, t, args);
             json!({ "content": [{ "type": "text", "text": text }] })
         }
 
