@@ -9,13 +9,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CheckCircle2, GraduationCap, Lightbulb, RefreshCw, Send, Sparkles, X } from "lucide-react";
+import { ArrowRight, CheckCircle2, GraduationCap, Lightbulb, RefreshCw, Send, Sparkles, X } from "lucide-react";
 
 import { runCheck } from "@/lib/acp-client";
 import { analyzeCanvas } from "@/lib/companion";
 import { useT } from "@/lib/i18n";
 import { askHint, askTutor, explainCheckFailure, type LearnMessage } from "@/lib/learn";
-import { HELLO_SUM_EXERCISE, MAX_HINT_LEVEL } from "@/lib/learn-exercises";
+import { LEARN_TRACKS, MAX_HINT_LEVEL } from "@/lib/learn-exercises";
 import { useCanvasStore } from "@/store/canvas-store";
 
 interface Props {
@@ -23,6 +23,23 @@ interface Props {
 }
 
 type Mode = "analyze" | "learn";
+
+// Persistência da escolha do aprendiz (trilha + exercício atual) entre sessões.
+const LEARN_TRACK_LS = "omnirift-learn-track";
+const LEARN_EX_IDX_LS = "omnirift-learn-ex-idx";
+
+/** Trilha salva (valida contra o catálogo — id desconhecido cai na primeira). */
+function loadSavedTrackId(): string {
+  const saved = localStorage.getItem(LEARN_TRACK_LS);
+  return LEARN_TRACKS.some((tr) => tr.id === saved) ? (saved as string) : LEARN_TRACKS[0].id;
+}
+
+/** Índice de exercício salvo, clampeado no tamanho da trilha salva. */
+function loadSavedExIdx(): number {
+  const track = LEARN_TRACKS.find((tr) => tr.id === loadSavedTrackId()) ?? LEARN_TRACKS[0];
+  const n = Number.parseInt(localStorage.getItem(LEARN_EX_IDX_LS) ?? "0", 10);
+  return Number.isFinite(n) ? Math.min(Math.max(n, 0), track.exercises.length - 1) : 0;
+}
 
 export function CompanionModal({ onClose }: Props) {
   const t = useT();
@@ -45,8 +62,13 @@ export function CompanionModal({ onClose }: Props) {
     }
   }
 
-  // ── modo Aprender (A0) ──────────────────────────────────────────────────────
-  const ex = HELLO_SUM_EXERCISE;
+  // ── modo Aprender (A0+) ─────────────────────────────────────────────────────
+  // Trilha (linguagem) + exercício atual, persistidos em localStorage.
+  const [trackId, setTrackId] = useState<string>(loadSavedTrackId);
+  const [exIdx, setExIdx] = useState<number>(loadSavedExIdx);
+  const track = LEARN_TRACKS.find((tr) => tr.id === trackId) ?? LEARN_TRACKS[0];
+  const ex = track.exercises[Math.min(exIdx, track.exercises.length - 1)];
+  const hasNextEx = exIdx < track.exercises.length - 1;
   const [msgs, setMsgs] = useState<LearnMessage[]>([]);
   const [input, setInput] = useState("");
   const [hintLevel, setHintLevel] = useState(1);
@@ -54,6 +76,31 @@ export function CompanionModal({ onClose }: Props) {
   const [checking, setChecking] = useState(false);
   const [done, setDone] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+
+  /** Zera chat + nível de dica + concluído (troca de trilha ou de exercício). */
+  function resetLearnSession() {
+    setMsgs([]);
+    setInput("");
+    setHintLevel(1);
+    setDone(false);
+  }
+
+  function selectTrack(id: string) {
+    if (id === trackId || busy) return;
+    setTrackId(id);
+    setExIdx(0);
+    resetLearnSession();
+    localStorage.setItem(LEARN_TRACK_LS, id);
+    localStorage.setItem(LEARN_EX_IDX_LS, "0");
+  }
+
+  function nextExercise() {
+    if (!hasNextEx || busy) return;
+    const next = exIdx + 1;
+    setExIdx(next);
+    resetLearnSession();
+    localStorage.setItem(LEARN_EX_IDX_LS, String(next));
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -70,7 +117,7 @@ export function CompanionModal({ onClose }: Props) {
     push({ role: "user", text: q });
     setBusy(true);
     try {
-      push({ role: "tutor", text: await askTutor(ex, hintLevel, q, cwd) });
+      push({ role: "tutor", text: await askTutor(ex, track.label, hintLevel, q, cwd) });
     } catch (e) {
       pushError(e);
     } finally {
@@ -83,7 +130,7 @@ export function CompanionModal({ onClose }: Props) {
     push({ role: "user", text: `${t("learn.hintAsked", "Pedi uma dica")} (${hintLevel}/${MAX_HINT_LEVEL})` });
     setBusy(true);
     try {
-      push({ role: "tutor", text: await askHint(ex, hintLevel, cwd) });
+      push({ role: "tutor", text: await askHint(ex, track.label, hintLevel, cwd) });
       setHintLevel((l) => Math.min(MAX_HINT_LEVEL, l + 1));
     } catch (e) {
       pushError(e);
@@ -104,7 +151,12 @@ export function CompanionModal({ onClose }: Props) {
       const r = await runCheck(cwd, ex.condition);
       if (r.exit === 0) {
         setDone(true);
-        push({ role: "system", text: t("learn.passed", "✅ Passou! Exercício concluído — próximo passo: trilhas completas chegam nas próximas fatias.") });
+        push({
+          role: "system",
+          text: hasNextEx
+            ? t("learn.passed", "✅ Passou! Exercício concluído — avance pro próximo quando quiser.")
+            : t("learn.trackDone", "🎉 Passou! Trilha concluída — escolha outra trilha pra continuar aprendendo."),
+        });
       } else {
         const brief = (r.output || "").trim().slice(0, 400);
         push({
@@ -112,7 +164,7 @@ export function CompanionModal({ onClose }: Props) {
           text: `${t("learn.failed", "❌ Ainda não passou.")}${brief ? `\n${brief}` : ""}`,
         });
         setChecking(false);
-        push({ role: "tutor", text: await explainCheckFailure(ex, hintLevel, r.output, cwd) });
+        push({ role: "tutor", text: await explainCheckFailure(ex, track.label, hintLevel, r.output, cwd) });
       }
     } catch (e) {
       pushError(e);
@@ -179,6 +231,27 @@ export function CompanionModal({ onClose }: Props) {
           </div>
         ) : (
           <div className="flex-1 flex flex-col min-h-0">
+            {/* seletor de trilha (linguagem) + posição na progressão */}
+            <div className="flex items-center gap-1 px-4 py-1.5 border-b border-border shrink-0 overflow-x-auto">
+              {LEARN_TRACKS.map((tr) => (
+                <button
+                  key={tr.id}
+                  onClick={() => selectTrack(tr.id)}
+                  disabled={busy}
+                  className={`px-2 py-0.5 rounded text-[11px] whitespace-nowrap transition-colors disabled:opacity-50 ${
+                    tr.id === track.id ? "bg-brand text-bg" : "bg-surface2 text-textMuted hover:text-text"
+                  }`}
+                  title={`${t("learn.track", "Trilha")}: ${tr.label}`}
+                >
+                  {tr.emoji} {tr.label}
+                </button>
+              ))}
+              <span className="flex-1" />
+              <span className="text-[10px] text-textMuted whitespace-nowrap">
+                {t("learn.exercise", "Exercício")} {exIdx + 1}/{track.exercises.length}
+              </span>
+            </div>
+
             {/* card do exercício */}
             <div className="px-4 py-2.5 border-b border-border bg-surface2/40 shrink-0">
               <div className="flex items-center gap-1.5">
@@ -188,6 +261,14 @@ export function CompanionModal({ onClose }: Props) {
                   <span className="flex items-center gap-1 text-[11px] text-brand">
                     <CheckCircle2 size={12} /> {t("learn.done", "Concluído")}
                   </span>
+                )}
+                {done && hasNextEx && (
+                  <button
+                    onClick={nextExercise}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover transition-colors"
+                  >
+                    {t("learn.nextExercise", "Próximo exercício")} <ArrowRight size={11} />
+                  </button>
                 )}
               </div>
               <p className="text-[11px] text-textMuted mt-1 leading-relaxed">{ex.statement}</p>

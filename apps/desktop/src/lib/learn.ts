@@ -15,12 +15,13 @@ export interface LearnMessage {
   text: string;
 }
 
-/** System-prompt Socrático com exercício + nível de dica atual interpolados. */
-export function buildSocraticSystem(ex: LearnExercise, hintLevel: number): string {
+/** System-prompt Socrático com trilha + exercício + nível de dica atual interpolados. */
+export function buildSocraticSystem(ex: LearnExercise, trackLabel: string, hintLevel: number): string {
   const level = Math.min(Math.max(hintLevel, 1), MAX_HINT_LEVEL);
   const canReveal = level >= MAX_HINT_LEVEL;
   return [
     "Você é o OmniPartner Aprender, um tutor Socrático de programação dentro do OmniRift.",
+    `Você está ensinando ${trackLabel} a um INICIANTE — contextualize conceitos, exemplos e vocabulário nessa linguagem.`,
     "Você está no diretório do projeto do aprendiz (pode citar arquivos reais dele).",
     "",
     "REGRAS INVIOLÁVEIS:",
@@ -53,17 +54,23 @@ async function askViaCli(system: string, content: string, cwd: string | null): P
 /** Pergunta livre do aprendiz (input do chat). */
 export function askTutor(
   ex: LearnExercise,
+  trackLabel: string,
   hintLevel: number,
   question: string,
   cwd: string | null,
 ): Promise<string> {
-  return askViaCli(buildSocraticSystem(ex, hintLevel), `Pergunta do aprendiz: ${question}`, cwd);
+  return askViaCli(buildSocraticSystem(ex, trackLabel, hintLevel), `Pergunta do aprendiz: ${question}`, cwd);
 }
 
 /** "Pedir dica" — o tutor dá a dica graduada do nível atual (sem pergunta do aprendiz). */
-export function askHint(ex: LearnExercise, hintLevel: number, cwd: string | null): Promise<string> {
+export function askHint(
+  ex: LearnExercise,
+  trackLabel: string,
+  hintLevel: number,
+  cwd: string | null,
+): Promise<string> {
   return askViaCli(
-    buildSocraticSystem(ex, hintLevel),
+    buildSocraticSystem(ex, trackLabel, hintLevel),
     `O aprendiz pediu uma dica (nível ${Math.min(hintLevel, MAX_HINT_LEVEL)}). Dê a dica deste nível.`,
     cwd,
   );
@@ -73,13 +80,14 @@ export function askHint(ex: LearnExercise, hintLevel: number, cwd: string | null
  *  sem entregar o conserto pronto (a menos que já esteja no nível máximo). */
 export function explainCheckFailure(
   ex: LearnExercise,
+  trackLabel: string,
   hintLevel: number,
   checkOutput: string,
   cwd: string | null,
 ): Promise<string> {
   const out = checkOutput.trim() || "(sem output)";
   return askViaCli(
-    buildSocraticSystem(ex, hintLevel),
+    buildSocraticSystem(ex, trackLabel, hintLevel),
     `O aprendiz rodou a verificação (\`${ex.condition}\`) e FALHOU.\n` +
       `Output do check:\n${out.slice(0, 2000)}\n\n` +
       "Explique o PORQUÊ do erro e provoque o próximo passo com uma pergunta — sem entregar o conserto pronto (salvo nível máximo).",
