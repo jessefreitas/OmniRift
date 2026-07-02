@@ -25,6 +25,10 @@ function SubagentNodeImpl({ data, selected }: NodeProps<SubagentRfNode>) {
   const patchNode = useCanvasStore((s) => s.patchNode);
   const t = useT();
   const [saving, setSaving] = useState(false);
+  // Modelo PERSONALIZADO: quem roda claude via wrapper/proxy (ex: claude-glm52 → glm-5.2)
+  // opera um modelo fora de haiku/sonnet/opus — o frontmatter `model:` aceita qualquer string.
+  const [customEditing, setCustomEditing] = useState(false);
+  const [customDraft, setCustomDraft] = useState("");
 
   // Troca o modelo do subagente: persiste no nó + RE-ESCREVE o .claude/agents/<slug>.md com o
   // novo `model:` (ex: haiku pra tarefa barata). "" = remove o campo → herda o modelo do pai.
@@ -102,16 +106,40 @@ function SubagentNodeImpl({ data, selected }: NodeProps<SubagentRfNode>) {
         {/* Modelo do subagente — rode barato (haiku) numa tarefa simples em vez do modelo caro do pai. */}
         <div className="nodrag flex items-center gap-1 pt-0.5" onPointerDown={(e) => e.stopPropagation()}>
           <span className="text-[9px] text-text/40">{t("subagent.model", "modelo")}</span>
-          <select
-            value={data.model ?? ""}
-            onChange={(e) => void changeModel(e.target.value)}
-            className="flex-1 rounded bg-black/20 px-1 py-0.5 text-[10px] text-text outline-none"
-            title={t("subagent.modelTip", "Modelo do subagente (frontmatter). Vazio = herda o do pai.")}
-          >
-            {SUB_MODELS.map((m) => (
-              <option key={m || "inherit"} value={m}>{m || t("subagent.modelInherit", "herda do pai")}</option>
-            ))}
-          </select>
+          {customEditing ? (
+            <input
+              autoFocus
+              value={customDraft}
+              onChange={(e) => setCustomDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { void changeModel(customDraft.trim()); setCustomEditing(false); }
+                if (e.key === "Escape") setCustomEditing(false);
+                e.stopPropagation();
+              }}
+              onBlur={() => { if (customDraft.trim()) void changeModel(customDraft.trim()); setCustomEditing(false); }}
+              placeholder={t("subagent.modelCustomPh", "ex: glm-5.2, kimi-k2.7…")}
+              className="flex-1 rounded border border-amber-400/50 bg-black/30 px-1 py-0.5 text-[10px] text-text outline-none"
+            />
+          ) : (
+            <select
+              value={data.model ?? ""}
+              onChange={(e) => {
+                if (e.target.value === "__custom") { setCustomDraft(data.model ?? ""); setCustomEditing(true); return; }
+                void changeModel(e.target.value);
+              }}
+              className="flex-1 rounded bg-black/20 px-1 py-0.5 text-[10px] text-text outline-none"
+              title={t("subagent.modelTip", "Modelo do subagente (frontmatter). Vazio = herda o do pai; personalizado aceita QUALQUER modelo (wrappers/proxies como claude-glm52).")}
+            >
+              {SUB_MODELS.map((m) => (
+                <option key={m || "inherit"} value={m}>{m || t("subagent.modelInherit", "herda do pai")}</option>
+              ))}
+              {/* Valor atual fora da lista (wrapper/proxy) → aparece selecionável */}
+              {data.model && !SUB_MODELS.includes(data.model) && (
+                <option value={data.model}>{data.model}</option>
+              )}
+              <option value="__custom">{t("subagent.modelCustom", "personalizado…")}</option>
+            </select>
+          )}
           {saving && <span className="text-[9px] text-amber-300/70">…</span>}
         </div>
       </div>
