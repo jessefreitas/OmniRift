@@ -1,9 +1,9 @@
 // src/components/GraphImportButton.tsx
 //
-// Graphify F2 + F4b — botões DISCRETOS do knowledge graph de código (canto sup. direito do
+// OmniGraph F2 + F4b — botões DISCRETOS do knowledge graph de código (canto sup. direito do
 // Canvas). Ponte de entrada própria (nada no TOOL_DEFS/Arquiteto), único ponto de montagem:
 //
-//   1. "grafo de código" (F2) — lê o graph.json cru (graphify_graph_json), destila as
+//   1. "grafo de código" (F2) — lê o graph.json cru (omnigraph_graph_json), destila as
 //      COMUNIDADES Leiden (importCommunities) e as adiciona ao floor ativo como CommunityNodes.
 //   2. "limpar grafo" (F4b) — extrai as top-K arestas AMBIGUOUS (topAmbiguousEdges) e cria UM
 //      subagente nativo (.claude/agents via addSubagent + subagent_write, o MESMO par do Montar)
@@ -11,8 +11,8 @@
 //      de licença de agentes) — só materializa o nó + o arquivo; o usuário invoca quando quiser.
 //
 // ESCOLHA DE UI (documentada): o ponto de MENOR invasão. Este componente já é o único dono do
-// Graphify no Canvas, já está montado, já lê o graph.json — adicionar um 2º botão IRMÃO aqui
-// (vs. um GraphifyPanel novo ou tocar o OmniFsModal) reusa 100% do caminho de dados e NÃO cria
+// OmniGraph no Canvas, já está montado, já lê o graph.json — adicionar um 2º botão IRMÃO aqui
+// (vs. um OmniGraphPanel novo ou tocar o OmniFsModal) reusa 100% do caminho de dados e NÃO cria
 // mount point novo. Ambos degradam limpo: sem grafo → notify, sem subagente órfão.
 //
 // ⚠️ zustand v5: seleciona SÓ primitivas (`currentCwd`: string|null) e refs de função estáveis
@@ -23,9 +23,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { Network, Loader2, Sparkles } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
-import { graphifyGraphJson } from "@/lib/pipeline-client";
-import { importCommunities, type GraphJson } from "@/lib/graphify-graph";
-import { topAmbiguousEdges, buildAmbiguityResolverBrief } from "@/lib/graphify-client";
+import { omnigraphGraphJson } from "@/lib/pipeline-client";
+import { importCommunities, type GraphJson } from "@/lib/omnigraph-graph";
+import { topAmbiguousEdges, buildAmbiguityResolverBrief } from "@/lib/omnigraph-client";
 import { notify } from "@/lib/notify";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -50,10 +50,10 @@ export function GraphImportButton() {
     }
     setBusy(true);
     try {
-      const raw = await graphifyGraphJson(cwd); // Err (grafo grande demais) sobe pro catch
+      const raw = await omnigraphGraphJson(cwd); // Err (grafo grande demais) sobe pro catch
       if (!raw) {
         void notify(
-          t("graph.none", "Nenhum grafo de código encontrado. Rode o Graphify (Arquiteto de Pipeline ancorado) primeiro."),
+          t("graph.none", "Nenhum grafo de código encontrado. Rode o OmniGraph (Arquiteto de Pipeline ancorado) primeiro."),
           "error",
         );
         return;
@@ -99,10 +99,10 @@ export function GraphImportButton() {
     }
     setBusyClean(true);
     try {
-      const raw = await graphifyGraphJson(cwd); // Err (grafo grande demais) sobe pro catch
+      const raw = await omnigraphGraphJson(cwd); // Err (grafo grande demais) sobe pro catch
       if (!raw) {
         void notify(
-          t("graph.none", "Nenhum grafo de código encontrado. Rode o Graphify (Arquiteto de Pipeline ancorado) primeiro."),
+          t("graph.none", "Nenhum grafo de código encontrado. Rode o OmniGraph (Arquiteto de Pipeline ancorado) primeiro."),
           "error",
         );
         return;
@@ -164,7 +164,7 @@ export function GraphImportButton() {
       <button
         onClick={handleImport}
         disabled={busy}
-        title={t("graph.importTip", "Importa as comunidades do knowledge graph de código (Graphify) como nós no canvas")}
+        title={t("graph.importTip", "Importa as comunidades do knowledge graph de código (OmniGraph) como nós no canvas")}
         className={cn(btn)}
       >
         {busy ? <Loader2 size={13} className="animate-spin" /> : <Network size={13} />}

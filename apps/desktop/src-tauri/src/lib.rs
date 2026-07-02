@@ -99,8 +99,8 @@ use commands::acp::{
     hermes_list_models,
 };
 use commands::folder_canvas::{folder_canvas_load, folder_canvas_save};
-use commands::graphify::{
-    graphify_available, graphify_graph_json, graphify_impact, graphify_rebuild, graphify_report,
+use commands::omnigraph::{
+    omnigraph_available, omnigraph_graph_json, omnigraph_impact, omnigraph_rebuild, omnigraph_report,
 };
 use commands::pipeline::{pipeline_load, pipeline_save};
 use commands::providers::{
@@ -353,11 +353,11 @@ pub fn run() {
             folder_canvas_load,
             pipeline_save,
             pipeline_load,
-            graphify_available,
-            graphify_report,
-            graphify_graph_json,
-            graphify_impact,
-            graphify_rebuild,
+            omnigraph_available,
+            omnigraph_report,
+            omnigraph_graph_json,
+            omnigraph_impact,
+            omnigraph_rebuild,
             pty_spawn,
             pty_write,
             pty_resize,

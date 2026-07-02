@@ -1,8 +1,8 @@
-//! Graphify — knowledge graph de código (comunidades Leiden + god nodes + arestas com
+//! OmniGraph — knowledge graph de código (comunidades Leiden + god nodes + arestas com
 //! confidence EXTRACTED/INFERRED/AMBIGUOUS). O Arquiteto de Pipeline ANCORA o time na
 //! arquitetura REAL do repo.
 //!
-//! A JOGADA: NÃO injetamos o MCP do graphify nos agentes (isso os deixaria consultando o
+//! A JOGADA: NÃO injetamos o MCP da engine nos agentes (isso os deixaria consultando o
 //! grafo turn-a-turn). Em vez disso rodamos a análise pesada UMA vez, DESTILAMOS o
 //! GRAPH_REPORT.md (~6KB — god nodes + comunidades + surprising connections + perguntas) e
 //! injetamos o RELATÓRIO no prompt do Arquiteto. O time nasce espelhando a arquitetura real.
@@ -10,11 +10,11 @@
 //! Detecção/subprocess reusam os padrões já provados no app:
 //! - binário: `crate::compress::find_sidecar` (exe-dir → ~/.cargo/bin → PATH), mesmo
 //!   resolvedor do `find_omnifs_bin` (omnifs/mod.rs);
-//! - fallback via `uvx --from graphifyy graphify` (só se `uvx` existe no PATH) — mesmo
+//! - fallback rodando o pacote python de terceiro por `uvx` (só se `uvx` existe no PATH) — mesmo
 //!   truque do adapter Hermes (acp/mod.rs), que roda pacote python por `uvx`;
 //! - spawn assíncrono tokio com `kill_on_drop` + timeout + `NoWindow`, igual ao `llm_via_cli`.
 //!
-//! Degrada limpo: sem graphify nem uvx → `graphify_available()==false` e `graphify_report`
+//! Degrada limpo: sem a engine nem uvx → `omnigraph_available()==false` e `omnigraph_report`
 //! devolve `Ok(None)` (o modal esconde a opção; nada trava).
 
 use std::collections::{HashMap, HashSet};
@@ -35,11 +35,17 @@ const BUILD_TIMEOUT: Duration = Duration::from_secs(300);
 /// estourar o contexto).
 const DISTILL_MAX_BYTES: usize = 6 * 1024;
 
-/// Nome do relatório que o graphify gera.
+/// Nome do relatório que a engine gera.
 const REPORT_NAME: &str = "GRAPH_REPORT.md";
 
-/// Nome do grafo CRU (node-link JSON do networkx) que o graphify gera.
+/// Nome do grafo CRU (node-link JSON do networkx) que a engine gera.
 const GRAPH_JSON_NAME: &str = "graph.json";
+
+// Diretórios de saída do binário externo `graphify` (pacote `graphifyy`) — o CLI grava
+// `GRAPH_REPORT.md`/`graph.json` nesses nomes por default, então renomeá-los quebraria a
+// leitura. Contrato da engine externa (como o `fuse` no OmniFS) — a MARCA é OmniGraph.
+const ENGINE_OUT_DIR: &str = "graphify-out"; // engine externa (binário 'graphify' de terceiro) — a MARCA é OmniGraph
+const ENGINE_DOT_DIR: &str = ".graphify"; // engine externa (binário 'graphify' de terceiro) — a MARCA é OmniGraph
 
 /// Teto do graph.json que topamos ler pro WebView (F2, importer do canvas). O grafo de
 /// entidade inteiro pode passar de centenas de MB — e a memória do projeto registra que
@@ -48,43 +54,45 @@ const GRAPH_JSON_NAME: &str = "graph.json";
 /// (o botão avisa "grafo grande demais" e nada trava).
 const GRAPH_JSON_MAX_BYTES: u64 = 128 * 1024 * 1024;
 
-/// Como invocar o graphify: binário direto (PATH/sidecar) ou via `uvx` (pacote python
-/// `graphifyy`). O 2º caminho só existe quando o `uvx` está instalado.
-enum GraphifyLauncher {
+/// Como invocar a engine: binário direto (PATH/sidecar) ou via `uvx` (pacote python de
+/// terceiro). O 2º caminho só existe quando o `uvx` está instalado.
+enum OmniGraphLauncher {
     Bin(PathBuf),
     Uvx(PathBuf),
 }
 
-impl GraphifyLauncher {
+impl OmniGraphLauncher {
     /// (programa, args-prefixo) pra montar o `Command`. No modo uvx o prefixo roda o
-    /// pacote python como subprocesso (`uvx --from graphifyy graphify ...`).
+    /// pacote python de terceiro como subprocesso.
     fn cmd(&self) -> (String, Vec<String>) {
         match self {
-            GraphifyLauncher::Bin(p) => (p.to_string_lossy().into_owned(), Vec::new()),
-            GraphifyLauncher::Uvx(p) => (
+            OmniGraphLauncher::Bin(p) => (p.to_string_lossy().into_owned(), Vec::new()),
+            OmniGraphLauncher::Uvx(p) => (
                 p.to_string_lossy().into_owned(),
+                // engine externa (binário 'graphify' de terceiro, pacote 'graphifyy', como o fuse no OmniFS) — a MARCA é OmniGraph
                 vec!["--from".into(), "graphifyy".into(), "graphify".into()],
             ),
         }
     }
 }
 
-/// Resolve como rodar o graphify: binário `graphify` (PATH/sidecar) → senão via `uvx`
+/// Resolve como rodar a engine: binário no PATH/sidecar → senão via `uvx`
 /// (se existir). `None` = nem binário nem uvx disponíveis (indisponível).
-fn resolve_launcher() -> Option<GraphifyLauncher> {
+fn resolve_launcher() -> Option<OmniGraphLauncher> {
+    // engine externa (binário 'graphify' de terceiro no PATH/sidecar) — a MARCA é OmniGraph
     if let Some(bin) = crate::compress::find_sidecar("graphify") {
-        return Some(GraphifyLauncher::Bin(bin));
+        return Some(OmniGraphLauncher::Bin(bin));
     }
-    crate::compress::find_sidecar("uvx").map(GraphifyLauncher::Uvx)
+    crate::compress::find_sidecar("uvx").map(OmniGraphLauncher::Uvx)
 }
 
 /// Caminhos onde o GRAPH_REPORT.md pode ter sido gerado (ordem de preferência):
-/// cwd, cwd/graphify-out/ (default do CLI), cwd/.graphify/.
+/// cwd e os diretórios de saída da engine (`ENGINE_OUT_DIR`/`ENGINE_DOT_DIR`).
 fn candidate_report_paths(cwd: &Path) -> Vec<PathBuf> {
     vec![
         cwd.join(REPORT_NAME),
-        cwd.join("graphify-out").join(REPORT_NAME),
-        cwd.join(".graphify").join(REPORT_NAME),
+        cwd.join(ENGINE_OUT_DIR).join(REPORT_NAME),
+        cwd.join(ENGINE_DOT_DIR).join(REPORT_NAME),
     ]
 }
 
@@ -93,13 +101,13 @@ fn find_existing_report(cwd: &Path) -> Option<PathBuf> {
     candidate_report_paths(cwd).into_iter().find(|p| p.is_file())
 }
 
-/// Caminhos onde o graph.json cru pode estar (default do CLI = `<cwd>/graphify-out/graph.json`),
+/// Caminhos onde o graph.json cru pode estar (default da engine no diretório de saída),
 /// nos mesmos diretórios do report.
 fn candidate_graph_json_paths(cwd: &Path) -> Vec<PathBuf> {
     vec![
-        cwd.join("graphify-out").join(GRAPH_JSON_NAME),
+        cwd.join(ENGINE_OUT_DIR).join(GRAPH_JSON_NAME),
         cwd.join(GRAPH_JSON_NAME),
-        cwd.join(".graphify").join(GRAPH_JSON_NAME),
+        cwd.join(ENGINE_DOT_DIR).join(GRAPH_JSON_NAME),
     ]
 }
 
@@ -110,23 +118,23 @@ fn find_existing_graph_json(cwd: &Path) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// true = dá pra rodar o graphify (binário no PATH/sidecar OU `uvx` disponível). O modal
+/// true = dá pra rodar a engine (binário no PATH/sidecar OU `uvx` disponível). O modal
 /// usa isto pra decidir se mostra o toggle "Ancorar na arquitetura real".
 #[tauri::command]
-pub fn graphify_available() -> bool {
+pub fn omnigraph_available() -> bool {
     resolve_launcher().is_some()
 }
 
 /// Devolve o GRAPH_REPORT.md DESTILADO (~6KB) do repo em `cwd`, pro Arquiteto ANCORAR o
 /// time na arquitetura real. Semântica:
-/// - `cwd` vazio ou graphify indisponível → `Ok(None)` (degrada limpo, o modal cai no modo
+/// - `cwd` vazio ou engine indisponível → `Ok(None)` (degrada limpo, o modal cai no modo
 ///   normal).
-/// - Report recente já no disco (cwd / graphify-out/ / .graphify/) → lê e destila (NÃO
+/// - Report recente já no disco (cwd / diretórios de saída da engine) → lê e destila (NÃO
 ///   re-builda — o build é caro).
-/// - Senão roda `graphify update <cwd>` (extração AST + clustering, sem LLM) com timeout de
+/// - Senão roda a engine em modo `update <cwd>` (extração AST + clustering, sem LLM) com timeout de
 ///   300s e lê o report gerado. Falha do build → `Err` (o modal avisa e segue sem âncora).
 #[tauri::command]
-pub async fn graphify_report(cwd: String) -> Result<Option<String>, String> {
+pub async fn omnigraph_report(cwd: String) -> Result<Option<String>, String> {
     let cwd = cwd.trim().to_string();
     if cwd.is_empty() {
         return Ok(None);
@@ -145,7 +153,7 @@ pub async fn graphify_report(cwd: String) -> Result<Option<String>, String> {
     // 2) Sem report → builda e lê o gerado.
     run_build(&launcher, &cwd_path).await?;
     let rep = find_existing_report(&cwd_path).ok_or_else(|| {
-        "graphify rodou mas não gerou GRAPH_REPORT.md — repo sem código extraível?".to_string()
+        "a engine rodou mas não gerou GRAPH_REPORT.md — repo sem código extraível?".to_string()
     })?;
     let md = read_report(&rep)?;
     Ok(Some(distill_graph_report(&md, DISTILL_MAX_BYTES)))
@@ -156,7 +164,7 @@ fn read_report(path: &Path) -> Result<String, String> {
 }
 
 /// Lê o `graph.json` CRU do repo em `cwd` pro importer do canvas (F2) extrair as
-/// comunidades Leiden. Ao contrário do `graphify_report`, **NÃO builda** — o canvas só
+/// comunidades Leiden. Ao contrário do `omnigraph_report`, **NÃO builda** — o canvas só
 /// importa um grafo que já existe (o build vive no fluxo do Arquiteto). Semântica:
 /// - `cwd` vazio / sem `graph.json` gerado → `Ok(None)` (o botão avisa "sem grafo").
 /// - `graph.json` acima do teto (`GRAPH_JSON_MAX_BYTES`) → `Err` (grande demais pro WebView;
@@ -164,7 +172,7 @@ fn read_report(path: &Path) -> Result<String, String> {
 /// - senão → `Ok(Some(conteúdo cru))`. O importer no WebView extrai só o digest de
 ///   comunidades (nomes + contagens + god nodes) — nunca joga o grafo inteiro no DOM.
 #[tauri::command]
-pub fn graphify_graph_json(cwd: String) -> Result<Option<String>, String> {
+pub fn omnigraph_graph_json(cwd: String) -> Result<Option<String>, String> {
     let cwd = cwd.trim().to_string();
     if cwd.is_empty() {
         return Ok(None);
@@ -189,10 +197,10 @@ pub fn graphify_graph_json(cwd: String) -> Result<Option<String>, String> {
         .map_err(|e| format!("ler {}: {e}", path.display()))
 }
 
-/// Roda `graphify update <cwd>` (async tokio, `kill_on_drop` → sem leak de processo se o
+/// Roda a engine em modo `update <cwd>` (async tokio, `kill_on_drop` → sem leak de processo se o
 /// timeout cancelar o wait; mesma lição do `cli_run`/`pty_kill`). `update` re-extrai o
 /// código e regenera graph.json + GRAPH_REPORT.md sem precisar de LLM.
-async fn run_build(launcher: &GraphifyLauncher, cwd: &Path) -> Result<(), String> {
+async fn run_build(launcher: &OmniGraphLauncher, cwd: &Path) -> Result<(), String> {
     let (prog, mut args) = launcher.cmd();
     args.push("update".into());
     args.push(cwd.to_string_lossy().into_owned());
@@ -213,11 +221,11 @@ async fn run_build(launcher: &GraphifyLauncher, cwd: &Path) -> Result<(), String
         .await
         .map_err(|_| {
             format!(
-                "graphify estourou o timeout de {}s (repo grande? processo finalizado)",
+                "a engine estourou o timeout de {}s (repo grande? processo finalizado)",
                 BUILD_TIMEOUT.as_secs()
             )
         })?
-        .map_err(|e| format!("falha lendo o output do graphify: {e}"))?;
+        .map_err(|e| format!("falha lendo o output da engine: {e}"))?;
 
     if out.status.success() {
         return Ok(());
@@ -227,7 +235,7 @@ async fn run_build(launcher: &GraphifyLauncher, cwd: &Path) -> Result<(), String
     let stdout = String::from_utf8_lossy(&out.stdout);
     let src = if stderr.trim().is_empty() { stdout } else { stderr };
     let brief: String = src.trim().chars().take(500).collect();
-    Err(format!("graphify update falhou ({}): {brief}", out.status))
+    Err(format!("a engine (update) falhou ({}): {brief}", out.status))
 }
 
 /// Destila um GRAPH_REPORT.md pra caber em `max_bytes`, mantendo SÓ as seções centrais que
@@ -241,7 +249,7 @@ async fn run_build(launcher: &GraphifyLauncher, cwd: &Path) -> Result<(), String
 /// ORDEM ORIGINAL do documento. Sem nenhuma seção reconhecida (formato estranho) → devolve o
 /// md cru truncado (nunca volta vazio).
 pub fn distill_graph_report(md: &str, max_bytes: usize) -> String {
-    const NOTE: &str = "\n\n_[relatório Graphify destilado — só as seções centrais]_\n";
+    const NOTE: &str = "\n\n_[relatório OmniGraph destilado — só as seções centrais]_\n";
 
     // Preâmbulo = tudo antes da 1ª linha "## "; depois, cada "## " abre uma seção.
     let mut preamble = String::new();
@@ -349,7 +357,7 @@ const GOD_NODE_TOP_FRACTION: f64 = 0.02;
 const GOD_NODE_MIN_DEGREE: usize = 2;
 
 /// Impacto estrutural de um conjunto de arquivos alterados, medido contra o graph.json.
-/// Serializado camelCase pro cliente TS (routines.ts / graphify-client.ts). `available:false`
+/// Serializado camelCase pro cliente TS (routines.ts / omnigraph-client.ts). `available:false`
 /// = sem grafo no disco (o gate degrada pra "passa", nunca bloqueia sem dado).
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -377,7 +385,7 @@ pub struct GraphAmbiguousEdge {
 }
 
 /// graph.json = node-link do networkx. `edges` no schema atual; `links` no legado (nx ≤ 3.1) —
-/// o alias cobre os dois (mesmo remap que o `build.py` do graphify faz).
+/// o alias cobre os dois (mesmo remap que o `build.py` da engine faz).
 #[derive(Debug, Deserialize)]
 struct GraphJson {
     #[serde(default)]
@@ -406,13 +414,13 @@ struct GraphNode {
 struct GraphEdge {
     source: String,
     target: String,
-    /// "EXTRACTED" (default do graphify) | "INFERRED" | "AMBIGUOUS".
+    /// "EXTRACTED" (default da engine) | "INFERRED" | "AMBIGUOUS".
     #[serde(default)]
     confidence: Option<String>,
 }
 
 /// True se `graph_src` e `changed` apontam pro MESMO arquivo, respeitando fronteira de path
-/// (não casa `foobar.rs` com `foo.rs`). Porte 1:1 do `_path_match` do `prs.py` do graphify —
+/// (não casa `foobar.rs` com `foo.rs`). Porte 1:1 do `_path_match` do `prs.py` da engine —
 /// cobre repo-relativo vs. absoluto/prefixado dos dois lados.
 fn path_match(graph_src: &str, changed: &str) -> bool {
     graph_src == changed
@@ -457,7 +465,7 @@ fn god_node_ids<'a>(nodes: &'a [GraphNode], degrees: &HashMap<&str, usize>) -> H
 }
 
 /// Núcleo PURO do gate (sem IO): casa `changed_files` com o grafo e devolve o blast-radius.
-/// Testável isolado; `graphify_impact` é só o wrapper que lê o graph.json do disco.
+/// Testável isolado; `omnigraph_impact` é só o wrapper que lê o graph.json do disco.
 fn compute_impact(graph: &GraphJson, changed_files: &[String]) -> GraphImpact {
     // Índice source_file → nós (mesma estratégia O(nós+arquivos) do compute_pr_impact do prs.py).
     let mut file_nodes: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -554,7 +562,7 @@ fn compute_impact(graph: &GraphJson, changed_files: &[String]) -> GraphImpact {
 ///   JSON gigante estouraria o orçamento sub-500ms do gate; degrada pra "sem dado", não trava).
 /// - senão → parseia e devolve o impacto. Erro de parse → `Err` (o cliente loga e deixa passar).
 #[tauri::command]
-pub fn graphify_impact(cwd: String, changed_files: Vec<String>) -> Result<GraphImpact, String> {
+pub fn omnigraph_impact(cwd: String, changed_files: Vec<String>) -> Result<GraphImpact, String> {
     let cwd = cwd.trim();
     if cwd.is_empty() {
         return Ok(GraphImpact::default());
@@ -580,7 +588,7 @@ pub fn graphify_impact(cwd: String, changed_files: Vec<String>) -> Result<GraphI
 // ── F4a+c — REBUILD debounced no turn-done + alerta de dívida (god node emergente) ────
 //
 // O LOOP DE APRENDIZADO: quando um agente termina um turno, o front agenda (debounce ~90s,
-// `scheduleGraphRebuild`) um `graphify_rebuild` — o grafo nunca fica velho sem custar um turno
+// `scheduleGraphRebuild`) um `omnigraph_rebuild` — o grafo nunca fica velho sem custar um turno
 // do agente. Ao FIM do rebuild comparamos os god nodes (funções-hub) com o rebuild anterior:
 // um hub que NÃO existia antes = dívida arquitetural emergente → volta pro front notificar
 // ("virou um hub, refatore?"). É o "c" do loop — o trabalho dos agentes revela a dívida sozinho.
@@ -596,7 +604,7 @@ pub struct GodNodeAlert {
     pub degree: usize,
 }
 
-/// Caminho do baseline de god nodes de um projeto: `~/.omnirift/graphify-godnodes/<sha256(cwd)>.json`.
+/// Caminho do baseline de god nodes de um projeto: `~/.omnirift/omnigraph-godnodes/<sha256(cwd)>.json`.
 /// Mesmo padrão de slot-por-hash do `pipeline.rs` (não polui o repo do usuário; estável por cwd).
 fn god_nodes_baseline_path(cwd: &str) -> Option<PathBuf> {
     let home = std::env::var("HOME")
@@ -608,7 +616,7 @@ fn god_nodes_baseline_path(cwd: &str) -> Option<PathBuf> {
     Some(
         Path::new(&home)
             .join(".omnirift")
-            .join("graphify-godnodes")
+            .join("omnigraph-godnodes")
             .join(format!("{hex}.json")),
     )
 }
@@ -696,9 +704,9 @@ fn diff_god_nodes(cwd: &str, cwd_path: &Path) -> Vec<GodNodeAlert> {
     emergent_god_nodes(&current, previous.as_deref())
 }
 
-/// F4a — REBUILD do grafo no turn-done (debounced no front). Roda `graphify update <cwd>`
+/// F4a — REBUILD do grafo no turn-done (debounced no front). Roda a engine (`update <cwd>`)
 /// (mesmo launcher/timeout do F1) SÓ quando já existe um grafo no disco (opt-in por PRESENÇA —
-/// o Arquiteto F1 gerou o 1º) E o graphify está disponível. Sem grafo / sem launcher / cwd
+/// o Arquiteto F1 gerou o 1º) E a engine está disponível. Sem grafo / sem launcher / cwd
 /// vazio → `Ok(vec![])` no-op (degrade limpo — nunca paga o build num repo que o usuário nunca
 /// ancorou, nunca trava o turno).
 ///
@@ -706,7 +714,7 @@ fn diff_god_nodes(cwd: &str, cwd_path: &Path) -> Vec<GodNodeAlert> {
 /// UI — mesmo padrão do `scheduleReindex`/`omnifs_index`). Ao terminar, devolve os god nodes
 /// EMERGENTES (F4c) pro front notificar como dívida.
 #[tauri::command]
-pub async fn graphify_rebuild(cwd: String) -> Result<Vec<GodNodeAlert>, String> {
+pub async fn omnigraph_rebuild(cwd: String) -> Result<Vec<GodNodeAlert>, String> {
     let cwd = cwd.trim().to_string();
     if cwd.is_empty() {
         return Ok(Vec::new());
@@ -730,7 +738,7 @@ pub async fn graphify_rebuild(cwd: String) -> Result<Vec<GodNodeAlert>, String> 
 mod tests {
     use super::*;
 
-    /// Report realista (mesmas seções do graphify real): distila mantendo as centrais e
+    /// Report realista (mesmas seções do relatório real da engine): distila mantendo as centrais e
     /// cortando as periféricas.
     const SAMPLE: &str = "\
 # Graph Report - projeto  (2026-07-02)
@@ -830,22 +838,24 @@ mod tests {
 
     #[test]
     fn launcher_uvx_cmd_prefixes_package() {
-        let l = GraphifyLauncher::Uvx(PathBuf::from("/home/x/.local/bin/uvx"));
+        let l = OmniGraphLauncher::Uvx(PathBuf::from("/home/x/.local/bin/uvx"));
         let (prog, args) = l.cmd();
         assert_eq!(prog, "/home/x/.local/bin/uvx");
+        // engine externa (binário 'graphify' de terceiro) — a MARCA é OmniGraph
         assert_eq!(args, vec!["--from", "graphifyy", "graphify"]);
         // Binário direto: sem prefixo.
-        let b = GraphifyLauncher::Bin(PathBuf::from("/usr/bin/graphify"));
+        // engine externa (binário 'graphify' de terceiro) — a MARCA é OmniGraph
+        let b = OmniGraphLauncher::Bin(PathBuf::from("/usr/bin/graphify"));
         assert_eq!(b.cmd().1, Vec::<String>::new());
     }
 
     #[test]
-    fn find_existing_graph_json_prefers_graphify_out() {
+    fn find_existing_graph_json_prefers_out_dir() {
         let dir = tempfile::tempdir().unwrap();
         // Nenhum grafo ainda.
         assert!(find_existing_graph_json(dir.path()).is_none());
-        // graph.json em graphify-out/ (default do CLI) é encontrado.
-        let out = dir.path().join("graphify-out");
+        // graph.json no diretório de saída da engine é encontrado.
+        let out = dir.path().join(ENGINE_OUT_DIR);
         std::fs::create_dir_all(&out).unwrap();
         std::fs::write(out.join(GRAPH_JSON_NAME), b"{}").unwrap();
         assert_eq!(
@@ -855,35 +865,35 @@ mod tests {
     }
 
     #[test]
-    fn graphify_graph_json_none_when_empty_or_missing() {
+    fn omnigraph_graph_json_none_when_empty_or_missing() {
         // cwd vazio → None (degrada limpo, sem tocar disco).
-        assert_eq!(graphify_graph_json("   ".into()).unwrap(), None);
+        assert_eq!(omnigraph_graph_json("   ".into()).unwrap(), None);
         // cwd sem graph.json → None.
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(
-            graphify_graph_json(dir.path().to_string_lossy().into_owned()).unwrap(),
+            omnigraph_graph_json(dir.path().to_string_lossy().into_owned()).unwrap(),
             None
         );
     }
 
     #[test]
-    fn graphify_graph_json_reads_raw_when_present() {
+    fn omnigraph_graph_json_reads_raw_when_present() {
         let dir = tempfile::tempdir().unwrap();
-        let out = dir.path().join("graphify-out");
+        let out = dir.path().join(ENGINE_OUT_DIR);
         std::fs::create_dir_all(&out).unwrap();
         let raw = r#"{"nodes":[{"id":"a","community":0}],"links":[]}"#;
         std::fs::write(out.join(GRAPH_JSON_NAME), raw).unwrap();
-        let got = graphify_graph_json(dir.path().to_string_lossy().into_owned()).unwrap();
+        let got = omnigraph_graph_json(dir.path().to_string_lossy().into_owned()).unwrap();
         assert_eq!(got.as_deref(), Some(raw));
     }
 
     #[test]
-    fn find_existing_report_prefers_graphify_out() {
+    fn find_existing_report_prefers_out_dir() {
         let dir = tempfile::tempdir().unwrap();
         // Nenhum report ainda.
         assert!(find_existing_report(dir.path()).is_none());
-        // Report em graphify-out/ é encontrado.
-        let out = dir.path().join("graphify-out");
+        // Report no diretório de saída da engine é encontrado.
+        let out = dir.path().join(ENGINE_OUT_DIR);
         std::fs::create_dir_all(&out).unwrap();
         std::fs::write(out.join(REPORT_NAME), b"# rep").unwrap();
         assert_eq!(find_existing_report(dir.path()), Some(out.join(REPORT_NAME)));
@@ -1027,26 +1037,26 @@ mod tests {
     }
 
     #[test]
-    fn graphify_impact_empty_cwd_and_missing_graph_are_unavailable() {
+    fn omnigraph_impact_empty_cwd_and_missing_graph_are_unavailable() {
         // cwd vazio → default (available:false), sem tocar disco.
-        let imp = graphify_impact("  ".into(), vec![]).unwrap();
+        let imp = omnigraph_impact("  ".into(), vec![]).unwrap();
         assert!(!imp.available);
         // cwd sem graph.json → também available:false (gate passa).
         let dir = tempfile::tempdir().unwrap();
-        let imp = graphify_impact(dir.path().to_string_lossy().into_owned(), vec!["a.py".into()])
+        let imp = omnigraph_impact(dir.path().to_string_lossy().into_owned(), vec!["a.py".into()])
             .unwrap();
         assert!(!imp.available);
     }
 
     #[test]
-    fn graphify_impact_reads_graph_from_disk() {
+    fn omnigraph_impact_reads_graph_from_disk() {
         let dir = tempfile::tempdir().unwrap();
-        let out = dir.path().join("graphify-out");
+        let out = dir.path().join(ENGINE_OUT_DIR);
         std::fs::create_dir_all(&out).unwrap();
         let raw = r#"{"nodes":[{"id":"m::f","label":"f","source_file":"src/m.py","community":7}],
                       "edges":[]}"#;
         std::fs::write(out.join(GRAPH_JSON_NAME), raw).unwrap();
-        let imp = graphify_impact(
+        let imp = omnigraph_impact(
             dir.path().to_string_lossy().into_owned(),
             vec!["src/m.py".into()],
         )
@@ -1098,15 +1108,15 @@ mod tests {
         assert_eq!(Some(&p1), god_nodes_baseline_path("/repo/alpha").as_ref());
         // Escopo por projeto: cwd diferente → slot diferente.
         assert_ne!(Some(p1.clone()), god_nodes_baseline_path("/repo/beta"));
-        // Fica sob ~/.omnirift/graphify-godnodes/ (não polui o repo).
-        assert!(p1.to_string_lossy().contains("graphify-godnodes"));
+        // Fica sob ~/.omnirift/omnigraph-godnodes/ (não polui o repo).
+        assert!(p1.to_string_lossy().contains("omnigraph-godnodes"));
         assert_eq!(p1.extension().and_then(|e| e.to_str()), Some("json"));
     }
 
     #[tokio::test]
-    async fn graphify_rebuild_empty_cwd_is_noop() {
+    async fn omnigraph_rebuild_empty_cwd_is_noop() {
         // cwd vazio → Ok(vec![]) sem tocar disco/subprocess (degrade limpo).
-        let out = graphify_rebuild("   ".into()).await.unwrap();
+        let out = omnigraph_rebuild("   ".into()).await.unwrap();
         assert!(out.is_empty());
     }
 }

@@ -52,7 +52,7 @@ import {
   type AcpAttachSnapshot,
 } from "@/lib/acp-client";
 import { scheduleReindex } from "@/lib/omnifs-client";
-import { scheduleGraphRebuild } from "@/lib/graphify-client";
+import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
 import type { AgentNode as AgentNodeData } from "@/types/canvas";
 import { HermesWizard, type HermesProviderConfig } from "./HermesWizard";
 import { pasteText } from "@/lib/clipboard";

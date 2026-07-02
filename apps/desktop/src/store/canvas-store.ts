@@ -199,7 +199,7 @@ interface CanvasState {
   }) => SubagentNode;
   addReviewNode: (params?: { position?: { x: number; y: number } }) => ReviewNode;
   addFilterNode: (params?: { mode?: FilterNode["mode"]; value?: string; position?: { x: number; y: number } }) => FilterNode;
-  /** Graphify F2: um nó de comunidade Leiden (retrato estático do knowledge graph). */
+  /** OmniGraph F2: um nó de comunidade Leiden (retrato estático do knowledge graph). */
   addCommunityNode: (params: {
     name: string;
     memberCount: number;
@@ -209,7 +209,7 @@ interface CanvasState {
     color?: string;
     position?: { x: number; y: number };
   }) => CommunityNode;
-  /** Graphify F2: importa em LOTE os nós de comunidade + arestas de acoplamento no floor ativo.
+  /** OmniGraph F2: importa em LOTE os nós de comunidade + arestas de acoplamento no floor ativo.
    *  Um único `set` (não N re-renders). Os ids já vêm únicos do `importCommunities`. Retorna
    *  quantos nós entraram (0 = nada importado). */
   importCommunityNodes: (nodes: CanvasNode[], edges: CanvasEdge[]) => number;

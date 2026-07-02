@@ -17,8 +17,8 @@ import { LLM_CATALOG } from "@/lib/llm-catalog";
 import {
   generatePipelinePlan,
   generatePipelinePlanViaCli,
-  graphifyAvailable,
-  graphifyReport,
+  omnigraphAvailable,
+  omnigraphReport,
   pipelineSave,
   pipelineLoad,
   PIPELINE_CLIS,
@@ -40,7 +40,7 @@ const MODEL_COLORS: Record<string, string> = {
 const CLI_PREFIX = "__cli:";
 const CLI_DEFAULT = `${CLI_PREFIX}claude`;
 
-// Preferência do toggle "ancorar na arquitetura real (Graphify)" — persistida entre sessões.
+// Preferência do toggle "ancorar na arquitetura real (OmniGraph)" — persistida entre sessões.
 const ANCHOR_KEY = "omnirift-pipe-anchor-arch";
 
 export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
@@ -76,8 +76,8 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   const [err, setErr] = useState<string | null>(null);
   const [warn, setWarn] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
-  // Graphify: só mostra o toggle se o binário/uvx existe; a preferência do toggle persiste.
-  const [graphifyOk, setGraphifyOk] = useState(false);
+  // OmniGraph: só mostra o toggle se o binário/uvx existe; a preferência do toggle persiste.
+  const [omnigraphOk, setOmniGraphOk] = useState(false);
   const [anchorArch, setAnchorArch] = useState(false);
 
   useEffect(() => {
@@ -94,9 +94,9 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
     pipelineLoad(currentCwd).then((p) => { if (p) { setPlan(p); setSavedAt(p.createdAt ?? null); } }).catch(() => {});
   }, [currentCwd]);
 
-  // Graphify disponível? + preferência salva do toggle (mount-only — não depende do cwd).
+  // OmniGraph disponível? + preferência salva do toggle (mount-only — não depende do cwd).
   useEffect(() => {
-    graphifyAvailable().then(setGraphifyOk).catch(() => setGraphifyOk(false));
+    omnigraphAvailable().then(setOmniGraphOk).catch(() => setOmniGraphOk(false));
     try { setAnchorArch(localStorage.getItem(ANCHOR_KEY) === "1"); } catch { /* localStorage off */ }
   }, []);
 
@@ -106,18 +106,18 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
     if (!desc.trim() || !providerId) { setErr(t("pipe.needDesc", "descreva o projeto e escolha um provider")); return; }
     setLoading(true); setErr(null); setWarn(null);
     try {
-      // Âncora de arquitetura (Graphify): roda/lê o knowledge graph do repo ANTES do LLM e
+      // Âncora de arquitetura (OmniGraph): roda/lê o knowledge graph do repo ANTES do LLM e
       // injeta o relatório destilado como archContext. É best-effort — build pode demorar
       // (minutos) e, se falhar/vier vazio, cai no modo normal com um aviso (não trava).
       let archContext: string | undefined;
-      if (anchorArch && graphifyOk && currentCwd) {
+      if (anchorArch && omnigraphOk && currentCwd) {
         setLoadingMsg(t("pipe.analyzing", "analisando a arquitetura do repositório… (pode levar minutos)"));
         try {
-          const rep = await graphifyReport(currentCwd);
+          const rep = await omnigraphReport(currentCwd);
           if (rep && rep.trim()) archContext = rep;
-          else setWarn(t("pipe.archEmpty", "Graphify não gerou grafo — montando o time sem âncora de arquitetura."));
+          else setWarn(t("pipe.archEmpty", "OmniGraph não gerou grafo — montando o time sem âncora de arquitetura."));
         } catch (e) {
-          setWarn(`${t("pipe.archFail", "Graphify falhou — montando sem âncora de arquitetura")}: ${String(e).slice(0, 200)}`);
+          setWarn(`${t("pipe.archFail", "OmniGraph falhou — montando sem âncora de arquitetura")}: ${String(e).slice(0, 200)}`);
         }
       }
       setLoadingMsg(t("pipe.thinking", "arquitetando…"));
@@ -238,7 +238,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
         // Steal #1 do deepagents — papel que APRENDE: cada role mantém seu AGENTS.md
         // (./.omnirift/agents-md/<slug>.md); lê no início, edita ao aprender algo durável.
         // F4d: time ancorado no grafo → o brief manda o papel gravar insight ESTRUTURAL da fatia.
-        `${agentsMdInstruction(a.role, anchorArch && graphifyOk)}\n` +
+        `${agentsMdInstruction(a.role, anchorArch && omnigraphOk)}\n` +
         (isSource
           ? `COMECE AGORA pela sua parte do objetivo acima; se faltar contexto, leia ${repoHint} antes de perguntar.`
           : `Prepare sua fatia agora lendo ${repoHint}; execute quando ${ups.join(", ")} te entregar o trabalho.`);
@@ -424,12 +424,12 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                 <Sparkles size={13} /> {loading ? (loadingMsg ?? t("pipe.thinking", "arquitetando…")) : t("pipe.generate", "Gerar plano")}
               </button>
             </div>
-            {/* Âncora de arquitetura real: só aparece se o Graphify (binário/uvx) existe.
+            {/* Âncora de arquitetura real: só aparece se o OmniGraph (binário/uvx) existe.
                 Ligado → o Gerar roda o knowledge graph do repo e ancora o time nele. */}
-            {graphifyOk && (
+            {omnigraphOk && (
               <label
                 className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text/80"
-                title={t("pipe.anchorT", "Roda o Graphify (knowledge graph do código) e ANCORA o time na arquitetura real do repo: comunidades viram floors/agentes, god nodes viram zonas de review obrigatório, acoplamento vira conexão. O build pode levar minutos na 1ª vez.")}
+                title={t("pipe.anchorT", "Roda o OmniGraph (knowledge graph do código) e ANCORA o time na arquitetura real do repo: comunidades viram floors/agentes, god nodes viram zonas de review obrigatório, acoplamento vira conexão. O build pode levar minutos na 1ª vez.")}
               >
                 <input
                   type="checkbox"
@@ -439,7 +439,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                     try { localStorage.setItem(ANCHOR_KEY, e.target.checked ? "1" : "0"); } catch { /* localStorage off */ }
                   }}
                 />
-                🧠 {t("pipe.anchorArch", "Ancorar na arquitetura real (Graphify)")}
+                🧠 {t("pipe.anchorArch", "Ancorar na arquitetura real (OmniGraph)")}
               </label>
             )}
             {/* BYOK: o dropdown lista o que tem CHAVE na Central. Atalho pra cadastrar mais

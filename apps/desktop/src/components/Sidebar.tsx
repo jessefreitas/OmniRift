@@ -142,7 +142,7 @@ import { loadLlmConfig } from "@/lib/llm-client";
 import { runReview } from "@/lib/review";
 import { loadHooks, runParallelHook } from "@/lib/hooks-client";
 import { runLandGates, runGraphGate } from "@/lib/routines";
-import type { GraphAmbiguousEdge } from "@/lib/graphify-client";
+import type { GraphAmbiguousEdge } from "@/lib/omnigraph-client";
 import type { Parallel } from "@/types/workspace";
 import { parallelHost } from "@/types/workspace";
 import { Tooltip } from "@/components/Tooltip";
@@ -1063,7 +1063,7 @@ export function Sidebar() {
   async function landFloor(f: Parallel) {
     if (!f.repoRoot || !f.branch || !f.worktreePath || !f.baseBranch) return;
     if (!(await confirmDialog(tr("sidebar.landConfirm", "Land \"{branch}\" → \"{base}\"?\nFaz merge e remove o worktree.").replace("{branch}", f.branch).replace("{base}", f.baseBranch)))) return;
-    // F3.1 — GATE ESTRUTURAL do Graphify (determinístico, sub-500ms, SEM LLM). Roda ANTES do
+    // F3.1 — GATE ESTRUTURAL do OmniGraph (determinístico, sub-500ms, SEM LLM). Roda ANTES do
     // review caro pra curto-circuitar o LLM quando a estrutura já reprova/avisa (economiza
     // tokens). Default WARN (só notifica); block é opt-in por projeto. Reaproveita o impacto
     // (arestas AMBIGUOUS) pra afiar o review logo abaixo — sem recomputar o diff.

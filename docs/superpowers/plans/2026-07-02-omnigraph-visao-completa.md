@@ -1,13 +1,13 @@
-# Graphify — visão completa (aproveitar o máximo + loop de aprendizado contínuo)
+# OmniGraph — visão completa (aproveitar o máximo + loop de aprendizado contínuo)
 
 **Data:** 2026-07-02 · **Autor:** Jessé (via análise ancorada no código real) · **Status:** 📋 plano
 
 ## Contexto
 
-Graphify = knowledge graph de código (Python/MIT/CLI): comunidades **Leiden**, **god nodes** (funções-hub),
+OmniGraph = knowledge graph de código (Python/MIT/CLI): comunidades **Leiden**, **god nodes** (funções-hub),
 arestas com **confidence** (`EXTRACTED` / `INFERRED` / `AMBIGUOUS`) e `get_pr_impact`. A análise profunda já
 concluiu: a jogada #1 é o **Arquiteto ancorado** (F1, já em implementação). Decisões travadas:
-**NÃO** injetar o MCP do Graphify em todo agente (Serena já cobre query pontual); **NÃO** bundlar Python;
+**NÃO** injetar o MCP do OmniGraph em todo agente (Serena já cobre query pontual); **NÃO** bundlar Python;
 **opt-in**; dep Python via `uvx` (igual Serena); o `graph.json` grande vive no **processo `serve`**, não no WebView.
 
 O ganho estratégico do pedido do Jessé — *"o sistema aprendendo com ele e melhorando continuamente"* — mora na
@@ -17,16 +17,16 @@ O ganho estratégico do pedido do Jessé — *"o sistema aprendendo com ele e me
 
 ## F1 — Arquiteto ancorado ✅ (em implementação nesta sessão)
 
-**O que já está sendo feito.** Comando Rust `graphify_report(cwd)` destila o `GRAPH_REPORT` a **~6KB**
+**O que já está sendo feito.** Comando Rust `omnigraph_report(cwd)` destila o `GRAPH_REPORT` a **~6KB**
 (top comunidades + nomes + god nodes + arestas AMBIGUOUS de maior grau) e injeta no prompt do Arquiteto.
 
 Ponto de injeção real: `apps/desktop/src/lib/pipeline-client.ts` → `schemaHint(desc)` (a string do `PROJETO:`).
-O `graphify_report` entra como um bloco `MAPA ESTRUTURAL DO CÓDIGO (Graphify):` **prependado** ao `desc`, tanto no
+O `omnigraph_report` entra como um bloco `MAPA ESTRUTURAL DO CÓDIGO (OmniGraph):` **prependado** ao `desc`, tanto no
 caminho CLI (`generatePipelinePlanViaCli`) quanto BYOK (`generatePipelinePlan`). Chamada em
 `PipelineArchitectModal.tsx#generate()` — só busca o report se o grafo existe (senão string vazia, comportamento intocado).
 
 **Critério de aceite F1:**
-- `graphify_report` retorna ≤ 6KB **ou** `""` (sem grafo / dep ausente) — nunca lança pro `generate()`.
+- `omnigraph_report` retorna ≤ 6KB **ou** `""` (sem grafo / dep ausente) — nunca lança pro `generate()`.
 - Com grafo presente, o plano do Arquiteto referencia comunidades/god nodes reais (ex: agentes por comunidade).
 - Repo sem grafo → plano idêntico ao de hoje (zero regressão). Opt-in por presença do `graph.json`.
 
@@ -64,20 +64,20 @@ F2.3 (ligação viva). Cada uma commitável isolada.
 
 1. **`gate:graph` nas Routines** — reusa `RoutineTrigger` (`routines.ts`) e o encanamento de `runLandGates`.
    Gate **determinístico, sub-500ms, SEM LLM**: `diff do worktree → nodes_affected → communities_touched →
-   interseção com god_nodes → exit code`. Roda via um comando Rust `graphify_gate(cwd, base)` (não `parallel_run_hook`,
+   interseção com god_nodes → exit code`. Roda via um comando Rust `omnigraph_gate(cwd, base)` (não `parallel_run_hook`,
    porque precisa do resultado estruturado, não só exit). Roda **ANTES** do `runReview` caro em
    `Sidebar.tsx#landFloor()` — hoje a ordem é `review gate (1067) → onLand (1086) → runLandGates (1097) → land (1107)`;
    o graph gate entra **no topo do landFloor**, curto-circuitando o LLM quando a estrutura já reprova.
 2. **Política por projeto** — reusa a estrutura de `review-policy.ts` (por-projeto + global, localStorage). Novos campos:
    `godNodeTouched: "block"`, `communitiesTouched: { max: N, action: "review" }`, `ambiguousEdge: "review"`.
 3. **Badge no AgentNode / card Kanban** — o header do AgentNode já tem badges (emoji/tempo/RSS). Novo badge
-   `▲ toca 2 god nodes` (amarelo) alimentado pelo `graphify_gate` no turn-done; espelhado no card Kanban semeado
+   `▲ toca 2 god nodes` (amarelo) alimentado pelo `omnigraph_gate` no turn-done; espelhado no card Kanban semeado
    pelo `build()` (`kanbanCardCreate`).
 4. **confidence sobe severidade no code-review-ai** — em `review.ts#buildPrompt`, injetar as arestas de confidence
    dos arquivos do diff: "arquivos X/Y têm arestas **AMBIGUOUS/INFERRED** — trate acoplamento incerto como risco".
    No `aggregate`, uma dependência AMBIGUOUS tocada por um finding sobe `WARNING→CRITICAL` (peso `architecture`).
 
-**Shippável:** F3.1 (`graphify_gate` + gate no landFloor, sem UI) → F3.2 (política) → F3.3 (badges) → F3.4 (review).
+**Shippável:** F3.1 (`omnigraph_gate` + gate no landFloor, sem UI) → F3.2 (política) → F3.3 (badges) → F3.4 (review).
 
 ---
 
@@ -101,7 +101,7 @@ Como o sistema **melhora a cada ciclo**:
   AGENTS.md o que aprendeu da estrutura ("a comunidade `auth` é god-node-pesada; toque com cuidado"). Próxima montagem
   do mesmo papel nasce sabendo.
 - **(e) Cruzamento com issue #152 (temporal × structural).** OmniFS = memória **temporal/semântica** (o que mudou,
-  quando, busca por significado); Graphify = memória **estrutural** (quem chama quem, onde estão os hubs). Os dois
+  quando, busca por significado); OmniGraph = memória **estrutural** (quem chama quem, onde estão os hubs). Os dois
   no mesmo prompt do Arquiteto (F1) e do review (F3.4) = **memória completa**. O digest da F1 já é o ponto de fusão.
 
 **Como o loop fecha:** trabalho dos agentes → rebuild (a) → grafo mais limpo (b) + dívida sinalizada (c) →
@@ -109,22 +109,22 @@ próximas decisões do Arquiteto (F1) e gates (F3) melhores → agentes mais cer
 
 ### F4 — implementado (2026-07-02): fusão temporal × structural
 
-O ciclo em 5 passos está no código. **(a)** `scheduleGraphRebuild(cwd)` em `graphify-client.ts` é o
+O ciclo em 5 passos está no código. **(a)** `scheduleGraphRebuild(cwd)` em `omnigraph-client.ts` é o
 espelho EXATO do `scheduleReindex` do OmniFS (timer module-level, debounce 90s — maior que os 60s do
-reindex porque `graphify update` re-extrai AST + re-clusteriza Leiden), enganchado nos MESMOS sítios de
-turn-done (`AgentNode.tsx` + `useTerminalSession.ts`); dispara o comando Rust `graphify_rebuild`, que
-gateia barato (graphify disponível + grafo no disco = opt-in por presença) e roda o build fire-and-forget.
+reindex porque a engine re-extrai AST + re-clusteriza Leiden no `update`), enganchado nos MESMOS sítios de
+turn-done (`AgentNode.tsx` + `useTerminalSession.ts`); dispara o comando Rust `omnigraph_rebuild`, que
+gateia barato (engine disponível + grafo no disco = opt-in por presença) e roda o build fire-and-forget.
 **(b)** `topAmbiguousEdges` + `buildAmbiguityResolverBrief` extraem as top-K arestas AMBIGUOUS (cross-community
 primeiro, desempate por grau) e o botão "limpar grafo" do `GraphImportButton` cria UM subagente
 (`addSubagent` + `subagent_write`, o par do Montar) que confirma/nega as relações — **sem spawnar** (respeita o
-gate de licença); confirmadas viram EXTRACTED no próximo rebuild. **(c)** `graphify_rebuild` compara os god
-nodes com o baseline em `~/.omnirift/graphify-godnodes/<sha256(cwd)>.json` e devolve os EMERGENTES pro front
+gate de licença); confirmadas viram EXTRACTED no próximo rebuild. **(c)** `omnigraph_rebuild` compara os god
+nodes com o baseline em `~/.omnirift/omnigraph-godnodes/<sha256(cwd)>.json` e devolve os EMERGENTES pro front
 notificar dívida ("virou um hub — refatore?"); 1º rebuild só grava baseline (sem spam). **(d)**
 `agentsMdInstruction(role, archAnchored)` some uma linha de contexto do grafo quando o Montar é ancorado — o
 papel que aprende passa a gravar insight estrutural da sua fatia no AGENTS.md.
 
 **A visão registrada (e):** OmniRift conecta DOIS cérebros de memória plugável com eixos **ortogonais**.
-O **OmniFS** é a memória **temporal/semântica** — o que mudou, quando, busca por significado. O **Graphify** é
+O **OmniFS** é a memória **temporal/semântica** — o que mudou, quando, busca por significado. O **OmniGraph** é
 a memória **estrutural** — quem chama quem, onde estão os hubs, como o código se agrupa em comunidades e onde
 o acoplamento é incerto. Sozinho, cada um responde só metade da pergunta ("o que aconteceu" vs "como o código
 é"); JUNTOS, no mesmo prompt do Arquiteto (F1) e do review (F3.4), formam a **memória completa** — o time decide
@@ -138,10 +138,10 @@ a no-op silencioso se o backend respectivo estiver ausente — a fusão é aditi
 
 - **Dep Python via `uvx`** (igual Serena) — detecção espelha `find_omnifs_bin`/`find_sidecar`; **nunca bundlar**.
   Ausente → todas as features degradam pra no-op silencioso (report `""`, gate `GO`, sem CommunityNode).
-- **`graph.json` grande fica no `serve`.** Graphify roda como **daemon `serve`** (padrão do OmniFS `ensure_daemon`):
+- **`graph.json` grande fica no `serve`.** OmniGraph roda como **daemon `serve`** (padrão do OmniFS `ensure_daemon`):
   OmniRift é cliente; só o **digest ≤6KB + resumos de comunidade** cruzam pro WebView. `graph.json` >512MB **nunca**
   entra no DOM.
-- **~0% de ganho em repo pequeno** → toggle **"modo projeto grande"** (Ferramentas → Graphify); off por default;
+- **~0% de ganho em repo pequeno** → toggle **"modo projeto grande"** (Ferramentas → OmniGraph); off por default;
   liga só quando `LOC > limiar` ou o usuário escolhe. Repo pequeno = Serena já basta.
 - **GC do `graph.json`** — ledger com cap (padrão do `record_snapshot`, cap 500) + purga do store por idade/tamanho.
 - **Risco #1: rebuild caro em rajada** → mitigado pelo debounce (a). **Risco #2: gate falso-positivo** trava Land →
@@ -157,15 +157,15 @@ F1 (em curso) ──► F2 ‖ F3 (paralelas; ambas só exigem graph.json existi
 
 | Fatia | Depende de | Desbloqueia | Estimativa |
 |-------|-----------|-------------|-----------|
-| **F1** Arquiteto ancorado | Graphify serve + `graphify_report` | tudo (grafo passa a existir) | 🔨 em curso |
-| **F3.1** `graphify_gate` no Land | F1 (serve) | steering barato dos agentes | ~1 dia |
+| **F1** Arquiteto ancorado | OmniGraph serve + `omnigraph_report` | tudo (grafo passa a existir) | 🔨 em curso |
+| **F3.1** `omnigraph_gate` no Land | F1 (serve) | steering barato dos agentes | ~1 dia |
 | **F2.1–2.3** grafo no canvas | F1 (serve) | leitura visual + ligação viva | ~2-3 dias |
 | **F3.2–3.4** política + badges + review | F3.1 | gate configurável + review afiado | ~1-2 dias |
 | **F4a** rebuild debounced | F1 | grafo sempre fresco | ~0.5 dia |
 | **F4b** AMBIGUOUS→subtask | F4a + F2.2 (arestas) | auto-limpeza do grafo | ~1-2 dias |
 | **F4c–e** dívida + AGENTS.md + fusão | F4a | loop completo | ~1-2 dias |
 
-**Fatia de MAIOR alavancagem depois da F1: `F3.1` (o `graphify_gate` determinístico no Land).**
+**Fatia de MAIOR alavancagem depois da F1: `F3.1` (o `omnigraph_gate` determinístico no Land).**
 Motivo: é a mais barata (sub-500ms, **zero LLM**), reusa quase inteiro o encanamento de `runLandGates`, roda **antes**
 do review caro (economiza tokens), **sem UI nova**, e é o primeiro ponto onde o grafo passa a **steerar** o
 comportamento dos agentes (bloqueando blast-radius em god nodes) — exatamente o "sistema melhorando" que o Jessé pediu,

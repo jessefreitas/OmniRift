@@ -101,7 +101,7 @@ function parsePlan(out: string): PipelinePlan {
 }
 
 /** Gera o plano chamando o LLM do provider salvo (Central). Faz o parse tolerante do JSON.
- *  `archContext` (opcional): relatório destilado do knowledge graph (Graphify) — quando
+ *  `archContext` (opcional): relatório destilado do knowledge graph (OmniGraph) — quando
  *  presente, o schemaHint injeta a arquitetura real ANTES do projeto e o time é ancorado nela. */
 export async function generatePipelinePlan(
   description: string,
@@ -139,22 +139,22 @@ export async function generatePipelinePlanViaCli(
   return parsePlan(out);
 }
 
-/** Graphify disponível? (binário no PATH OU uvx). O modal decide se mostra o toggle de
+/** OmniGraph disponível? (binário no PATH OU uvx). O modal decide se mostra o toggle de
  *  âncora de arquitetura por isto. Nunca lança — indisponível/erro = false. */
-export async function graphifyAvailable(): Promise<boolean> {
-  return invoke<boolean>("graphify_available").catch(() => false);
+export async function omnigraphAvailable(): Promise<boolean> {
+  return invoke<boolean>("omnigraph_available").catch(() => false);
 }
 
-/** Roda/lê o knowledge graph (Graphify) do repo em `cwd` e devolve o GRAPH_REPORT.md
- *  DESTILADO (~6KB) pra ancorar o Arquiteto. `null` = graphify indisponível ou sem grafo
+/** Roda/lê o knowledge graph (OmniGraph) do repo em `cwd` e devolve o GRAPH_REPORT.md
+ *  DESTILADO (~6KB) pra ancorar o Arquiteto. `null` = omnigraph indisponível ou sem grafo
  *  (o modal cai no modo normal). Erro (build falhou) sobe pra quem chamou avisar e degradar. */
-export async function graphifyReport(cwd: string): Promise<string | null> {
-  return invoke<string | null>("graphify_report", { cwd });
+export async function omnigraphReport(cwd: string): Promise<string | null> {
+  return invoke<string | null>("omnigraph_report", { cwd });
 }
 
-/** Lê o `graph.json` CRU do repo em `cwd` (Graphify F2 — importer do canvas). `null` =
+/** Lê o `graph.json` CRU do repo em `cwd` (OmniGraph F2 — importer do canvas). `null` =
  *  sem grafo gerado (o botão avisa). Erro (grafo grande demais / falha de IO) SOBE pra quem
  *  chamou avisar. NÃO builda — o canvas só importa um grafo que já existe. */
-export async function graphifyGraphJson(cwd: string): Promise<string | null> {
-  return invoke<string | null>("graphify_graph_json", { cwd });
+export async function omnigraphGraphJson(cwd: string): Promise<string | null> {
+  return invoke<string | null>("omnigraph_graph_json", { cwd });
 }

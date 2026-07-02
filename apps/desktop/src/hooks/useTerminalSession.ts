@@ -33,7 +33,7 @@ import { registerTerminalView, unregisterTerminalView } from "@/lib/terminal-ses
 import { useCanvasStore } from "@/store/canvas-store";
 import { sessionStart, sessionEvent, sessionEnd } from "@/lib/session-client";
 import { scheduleReindex } from "@/lib/omnifs-client";
-import { scheduleGraphRebuild } from "@/lib/graphify-client";
+import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
 import { pasteText, copyText } from "@/lib/clipboard";
 import type { PtySpawnConfig, SessionId } from "@/types/pty";
 

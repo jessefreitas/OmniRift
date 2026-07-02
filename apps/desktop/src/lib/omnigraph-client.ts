@@ -1,7 +1,7 @@
-// src/lib/graphify-client.ts
+// src/lib/omnigraph-client.ts
 //
-// Ponte frontend → Graphify (knowledge graph de código). Fase F3.1: o GATE
-// ESTRUTURAL do Land. `graphifyImpact` chama o comando Rust homônimo (determinístico,
+// Ponte frontend → OmniGraph (knowledge graph de código). Fase F3.1: o GATE
+// ESTRUTURAL do Land. `omnigraphImpact` chama o comando Rust homônimo (determinístico,
 // sub-500ms, SEM LLM) que mede o "raio de explosão" de um diff contra o graph.json já
 // no disco: nós/comunidades tocados, cruzamento com god nodes (funções-hub) e arestas
 // AMBIGUOUS (acoplamento incerto). A POLÍTICA (`GraphGatePolicy`) — por projeto + global,
@@ -10,24 +10,24 @@
 // Default = WARN: o gate só loga/avisa, nunca bloqueia o Land — evita que um falso-positivo
 // estrutural trave o merge. `block` é opt-in por projeto (o Jessé liga quando confia no grafo).
 //
-// ── MEMÓRIA COMPLETA = temporal × structural (fusão OmniFS × Graphify — F4e / issue #152) ──
+// ── MEMÓRIA COMPLETA = temporal × structural (fusão OmniFS × OmniGraph — F4e / issue #152) ──
 // Dois cérebros de memória plugável, com eixos ORTOGONAIS e complementares:
 //   • OmniFS  = memória TEMPORAL/SEMÂNTICA — o que MUDOU, QUANDO, e busca por SIGNIFICADO
 //     (snapshots + timeline + índice semântico do drive).
-//   • Graphify = memória ESTRUTURAL — QUEM chama QUEM, ONDE estão os hubs (god nodes), como o
+//   • OmniGraph = memória ESTRUTURAL — QUEM chama QUEM, ONDE estão os hubs (god nodes), como o
 //     código se agrupa (comunidades Leiden) e onde o acoplamento é incerto (arestas AMBIGUOUS).
-// Sozinho, cada um responde metade: "o que aconteceu" (OmniFS) vs "como o código é" (Graphify).
+// Sozinho, cada um responde metade: "o que aconteceu" (OmniFS) vs "como o código é" (OmniGraph).
 // JUNTOS, no MESMO prompt do Arquiteto (F1) e do review (F3.4), fecham a memória: o time decide
 // ancorado na estrutura REAL e no histórico REAL. O digest ≤6KB da F1 é o ponto físico de fusão
 // (relatório estrutural destilado ao lado do contexto temporal). O LOOP (F4) mantém os DOIS
-// frescos no turn-done — `scheduleReindex` (OmniFS) e `scheduleGraphRebuild` (Graphify) são
+// frescos no turn-done — `scheduleReindex` (OmniFS) e `scheduleGraphRebuild` (OmniGraph) são
 // espelhos um do outro, disparados nos MESMOS sítios (turn-done do AgentNode + idle/done do
 // terminal). Trabalho dos agentes → memória temporal E estrutural mais frescas → próximas
 // decisões melhores → repete. Ambos degradam a no-op se o respectivo backend estiver ausente.
 
 import { invoke } from "@tauri-apps/api/core";
 import { notify } from "@/lib/notify";
-import type { GraphJson, GraphNodeRaw, GraphEdgeRaw } from "@/lib/graphify-graph";
+import type { GraphJson, GraphNodeRaw, GraphEdgeRaw } from "@/lib/omnigraph-graph";
 
 /** Uma aresta de baixa confiança tocada pelo diff (labels legíveis das duas pontas). */
 export interface GraphAmbiguousEdge {
@@ -62,9 +62,9 @@ function hasTauri(): boolean {
 
 /** Mede o blast-radius de `changedFiles` contra o graph.json de `cwd`. Sem Tauri → impacto
  *  vazio (não bloqueia). Erro do backend propaga pro chamador (runGraphGate trata e passa). */
-export async function graphifyImpact(cwd: string, changedFiles: string[]): Promise<GraphImpact> {
+export async function omnigraphImpact(cwd: string, changedFiles: string[]): Promise<GraphImpact> {
   if (!hasTauri() || !cwd.trim()) return EMPTY_IMPACT;
-  return invoke<GraphImpact>("graphify_impact", { cwd, changedFiles });
+  return invoke<GraphImpact>("omnigraph_impact", { cwd, changedFiles });
 }
 
 // ── Política do gate estrutural (por projeto + default global) ────────────────────────
@@ -159,10 +159,10 @@ export function evaluateGraphGate(impact: GraphImpact, policy: GraphGatePolicy):
 // Quando um agente (OmniAgent ou terminal) termina um turno, agendamos um rebuild do grafo —
 // o knowledge graph nunca fica velho sem custar um turno do agente. Debounce module-level: uma
 // RAJADA de turnos (vários agentes terminando junto) coalesce num único rebuild ao fim da janela
-// de silêncio. Janela MAIOR que a do OmniFS (90s vs 60s): `graphify update` re-extrai a AST e
+// de silêncio. Janela MAIOR que a do OmniFS (90s vs 60s): `omnigraph update` re-extrai a AST e
 // re-clusteriza (Leiden), bem mais caro que o reindex do OmniFS. Fire-and-forget: nunca lança
-// pro chamador. O gate (graphify disponível + grafo no disco) é BARATO e vive no comando Rust
-// `graphify_rebuild`, que devolve [] no-op se algum faltar.
+// pro chamador. O gate (omnigraph disponível + grafo no disco) é BARATO e vive no comando Rust
+// `omnigraph_rebuild`, que devolve [] no-op se algum faltar.
 
 /** Um god node (função-hub) que EMERGIU no rebuild (espelha o `GodNodeAlert` do Rust). */
 export interface GodNodeAlert {
@@ -174,11 +174,11 @@ function hasTauriRebuild(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-/** Roda `graphify update <cwd>` e devolve os god nodes EMERGENTES (dívida). Sem Tauri / cwd
- *  vazio → [] (o comando Rust já gateia barato: graphify indisponível ou sem grafo = no-op). */
-export async function graphifyRebuild(cwd: string): Promise<GodNodeAlert[]> {
+/** Roda `omnigraph update <cwd>` e devolve os god nodes EMERGENTES (dívida). Sem Tauri / cwd
+ *  vazio → [] (o comando Rust já gateia barato: omnigraph indisponível ou sem grafo = no-op). */
+export async function omnigraphRebuild(cwd: string): Promise<GodNodeAlert[]> {
   if (!hasTauriRebuild() || !cwd.trim()) return [];
-  return invoke<GodNodeAlert[]>("graphify_rebuild", { cwd });
+  return invoke<GodNodeAlert[]>("omnigraph_rebuild", { cwd });
 }
 
 /** Janela de silêncio antes de disparar o rebuild do grafo (ms). Ver comentário acima. */
@@ -187,7 +187,7 @@ let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Agenda um rebuild do grafo de código após {@link GRAPH_REBUILD_DEBOUNCE_MS} de silêncio.
  *  Cada chamada CANCELA o timer anterior (debounce). No disparo, o comando Rust re-checa BARATO
- *  (graphify disponível + grafo no disco) antes de rodar o build caro — sem grafo, no-op. Ao
+ *  (omnigraph disponível + grafo no disco) antes de rodar o build caro — sem grafo, no-op. Ao
  *  terminar, notifica cada god node EMERGENTE como dívida (F4c). Fire-and-forget: nunca lança
  *  pro chamador (rebuild é best-effort, não pode travar o turn-done). */
 export function scheduleGraphRebuild(cwd: string): void {
@@ -197,7 +197,7 @@ export function scheduleGraphRebuild(cwd: string): void {
     rebuildTimer = null;
     void (async () => {
       try {
-        const emergent = await graphifyRebuild(cwd);
+        const emergent = await omnigraphRebuild(cwd);
         // F4c — god node emergente = alerta de dívida (mesmo canal notify do Sidebar).
         for (const g of emergent) {
           void notify(
@@ -291,7 +291,7 @@ export function topAmbiguousEdges(graph: GraphJson, k: number): AmbiguousPair[] 
 export function buildAmbiguityResolverBrief(edges: AmbiguousPair[]): string {
   const list = edges.map((e, i) => `${i + 1}. ${e.source} → ${e.target}`).join("\n");
   return (
-    "Você é o subagente RESOLVER AMBIGUIDADES do grafo de código (Graphify). O knowledge graph " +
+    "Você é o subagente RESOLVER AMBIGUIDADES do grafo de código (OmniGraph). O knowledge graph " +
     "marcou estas relações arquiteturais como AMBIGUOUS (acoplamento incerto):\n" +
     `${list}\n\n` +
     "Para CADA par A → B: verifique NO CÓDIGO-FONTE se A realmente depende de B (import, chamada, " +

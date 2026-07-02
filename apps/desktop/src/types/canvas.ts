@@ -49,7 +49,7 @@ export type NodeKind =
   | "community";
 
 /**
- * Confiança de uma aresta do knowledge graph (Graphify). `EXTRACTED` = relação lida
+ * Confiança de uma aresta do knowledge graph (OmniGraph). `EXTRACTED` = relação lida
  * direto do código (certa); `INFERRED` = deduzida (provável); `AMBIGUOUS` = incerta
  * (precisa revisão). Vira estilo de linha no canvas (sólida/tracejada/pontilhada-vermelha).
  */
@@ -301,11 +301,11 @@ export interface FilterNode extends BaseCanvasNode {
 }
 
 /**
- * CommunityNode (Fase 8 · Graphify F2) — uma COMUNIDADE Leiden do knowledge graph de código
+ * CommunityNode (Fase 8 · OmniGraph F2) — uma COMUNIDADE Leiden do knowledge graph de código
  * como nó colapsável no canvas. NUNCA renderiza funções individuais (o grafo de entidade
  * inteiro MATA o WebKitGTK — mesma lição da Central de Skills em matriz): só o digest da
  * comunidade (nome, contagens, god nodes destacados, top membros no expand). Importado do
- * `graph.json` cru pelo `importCommunities` (lib/graphify-graph.ts). É um retrato ESTÁTICO
+ * `graph.json` cru pelo `importCommunities` (lib/omnigraph-graph.ts). É um retrato ESTÁTICO
  * (não é processo vivo) — dá a leitura visual da arquitetura real.
  */
 export interface CommunityNode extends BaseCanvasNode {
@@ -398,7 +398,7 @@ export interface CanvasEdge {
    *  "agent-link" = OmniAgent→terminal: a linha marca o terminal como agente MCP (auto-conexão).
    *  "subagent-link" = agente→subagente nativo (.claude/agents), vertical, privado do pai.
    *  "validator-link" = ReviewNode→OmniAgent revisor: valida o payload (não é cano de dados).
-   *  "graph-edge" = acoplamento entre comunidades (Graphify F2): estilo por `confidence`. */
+   *  "graph-edge" = acoplamento entre comunidades (OmniGraph F2): estilo por `confidence`. */
   kind: "pty-pipe" | "note-link" | "generic" | "agent-link" | "subagent-link" | "validator-link" | "graph-edge";
   /** Só nas "graph-edge": confiança dominante do acoplamento agregado entre as duas comunidades.
    *  Vira estilo de linha na FlowEdge (EXTRACTED sólida · INFERRED tracejada · AMBIGUOUS pontilhada vermelha). */

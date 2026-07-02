@@ -1,6 +1,6 @@
 // src/components/nodes/CommunityNode.tsx
 //
-// Graphify F2 — uma COMUNIDADE Leiden do knowledge graph de código como nó COLAPSÁVEL no
+// OmniGraph F2 — uma COMUNIDADE Leiden do knowledge graph de código como nó COLAPSÁVEL no
 // canvas. Colapsado: nome + nº de membros + nº de god nodes + nº de arquivos. Expandido:
 // os GOD NODES destacados (zona quente / review) + os TOP membros — NUNCA o grafo interno
 // inteiro (a memória do projeto registra que renderizar o grafo de entidade completo MATA o

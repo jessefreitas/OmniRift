@@ -10,19 +10,19 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCanvasStore } from "@/store/canvas-store";
 import { parallelGitDiff } from "@/lib/git-client";
 import {
-  graphifyImpact,
+  omnigraphImpact,
   loadGraphGatePolicy,
   evaluateGraphGate,
   EMPTY_IMPACT,
   type GraphImpact,
-} from "@/lib/graphify-client";
+} from "@/lib/omnigraph-client";
 
 /** Tipo de disparo de uma routine (Fase 2). `interval`/`atTime` = MVP;
  *  `floor-created`/`floor-deleted` = ciclo-de-vida de floor (worktree git);
  *  `gate:land` = GATE shell bloqueante do Land (exit ≠ 0 aborta);
  *  `gate:graph` = GATE ESTRUTURAL do Land (F3.1): blast-radius do diff contra o grafo,
  *  determinístico e SEM LLM — comportamento embutido (não é comando shell), governado pela
- *  política do Graphify (default WARN). */
+ *  política do OmniGraph (default WARN). */
 export type RoutineTrigger =
   | "interval"
   | "atTime"
@@ -69,7 +69,7 @@ export function isFloorTrigger(r: Pick<Routine, "trigger">): boolean {
 
 /** True quando a routine é um GATE (bloqueia uma ação até passar). Gates NUNCA entram
  *  no agendamento por intervalo/horário — só disparam no ponto da ação (Land). Cobre o
- *  gate shell (`gate:land`) e o gate estrutural do Graphify (`gate:graph`). */
+ *  gate shell (`gate:land`) e o gate estrutural do OmniGraph (`gate:graph`). */
 export function isGateTrigger(r: Pick<Routine, "trigger">): boolean {
   return r.trigger === "gate:land" || r.trigger === "gate:graph";
 }
@@ -285,7 +285,7 @@ export interface GraphGateResult {
 /** GATE ESTRUTURAL do Land (F3.1): determinístico, sub-500ms, SEM LLM. Roda ANTES do review
  *  caro pra curto-circuitar o LLM quando a estrutura já reprova/avisa. Pega os arquivos do
  *  diff (mesmo diff do review, via `parallelGitDiff`) → mede o blast-radius contra o grafo
- *  (`graphify_impact`) → aplica a política do projeto (default WARN — só avisa; `block` é
+ *  (`omnigraph_impact`) → aplica a política do projeto (default WARN — só avisa; `block` é
  *  opt-in por projeto quando toca god node / N+ comunidades / aresta AMBIGUOUS). Sem grafo,
  *  sem diff ou sem Tauri → `pass:true` (NUNCA bloqueia o Land sem base pra decidir).
  *  `scope` = escopo da política (default = `cwd`; o Land passa o `repoRoot`, igual ao review). */
@@ -303,10 +303,10 @@ export async function runGraphGate(cwd: string, base: string, scope?: string): P
   }
   let impact: GraphImpact;
   try {
-    impact = await graphifyImpact(cwd, changed);
+    impact = await omnigraphImpact(cwd, changed);
   } catch {
     // Backend indisponível / erro de parse → sem base pra decidir → passa.
-    return { pass: true, reason: "graphify indisponível", impact: EMPTY_IMPACT };
+    return { pass: true, reason: "omnigraph indisponível", impact: EMPTY_IMPACT };
   }
   const verdict = evaluateGraphGate(impact, loadGraphGatePolicy(scope ?? cwd));
   return { pass: verdict.pass, reason: verdict.reason, impact };

@@ -83,7 +83,7 @@ const nodeTypes = {
   subagent: SubagentNode,
   review: ReviewNode,
   filter: FilterNode,
-  community: CommunityNode, // Graphify F2: comunidade Leiden colapsável
+  community: CommunityNode, // OmniGraph F2: comunidade Leiden colapsável
 };
 
 const edgeTypes = { flow: FlowEdge };
@@ -162,7 +162,7 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
         ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
         ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
         type: "flow",
-        // confidence só existe nas "graph-edge" (Graphify F2); nas demais é undefined
+        // confidence só existe nas "graph-edge" (OmniGraph F2); nas demais é undefined
         // e a FlowEdge ignora — comportamento das edges normais intocado.
         data: { kind: e.kind, confidence: e.confidence },
         animated: e.kind === "pty-pipe",

@@ -116,7 +116,7 @@ export function agentsMdRelPath(label: string): string {
  * on-demand (com o header) e as guidelines. Anexado ao priming da persona (OmniAgent)
  * e à persona dos agentes do Montar (PipelineArchitectModal).
  *
- * F4d — quando o time nasce ANCORADO no knowledge graph (Graphify), `archAnchored=true`
+ * F4d — quando o time nasce ANCORADO no knowledge graph (OmniGraph), `archAnchored=true`
  * some UMA linha ao brief instruindo o papel a registrar no próprio AGENTS.md o que aprender
  * da ESTRUTURA da sua fatia (comunidade / acoplamento / god nodes). Não reescreve o arquivo:
  * a persona que aprende passa a gravar insight estrutural, e a próxima montagem deste papel
@@ -131,7 +131,7 @@ export function agentsMdInstruction(label: string, archAnchored = false): string
     `${AGENTS_MD_HEADER}\n` +
     AGENTS_MD_GUIDELINES;
   const archLine = archAnchored
-    ? "\n• CONTEXTO DO GRAFO: seu time foi ANCORADO no knowledge graph do código (Graphify). " +
+    ? "\n• CONTEXTO DO GRAFO: seu time foi ANCORADO no knowledge graph do código (OmniGraph). " +
       "Consulte e ATUALIZE seu AGENTS.md com o que aprender sobre ESTA parte da arquitetura — " +
       "a comunidade em que você trabalha, o acoplamento dela com outras e os god nodes (hubs) " +
       "que exigem cuidado ao tocar. Assim a próxima montagem deste papel nasce sabendo."

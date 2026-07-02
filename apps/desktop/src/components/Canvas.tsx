@@ -52,7 +52,7 @@ export function Canvas() {
       <CanvasToolbar />
       {/* FLEET BAR (#12): progresso agregado dos agentes do floor ativo (≥2 agentes). */}
       <FleetBar />
-      {/* Graphify F2: importar as comunidades do knowledge graph de código pro canvas. */}
+      {/* OmniGraph F2: importar as comunidades do knowledge graph de código pro canvas. */}
       <GraphImportButton />
       {/* Dock onipresente do Orquestrador — visível em qualquer floor. */}
       <OrchestratorDock />

@@ -41,7 +41,7 @@ export function FlowEdge({
   const removeEdge = useCanvasStore((s) => s.removeEdge);
   const payloadKind = useCanvasStore((s) => s.edgePayloadKind[id]);
   const kind = (data as { kind?: string } | undefined)?.kind;
-  // Graphify F2: aresta de acoplamento entre comunidades. É ESTÁTICA (nunca ganha edgeFlow),
+  // OmniGraph F2: aresta de acoplamento entre comunidades. É ESTÁTICA (nunca ganha edgeFlow),
   // então o estilo vem só da `confidence` — EXTRACTED sólida, INFERRED tracejada, AMBIGUOUS
   // pontilhada vermelha. `confidence` só existe nas "graph-edge"; nas demais edges é undefined
   // e todos os ramos abaixo são no-op (comportamento intocado).

@@ -8,7 +8,7 @@ import { parallelGitDiff, type ParallelDiff } from "@/lib/git-client";
 import { llmChat, type LlmConfig } from "@/lib/llm-client";
 import { assertBudgetOk } from "@/lib/usage-client";
 import type { ReviewPolicy } from "@/lib/review-policy";
-import type { GraphAmbiguousEdge } from "@/lib/graphify-client";
+import type { GraphAmbiguousEdge } from "@/lib/omnigraph-client";
 
 export type Severity = "CRITICAL" | "WARNING" | "INFO";
 
@@ -57,11 +57,11 @@ function buildPrompt(
   const patches = diff.files
     .map((f) => `### ${f.path} (${f.status}, +${f.additions} -${f.deletions})\n${f.patch}`)
     .join("\n\n");
-  // F3.4 — contexto estrutural do Graphify: relações que o diff toca marcadas AMBIGUOUS
+  // F3.4 — contexto estrutural do OmniGraph: relações que o diff toca marcadas AMBIGUOUS
   // (baixa confiança). Instrui o LLM a tratar acoplamento incerto como risco de arquitetura.
   const ambiguousBlock =
     ambiguousEdges && ambiguousEdges.length > 0
-      ? `Contexto estrutural (Graphify) — o diff toca relações de BAIXA CONFIANÇA (AMBIGUOUS). ` +
+      ? `Contexto estrutural (OmniGraph) — o diff toca relações de BAIXA CONFIANÇA (AMBIGUOUS). ` +
         `Trate qualquer mudança que dependa delas como RISCO de arquitetura (category "architecture"):\n` +
         ambiguousEdges.map((e) => `- ${e.source} ↔ ${e.target} [${e.confidence}]`).join("\n") +
         `\n\n`

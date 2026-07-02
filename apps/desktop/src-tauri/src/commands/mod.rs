@@ -14,7 +14,7 @@ pub mod fsinfo;
 pub mod fs;
 pub mod git;
 pub mod github_auth;
-pub mod graphify;
+pub mod omnigraph;
 pub mod gitremote;
 pub mod hosts;
 pub mod http;
