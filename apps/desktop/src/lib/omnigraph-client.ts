@@ -302,3 +302,72 @@ export function buildAmbiguityResolverBrief(edges: AmbiguousPair[]): string {
     "documente — este subagente limpa o grafo, não refatora."
   );
 }
+
+// ═══ F5 — DIFF TEMPORAL (snapshots + comparação de duas arquiteturas) ══════════════════
+//
+// A fusão OmniFS × OmniGraph: o OmniFS dá "o que mudou no código, quando"; o DIFF dá "o que mudou
+// na ESTRUTURA". O loop F4 (`omnigraph_rebuild`) já tira um snapshot do graph.json a cada rebuild
+// (auto-snapshot no Rust); aqui o front lista esses snapshots e pede o diff entre dois. Tudo
+// degrada a no-op sem Tauri. Espelha os comandos Rust `omnigraph_snapshot_graph` /
+// `omnigraph_list_snapshots` / `omnigraph_diff`.
+
+/** Um snapshot de graph.json no histórico (espelha o `GraphSnapshotInfo` do Rust). */
+export interface GraphSnapshotInfo {
+  /** Epoch em ms (o nome do arquivo, `<ts>.json`). */
+  ts: number;
+  path: string;
+}
+
+/** Uma aresta no diff (labels legíveis das duas pontas; espelha o `GraphDiffEdge` do Rust). */
+export interface GraphDiffEdge {
+  source: string;
+  target: string;
+}
+
+/** Diferença estrutural entre dois snapshots (A = antes, B = depois). Espelha o `GraphDiff` Rust. */
+export interface GraphDiff {
+  addedNodes: string[];
+  removedNodes: string[];
+  addedEdges: GraphDiffEdge[];
+  removedEdges: GraphDiffEdge[];
+  /** God nodes (funções-hub) que emergiram em B (dívida que surgiu). */
+  newGodNodes: string[];
+  /** Arestas AMBIGUOUS em A que sumiram/promoveram em B — o loop "limpou" (progresso). */
+  resolvedAmbiguous: GraphDiffEdge[];
+  /** Arestas AMBIGUOUS que apareceram em B (acoplamento incerto novo). */
+  newAmbiguous: GraphDiffEdge[];
+}
+
+/** Diff vazio (sem Tauri / sem snapshots) — a UI mostra "nada a comparar". */
+export const EMPTY_DIFF: GraphDiff = {
+  addedNodes: [],
+  removedNodes: [],
+  addedEdges: [],
+  removedEdges: [],
+  newGodNodes: [],
+  resolvedAmbiguous: [],
+  newAmbiguous: [],
+};
+
+/** Tira um snapshot manual do graph.json atual (o loop F4 já tira automático a cada rebuild).
+ *  Sem Tauri / cwd vazio → string vazia (no-op). Erro do backend (sem grafo) propaga pro chamador. */
+export async function omnigraphSnapshotGraph(cwd: string): Promise<string> {
+  if (!hasTauri() || !cwd.trim()) return "";
+  return invoke<string>("omnigraph_snapshot_graph", { cwd });
+}
+
+/** Lista os snapshots do projeto (mais recente primeiro). Sem Tauri / cwd vazio → []. */
+export async function omnigraphListSnapshots(cwd: string): Promise<GraphSnapshotInfo[]> {
+  if (!hasTauri() || !cwd.trim()) return [];
+  return invoke<GraphSnapshotInfo[]>("omnigraph_list_snapshots", { cwd });
+}
+
+/** Compara dois snapshots (A = antes, B = depois). Sem Tauri → diff vazio. Erro propaga pro chamador. */
+export async function omnigraphDiff(
+  cwd: string,
+  snapshotPathA: string,
+  snapshotPathB: string,
+): Promise<GraphDiff> {
+  if (!hasTauri() || !cwd.trim()) return EMPTY_DIFF;
+  return invoke<GraphDiff>("omnigraph_diff", { cwd, snapshotPathA, snapshotPathB });
+}

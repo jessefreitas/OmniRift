@@ -730,8 +730,382 @@ pub async fn omnigraph_rebuild(cwd: String) -> Result<Vec<GodNodeAlert>, String>
     }
     // Rebuild (await — mas o chamador não bloqueia; ver doc acima).
     run_build(&launcher, &cwd_path).await?;
+    // F6 — auto-snapshot do graph.json fresco pro DIFF TEMPORAL (best-effort; naturalmente
+    // "debounced" porque o rebuild já é debounced 90s no front). Falha (sem HOME, grafo grande)
+    // → ignora: o snapshot é histórico de conveniência, nunca pode travar o rebuild.
+    let _ = snapshot_graph_file(&cwd, &cwd_path);
     // Pós-rebuild: dívida emergente (god nodes novos vs baseline anterior).
     Ok(diff_god_nodes(&cwd, &cwd_path))
+}
+
+// ── F5 — MÚLTIPLAS VISÕES (front) + DIFF TEMPORAL (backend, a fusão OmniFS × OmniGraph) ────
+//
+// O DIFF é o "o que MUDOU na arquitetura" que o OmniFS dá pro código e o OmniGraph ainda não
+// dava pra ESTRUTURA. Guardamos cópias do graph.json a cada rebuild (auto-snapshot acima) num
+// slot-por-hash `~/.omnirift/omnigraph-history/<sha256(cwd)>/<ts>.json` (mesmo padrão de
+// slot do pipeline.rs / god_nodes_baseline; NÃO polui o repo). Cap rotativo (20 — como o ledger
+// do OmniFS), e o diff entre dois snapshots é PURO/testável: nós/arestas +/-, god nodes novos,
+// e — o eixo que importa — ambiguidades RESOLVIDAS (AMBIGUOUS em A que sumiram/promoveram em B)
+// e NOVAS. Degrada limpo: sem grafo → Err no snapshot (o chamador ignora), sem histórico → lista
+// vazia. Nenhuma dessas features builda nada — só lê o que o loop F4 já mantém fresco.
+
+/// Máx. de snapshots de graph.json guardados por projeto — rotaciona os mais velhos (mesma
+/// ideia do ledger cap-500 do OmniFS, menor porque cada cópia é o grafo inteiro). 20 janelas
+/// de rebuild dão histórico folgado pro diff temporal.
+const GRAPH_SNAPSHOT_CAP: usize = 20;
+
+/// Diretório de histórico de snapshots de um projeto: `~/.omnirift/omnigraph-history/<sha256(cwd)>/`.
+/// Slot-por-hash estável (mesmo idioma do `god_nodes_baseline_path`) — não toca o repo do usuário.
+fn omnigraph_history_dir(cwd: &str) -> Option<PathBuf> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()?;
+    let mut h = Sha256::new();
+    h.update(cwd.as_bytes());
+    let hex = format!("{:x}", h.finalize());
+    Some(
+        Path::new(&home)
+            .join(".omnirift")
+            .join("omnigraph-history")
+            .join(hex),
+    )
+}
+
+/// Epoch em MILISSEGUNDOS (SystemTime, igual ao resto do OmniFS) — vira o nome do snapshot.
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Um snapshot de graph.json no histórico (nome = epoch-ms; path completo). camelCase pro front.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphSnapshotInfo {
+    /// Epoch em ms (o nome do arquivo, `<ts>.json`).
+    pub ts: u64,
+    pub path: String,
+}
+
+/// Uma aresta no diff (labels legíveis das duas pontas, em ordem canônica de id).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphDiffEdge {
+    pub source: String,
+    pub target: String,
+}
+
+/// Diferença estrutural entre dois graph.json (A = antes, B = depois). Tudo em LABELS legíveis,
+/// ordenado e deduplicado (determinístico). camelCase pro cliente TS.
+#[derive(Debug, Default, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphDiff {
+    /// Nós presentes em B e não em A (arquitetura nova).
+    pub added_nodes: Vec<String>,
+    /// Nós presentes em A e não em B (arquitetura removida).
+    pub removed_nodes: Vec<String>,
+    /// Arestas presentes em B e não em A.
+    pub added_edges: Vec<GraphDiffEdge>,
+    /// Arestas presentes em A e não em B.
+    pub removed_edges: Vec<GraphDiffEdge>,
+    /// God nodes (funções-hub) que são hub em B mas não eram em A (dívida que surgiu).
+    pub new_god_nodes: Vec<String>,
+    /// Arestas que eram AMBIGUOUS em A e sumiram OU promoveram (EXTRACTED/INFERRED) em B — o loop
+    /// F4b "limpou". É o sinal de PROGRESSO da arquitetura.
+    pub resolved_ambiguous: Vec<GraphDiffEdge>,
+    /// Arestas AMBIGUOUS em B que não eram AMBIGUOUS em A (acoplamento incerto que apareceu).
+    pub new_ambiguous: Vec<GraphDiffEdge>,
+}
+
+/// Confiança normalizada de uma aresta (default engine = EXTRACTED). Espelha o `normConfidence`
+/// do importer TS.
+fn norm_conf(c: &Option<String>) -> &'static str {
+    match c.as_deref() {
+        Some("AMBIGUOUS") => "AMBIGUOUS",
+        Some("INFERRED") => "INFERRED",
+        _ => "EXTRACTED",
+    }
+}
+
+/// id → label legível (label > id) de um grafo.
+fn label_map(g: &GraphJson) -> HashMap<&str, &str> {
+    g.nodes
+        .iter()
+        .map(|n| (n.id.as_str(), n.label.as_deref().unwrap_or(n.id.as_str())))
+        .collect()
+}
+
+/// Chave de aresta NÃO-DIRECIONADA (ids ordenados) — A→B e B→A colapsam num par só.
+fn edge_key(a: &str, b: &str) -> (String, String) {
+    if a <= b {
+        (a.to_string(), b.to_string())
+    } else {
+        (b.to_string(), a.to_string())
+    }
+}
+
+/// Confiança + labels de uma aresta, já alinhados à ordem canônica da chave (pro diff legível).
+struct EdgeInfo {
+    conf: &'static str,
+    src_label: String,
+    tgt_label: String,
+}
+
+/// Mapa par-de-ids canônico → EdgeInfo de um grafo (última aresta do par vence — grafo de código
+/// não costuma ter multiarestas com confidences distintas no mesmo par).
+fn edge_info_map(g: &GraphJson, labels: &HashMap<&str, &str>) -> HashMap<(String, String), EdgeInfo> {
+    let mut m = HashMap::new();
+    for e in &g.edges {
+        let key = edge_key(&e.source, &e.target);
+        let src_lbl = labels
+            .get(e.source.as_str())
+            .copied()
+            .unwrap_or(e.source.as_str())
+            .to_string();
+        let tgt_lbl = labels
+            .get(e.target.as_str())
+            .copied()
+            .unwrap_or(e.target.as_str())
+            .to_string();
+        // Alinha os labels à ORDEM da chave (key.0 = menor id) pra o diff ser determinístico.
+        let (src_label, tgt_label) = if key.0 == e.source {
+            (src_lbl, tgt_lbl)
+        } else {
+            (tgt_lbl, src_lbl)
+        };
+        m.insert(
+            key,
+            EdgeInfo {
+                conf: norm_conf(&e.confidence),
+                src_label,
+                tgt_label,
+            },
+        );
+    }
+    m
+}
+
+fn to_diff_edge(info: &EdgeInfo) -> GraphDiffEdge {
+    GraphDiffEdge {
+        source: info.src_label.clone(),
+        target: info.tgt_label.clone(),
+    }
+}
+
+fn sort_dedup_edges(mut v: Vec<GraphDiffEdge>) -> Vec<GraphDiffEdge> {
+    v.sort_by(|a, b| a.source.cmp(&b.source).then_with(|| a.target.cmp(&b.target)));
+    v.dedup();
+    v
+}
+
+/// Núcleo PURO do diff (sem IO): compara dois grafos já parseados. Reusa `edge_degrees` +
+/// `god_node_ids` (a MESMA lógica de hub do gate F3.1) e `norm_conf` (a MESMA do importer F2).
+fn compute_diff(a: &GraphJson, b: &GraphJson) -> GraphDiff {
+    let la = label_map(a);
+    let lb = label_map(b);
+    let ids_a: HashSet<&str> = a.nodes.iter().map(|n| n.id.as_str()).collect();
+    let ids_b: HashSet<&str> = b.nodes.iter().map(|n| n.id.as_str()).collect();
+
+    // Nós +/- (por id; apresentados por label).
+    let mut added_nodes: Vec<String> = ids_b
+        .iter()
+        .filter(|id| !ids_a.contains(*id))
+        .map(|id| lb.get(id).copied().unwrap_or(id).to_string())
+        .collect();
+    added_nodes.sort();
+    added_nodes.dedup();
+    let mut removed_nodes: Vec<String> = ids_a
+        .iter()
+        .filter(|id| !ids_b.contains(*id))
+        .map(|id| la.get(id).copied().unwrap_or(id).to_string())
+        .collect();
+    removed_nodes.sort();
+    removed_nodes.dedup();
+
+    // Arestas +/- e transições de confiança (por par de ids não-direcionado).
+    let ea = edge_info_map(a, &la);
+    let eb = edge_info_map(b, &lb);
+
+    let mut added_edges = Vec::new();
+    let mut new_ambiguous = Vec::new();
+    for (key, info) in &eb {
+        let prev = ea.get(key);
+        if prev.is_none() {
+            added_edges.push(to_diff_edge(info));
+        }
+        // AMBIGUOUS em B, e não era AMBIGUOUS em A (nova aresta OU confiança piorou pra incerta).
+        if info.conf == "AMBIGUOUS" && prev.map(|p| p.conf) != Some("AMBIGUOUS") {
+            new_ambiguous.push(to_diff_edge(info));
+        }
+    }
+    let mut removed_edges = Vec::new();
+    let mut resolved_ambiguous = Vec::new();
+    for (key, info) in &ea {
+        let next = eb.get(key);
+        if next.is_none() {
+            removed_edges.push(to_diff_edge(info));
+        }
+        // Era AMBIGUOUS em A e sumiu OU promoveu (não-AMBIGUOUS) em B → RESOLVIDA (o loop limpou).
+        if info.conf == "AMBIGUOUS" && next.map(|n| n.conf) != Some("AMBIGUOUS") {
+            resolved_ambiguous.push(to_diff_edge(info));
+        }
+    }
+
+    // God nodes emergentes (hub em B, não em A) — reusa a MESMA heurística do gate.
+    let da = edge_degrees(&a.edges);
+    let db = edge_degrees(&b.edges);
+    let ga = god_node_ids(&a.nodes, &da);
+    let gb = god_node_ids(&b.nodes, &db);
+    let mut new_god_nodes: Vec<String> = gb
+        .iter()
+        .filter(|id| !ga.contains(*id))
+        .map(|id| lb.get(id).copied().unwrap_or(id).to_string())
+        .collect();
+    new_god_nodes.sort();
+    new_god_nodes.dedup();
+
+    GraphDiff {
+        added_nodes,
+        removed_nodes,
+        added_edges: sort_dedup_edges(added_edges),
+        removed_edges: sort_dedup_edges(removed_edges),
+        new_god_nodes,
+        resolved_ambiguous: sort_dedup_edges(resolved_ambiguous),
+        new_ambiguous: sort_dedup_edges(new_ambiguous),
+    }
+}
+
+/// Lista os arquivos de snapshot (`<epoch-ms>.json`) de um diretório, ordenados ASC por ts.
+/// Ignora arquivos com nome não-numérico. Dir ausente/ilegível → vazio.
+fn list_snapshot_files(dir: &Path) -> Vec<(u64, PathBuf)> {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<(u64, PathBuf)> = rd
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("json"))
+        .filter_map(|p| {
+            let ts = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(|s| s.parse::<u64>().ok())?;
+            Some((ts, p))
+        })
+        .collect();
+    out.sort_by_key(|(ts, _)| *ts);
+    out
+}
+
+/// Rotaciona o histórico: mantém os `cap` mais recentes, apaga os mais velhos (best-effort).
+fn prune_snapshots(dir: &Path, cap: usize) {
+    let files = list_snapshot_files(dir);
+    if files.len() <= cap {
+        return;
+    }
+    for (_, p) in files.iter().take(files.len() - cap) {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+/// Copia o graph.json atual pro histórico (`<ts>.json`) e rotaciona. Falha limpa: sem grafo →
+/// Err (o auto-snapshot ignora; o comando manual reporta). NÃO builda — só copia o que já existe.
+fn snapshot_graph_file(cwd: &str, cwd_path: &Path) -> Result<PathBuf, String> {
+    let Some(src) = find_existing_graph_json(cwd_path) else {
+        return Err("nenhum graph.json pra snapshotar — rode o OmniGraph (Arquiteto ancorado) primeiro".into());
+    };
+    // Não copiar (nem manter ×20) um grafo gigante — mesmo teto do gate/importer.
+    if let Ok(meta) = std::fs::metadata(&src) {
+        if meta.len() > GRAPH_JSON_MAX_BYTES {
+            return Err(format!(
+                "graph.json tem {} MB (teto {} MB) — grande demais pra snapshotar",
+                meta.len() / (1024 * 1024),
+                GRAPH_JSON_MAX_BYTES / (1024 * 1024),
+            ));
+        }
+    }
+    let dir = omnigraph_history_dir(cwd).ok_or_else(|| "HOME indisponível".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("criar histórico: {e}"))?;
+    // Nome = epoch-ms; colisão no mesmo ms (rebuilds rápidos) → incrementa até vagar.
+    let mut ts = now_millis();
+    let mut dest = dir.join(format!("{ts}.json"));
+    while dest.exists() {
+        ts += 1;
+        dest = dir.join(format!("{ts}.json"));
+    }
+    std::fs::copy(&src, &dest).map_err(|e| format!("copiar snapshot: {e}"))?;
+    prune_snapshots(&dir, GRAPH_SNAPSHOT_CAP);
+    Ok(dest)
+}
+
+fn load_graph(p: &Path) -> Result<GraphJson, String> {
+    let raw = std::fs::read_to_string(p).map_err(|e| format!("ler {}: {e}", p.display()))?;
+    serde_json::from_str(&raw).map_err(|e| format!("parsear {}: {e}", p.display()))
+}
+
+/// Garante que `p` está DENTRO de `dir` (canonicalizado) — trava leitura arbitrária via `..`
+/// (mesmo espírito do fs-gate do OmniFS). Devolve o path canônico ou Err.
+fn ensure_under(dir: &Path, p: &Path) -> Result<PathBuf, String> {
+    let cp = std::fs::canonicalize(p)
+        .map_err(|e| format!("snapshot inacessível {}: {e}", p.display()))?;
+    let cd =
+        std::fs::canonicalize(dir).map_err(|e| format!("histórico inacessível: {e}"))?;
+    if !cp.starts_with(&cd) {
+        return Err("snapshot fora do histórico deste projeto".into());
+    }
+    Ok(cp)
+}
+
+/// F5 — Tira um snapshot do graph.json atual pro histórico e devolve o path gravado. Manual
+/// (a UI "comparar arquitetura" também deixa forçar); o auto-snapshot vive no `omnigraph_rebuild`.
+#[tauri::command]
+pub fn omnigraph_snapshot_graph(cwd: String) -> Result<String, String> {
+    let cwd = cwd.trim().to_string();
+    if cwd.is_empty() {
+        return Err("cwd vazio".into());
+    }
+    let p = snapshot_graph_file(&cwd, &PathBuf::from(&cwd))?;
+    Ok(p.to_string_lossy().into_owned())
+}
+
+/// F5 — Lista os snapshots de graph.json do projeto (mais RECENTE primeiro). Sem histórico →
+/// `Ok(vec![])`. A UI usa isto pra deixar o usuário escolher A e B pro diff.
+#[tauri::command]
+pub fn omnigraph_list_snapshots(cwd: String) -> Result<Vec<GraphSnapshotInfo>, String> {
+    let cwd = cwd.trim().to_string();
+    if cwd.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Some(dir) = omnigraph_history_dir(&cwd) else {
+        return Ok(Vec::new());
+    };
+    let mut files = list_snapshot_files(&dir);
+    files.reverse(); // mais recente primeiro
+    Ok(files
+        .into_iter()
+        .map(|(ts, p)| GraphSnapshotInfo {
+            ts,
+            path: p.to_string_lossy().into_owned(),
+        })
+        .collect())
+}
+
+/// F5 — DIFF TEMPORAL: compara dois snapshots (A = antes, B = depois) do histórico do projeto.
+/// Os dois paths TÊM que estar dentro do histórico deste `cwd` (`ensure_under` — sem leitura
+/// arbitrária). Erro de IO/parse → Err (a UI mostra o toast).
+#[tauri::command]
+pub fn omnigraph_diff(
+    cwd: String,
+    snapshot_path_a: String,
+    snapshot_path_b: String,
+) -> Result<GraphDiff, String> {
+    let cwd = cwd.trim().to_string();
+    let dir = omnigraph_history_dir(&cwd).ok_or_else(|| "HOME indisponível".to_string())?;
+    let pa = ensure_under(&dir, Path::new(&snapshot_path_a))?;
+    let pb = ensure_under(&dir, Path::new(&snapshot_path_b))?;
+    let ga = load_graph(&pa)?;
+    let gb = load_graph(&pb)?;
+    Ok(compute_diff(&ga, &gb))
 }
 
 #[cfg(test)]
@@ -1118,5 +1492,192 @@ mod tests {
         // cwd vazio → Ok(vec![]) sem tocar disco/subprocess (degrade limpo).
         let out = omnigraph_rebuild("   ".into()).await.unwrap();
         assert!(out.is_empty());
+    }
+
+    // ── F5 — diff temporal + snapshots ───────────────────────────────────────────────────
+
+    fn diff_edge(s: &str, t: &str) -> GraphDiffEdge {
+        GraphDiffEdge { source: s.into(), target: t.into() }
+    }
+
+    #[test]
+    fn edge_key_is_undirected() {
+        // A→B e B→A colapsam na MESMA chave canônica (menor id primeiro).
+        assert_eq!(edge_key("a", "b"), edge_key("b", "a"));
+        assert_eq!(edge_key("b", "a"), ("a".into(), "b".into()));
+    }
+
+    #[test]
+    fn norm_conf_defaults_to_extracted() {
+        assert_eq!(norm_conf(&None), "EXTRACTED");
+        assert_eq!(norm_conf(&Some("weird".into())), "EXTRACTED");
+        assert_eq!(norm_conf(&Some("AMBIGUOUS".into())), "AMBIGUOUS");
+        assert_eq!(norm_conf(&Some("INFERRED".into())), "INFERRED");
+    }
+
+    #[test]
+    fn diff_added_and_removed_nodes() {
+        let a = GraphJson {
+            nodes: vec![gnode("x", "X", None, None), gnode("y", "Y", None, None)],
+            edges: vec![],
+        };
+        let b = GraphJson {
+            nodes: vec![gnode("y", "Y", None, None), gnode("z", "Z", None, None)],
+            edges: vec![],
+        };
+        let d = compute_diff(&a, &b);
+        assert_eq!(d.added_nodes, vec!["Z".to_string()]); // z só em B
+        assert_eq!(d.removed_nodes, vec!["X".to_string()]); // x só em A
+    }
+
+    #[test]
+    fn diff_resolved_and_new_ambiguous() {
+        // A: login↔query AMBIGUOUS, a↔b EXTRACTED.
+        // B: login↔query virou EXTRACTED (resolvida) e a↔c nova AMBIGUOUS.
+        let a = GraphJson {
+            nodes: vec![
+                gnode("login", "login", None, None),
+                gnode("query", "query", None, None),
+                gnode("a", "a", None, None),
+                gnode("b", "b", None, None),
+                gnode("c", "c", None, None),
+            ],
+            edges: vec![
+                gedge("login", "query", Some("AMBIGUOUS")),
+                gedge("a", "b", Some("EXTRACTED")),
+            ],
+        };
+        let b = GraphJson {
+            nodes: vec![
+                gnode("login", "login", None, None),
+                gnode("query", "query", None, None),
+                gnode("a", "a", None, None),
+                gnode("b", "b", None, None),
+                gnode("c", "c", None, None),
+            ],
+            edges: vec![
+                gedge("login", "query", Some("EXTRACTED")), // promoveu → RESOLVIDA
+                gedge("a", "b", Some("EXTRACTED")),
+                gedge("a", "c", Some("AMBIGUOUS")), // nova incerta
+            ],
+        };
+        let d = compute_diff(&a, &b);
+        assert_eq!(d.resolved_ambiguous, vec![diff_edge("login", "query")]);
+        assert_eq!(d.new_ambiguous, vec![diff_edge("a", "c")]);
+        // a↔c é nova aresta também.
+        assert_eq!(d.added_edges, vec![diff_edge("a", "c")]);
+        assert!(d.removed_edges.is_empty());
+    }
+
+    #[test]
+    fn diff_resolved_when_ambiguous_edge_vanishes() {
+        // Aresta AMBIGUOUS some completamente em B → conta como resolvida E removida.
+        let a = GraphJson {
+            nodes: vec![gnode("m", "m", None, None), gnode("n", "n", None, None)],
+            edges: vec![gedge("m", "n", Some("AMBIGUOUS"))],
+        };
+        let b = GraphJson {
+            nodes: vec![gnode("m", "m", None, None), gnode("n", "n", None, None)],
+            edges: vec![],
+        };
+        let d = compute_diff(&a, &b);
+        assert_eq!(d.resolved_ambiguous, vec![diff_edge("m", "n")]);
+        assert_eq!(d.removed_edges, vec![diff_edge("m", "n")]);
+        assert!(d.new_ambiguous.is_empty());
+    }
+
+    #[test]
+    fn diff_new_god_nodes_uses_hub_heuristic() {
+        // A: hub tem grau 2. B: hub ganhou mais arestas e um 2º hub emerge.
+        let a = GraphJson {
+            nodes: vec![
+                gnode("hub", "hub", None, None),
+                gnode("l1", "l1", None, None),
+                gnode("l2", "l2", None, None),
+            ],
+            edges: vec![gedge("hub", "l1", None), gedge("hub", "l2", None)],
+        };
+        let b = GraphJson {
+            nodes: vec![
+                gnode("hub", "hub", None, None),
+                gnode("h2", "h2", None, None),
+                gnode("l1", "l1", None, None),
+                gnode("l2", "l2", None, None),
+            ],
+            // h2 agora também é hub (grau ≥2) — emerge em B.
+            edges: vec![
+                gedge("hub", "l1", None),
+                gedge("hub", "l2", None),
+                gedge("h2", "l1", None),
+                gedge("h2", "l2", None),
+            ],
+        };
+        let d = compute_diff(&a, &b);
+        assert!(d.new_god_nodes.contains(&"h2".to_string()), "h2 devia emergir: {d:?}");
+        assert!(!d.new_god_nodes.contains(&"hub".to_string()), "hub já era hub em A");
+    }
+
+    #[test]
+    fn diff_identical_graphs_is_empty() {
+        let g = GraphJson {
+            nodes: vec![gnode("a", "a", None, None), gnode("b", "b", None, None)],
+            edges: vec![gedge("a", "b", Some("EXTRACTED"))],
+        };
+        let g2 = GraphJson {
+            nodes: vec![gnode("a", "a", None, None), gnode("b", "b", None, None)],
+            edges: vec![gedge("a", "b", Some("EXTRACTED"))],
+        };
+        assert_eq!(compute_diff(&g, &g2), GraphDiff::default());
+    }
+
+    #[test]
+    fn snapshot_history_dir_is_stable_and_scoped() {
+        let Some(p1) = omnigraph_history_dir("/repo/alpha") else { return };
+        assert_eq!(Some(&p1), omnigraph_history_dir("/repo/alpha").as_ref());
+        assert_ne!(Some(p1.clone()), omnigraph_history_dir("/repo/beta"));
+        assert!(p1.to_string_lossy().contains("omnigraph-history"));
+    }
+
+    #[test]
+    fn list_snapshot_files_sorts_and_ignores_nonnumeric() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("30.json"), b"{}").unwrap();
+        std::fs::write(dir.path().join("10.json"), b"{}").unwrap();
+        std::fs::write(dir.path().join("20.json"), b"{}").unwrap();
+        std::fs::write(dir.path().join("notes.json"), b"{}").unwrap(); // não-numérico: ignorado
+        std::fs::write(dir.path().join("15.txt"), b"{}").unwrap(); // não-json: ignorado
+        let files = list_snapshot_files(dir.path());
+        let ts: Vec<u64> = files.iter().map(|(t, _)| *t).collect();
+        assert_eq!(ts, vec![10, 20, 30]); // ASC, só numéricos .json
+    }
+
+    #[test]
+    fn prune_snapshots_keeps_most_recent() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 1..=5u64 {
+            std::fs::write(dir.path().join(format!("{i}.json")), b"{}").unwrap();
+        }
+        prune_snapshots(dir.path(), 3); // mantém 3, 4, 5
+        let ts: Vec<u64> = list_snapshot_files(dir.path()).iter().map(|(t, _)| *t).collect();
+        assert_eq!(ts, vec![3, 4, 5]);
+    }
+
+    #[test]
+    fn omnigraph_list_snapshots_empty_cwd_is_empty() {
+        assert!(omnigraph_list_snapshots("  ".into()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn omnigraph_diff_rejects_paths_outside_history() {
+        // cwd real, mas paths apontando pra FORA do histórico → Err (ensure_under barra).
+        let outside = tempfile::tempdir().unwrap();
+        let f = outside.path().join("evil.json");
+        std::fs::write(&f, r#"{"nodes":[],"edges":[]}"#).unwrap();
+        let res = omnigraph_diff(
+            "/repo/whatever".into(),
+            f.to_string_lossy().into_owned(),
+            f.to_string_lossy().into_owned(),
+        );
+        assert!(res.is_err(), "path fora do histórico devia ser rejeitado");
     }
 }
