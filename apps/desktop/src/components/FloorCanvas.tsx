@@ -322,6 +322,45 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
     [],
   );
 
+  // Delete por teclado com CONFIRMAÇÃO. O deleteKeyCode nativo do React Flow escuta a
+  // tecla no PANE — mas ao selecionar um agente o foco fica no conteúdo do nó (o xterm/
+  // a conversa capturam o keydown), então o Delete nunca chegava no canvas ("del não
+  // deletava"). Handler próprio: Del/Backspace fora de campo editável → deleta os nós
+  // .selected (mesma confirmação; removeNode já mata a sessão — F2 backend-owned).
+  const deleteSelected = useCallback(async () => {
+    const sel = Array.from(document.querySelectorAll<HTMLElement>(".react-flow__node.selected"));
+    const ids = sel.map((n) => n.getAttribute("data-id")).filter((x): x is string => !!x);
+    const targets = ids.map((id) => nodes.find((n) => n.id === id)).filter((n): n is CanvasNode => !!n);
+    if (targets.length === 0) return;
+    const heavy = targets.filter((n) => n.kind === "terminal" || n.kind === "agent");
+    if (heavy.length > 0) {
+      const first = heavy[0];
+      const what =
+        heavy.length === 1
+          ? ("label" in first && first.label ? first.label : "agente")
+          : `${heavy.length} agentes`;
+      const ok = await new Promise<boolean>((resolve) => setConfirmDel({ what, resolve }));
+      if (!ok) return;
+    }
+    targets.forEach((n) => removeNode(n.id));
+  }, [nodes, removeNode]);
+
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const t = e.target as HTMLElement | null;
+      // Foco num campo editável ou dentro do terminal → é digitação, não deleção de nó.
+      if (t?.closest("input,textarea,select,[contenteditable=true],.xterm,.terminal")) return;
+      if (document.querySelector(".react-flow__node.selected")) {
+        e.preventDefault();
+        void deleteSelected();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, deleteSelected]);
+
   return (
     <ReactFlow
       nodes={rfNodes}
@@ -357,7 +396,7 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
       selectionOnDrag={false}
       selectionKeyCode="Shift"
       nodeDragThreshold={4}
-      deleteKeyCode={["Backspace", "Delete"]}
+      deleteKeyCode={null}
       onBeforeDelete={onBeforeDelete}
       colorMode="dark"
       connectionRadius={55}

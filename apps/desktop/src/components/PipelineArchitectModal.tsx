@@ -321,6 +321,18 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
       if (ff !== tf) { skippedCross++; continue; }
       addEdge(from, to, "generic", { targetFloorId: ff });
     }
+    // O TIME montado já entra no canal MCP (checkboxes MCP AGENTS marcadas) — o time
+    // colabora, então o Orquestrador precisa poder comandá-los sem o usuário marcar 5
+    // caixas na mão. Adiciona os ids ao Set (id do nó = a chave do canal p/ agent E
+    // terminal, pois addTerminal usa session_id = node.id) e avisa o Sidebar re-registrar
+    // (mesmo evento do fix de restore). Só os PRINCIPAIS (subagentes são privados).
+    try {
+      const key = "omnirift-mcp-agents";
+      const cur = new Set<string>(JSON.parse(localStorage.getItem(key) ?? "[]"));
+      for (const id of idByRole.values()) cur.add(id);
+      localStorage.setItem(key, JSON.stringify([...cur]));
+      window.dispatchEvent(new CustomEvent("omnirift:mcp-remapped"));
+    } catch { /* localStorage indisponível */ }
     console.info(
       `[pipeline] Montar: ${idByRole.size} agentes (${mountAs}), ${createdFloors} paralelo(s) criado(s), ` +
       `${skippedCross} conexão(ões) cross-floor pulada(s), ${skippedByLimit} agente(s) barrado(s) por licença`,
