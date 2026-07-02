@@ -1101,7 +1101,7 @@ pub fn kanban_tool_defs() -> Vec<Value> {
             "inputSchema": { "type": "object", "properties": {
                 "project": { "type": "string", "description": "Caminho (cwd) do projeto." },
                 "title": { "type": "string", "description": "Título curto do card." },
-                "column": { "type": "string", "enum": ["backlog", "doing", "review", "done"], "description": "Coluna inicial (default backlog)." },
+                "column": { "type": "string", "enum": ["backlog", "doing", "test", "review", "blocked", "done"], "description": "Coluna inicial (default backlog)." },
                 "body": { "type": "string", "description": "Descrição opcional." },
                 "agent": { "type": "string", "description": "Seu papel/nome de agente." }
             }, "required": ["project", "title"] }
@@ -1111,7 +1111,7 @@ pub fn kanban_tool_defs() -> Vec<Value> {
             "description": "Move um card do Kanban pra outra coluna (ao começar sua fatia → doing; ao terminar → review).",
             "inputSchema": { "type": "object", "properties": {
                 "id": { "type": "number", "description": "ID do card (veja kanban_list)." },
-                "column": { "type": "string", "enum": ["backlog", "doing", "review", "done"] }
+                "column": { "type": "string", "enum": ["backlog", "doing", "test", "review", "blocked", "done"] }
             }, "required": ["id", "column"] }
         }),
         json!({
@@ -1146,7 +1146,7 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             };
             let column = args.get("column").and_then(|v| v.as_str()).unwrap_or("backlog");
             if !crate::db::kanban_valid_col(column) {
-                return "coluna inválida: use backlog|doing|review|done".into();
+                return "coluna inválida: use backlog|doing|test|review|blocked|done".into();
             }
             let body = args.get("body").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
             let agent = args.get("agent").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
@@ -1166,7 +1166,7 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
                 return "parâmetro 'column' é obrigatório".into();
             };
             if !crate::db::kanban_valid_col(column) {
-                return "coluna inválida: use backlog|doing|review|done".into();
+                return "coluna inválida: use backlog|doing|test|review|blocked|done".into();
             }
             match db.kanban_move(id, column) {
                 Ok(()) => {

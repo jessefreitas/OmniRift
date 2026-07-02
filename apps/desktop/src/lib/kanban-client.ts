@@ -6,12 +6,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
-export type KanbanColumn = "backlog" | "doing" | "review" | "done";
+export type KanbanColumn = "backlog" | "doing" | "test" | "review" | "blocked" | "done";
 
+// Fluxo profissional (estilo Jira). "blocked" cobre bugs/impedimentos — o card
+// para ali até destravar; colunas customizáveis por projeto são a próxima fatia.
 export const KANBAN_COLUMNS: { id: KanbanColumn; label: string }[] = [
   { id: "backlog", label: "Backlog" },
   { id: "doing", label: "Em andamento" },
+  { id: "test", label: "Teste" },
   { id: "review", label: "Review" },
+  { id: "blocked", label: "Bloqueado" },
   { id: "done", label: "Concluído" },
 ];
 

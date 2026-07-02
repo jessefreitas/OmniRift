@@ -60,7 +60,7 @@ export function KanbanPanel({
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
-        className="flex max-h-[86vh] w-[960px] max-w-[96vw] flex-col overflow-hidden rounded-lg border border-border bg-surface1 shadow-2xl"
+        className="flex max-h-[86vh] w-[1240px] max-w-[96vw] flex-col overflow-hidden rounded-lg border border-border bg-surface1 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-border bg-surface2 px-4 py-3">
@@ -78,9 +78,9 @@ export function KanbanPanel({
           </button>
         </div>
 
-        <div className="grid flex-1 grid-cols-4 gap-2 overflow-auto p-3">
+        <div className="grid flex-1 grid-cols-6 gap-2 overflow-auto p-3">
           {cards.length === 0 && (
-            <p className="col-span-4 py-8 text-center text-xs text-textMuted">
+            <p className="col-span-6 py-8 text-center text-xs text-textMuted">
               {t(
                 "kanban.empty",
                 "Nenhum card ainda. Os agentes criam e movem cards via tools kanban_* e o Arquiteto de Pipeline semeia o backlog ao Montar — ou crie o primeiro abaixo.",

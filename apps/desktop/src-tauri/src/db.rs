@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS project_budgets (
 );
 
 -- Kanban do projeto (acompanhamento visual): cards por project (= cwd), movidos
--- pelos AGENTES via tools MCP kanban_* e pelo usuário no painel. col: backlog|doing|review|done.
+-- pelos AGENTES via tools MCP kanban_* e pelo usuário no painel. col: backlog|doing|test|review|blocked|done.
 CREATE TABLE IF NOT EXISTS kanban_cards (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     project     TEXT NOT NULL,
@@ -1128,8 +1128,9 @@ fn map_kanban(row: &rusqlite::Row) -> rusqlite::Result<KanbanCardRow> {
 }
 
 /// Colunas válidas — defesa contra tool-call de agente com coluna inventada.
+/// Fluxo profissional (estilo Jira): backlog → doing → test → review → (blocked) → done.
 pub(crate) fn kanban_valid_col(c: &str) -> bool {
-    matches!(c, "backlog" | "doing" | "review" | "done")
+    matches!(c, "backlog" | "doing" | "test" | "review" | "blocked" | "done")
 }
 
 impl Db {
@@ -1222,7 +1223,7 @@ pub fn kanban_card_create(
 ) -> Result<i64, String> {
     let col = col.as_deref().unwrap_or("backlog");
     if !kanban_valid_col(col) {
-        return Err(format!("coluna inválida: {col} (use backlog|doing|review|done)"));
+        return Err(format!("coluna inválida: {col} (use backlog|doing|test|review|blocked|done)"));
     }
     let id = db
         .kanban_create(&project, col, &title, body.as_deref(), agent.as_deref(), node_id.as_deref())
@@ -1234,7 +1235,7 @@ pub fn kanban_card_create(
 #[tauri::command]
 pub fn kanban_card_move(id: i64, col: String, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
     if !kanban_valid_col(&col) {
-        return Err(format!("coluna inválida: {col} (use backlog|doing|review|done)"));
+        return Err(format!("coluna inválida: {col} (use backlog|doing|test|review|blocked|done)"));
     }
     db.kanban_move(id, &col).map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
