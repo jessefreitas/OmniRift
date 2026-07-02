@@ -5,6 +5,7 @@
 
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
+use tauri::Emitter;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::path::Path;
