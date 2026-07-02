@@ -6,7 +6,15 @@
 // localStorage. Ligar uma vez no boot com startAutoSnapshot().
 
 import { useCanvasStore } from "@/store/canvas-store";
-import { snapshotCreate, snapshotPruneAuto } from "@/lib/snapshot-client";
+import { snapshotCreate, snapshotPruneAuto, buildCapsuleMeta } from "@/lib/snapshot-client";
+
+/** Nº de nós agentes (terminal + agent) nos paralelos do projeto ativo. */
+function countAgents(): number {
+  return useCanvasStore
+    .getState()
+    .parallels.flatMap((f) => f.nodes)
+    .filter((n) => n.kind === "terminal" || n.kind === "agent").length;
+}
 
 export interface AutoSnapSettings {
   enabled: boolean;
@@ -69,7 +77,12 @@ async function tick(maxAuto: number): Promise<void> {
     const doc = JSON.stringify(useCanvasStore.getState().getWorkspaceSnapshot());
     const h = hash(doc);
     if (h === lastHash) return; // canvas inalterado → não duplica backup
-    await snapshotCreate(autoLabel(), doc, true);
+    // Camada 1 da cápsula (barata) também nos auto-backups; nunca bloqueia o backup.
+    const cwd = useCanvasStore.getState().currentCwd;
+    const meta = await buildCapsuleMeta({ cwd, agents: countAgents(), capsule: false })
+      .then((m) => JSON.stringify(m))
+      .catch(() => null);
+    await snapshotCreate(autoLabel(), doc, true, meta);
     lastHash = h;
     await snapshotPruneAuto(maxAuto);
   } catch (e) {

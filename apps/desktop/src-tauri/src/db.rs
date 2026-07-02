@@ -59,7 +59,12 @@ CREATE TABLE IF NOT EXISTS canvas_snapshots (
     label       TEXT,
     doc         TEXT NOT NULL,
     created_at  TEXT NOT NULL,
-    auto        INTEGER NOT NULL DEFAULT 0
+    auto        INTEGER NOT NULL DEFAULT 0,
+    -- Cápsula do tempo (#31): JSON opcional com PONTEIROS pro estado do projeto no
+    -- instante do snapshot (git commit/branch, nº de agentes, custo do dia, resumo e —
+    -- na cápsula completa — hash OmniFS do código + path do graph.json da arquitetura).
+    -- Nullable: snapshots legados e o doc do canvas seguem intocados.
+    meta        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS reminders (
@@ -174,6 +179,9 @@ pub struct SnapshotMeta {
     pub bytes: i64,
     /// true = snapshot automático (rotaciona); false = manual (permanente).
     pub auto: bool,
+    /// Cápsula do tempo (#31): JSON opcional (ver coluna `meta`). O front parseia e
+    /// exibe os ponteiros na linha do snapshot. `None` = snapshot legado / sem cápsula.
+    pub meta: Option<String>,
 }
 
 /// Lembrete salvo a partir de uma nota do canvas (persiste fora do canvas).
@@ -336,6 +344,12 @@ pub struct BudgetRow {
 fn migrate(conn: &Connection) {
     let _ = conn.execute(
         "ALTER TABLE canvas_snapshots ADD COLUMN auto INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
+    // Cápsula do tempo (#31): coluna JSON opcional com o estado do projeto. Idempotente
+    // (falha silenciosa se já existe, mesmo padrão de `auto` acima).
+    let _ = conn.execute(
+        "ALTER TABLE canvas_snapshots ADD COLUMN meta TEXT",
         [],
     );
     // Rename floor→parallel (Fase 2 · #6): renomeia as colunas legadas dos DBs
@@ -586,11 +600,17 @@ impl Db {
 
     /// Grava um snapshot do doc do canvas; devolve o id. `auto` marca backups
     /// automáticos (rotacionam via `snapshot_prune_auto`); manuais ficam.
-    pub fn snapshot_create(&self, label: Option<&str>, doc: &str, auto: bool) -> Result<i64> {
+    pub fn snapshot_create(
+        &self,
+        label: Option<&str>,
+        doc: &str,
+        auto: bool,
+        meta: Option<&str>,
+    ) -> Result<i64> {
         let conn = self.0.lock();
         conn.execute(
-            "INSERT INTO canvas_snapshots (label, doc, created_at, auto) VALUES (?1, ?2, datetime('now'), ?3)",
-            rusqlite::params![label, doc, auto as i64],
+            "INSERT INTO canvas_snapshots (label, doc, created_at, auto, meta) VALUES (?1, ?2, datetime('now'), ?3, ?4)",
+            rusqlite::params![label, doc, auto as i64, meta],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -598,7 +618,7 @@ impl Db {
     pub fn snapshots_list(&self) -> Result<Vec<SnapshotMeta>> {
         let conn = self.0.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, label, created_at, length(doc), auto FROM canvas_snapshots ORDER BY id DESC",
+            "SELECT id, label, created_at, length(doc), auto, meta FROM canvas_snapshots ORDER BY id DESC",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(SnapshotMeta {
@@ -607,6 +627,7 @@ impl Db {
                 created_at: r.get(2)?,
                 bytes: r.get(3)?,
                 auto: r.get::<_, i64>(4)? != 0,
+                meta: r.get(5)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -1072,9 +1093,10 @@ pub fn snapshot_create(
     label: Option<String>,
     doc: String,
     auto: Option<bool>,
+    meta: Option<String>,
     db: tauri::State<'_, Db>,
 ) -> Result<i64, String> {
-    db.snapshot_create(label.as_deref(), &doc, auto.unwrap_or(false))
+    db.snapshot_create(label.as_deref(), &doc, auto.unwrap_or(false), meta.as_deref())
         .map_err(|e| format!("{e:#}"))
 }
 
