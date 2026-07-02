@@ -16,6 +16,10 @@ export const DENY_DESTRUCTIVE = [
   "Bash(git clean:*)",
   "Bash(git reset --hard:*)",
   "Bash(git push --force:*)",
+  // OmniFS: rollback é GLOBAL (restaura o drive INTEIRO e apaga o que não está em
+  // snapshot) — NUNCA chega aos agentes. O agent-mcp.json só filtra por SERVER
+  // (não por tool), então o bloqueio é aqui; restauração humana = OmniFsModal.
+  "mcp__omnifs__omnifs_rollback",
 ];
 
 /** Orquestrador: só decompõe e delega, nunca executa. */

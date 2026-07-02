@@ -10,6 +10,12 @@ pub fn pty_spawn(
     manager: State<'_, std::sync::Arc<PtyManager>>,
     app: AppHandle,
 ) -> Result<SessionId, String> {
+    // Guard OmniFS (F2 item 7): cwd dentro do mount FUSE conhecido com o daemon
+    // morto → erro claro AQUI (o nó mostra a mensagem via setError) em vez de um
+    // terminal nascendo num filesystem desconectado (todo IO daria ENOTCONN).
+    // Choke-point único: cobre Sidebar, restore, pipeline e mobile. Barato —
+    // 1 JSON pequeno + 1 connect local, só quando o cwd bate no prefixo do mount.
+    crate::omnifs::preflight_cwd_guard(config.cwd.as_deref())?;
     manager.spawn(id, config, app).map_err(|e| format!("{e:#}"))
 }
 

@@ -18,6 +18,10 @@ pub async fn acp_spawn(
     manager: State<'_, Arc<AcpManager>>,
     app: AppHandle,
 ) -> Result<SessionId, String> {
+    // Guard OmniFS (F2 item 7) — mesmo choke-point do pty_spawn: cwd num mount
+    // OmniFS com daemon morto → erro claro (o AgentNode mostra via pushSys
+    // "erro ao iniciar") em vez de OmniAgent nascendo num FUSE ENOTCONN.
+    crate::omnifs::preflight_cwd_guard(cwd.as_deref())?;
     // Clona o Arc pra não segurar o State através do await.
     let mgr = manager.inner().clone();
     mgr.spawn(id, provider, cwd, resume_session_id, provider_config, app).await.map_err(|e| format!("{e:#}"))

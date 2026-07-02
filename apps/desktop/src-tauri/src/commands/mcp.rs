@@ -231,6 +231,30 @@ pub fn agent_mcp_config(
         );
     }
 
+    // OmniFS MCP (F1): busca semântica + snapshot/log versionados do drive dos
+    // agentes. SÓ em modo CLIENTE (`--connect <sock>`) contra o daemon vivo —
+    // NUNCA modo direto (o redb do store é SINGLE-WRITER: um 2º processo abrindo
+    // o mesmo store corrompe o lock). Gated como o omnicompress: binário presente
+    // E socket respondendo; sem daemon o server nem entra no config (fail-soft).
+    // ⚠️ `omnifs_rollback` é GLOBAL e NÃO chega aos agentes: o agent-mcp.json só
+    // filtra por SERVER (não por tool), então o bloqueio vive no
+    // `--disallowed-tools mcp__omnifs__omnifs_rollback` (DENY_DESTRUCTIVE em
+    // agent-contract.ts), aplicado a todo agente claude spawnado pelo app.
+    {
+        let sock = crate::omnifs::socket_path();
+        if let Some(bin) = crate::omnifs::find_omnifs_bin() {
+            if crate::omnifs::socket_alive(&sock) {
+                servers.insert(
+                    "omnifs".into(),
+                    serde_json::json!({
+                        "command": bin.to_string_lossy(),
+                        "args": ["--connect", sock.to_string_lossy()]
+                    }),
+                );
+            }
+        }
+    }
+
     // Merge da wiring do provider de memória ativo (ex.: omnimemory). Local =
     // wiring vazia → mapa inalterado (zero regressão pro default).
     for (name, spec) in memory_registry.active_provider().agent_wiring().mcp_servers {
@@ -318,6 +342,11 @@ pub fn mcp_inventory(
     ];
     if crate::compress::find_sidecar("omnicompress-mcp").is_some() {
         out.push(McpInventoryItem { key: "omnicompress".into(), label: "OmniCompress — compressão sob demanda".into(), est_tokens: 900, source: "builtin".into(), available: true });
+    }
+    // OmniFS: 5 tools (~900 tokens de schema). `available` = daemon respondendo no
+    // socket (o gate real do agent_mcp_config) — binário sem daemon fica cinza.
+    if crate::omnifs::find_omnifs_bin().is_some() {
+        out.push(McpInventoryItem { key: "omnifs".into(), label: "OmniFS — drive versionado + busca semântica".into(), est_tokens: 900, source: "builtin".into(), available: crate::omnifs::socket_alive(&crate::omnifs::socket_path()) });
     }
     // Provider de memória ativo (omnimemory ~100 tools = o gigante do contexto).
     for (name, _spec) in memory_registry.active_provider().agent_wiring().mcp_servers {

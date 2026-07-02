@@ -23,6 +23,7 @@ import {
   GitFork,
   GitMerge,
   GripVertical,
+  HardDrive,
   History,
   Orbit,
   Palette,
@@ -73,6 +74,7 @@ import { EditableLabel } from "@/components/EditableLabel";
 import { UpdaterButton } from "@/components/UpdaterButton";
 import { PromptModal } from "@/components/PromptModal";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
+import { omnifsStatus, type OmniFsStatus } from "@/lib/omnifs-client";
 import { useLicenseStore } from "@/store/license-store";
 import { openFeedback } from "@/lib/feedback";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -114,6 +116,7 @@ const PipelineArchitectModal = lazy(() => import("@/components/PipelineArchitect
 const MobileDevicesModal = lazy(() => import("@/components/MobileDevicesModal").then((m) => ({ default: m.MobileDevicesModal })));
 const HelpModal = lazy(() => import("@/components/HelpModal").then((m) => ({ default: m.HelpModal })));
 const McpServersModal = lazy(() => import("@/components/McpServersModal").then((m) => ({ default: m.McpServersModal })));
+const OmniFsModal = lazy(() => import("@/components/OmniFsModal").then((m) => ({ default: m.OmniFsModal })));
 const ClisModal = lazy(() => import("@/components/ClisModal").then((m) => ({ default: m.ClisModal })));
 const CompressorsModal = lazy(() => import("@/components/CompressorsModal").then((m) => ({ default: m.CompressorsModal })));
 const ReviewModal = lazy(() => import("@/components/ReviewModal").then((m) => ({ default: m.ReviewModal })));
@@ -169,6 +172,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "reminders", icon: Bookmark, label: "Lembretes", desc: "Notas do canvas viram lembretes com prazo" },
   { id: "mcpservers", icon: Server, label: "MCP Servers", desc: "Tools MCP dos agentes (Postgres, GitHub, …) — liga/desliga por servidor" },
   { id: "memory", icon: Brain, label: "Memória dos agentes", desc: "Ver e editar o que os agentes lembram (blackboard SQLite)" },
+  { id: "omnifs", icon: HardDrive, label: "OmniFS — Pasta de agentes", desc: "Drive versionado dos agentes: status do daemon, espaço, snapshots (com restauração humana) e reindexação da busca semântica" },
   { id: "companion", icon: Sparkles, label: "OmniPartner (IA)", desc: "Chat IA lateral que enxerga o canvas e ajuda a operar" },
   { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
   { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos paralelos" },
@@ -426,6 +430,7 @@ export function Sidebar() {
   const [showRoutines, setShowRoutines] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showMcpServers, setShowMcpServers] = useState(false);
+  const [showOmniFs, setShowOmniFs] = useState(false);
   const [showClis, setShowClis] = useState(false);
   const [showCompressors, setShowCompressors] = useState(false);
   const [showSkillsCenter, setShowSkillsCenter] = useState(false);
@@ -498,6 +503,21 @@ export function Sidebar() {
     };
   }, [showUsage]);
 
+  // Chip OmniFS do rodapé — poll BARATO (omnifs_status a cada 30s), estado local
+  // (sem zustand). Dep [showOmniFs]: fechar o modal re-consulta na hora (provisão/
+  // religada de daemon mudam o estado sem esperar o próximo tick).
+  const [omnifsChip, setOmnifsChip] = useState<OmniFsStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    const poll = () =>
+      omnifsStatus()
+        .then((s) => { if (live) setOmnifsChip(s); })
+        .catch(() => {});
+    poll();
+    const id = window.setInterval(poll, 30_000);
+    return () => { live = false; clearInterval(id); };
+  }, [showOmniFs]);
+
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
   // v2: nova ordem-base alfabética (reset do drag antigo do usuário).
   const tools = useReorderable("omnirift-tools-order-v5", TOOL_IDS);
@@ -520,6 +540,7 @@ export function Sidebar() {
     routines: () => setShowRoutines(true),
     help: () => setShowHelp(true),
     mcpservers: () => setShowMcpServers(true),
+    omnifs: () => setShowOmniFs(true),
     clis: () => setShowClis(true),
     compressors: () => setShowCompressors(true),
     skills: () => setShowSkillsCenter(true),
@@ -537,6 +558,7 @@ export function Sidebar() {
         case "routines": setShowRoutines(true); break;
         case "help": setShowHelp(true); break;
         case "mcpservers": setShowMcpServers(true); break;
+        case "omnifs": setShowOmniFs(true); break;
         case "clis": setShowClis(true); break;
         case "compressors": setShowCompressors(true); break;
         case "skills": setShowSkillsCenter(true); break;
@@ -2160,16 +2182,44 @@ export function Sidebar() {
       </div>
 
       <footer className="px-4 py-3 border-t border-border text-[10px] text-textMuted">
-        {todayCost !== null && (
-          <button
-            onClick={() => setShowUsage(true)}
-            title={tr("sidebar.todayCostTip", "Custo estimado de hoje (Claude Code + Codex + nativo) — abrir painel de uso")}
-            className="flex items-center gap-1 mb-1 text-textMuted hover:text-brand"
-          >
-            <Coins size={11} className="text-brand" />
-            <span className="tabular-nums">{tr("sidebar.todayCost", "Hoje")}: {fmtUsd(todayCost)}</span>
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1">
+          {todayCost !== null && (
+            <button
+              onClick={() => setShowUsage(true)}
+              title={tr("sidebar.todayCostTip", "Custo estimado de hoje (Claude Code + Codex + nativo) — abrir painel de uso")}
+              className="flex items-center gap-1 text-textMuted hover:text-brand"
+            >
+              <Coins size={11} className="text-brand" />
+              <span className="tabular-nums">{tr("sidebar.todayCost", "Hoje")}: {fmtUsd(todayCost)}</span>
+            </button>
+          )}
+          {/* Chip OmniFS: 🗄️ verde = daemon vivo · vermelho = mount provisionado com
+              daemon MORTO (agentes na pasta veriam ENOTCONN) · cinza = sem drive.
+              Clique abre o painel OmniFS. */}
+          {omnifsChip && (
+            <button
+              onClick={() => setShowOmniFs(true)}
+              title={
+                omnifsChip.mount && !omnifsChip.socketAlive
+                  ? tr("sidebar.omnifsRed", "OmniFS: a Pasta de Projetos existe mas o daemon está MORTO — agentes nela veriam erro de IO (ENOTCONN). Clique pra religar.")
+                  : omnifsChip.socketAlive
+                    ? tr("sidebar.omnifsGreen", "OmniFS ativo — daemon respondendo. Clique pra ver snapshots/espaço.")
+                    : tr("sidebar.omnifsGray", "OmniFS não instalado/desativado — clique pra saber mais.")
+              }
+              className={cn(
+                "flex items-center gap-1 hover:text-brand",
+                omnifsChip.mount && !omnifsChip.socketAlive
+                  ? "text-danger"
+                  : omnifsChip.socketAlive
+                    ? "text-green-500"
+                    : "text-textMuted opacity-60",
+              )}
+            >
+              <HardDrive size={11} />
+              <span>OmniFS</span>
+            </button>
+          )}
+        </div>
         <div className="opacity-70 mt-0.5"><AppVersion /> · {tr("sidebar.localBuild", "build local")}</div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <UpdaterButton />
@@ -2271,6 +2321,7 @@ export function Sidebar() {
       {showMobile && <MobileDevicesModal onClose={() => setShowMobile(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
+      {showOmniFs && <OmniFsModal onClose={() => setShowOmniFs(false)} />}
       {showClis && <ClisModal onClose={() => setShowClis(false)} />}
       {showCompressors && <CompressorsModal onClose={() => setShowCompressors(false)} />}
       {showSkillsCenter && <SkillsCenterModal cwd={currentCwd} roles={roles} customClis={customClis} onUpdateRoleSkills={updateRoleSkills} onUpdateCliSkills={updateCliSkills} onClose={() => setShowSkillsCenter(false)} />}

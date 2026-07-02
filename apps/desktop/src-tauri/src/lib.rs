@@ -8,6 +8,10 @@ pub mod health;
 pub mod mcp;
 pub mod memory;
 pub mod metrics;
+// OmniFS (F1+F2): detecção do binário `omnifs-mcp`, cliente JSON-RPC pro daemon
+// (unix socket), daemon gerenciado + provisão da Pasta de Projetos e guard
+// pré-spawn (cwd em mount FUSE morto → erro claro em vez de agente ENOTCONN).
+pub mod omnifs;
 pub mod proc_ext;
 pub mod pty;
 // Redator de segredos — aplicado no caminho OUTBOUND (gateway OmniMemory + /diag),
@@ -75,6 +79,10 @@ use commands::mcp::{
 };
 use commands::memory::{
     memory_active, memory_connect, memory_providers_list, memory_set_active, memory_test,
+};
+use commands::omnifs::{
+    omnifs_log, omnifs_provision, omnifs_reindex, omnifs_rollback, omnifs_snapshot_now,
+    omnifs_status,
 };
 use commands::hosts::{hosts_add, hosts_list, hosts_remove};
 use commands::pty::{
@@ -502,6 +510,12 @@ pub fn run() {
             memory_test,
             memory_set_active,
             memory_active,
+            omnifs_status,
+            omnifs_provision,
+            omnifs_snapshot_now,
+            omnifs_log,
+            omnifs_rollback,
+            omnifs_reindex,
             clis_list,
             cli_install,
             cli_uninstall,

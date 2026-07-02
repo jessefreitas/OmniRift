@@ -236,6 +236,9 @@ fn parse_spawn_params(params: Value) -> Result<SpawnParams, RpcError> {
 
 fn agent_spawn(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
     let p = parse_spawn_params(params)?;
+    // Guard OmniFS (F2 item 7) — paridade com o comando pty_spawn: cwd num mount
+    // OmniFS com daemon morto → erro claro no CLI/mobile em vez de PTY ENOTCONN.
+    crate::omnifs::preflight_cwd_guard(p.cwd.as_deref()).map_err(RpcError::invalid_argument)?;
     let manager = ctx
         .app
         .try_state::<Arc<PtyManager>>()
