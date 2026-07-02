@@ -45,6 +45,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
   function localScheduleLabel(s: { intervalMin?: number | null; atTime?: string | null; trigger?: RoutineTrigger | null }): string {
     if (s.trigger === "floor-created") return t("routines.onFloorCreated", "ao criar floor");
     if (s.trigger === "floor-deleted") return t("routines.onFloorDeleted", "ao deletar floor");
+    if (s.trigger === "gate:land") return t("routines.onGateLand", "gate de Land");
     if (s.atTime) return `${t("routines.at", "às")} ${s.atTime}`;
     if (s.intervalMin) return `${t("routines.every", "a cada")} ${s.intervalMin} ${t("routines.min", "min")}`;
     return t("routines.manual", "manual");
@@ -274,6 +275,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                       <option value="atTime">{t("routines.trigAtTime", "Diário HH:MM")}</option>
                       <option value="floor-created">{t("routines.trigFloorCreated", "Ao criar floor")}</option>
                       <option value="floor-deleted">{t("routines.trigFloorDeleted", "Ao deletar floor")}</option>
+                      <option value="gate:land">{t("routines.trigGateLand", "Gate de Land")}</option>
                     </select>
                   </label>
                   {effectiveTrigger(r) === "interval" && (
@@ -301,19 +303,26 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                       />
                     </label>
                   )}
-                  <label className="flex items-center gap-1.5">
-                    {t("routines.runIn", "rodar em")}
-                    <select
-                      value={r.targetFloor ?? ""}
-                      onChange={(e) => patch(r.id, { targetFloor: e.target.value || null })}
-                      className="px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
-                    >
-                      <option value="">{t("routines.activeFloor", "floor ativo")}</option>
-                      {projectFloors.map((f) => (
-                        <option key={f.id} value={f.id}>{f.name}</option>
-                      ))}
-                    </select>
-                  </label>
+                  {effectiveTrigger(r) === "gate:land" ? (
+                    // Gate roda SEMPRE no worktree do paralelo sendo landado — sem alvo.
+                    <span className="text-[10px] text-textMuted opacity-70">
+                      {t("routines.gateHint", "bloqueia o Land se sair ≠ 0 — roda no worktree do paralelo")}
+                    </span>
+                  ) : (
+                    <label className="flex items-center gap-1.5">
+                      {t("routines.runIn", "rodar em")}
+                      <select
+                        value={r.targetFloor ?? ""}
+                        onChange={(e) => patch(r.id, { targetFloor: e.target.value || null })}
+                        className="px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
+                      >
+                        <option value="">{t("routines.activeFloor", "floor ativo")}</option>
+                        {projectFloors.map((f) => (
+                          <option key={f.id} value={f.id}>{f.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   {lastRuns[r.id] ? (
                     <span className="text-[10px] text-textMuted opacity-70">
                       {t("routines.last", "última")}: {fmtHHMM(lastRuns[r.id])}

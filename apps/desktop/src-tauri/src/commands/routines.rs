@@ -34,7 +34,8 @@ pub struct Routine {
     /// (rename floor→parallel · Fase 2 #6).
     #[serde(default, rename = "targetFloor")]
     pub target_parallel: Option<String>,
-    /// Tipo de disparo (Fase 2): "interval" | "atTime" | "floor-created" | "floor-deleted".
+    /// Tipo de disparo (Fase 2): "interval" | "atTime" | "floor-created" | "floor-deleted"
+    /// | "gate:land" (GATE bloqueante do Land — roda no worktree; exit ≠ 0 aborta o Land).
     /// null/None = retrocompat: o front deriva por intervalMin/atTime. Coluna `trigger`.
     #[serde(default)]
     pub trigger: Option<String>,
@@ -432,6 +433,28 @@ mod tests {
             })
             .unwrap();
         assert!(has_trigger.iter().any(|c| c == "trigger"), "coluna trigger migrada");
+    }
+
+    #[test]
+    fn gate_trigger_roundtrip_and_run_history() {
+        let (db, _d) = temp_db();
+        // Routine-GATE de Land (Fase 2): persiste o trigger "gate:land"…
+        let mut r = mk("gate-1", "Typecheck antes do Land");
+        r.interval_min = None;
+        r.trigger = Some("gate:land".to_string());
+        let saved = upsert_impl(&db, r).unwrap();
+        assert_eq!(saved.trigger.as_deref(), Some("gate:land"));
+        assert_eq!(list_impl(&db).unwrap()[0].trigger.as_deref(), Some("gate:land"));
+
+        // …e o histórico registra pass/fail do gate (exit 0 / 1).
+        record_run_impl(&db, &saved.id, Some(0), "gate-pass").unwrap();
+        record_run_impl(&db, &saved.id, Some(1), "gate-fail").unwrap();
+        let runs = runs_impl(&db, &saved.id, 50).unwrap();
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].status, "gate-fail");
+        assert_eq!(runs[0].exit_code, Some(1));
+        assert_eq!(runs[1].status, "gate-pass");
+        assert_eq!(runs[1].exit_code, Some(0));
     }
 
     #[test]

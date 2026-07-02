@@ -138,6 +138,7 @@ import { loadDefaultCompressor } from "@/lib/compress-client";
 import { loadLlmConfig } from "@/lib/llm-client";
 import { runReview } from "@/lib/review";
 import { loadHooks, runParallelHook } from "@/lib/hooks-client";
+import { runLandGates } from "@/lib/routines";
 import type { Parallel } from "@/types/workspace";
 import { parallelHost } from "@/types/workspace";
 import { Tooltip } from "@/components/Tooltip";
@@ -1067,6 +1068,18 @@ export function Sidebar() {
         void notify(tr("sidebar.hookOnLandFailed", "Hook onLand falhou — Land abortado:") + "\n" + String(e), "error");
         return;
       }
+    }
+    // GATE de Land (Routines Fase 2): routines "gate:land" habilitadas rodam
+    // (bloqueantes) no worktree; a primeira que sair ≠ 0 aborta o Land com o
+    // output visível. Histórico registra gate-pass/gate-fail por disparo.
+    const gate = await runLandGates(f.worktreePath);
+    if (!gate.ok) {
+      void notify(
+        tr("sidebar.gateLandFailed", "Gate \"{name}\" reprovou — Land abortado:").replace("{name}", gate.name ?? "?") +
+          "\n" + (gate.output ?? ""),
+        "error",
+      );
+      return;
     }
     try {
       await parallelGitLand(f.repoRoot, f.branch, f.baseBranch, f.worktreePath);

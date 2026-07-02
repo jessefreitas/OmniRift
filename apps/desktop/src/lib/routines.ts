@@ -10,8 +10,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCanvasStore } from "@/store/canvas-store";
 
 /** Tipo de disparo de uma routine (Fase 2). `interval`/`atTime` = MVP;
- *  `floor-created`/`floor-deleted` = ciclo-de-vida de floor (worktree git). */
-export type RoutineTrigger = "interval" | "atTime" | "floor-created" | "floor-deleted";
+ *  `floor-created`/`floor-deleted` = ciclo-de-vida de floor (worktree git);
+ *  `gate:land` = GATE bloqueante do Land (roda no worktree; exit ≠ 0 aborta o Land). */
+export type RoutineTrigger = "interval" | "atTime" | "floor-created" | "floor-deleted" | "gate:land";
 
 export interface Routine {
   id: string;
@@ -47,6 +48,12 @@ export function effectiveTrigger(
  *  (sem trigger) retornam false → seguem agendando por intervalo/horário (zero regressão). */
 export function isFloorTrigger(r: Pick<Routine, "trigger">): boolean {
   return r.trigger === "floor-created" || r.trigger === "floor-deleted";
+}
+
+/** True quando a routine é um GATE (bloqueia uma ação até passar). Gates NUNCA entram
+ *  no agendamento por intervalo/horário — só disparam no ponto da ação (Land). */
+export function isGateTrigger(r: Pick<Routine, "trigger">): boolean {
+  return r.trigger === "gate:land";
 }
 
 /** Uma linha do histórico de execução (espelha RunRow do backend). */
@@ -195,26 +202,58 @@ function detectShell(): string {
   return "bash";
 }
 
-/** Roda a routine: abre um terminal no floor alvo (targetFloor) ou no ativo,
- *  executando o comando, e registra o disparo no histórico (status "started"). */
-export function runRoutine(r: Routine): void {
+/** Registra um disparo no histórico. Fire-and-forget — não bloqueia nem quebra sem Tauri. */
+function recordRun(routineId: string, exitCode: number | null, status: string): void {
+  if (!hasTauri() || !routineId) return;
+  void invoke<RunRow>("routines_record_run", { routineId, exitCode, status }).catch(() => {});
+}
+
+/** Roda a routine: abre um terminal no floor alvo e registra no histórico ("started").
+ *  Precedência do floor: `targetFloor` explícito da routine > `eventFloorId` (floor do
+ *  evento que disparou — ex: o paralelo recém-criado num trigger floor-created) > ativo. */
+export function runRoutine(r: Routine, opts?: { eventFloorId?: string }): void {
   const sh = detectShell();
   useCanvasStore.getState().addTerminal({
     command: sh,
     args: ["-lc", `${r.command}; exec ${sh}`],
     role: "shell",
     label: `routine: ${r.name}`,
-    targetFloorId: r.targetFloor ?? undefined, // undefined = floor ativo (default)
+    targetFloorId: r.targetFloor ?? opts?.eventFloorId ?? undefined, // undefined = floor ativo
   });
-  // Histórico (MVP): o exit do terminal não é capturável fácil daqui, então
-  // "started" basta. Fire-and-forget — não bloqueia o run nem quebra sem Tauri.
-  if (hasTauri() && r.id) {
-    void invoke<RunRow>("routines_record_run", {
-      routineId: r.id,
-      exitCode: null,
-      status: "started",
-    }).catch(() => {});
+  // Histórico (MVP): o exit do terminal não é capturável fácil daqui, então "started" basta.
+  recordRun(r.id, null, "started");
+}
+
+/** Resultado do GATE de Land: `ok` = todos os gates passaram (ou não há gates). */
+export interface GateResult {
+  ok: boolean;
+  /** Nome da routine-gate que reprovou (quando ok=false). */
+  name?: string;
+  /** Output (stdout+stderr + exit code) do gate que reprovou — mostrar ao usuário. */
+  output?: string;
+}
+
+/** GATE de Land (Fase 2): roda TODAS as routines habilitadas com trigger `gate:land`
+ *  de forma BLOQUEANTE no `cwd` (worktree do paralelo sendo landado), via
+ *  `parallel_run_hook` (sh -lc / cmd /C). A primeira que sair com código ≠ 0 aborta:
+ *  devolve `{ ok:false, name, output }` pro chamador mostrar e cancelar o Land.
+ *  Cada disparo entra no histórico ("gate-pass" exit 0 / "gate-fail" exit 1).
+ *  Sem Tauri ou sem gates → `{ ok:true }` (não bloqueia). */
+export async function runLandGates(cwd: string): Promise<GateResult> {
+  if (!hasTauri()) return { ok: true };
+  // Lê o estado canônico do backend (não confia só no cache do boot).
+  const list = await refreshRoutines();
+  const gates = list.filter((r) => r.enabled && r.trigger === "gate:land" && r.command.trim());
+  for (const r of gates) {
+    try {
+      await invoke<string>("parallel_run_hook", { cwd, command: r.command });
+      recordRun(r.id, 0, "gate-pass");
+    } catch (e) {
+      recordRun(r.id, 1, "gate-fail");
+      return { ok: false, name: r.name, output: String(e) };
+    }
   }
+  return { ok: true };
 }
 
 /** Histórico de uma routine (mais recentes primeiro; default 50). [] sem Tauri/erro. */
@@ -275,6 +314,7 @@ export function scheduleLabel(t: {
 }): string {
   if (t.trigger === "floor-created") return "ao criar floor";
   if (t.trigger === "floor-deleted") return "ao deletar floor";
+  if (t.trigger === "gate:land") return "gate de Land";
   if (t.atTime) return `às ${t.atTime}`;
   if (t.intervalMin) return `a cada ${t.intervalMin} min`;
   return "manual";
