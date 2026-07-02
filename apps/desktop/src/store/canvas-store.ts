@@ -62,6 +62,11 @@ interface CanvasState {
   edgeFlow: Record<string, "idle" | "sending" | "received" | "error" | "review">;
   /** Último tipo de payload que passou por cada edge (badge 📄diff/✅result na FlowEdge). */
   edgePayloadKind: Record<string, AgentOutputKind>;
+  /** GRAFO INTEGRADO (#30) — atividade transiente por CommunityNode: um contador que INCREMENTA
+   *  quando um agente edita um arquivo dessa comunidade (turn-done → igniteCommunity). O
+   *  CommunityNode observa o contador (primitiva, seletor zustand-v5 safe) e ACENDE ~4s com
+   *  fade-out. Efêmero — não persiste (mesma natureza do edgeFlow). */
+  communityActivity: Record<string, number>;
   /** Fase 2b: payload RETIDO num ReviewNode aguardando aprovação (null = nada pendente). */
   reviewPayloads: Record<string, AgentOutput | null>;
   /** Modo `ai` do FilterNode: payload retido aguardando o veredito do LLM (async, no nó). */
@@ -75,6 +80,9 @@ interface CanvasState {
    *  terminais (o roteamento ACP só anima edges generic). Edge em "review" não é sobrescrita. */
   pulseTerminalEdges: (sessionId: string) => void;
   setEdgePayloadKind: (edgeId: string, kind: AgentOutputKind) => void;
+  /** GRAFO INTEGRADO (#30): acende um CommunityNode (bump do contador em communityActivity).
+   *  Chamado no turn-done do agente que editou um arquivo da comunidade. */
+  igniteCommunity: (nodeId: string) => void;
   setReviewPayload: (nodeId: string, payload: AgentOutput | null) => void;
   setFilterPending: (nodeId: string, payload: AgentOutput | null) => void;
   /** Sinal canvas→Sidebar: pede pra marcar um terminal como agente MCP (auto-conexão A→B).
@@ -344,6 +352,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   nodeInputs: {},
   edgeFlow: {},
   edgePayloadKind: {},
+  communityActivity: {},
   reviewPayloads: {},
   filterPending: {},
   requestMcpMark: null,
@@ -925,6 +934,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   },
   setEdgePayloadKind: (edgeId, kind) =>
     set((s) => ({ edgePayloadKind: { ...s.edgePayloadKind, [edgeId]: kind } })),
+  igniteCommunity: (nodeId) =>
+    set((s) => ({ communityActivity: { ...s.communityActivity, [nodeId]: (s.communityActivity[nodeId] ?? 0) + 1 } })),
   setReviewPayload: (nodeId, payload) =>
     set((s) => ({ reviewPayloads: { ...s.reviewPayloads, [nodeId]: payload } })),
   setFilterPending: (nodeId, payload) =>

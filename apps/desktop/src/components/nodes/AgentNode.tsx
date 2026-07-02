@@ -53,6 +53,7 @@ import {
 } from "@/lib/acp-client";
 import { scheduleReindex } from "@/lib/omnifs-client";
 import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
+import { communityForPath } from "@/lib/omnigraph-graph";
 import type { AgentNode as AgentNodeData } from "@/types/canvas";
 import { HermesWizard, type HermesProviderConfig } from "./HermesWizard";
 import { pasteText } from "@/lib/clipboard";
@@ -629,6 +630,21 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             emitAgentOutput(data.id, reply || `diff em ${diff.path ?? "arquivo"}`, { kind: "diff", diff: diff.diff, path: diff.path });
           } else if (reply) {
             emitAgentOutput(data.id, reply);
+          }
+          // GRAFO INTEGRADO (#30): o turno editou um arquivo → LIGA o agente à COMUNIDADE dona
+          // desse arquivo (edge "works-on", idempotente via addEdge) e ACENDE a comunidade (~4s).
+          // Resolve o floor DO AGENTE (não só o ativo) — o agente pode viver num floor de fundo.
+          // Degrada byte-idêntico: sem CommunityNodes no floor (ou path sem dona), no-op.
+          if (diff?.path) {
+            const st = useCanvasStore.getState();
+            const myFloor = st.parallels.find((p) => p.nodes.some((n) => n.id === data.id));
+            if (myFloor) {
+              const community = communityForPath(myFloor.nodes, diff.path);
+              if (community) {
+                st.addEdge(data.id, community.id, "works-on", { targetFloorId: myFloor.id });
+                st.igniteCommunity(community.id);
+              }
+            }
           }
           // 🎯 Goal: o turno acabou → roda a condição (exit 0 = pronto) e decide. Continua até
           // passar ou estourar maxIter. Reusa o motor do TURBO (run_check). Sem commit automático.

@@ -47,6 +47,10 @@ export function FlowEdge({
   // e todos os ramos abaixo são no-op (comportamento intocado).
   const confidence = (data as { confidence?: string } | undefined)?.confidence;
   const isGraphEdge = kind === "graph-edge" && !!confidence;
+  // GRAFO INTEGRADO (#30): AgentNode→CommunityNode. É ESTÁTICA como cano de dados (o roteamento
+  // só processa "generic" → nunca ganha edgeFlow, fica sempre "idle"), mas tem vida PRÓPRIA:
+  // cor do brand + dashdraw fluindo do agente pro código. Não interfere nas edges existentes.
+  const isWorksOn = kind === "works-on";
   // Pipe de terminal com o processo do SOURCE morto → a linha inteira vira vermelha
   // (não há mais quem emita). ⚠️ zustand v5: seletores retornam SÓ primitivas
   // (string/boolean) — devolver objeto/array novo re-renderiza em loop e trava o app.
@@ -89,8 +93,12 @@ export function FlowEdge({
           ? "rgb(251, 191, 36)"
           : kind === "validator-link"
             ? "rgb(41, 162, 167)"
-            : COLORS.idle;
+            : isWorksOn
+              ? "rgb(41, 162, 167)" // works-on = cor do brand (ligação viva agente→código, #30)
+              : COLORS.idle;
   const stroke = flow !== "idle" ? COLORS[flow] ?? COLORS.idle : idleColor;
+  // works-on está sempre "idle" (o roteamento não a toca) → animada por si só (dashdraw + dash).
+  const worksOnIdle = isWorksOn && flow === "idle";
   // Dash por confiança (só nas graph-edge idle): INFERRED tracejada · AMBIGUOUS pontilhada.
   const graphDash =
     isGraphEdge && flow === "idle"
@@ -117,11 +125,13 @@ export function FlowEdge({
         markerEnd={markerEnd}
         style={{
           stroke: selected ? "#ef4444" : stroke,
-          strokeWidth: selected ? 3 : active ? 2.5 : 1.5,
+          strokeWidth: selected ? 3 : active ? 2.5 : worksOnIdle ? 2 : 1.5,
           // sending = tracejado animado A→B; error = SÓLIDO ("none"/"animation:none"
-          // anulam o dash da classe .animated que o pty-pipe carrega); demais estados
-          // herdam o default (pty-pipe idle segue com o dash ciano de sempre).
-          strokeDasharray: flow === "sending" ? "6 4" : flow === "error" ? "none" : graphDash,
+          // anulam o dash da classe .animated que o pty-pipe carrega); works-on idle = dash
+          // animado do brand (ligação viva #30); demais estados herdam o default
+          // (pty-pipe idle segue com o dash ciano de sempre).
+          strokeDasharray:
+            flow === "sending" ? "6 4" : flow === "error" ? "none" : worksOnIdle ? "6 4" : graphDash,
           animation:
             flow === "sending"
               ? "dashdraw 0.5s linear infinite"
@@ -129,7 +139,9 @@ export function FlowEdge({
                 ? "pulse 1.2s ease-in-out infinite"
                 : flow === "error"
                   ? "none"
-                  : undefined,
+                  : worksOnIdle
+                    ? "dashdraw 0.5s linear infinite"
+                    : undefined,
           transition: `stroke ${fadeOut ? "2s" : "0.3s"} ease`,
         }}
       />

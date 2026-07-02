@@ -322,6 +322,13 @@ export interface CommunityNode extends BaseCanvasNode {
   topMembers: string[];
   /** Cor estável derivada do índice da comunidade (borda/realce). */
   color?: string;
+  /**
+   * Arquivos-fonte (paths) que compõem a comunidade (`source_file` dos nós do grafo). É o elo
+   * agente↔comunidade: quando um agente edita um arquivo, `communityForPath` (lib/omnigraph-graph)
+   * casa o path (por FRONTEIRA) contra estes e resolve a comunidade dona → edge "works-on" + realce.
+   * undefined/[] = sem info de arquivo (nada acende — degrada limpo).
+   */
+  sourceFiles?: string[];
   createdAt?: number;
 }
 
@@ -398,8 +405,11 @@ export interface CanvasEdge {
    *  "agent-link" = OmniAgent→terminal: a linha marca o terminal como agente MCP (auto-conexão).
    *  "subagent-link" = agente→subagente nativo (.claude/agents), vertical, privado do pai.
    *  "validator-link" = ReviewNode→OmniAgent revisor: valida o payload (não é cano de dados).
-   *  "graph-edge" = acoplamento entre comunidades (OmniGraph F2): estilo por `confidence`. */
-  kind: "pty-pipe" | "note-link" | "generic" | "agent-link" | "subagent-link" | "validator-link" | "graph-edge";
+   *  "graph-edge" = acoplamento entre comunidades (OmniGraph F2): estilo por `confidence`.
+   *  "works-on" = AgentNode→CommunityNode (GRAFO INTEGRADO #30): o agente editou um arquivo dessa
+   *  comunidade — ligação VIVA agente↔código. NÃO é cano de dados (o roteamento ignora; só generic
+   *  carrega payload); é animada (dashdraw, cor do brand) e idempotente. */
+  kind: "pty-pipe" | "note-link" | "generic" | "agent-link" | "subagent-link" | "validator-link" | "graph-edge" | "works-on";
   /** Só nas "graph-edge": confiança dominante do acoplamento agregado entre as duas comunidades.
    *  Vira estilo de linha na FlowEdge (EXTRACTED sólida · INFERRED tracejada · AMBIGUOUS pontilhada vermelha). */
   confidence?: GraphConfidence;

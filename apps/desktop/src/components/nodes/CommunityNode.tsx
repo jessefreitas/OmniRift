@@ -10,7 +10,7 @@
 // handles esquerda/direita pras arestas de acoplamento (kind "graph-edge"). É um retrato
 // ESTÁTICO — não é processo vivo, não spawna nada.
 
-import { memo, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { Network, ChevronDown, ChevronRight, Flame, FileCode, X } from "lucide-react";
 
@@ -29,13 +29,34 @@ function CommunityNodeImpl({ data, selected }: NodeProps<CommunityRfNode>) {
   const color = data.color ?? "#a78bfa";
   const godCount = data.godNodes?.length ?? 0;
 
+  // GRAFO INTEGRADO (#30): a comunidade ACENDE quando um agente edita um arquivo dela. O store
+  // guarda um contador transiente por nó (communityActivity — seletor primitivo, zustand-v5 safe);
+  // a cada incremento realçamos ~4s e desvanecemos (box-shadow com transition). prevSeqRef evita
+  // flash no mount/remount (só acende em atividade NOVA, não no valor inicial herdado).
+  const activitySeq = useCanvasStore((s) => s.communityActivity[data.id] ?? 0);
+  const [hot, setHot] = useState(false);
+  const prevSeqRef = useRef(activitySeq);
+  useEffect(() => {
+    if (activitySeq === prevSeqRef.current) return; // sem atividade nova (inclui o 1º render)
+    prevSeqRef.current = activitySeq;
+    setHot(true);
+    const timer = window.setTimeout(() => setHot(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [activitySeq]);
+
   return (
     <div
       className={cn(
         "flex h-full w-full flex-col overflow-hidden rounded-lg border bg-bg text-xs",
-        selected ? "border-brand" : "border-white/10",
+        hot ? "border-transparent" : selected ? "border-brand" : "border-white/10",
       )}
-      style={{ borderLeft: `3px solid ${color}` }}
+      style={{
+        borderLeft: `3px solid ${color}`,
+        // Realce transiente (#30): anel + glow na cor da comunidade quando um agente mexe nela;
+        // ao esfriar, o box-shadow desvanece em 0.8s (fade-out). Sem atividade = intocado.
+        boxShadow: hot ? `0 0 0 2px ${color}, 0 0 18px 3px ${color}` : undefined,
+        transition: "box-shadow 0.8s ease",
+      }}
     >
       <Handle type="target" position={Position.Left} className="!border-surface1" style={{ background: color }} />
       <Handle type="source" position={Position.Right} className="!border-surface1" style={{ background: color }} />
