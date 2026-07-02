@@ -237,7 +237,8 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
         `no worktree ao concluir — sem commit não há baseline e o review_current/gate reporta "sem diff".\n` +
         // Steal #1 do deepagents — papel que APRENDE: cada role mantém seu AGENTS.md
         // (./.omnirift/agents-md/<slug>.md); lê no início, edita ao aprender algo durável.
-        `${agentsMdInstruction(a.role)}\n` +
+        // F4d: time ancorado no grafo → o brief manda o papel gravar insight ESTRUTURAL da fatia.
+        `${agentsMdInstruction(a.role, anchorArch && graphifyOk)}\n` +
         (isSource
           ? `COMECE AGORA pela sua parte do objetivo acima; se faltar contexto, leia ${repoHint} antes de perguntar.`
           : `Prepare sua fatia agora lendo ${repoHint}; execute quando ${ups.join(", ")} te entregar o trabalho.`);

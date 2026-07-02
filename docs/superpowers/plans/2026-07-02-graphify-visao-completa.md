@@ -107,6 +107,31 @@ Como o sistema **melhora a cada ciclo**:
 **Como o loop fecha:** trabalho dos agentes → rebuild (a) → grafo mais limpo (b) + dívida sinalizada (c) →
 próximas decisões do Arquiteto (F1) e gates (F3) melhores → agentes mais certeiros → repete.
 
+### F4 — implementado (2026-07-02): fusão temporal × structural
+
+O ciclo em 5 passos está no código. **(a)** `scheduleGraphRebuild(cwd)` em `graphify-client.ts` é o
+espelho EXATO do `scheduleReindex` do OmniFS (timer module-level, debounce 90s — maior que os 60s do
+reindex porque `graphify update` re-extrai AST + re-clusteriza Leiden), enganchado nos MESMOS sítios de
+turn-done (`AgentNode.tsx` + `useTerminalSession.ts`); dispara o comando Rust `graphify_rebuild`, que
+gateia barato (graphify disponível + grafo no disco = opt-in por presença) e roda o build fire-and-forget.
+**(b)** `topAmbiguousEdges` + `buildAmbiguityResolverBrief` extraem as top-K arestas AMBIGUOUS (cross-community
+primeiro, desempate por grau) e o botão "limpar grafo" do `GraphImportButton` cria UM subagente
+(`addSubagent` + `subagent_write`, o par do Montar) que confirma/nega as relações — **sem spawnar** (respeita o
+gate de licença); confirmadas viram EXTRACTED no próximo rebuild. **(c)** `graphify_rebuild` compara os god
+nodes com o baseline em `~/.omnirift/graphify-godnodes/<sha256(cwd)>.json` e devolve os EMERGENTES pro front
+notificar dívida ("virou um hub — refatore?"); 1º rebuild só grava baseline (sem spam). **(d)**
+`agentsMdInstruction(role, archAnchored)` some uma linha de contexto do grafo quando o Montar é ancorado — o
+papel que aprende passa a gravar insight estrutural da sua fatia no AGENTS.md.
+
+**A visão registrada (e):** OmniRift conecta DOIS cérebros de memória plugável com eixos **ortogonais**.
+O **OmniFS** é a memória **temporal/semântica** — o que mudou, quando, busca por significado. O **Graphify** é
+a memória **estrutural** — quem chama quem, onde estão os hubs, como o código se agrupa em comunidades e onde
+o acoplamento é incerto. Sozinho, cada um responde só metade da pergunta ("o que aconteceu" vs "como o código
+é"); JUNTOS, no mesmo prompt do Arquiteto (F1) e do review (F3.4), formam a **memória completa** — o time decide
+ancorado na estrutura REAL e no histórico REAL. O digest ≤6KB da F1 é o ponto físico de fusão, e o loop F4
+mantém os dois frescos no mesmo turn-done (`scheduleReindex` ‖ `scheduleGraphRebuild`, gêmeos). Ambos degradam
+a no-op silencioso se o backend respectivo estiver ausente — a fusão é aditiva, nunca um gate.
+
 ---
 
 ## F5 — Custo / opt-in / riscos

@@ -23,6 +23,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::proc_ext::NoWindow;
 
@@ -576,6 +577,155 @@ pub fn graphify_impact(cwd: String, changed_files: Vec<String>) -> Result<GraphI
     Ok(compute_impact(&graph, &changed_files))
 }
 
+// ── F4a+c — REBUILD debounced no turn-done + alerta de dívida (god node emergente) ────
+//
+// O LOOP DE APRENDIZADO: quando um agente termina um turno, o front agenda (debounce ~90s,
+// `scheduleGraphRebuild`) um `graphify_rebuild` — o grafo nunca fica velho sem custar um turno
+// do agente. Ao FIM do rebuild comparamos os god nodes (funções-hub) com o rebuild anterior:
+// um hub que NÃO existia antes = dívida arquitetural emergente → volta pro front notificar
+// ("virou um hub, refatore?"). É o "c" do loop — o trabalho dos agentes revela a dívida sozinho.
+
+/// Um god node (função-hub) que EMERGIU neste rebuild (não estava no baseline anterior).
+/// Serializado camelCase pro front montar o toast de dívida ("N conexões — refatorar?").
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GodNodeAlert {
+    /// Label legível do nó (nome da função/entidade que virou hub).
+    pub label: String,
+    /// Grau (nº de conexões incidentes) — o "N conexões" do aviso.
+    pub degree: usize,
+}
+
+/// Caminho do baseline de god nodes de um projeto: `~/.omnirift/graphify-godnodes/<sha256(cwd)>.json`.
+/// Mesmo padrão de slot-por-hash do `pipeline.rs` (não polui o repo do usuário; estável por cwd).
+fn god_nodes_baseline_path(cwd: &str) -> Option<PathBuf> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()?;
+    let mut h = Sha256::new();
+    h.update(cwd.as_bytes());
+    let hex = format!("{:x}", h.finalize());
+    Some(
+        Path::new(&home)
+            .join(".omnirift")
+            .join("graphify-godnodes")
+            .join(format!("{hex}.json")),
+    )
+}
+
+/// Núcleo PURO do alerta de dívida (sem IO): dados os god nodes ATUAIS (id, label, grau) e o
+/// baseline anterior de ids, devolve os EMERGENTES ordenados por grau desc. `previous=None`
+/// (1º rebuild, ainda sem baseline) → nunca alerta (evita spam no primeiro ciclo).
+fn emergent_god_nodes(
+    current: &[(String, String, usize)],
+    previous: Option<&[String]>,
+) -> Vec<GodNodeAlert> {
+    let Some(prev) = previous else {
+        return Vec::new();
+    };
+    let prev_set: HashSet<&str> = prev.iter().map(|s| s.as_str()).collect();
+    let mut alerts: Vec<GodNodeAlert> = current
+        .iter()
+        .filter(|(id, _, _)| !prev_set.contains(id.as_str()))
+        .map(|(_, label, degree)| GodNodeAlert {
+            label: label.clone(),
+            degree: *degree,
+        })
+        .collect();
+    alerts.sort_by(|a, b| b.degree.cmp(&a.degree).then_with(|| a.label.cmp(&b.label)));
+    alerts
+}
+
+/// Lê o grafo FRESCO (pós-rebuild), calcula os god nodes atuais, compara com o baseline
+/// persistido (`emergent_god_nodes`), grava o baseline atualizado e devolve os emergentes.
+/// Best-effort: qualquer falha de IO/parse → `vec![]` (o alerta nunca trava nem quebra o rebuild).
+fn diff_god_nodes(cwd: &str, cwd_path: &Path) -> Vec<GodNodeAlert> {
+    let Some(graph_path) = find_existing_graph_json(cwd_path) else {
+        return Vec::new();
+    };
+    // Mesmo teto do gate — não parsear um JSON gigante só pra diff de hubs.
+    if let Ok(meta) = std::fs::metadata(&graph_path) {
+        if meta.len() > GRAPH_JSON_MAX_BYTES {
+            return Vec::new();
+        }
+    }
+    let Ok(raw) = std::fs::read_to_string(&graph_path) else {
+        return Vec::new();
+    };
+    let Ok(graph) = serde_json::from_str::<GraphJson>(&raw) else {
+        return Vec::new();
+    };
+
+    let degrees = edge_degrees(&graph.edges);
+    let gods = god_node_ids(&graph.nodes, &degrees);
+    let mut label: HashMap<&str, &str> = HashMap::new();
+    for n in &graph.nodes {
+        label.insert(n.id.as_str(), n.label.as_deref().unwrap_or(n.id.as_str()));
+    }
+    // (id, label, grau) atual — ids ordenados pra o baseline gravado ser determinístico.
+    let mut current: Vec<(String, String, usize)> = gods
+        .iter()
+        .map(|id| {
+            (
+                (*id).to_string(),
+                label.get(id).copied().unwrap_or(id).to_string(),
+                degrees.get(id).copied().unwrap_or(0),
+            )
+        })
+        .collect();
+    current.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // Baseline anterior (lista de ids). Ausente = 1º rebuild.
+    let baseline_path = god_nodes_baseline_path(cwd);
+    let previous: Option<Vec<String>> = baseline_path
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok());
+
+    // Persiste o baseline atual (best-effort — a próxima comparação usa este).
+    if let Some(p) = &baseline_path {
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let ids: Vec<&String> = current.iter().map(|(id, _, _)| id).collect();
+        if let Ok(js) = serde_json::to_string(&ids) {
+            let _ = std::fs::write(p, js);
+        }
+    }
+
+    emergent_god_nodes(&current, previous.as_deref())
+}
+
+/// F4a — REBUILD do grafo no turn-done (debounced no front). Roda `graphify update <cwd>`
+/// (mesmo launcher/timeout do F1) SÓ quando já existe um grafo no disco (opt-in por PRESENÇA —
+/// o Arquiteto F1 gerou o 1º) E o graphify está disponível. Sem grafo / sem launcher / cwd
+/// vazio → `Ok(vec![])` no-op (degrade limpo — nunca paga o build num repo que o usuário nunca
+/// ancorou, nunca trava o turno).
+///
+/// É `async` e aguarda o build (até 300s), mas o front chama FIRE-AND-FORGET (não bloqueia a
+/// UI — mesmo padrão do `scheduleReindex`/`omnifs_index`). Ao terminar, devolve os god nodes
+/// EMERGENTES (F4c) pro front notificar como dívida.
+#[tauri::command]
+pub async fn graphify_rebuild(cwd: String) -> Result<Vec<GodNodeAlert>, String> {
+    let cwd = cwd.trim().to_string();
+    if cwd.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Some(launcher) = resolve_launcher() else {
+        return Ok(Vec::new());
+    };
+    let cwd_path = PathBuf::from(&cwd);
+    // Opt-in por PRESENÇA: só re-buildamos um grafo que já existe (o F1 gera o 1º). Checagem
+    // BARATA (só stat dos candidatos) — sem grafo = no-op imediato.
+    if find_existing_graph_json(&cwd_path).is_none() {
+        return Ok(Vec::new());
+    }
+    // Rebuild (await — mas o chamador não bloqueia; ver doc acima).
+    run_build(&launcher, &cwd_path).await?;
+    // Pós-rebuild: dívida emergente (god nodes novos vs baseline anterior).
+    Ok(diff_god_nodes(&cwd, &cwd_path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -904,5 +1054,59 @@ mod tests {
         assert!(imp.available);
         assert_eq!(imp.nodes_affected, 1);
         assert_eq!(imp.communities_touched, vec![7]);
+    }
+
+    // ── F4a+c — rebuild debounced + alerta de dívida (god node emergente) ────────────────
+
+    #[test]
+    fn emergent_god_nodes_first_run_is_silent() {
+        // 1º rebuild: sem baseline anterior → nunca alerta (evita spam de "N hubs novos").
+        let current = vec![("a".into(), "A".into(), 5usize), ("b".into(), "B".into(), 3)];
+        assert!(emergent_god_nodes(&current, None).is_empty());
+    }
+
+    #[test]
+    fn emergent_god_nodes_returns_only_new_sorted_by_degree() {
+        // Baseline tinha só "a"; agora "b"(grau 4) e "c"(grau 7) são novos → só eles alertam,
+        // ordenados por grau desc (o hub mais pesado primeiro).
+        let current = vec![
+            ("a".into(), "A".into(), 9usize),
+            ("b".into(), "B".into(), 4),
+            ("c".into(), "C".into(), 7),
+        ];
+        let prev = vec!["a".to_string()];
+        let out = emergent_god_nodes(&current, Some(&prev));
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0], GodNodeAlert { label: "C".into(), degree: 7 });
+        assert_eq!(out[1], GodNodeAlert { label: "B".into(), degree: 4 });
+    }
+
+    #[test]
+    fn emergent_god_nodes_empty_when_nothing_new() {
+        let current = vec![("a".into(), "A".into(), 5usize)];
+        let prev = vec!["a".to_string(), "z".to_string()];
+        assert!(emergent_god_nodes(&current, Some(&prev)).is_empty());
+    }
+
+    #[test]
+    fn god_nodes_baseline_path_is_stable_and_scoped() {
+        // Sem HOME/USERPROFILE não dá pra formar o caminho — pula (ambiente de CI mínimo).
+        let Some(p1) = god_nodes_baseline_path("/repo/alpha") else {
+            return;
+        };
+        // Determinístico: mesmo cwd → mesmo slot.
+        assert_eq!(Some(&p1), god_nodes_baseline_path("/repo/alpha").as_ref());
+        // Escopo por projeto: cwd diferente → slot diferente.
+        assert_ne!(Some(p1.clone()), god_nodes_baseline_path("/repo/beta"));
+        // Fica sob ~/.omnirift/graphify-godnodes/ (não polui o repo).
+        assert!(p1.to_string_lossy().contains("graphify-godnodes"));
+        assert_eq!(p1.extension().and_then(|e| e.to_str()), Some("json"));
+    }
+
+    #[tokio::test]
+    async fn graphify_rebuild_empty_cwd_is_noop() {
+        // cwd vazio → Ok(vec![]) sem tocar disco/subprocess (degrade limpo).
+        let out = graphify_rebuild("   ".into()).await.unwrap();
+        assert!(out.is_empty());
     }
 }

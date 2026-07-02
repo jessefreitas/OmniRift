@@ -115,15 +115,28 @@ export function agentsMdRelPath(label: string): string {
  * Bloco de instrução do "papel que aprende": onde vive o AGENTS.md do papel, criação
  * on-demand (com o header) e as guidelines. Anexado ao priming da persona (OmniAgent)
  * e à persona dos agentes do Montar (PipelineArchitectModal).
+ *
+ * F4d — quando o time nasce ANCORADO no knowledge graph (Graphify), `archAnchored=true`
+ * some UMA linha ao brief instruindo o papel a registrar no próprio AGENTS.md o que aprender
+ * da ESTRUTURA da sua fatia (comunidade / acoplamento / god nodes). Não reescreve o arquivo:
+ * a persona que aprende passa a gravar insight estrutural, e a próxima montagem deste papel
+ * nasce sabendo. Default `false` → saída IDÊNTICA à anterior (zero regressão no priming do
+ * OmniAgent, que chama sem o flag).
  */
-export function agentsMdInstruction(label: string): string {
-  return (
+export function agentsMdInstruction(label: string, archAnchored = false): string {
+  const base =
     `MEMÓRIA DO PAPEL (AGENTS.md — você mantém): seu arquivo é ./${agentsMdRelPath(label)}, ` +
     "relativo à sua pasta de trabalho. Leia-o no início; se não existir, crie-o quando tiver o " +
     "1º aprendizado (crie o diretório se faltar) começando com este header:\n" +
     `${AGENTS_MD_HEADER}\n` +
-    AGENTS_MD_GUIDELINES
-  );
+    AGENTS_MD_GUIDELINES;
+  const archLine = archAnchored
+    ? "\n• CONTEXTO DO GRAFO: seu time foi ANCORADO no knowledge graph do código (Graphify). " +
+      "Consulte e ATUALIZE seu AGENTS.md com o que aprender sobre ESTA parte da arquitetura — " +
+      "a comunidade em que você trabalha, o acoplamento dela com outras e os god nodes (hubs) " +
+      "que exigem cuidado ao tocar. Assim a próxima montagem deste papel nasce sabendo."
+    : "";
+  return base + archLine;
 }
 
 /**

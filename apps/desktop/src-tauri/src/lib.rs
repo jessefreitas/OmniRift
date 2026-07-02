@@ -100,7 +100,7 @@ use commands::acp::{
 };
 use commands::folder_canvas::{folder_canvas_load, folder_canvas_save};
 use commands::graphify::{
-    graphify_available, graphify_graph_json, graphify_impact, graphify_report,
+    graphify_available, graphify_graph_json, graphify_impact, graphify_rebuild, graphify_report,
 };
 use commands::pipeline::{pipeline_load, pipeline_save};
 use commands::providers::{
@@ -357,6 +357,7 @@ pub fn run() {
             graphify_report,
             graphify_graph_json,
             graphify_impact,
+            graphify_rebuild,
             pty_spawn,
             pty_write,
             pty_resize,

@@ -33,6 +33,7 @@ import { registerTerminalView, unregisterTerminalView } from "@/lib/terminal-ses
 import { useCanvasStore } from "@/store/canvas-store";
 import { sessionStart, sessionEvent, sessionEnd } from "@/lib/session-client";
 import { scheduleReindex } from "@/lib/omnifs-client";
+import { scheduleGraphRebuild } from "@/lib/graphify-client";
 import { pasteText, copyText } from "@/lib/clipboard";
 import type { PtySpawnConfig, SessionId } from "@/types/pty";
 
@@ -386,6 +387,9 @@ export function useTerminalSession({
             // no backend (scheduleReindex ignora cwd vazio / fora do mount).
             if ((state === "idle" || state === "done") && (prev === "working" || prev === "blocked")) {
               scheduleReindex(config.cwd ?? "");
+              // F4a: gêmeo estrutural — agenda o rebuild debounced (~90s) do grafo de código.
+              // Fire-and-forget + gate barato/no-op no backend (sem grafo → nada roda).
+              scheduleGraphRebuild(config.cwd ?? "");
             }
           }
         });
