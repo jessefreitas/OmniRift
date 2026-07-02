@@ -66,8 +66,10 @@ interface CanvasState {
   emitAgentOutput: (nodeId: string, text: string, extra?: { kind?: AgentOutputKind; diff?: string; path?: string }) => void;
   emitNodeInput: (nodeId: string, text: string) => void;
   setEdgeFlow: (edgeId: string, flow: "idle" | "sending" | "received" | "error" | "review") => void;
-  /** Pulsa (verde) as linhas ligadas a um terminal quando ele tem atividade (output). Dá a
-   *  "conexão animada" também pros terminais (o roteamento ACP só anima edges generic). */
+  /** Pulsa as linhas ligadas a um terminal quando ele tem atividade (output), COM direção:
+   *  edges onde ele é SOURCE ficam AZUIS (sending — emitindo agora) e onde é TARGET ficam
+   *  VERDES (received — o pipe entregou e ele reagiu). Dá a "conexão animada" também pros
+   *  terminais (o roteamento ACP só anima edges generic). Edge em "review" não é sobrescrita. */
   pulseTerminalEdges: (sessionId: string) => void;
   setEdgePayloadKind: (edgeId: string, kind: AgentOutputKind) => void;
   setReviewPayload: (nodeId: string, payload: AgentOutput | null) => void;
@@ -226,6 +228,11 @@ interface CanvasState {
 function defaultPosition(): { x: number; y: number } {
   return { x: 200 + Math.random() * 400, y: 150 + Math.random() * 300 };
 }
+
+/** Timers vivos dos pulsos de terminal (edgeId → timeout). A cada pulso novo o timer da
+ *  edge é SUBSTITUÍDO (clearTimeout) e ao disparar remove a própria entrada — não empilha
+ *  nem vaza mesmo com agente barulhento pulsando a cada 500ms. */
+const pulseTimers = new Map<string, number>();
 
 /** Emite o evento de ciclo-de-vida de floor no event bus do Tauri (Routines Fase 2).
  *  No-op sem Tauri (browser/test). Git-backed creates já são emitidos pelo backend
@@ -793,20 +800,40 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     if (!active) return;
     const node = active.nodes.find((n) => n.kind === "terminal" && n.session_id === sessionId);
     if (!node) return;
-    const ids = active.edges.filter((e) => e.source === node.id || e.target === node.id).map((e) => e.id);
-    if (!ids.length) return;
+    // Direção do fluxo: atividade DESTE terminal pinta AZUL (sending) as edges onde ele
+    // é SOURCE (está emitindo agora) e VERDE (received) as onde é TARGET (o pipe entregou
+    // e ele reagiu). "review" (gate aguardando aprovação) nunca é sobrescrito pelo pulso.
+    const outgoing: string[] = [];
+    const incoming: string[] = [];
+    for (const e of active.edges) {
+      if (e.source === node.id) outgoing.push(e.id);
+      else if (e.target === node.id) incoming.push(e.id);
+    }
+    if (!outgoing.length && !incoming.length) return;
     set((st) => {
       const flow = { ...st.edgeFlow };
-      for (const id of ids) flow[id] = "received";
+      for (const id of outgoing) if (flow[id] !== "review") flow[id] = "sending";
+      for (const id of incoming) if (flow[id] !== "review") flow[id] = "received";
       return { edgeFlow: flow };
     });
-    for (const id of ids) {
-      window.setTimeout(() => {
-        if (get().edgeFlow[id] === "received") {
-          set((st) => ({ edgeFlow: { ...st.edgeFlow, [id]: "idle" } }));
-        }
-      }, 700);
-    }
+    // Volta pro idle ~700ms após o ÚLTIMO pulso: o timer por edge é substituído a cada
+    // atividade nova (ver pulseTimers) e o guard só reseta se ninguém trocou o estado
+    // nesse meio-tempo (ex: roteamento marcou error/review por cima).
+    const schedule = (id: string, expected: "sending" | "received") => {
+      const prev = pulseTimers.get(id);
+      if (prev !== undefined) window.clearTimeout(prev);
+      pulseTimers.set(
+        id,
+        window.setTimeout(() => {
+          pulseTimers.delete(id);
+          if (get().edgeFlow[id] === expected) {
+            set((st) => ({ edgeFlow: { ...st.edgeFlow, [id]: "idle" } }));
+          }
+        }, 700),
+      );
+    };
+    for (const id of outgoing) schedule(id, "sending");
+    for (const id of incoming) schedule(id, "received");
   },
   setEdgePayloadKind: (edgeId, kind) =>
     set((s) => ({ edgePayloadKind: { ...s.edgePayloadKind, [edgeId]: kind } })),
