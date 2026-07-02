@@ -11,7 +11,7 @@ default-members = ["."]
 
 [package]
 name = "omnirift"
-version = "0.1.69"
+version = "0.1.70"
 description = "OmniRift - canvas infinito para orquestrar agentes de IA, terminais e notas"
 authors = ["OmniForge <contato@omniforge.com.br>"]
 license = "MIT"
