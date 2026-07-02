@@ -17,9 +17,12 @@
 //! Degrada limpo: sem graphify nem uvx → `graphify_available()==false` e `graphify_report`
 //! devolve `Ok(None)` (o modal esconde a opção; nada trava).
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
 
 use crate::proc_ext::NoWindow;
 
@@ -33,6 +36,16 @@ const DISTILL_MAX_BYTES: usize = 6 * 1024;
 
 /// Nome do relatório que o graphify gera.
 const REPORT_NAME: &str = "GRAPH_REPORT.md";
+
+/// Nome do grafo CRU (node-link JSON do networkx) que o graphify gera.
+const GRAPH_JSON_NAME: &str = "graph.json";
+
+/// Teto do graph.json que topamos ler pro WebView (F2, importer do canvas). O grafo de
+/// entidade inteiro pode passar de centenas de MB — e a memória do projeto registra que
+/// jogar o grafo INTEIRO no WebKitGTK o mata. O importer só extrai o DIGEST de comunidades,
+/// mas segurar um JSON gigante numa String + cruzar o IPC já é OOM. Acima do teto → `Err`
+/// (o botão avisa "grafo grande demais" e nada trava).
+const GRAPH_JSON_MAX_BYTES: u64 = 128 * 1024 * 1024;
 
 /// Como invocar o graphify: binário direto (PATH/sidecar) ou via `uvx` (pacote python
 /// `graphifyy`). O 2º caminho só existe quando o `uvx` está instalado.
@@ -79,6 +92,23 @@ fn find_existing_report(cwd: &Path) -> Option<PathBuf> {
     candidate_report_paths(cwd).into_iter().find(|p| p.is_file())
 }
 
+/// Caminhos onde o graph.json cru pode estar (default do CLI = `<cwd>/graphify-out/graph.json`),
+/// nos mesmos diretórios do report.
+fn candidate_graph_json_paths(cwd: &Path) -> Vec<PathBuf> {
+    vec![
+        cwd.join("graphify-out").join(GRAPH_JSON_NAME),
+        cwd.join(GRAPH_JSON_NAME),
+        cwd.join(".graphify").join(GRAPH_JSON_NAME),
+    ]
+}
+
+/// 1º graph.json existente entre os candidatos (None = nenhum gerado ainda).
+fn find_existing_graph_json(cwd: &Path) -> Option<PathBuf> {
+    candidate_graph_json_paths(cwd)
+        .into_iter()
+        .find(|p| p.is_file())
+}
+
 /// true = dá pra rodar o graphify (binário no PATH/sidecar OU `uvx` disponível). O modal
 /// usa isto pra decidir se mostra o toggle "Ancorar na arquitetura real".
 #[tauri::command]
@@ -122,6 +152,40 @@ pub async fn graphify_report(cwd: String) -> Result<Option<String>, String> {
 
 fn read_report(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("ler {}: {e}", path.display()))
+}
+
+/// Lê o `graph.json` CRU do repo em `cwd` pro importer do canvas (F2) extrair as
+/// comunidades Leiden. Ao contrário do `graphify_report`, **NÃO builda** — o canvas só
+/// importa um grafo que já existe (o build vive no fluxo do Arquiteto). Semântica:
+/// - `cwd` vazio / sem `graph.json` gerado → `Ok(None)` (o botão avisa "sem grafo").
+/// - `graph.json` acima do teto (`GRAPH_JSON_MAX_BYTES`) → `Err` (grande demais pro WebView;
+///   o botão mostra o aviso e nada trava).
+/// - senão → `Ok(Some(conteúdo cru))`. O importer no WebView extrai só o digest de
+///   comunidades (nomes + contagens + god nodes) — nunca joga o grafo inteiro no DOM.
+#[tauri::command]
+pub fn graphify_graph_json(cwd: String) -> Result<Option<String>, String> {
+    let cwd = cwd.trim().to_string();
+    if cwd.is_empty() {
+        return Ok(None);
+    }
+    let cwd_path = PathBuf::from(&cwd);
+    let Some(path) = find_existing_graph_json(&cwd_path) else {
+        return Ok(None);
+    };
+    let size = std::fs::metadata(&path)
+        .map_err(|e| format!("stat {}: {e}", path.display()))?
+        .len();
+    if size > GRAPH_JSON_MAX_BYTES {
+        return Err(format!(
+            "graph.json tem {} MB (teto {} MB) — grande demais pra importar no canvas sem \
+             arriscar travar o WebView. Filtre o grafo ou use o relatório destilado do Arquiteto.",
+            size / (1024 * 1024),
+            GRAPH_JSON_MAX_BYTES / (1024 * 1024),
+        ));
+    }
+    std::fs::read_to_string(&path)
+        .map(Some)
+        .map_err(|e| format!("ler {}: {e}", path.display()))
 }
 
 /// Roda `graphify update <cwd>` (async tokio, `kill_on_drop` → sem leak de processo se o
@@ -267,6 +331,251 @@ fn truncate_on_boundary(s: &str, max_bytes: usize) -> String {
     s[..end].to_string()
 }
 
+// ── F3.1 — Gate estrutural (blast-radius determinístico, sub-500ms, SEM LLM) ──────────
+//
+// A ideia: ANTES do review caro (LLM), casar os arquivos do diff com o grafo já no disco
+// e medir o "raio de explosão" — quantos nós/comunidades a mudança toca, se cruza um god
+// node (função-hub) e se mexe numa aresta AMBIGUOUS (acoplamento incerto). É barato: só lê
+// o graph.json que o Arquiteto (F1) já gerou, faz path-match e conta grau. NÃO builda aqui —
+// gate tem que ser rápido; sem grafo → impact vazio (`available:false`) e o Land segue.
+
+/// Fração dos nós (por grau, o mais conectado) tratada como "god node" quando o graph.json
+/// não traz a marcação explícita. ~2% = os hubs de verdade (as core abstractions do repo).
+const GOD_NODE_TOP_FRACTION: f64 = 0.02;
+
+/// Grau mínimo pra um nó ser candidato a god node no caminho por-grau. Evita que, em grafo
+/// minúsculo/esparso, uma folha (grau 1) seja promovida a "hub" só por estar no top-2%.
+const GOD_NODE_MIN_DEGREE: usize = 2;
+
+/// Impacto estrutural de um conjunto de arquivos alterados, medido contra o graph.json.
+/// Serializado camelCase pro cliente TS (routines.ts / graphify-client.ts). `available:false`
+/// = sem grafo no disco (o gate degrada pra "passa", nunca bloqueia sem dado).
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphImpact {
+    /// Havia um graph.json legível? false → o gate não tem base pra decidir (não bloqueia).
+    pub available: bool,
+    /// Nº de nós (entidades) do grafo cujos arquivos-fonte casam com o diff.
+    pub nodes_affected: usize,
+    /// Comunidades Leiden tocadas (ids únicos, ordenados).
+    pub communities_touched: Vec<i64>,
+    /// Labels dos god nodes (funções-hub) tocados pelo diff.
+    pub god_nodes_touched: Vec<String>,
+    /// Arestas AMBIGUOUS (acoplamento incerto) que o diff toca — pro gate e pra afiar o review.
+    pub ambiguous_edges_touched: Vec<GraphAmbiguousEdge>,
+}
+
+/// Uma aresta de baixa confiança tocada pelo diff (labels legíveis das duas pontas).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphAmbiguousEdge {
+    pub source: String,
+    pub target: String,
+    /// Sempre "AMBIGUOUS" hoje (o campo deixa o cliente distinguir se um dia entrar INFERRED).
+    pub confidence: String,
+}
+
+/// graph.json = node-link do networkx. `edges` no schema atual; `links` no legado (nx ≤ 3.1) —
+/// o alias cobre os dois (mesmo remap que o `build.py` do graphify faz).
+#[derive(Debug, Deserialize)]
+struct GraphJson {
+    #[serde(default)]
+    nodes: Vec<GraphNode>,
+    #[serde(default, alias = "links")]
+    edges: Vec<GraphEdge>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphNode {
+    id: String,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    source_file: Option<String>,
+    #[serde(default)]
+    community: Option<i64>,
+    /// Marcações explícitas de hub (se o grafo já as trouxer, vencem o cálculo por grau).
+    #[serde(default)]
+    god: Option<bool>,
+    #[serde(default)]
+    is_god: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphEdge {
+    source: String,
+    target: String,
+    /// "EXTRACTED" (default do graphify) | "INFERRED" | "AMBIGUOUS".
+    #[serde(default)]
+    confidence: Option<String>,
+}
+
+/// True se `graph_src` e `changed` apontam pro MESMO arquivo, respeitando fronteira de path
+/// (não casa `foobar.rs` com `foo.rs`). Porte 1:1 do `_path_match` do `prs.py` do graphify —
+/// cobre repo-relativo vs. absoluto/prefixado dos dois lados.
+fn path_match(graph_src: &str, changed: &str) -> bool {
+    graph_src == changed
+        || graph_src.ends_with(&format!("/{changed}"))
+        || changed.ends_with(&format!("/{graph_src}"))
+}
+
+/// Grau (nº de arestas incidentes) de cada nó, a partir da lista de arestas. É a "degree
+/// centrality" que define os god nodes.
+fn edge_degrees(edges: &[GraphEdge]) -> HashMap<&str, usize> {
+    let mut deg: HashMap<&str, usize> = HashMap::new();
+    for e in edges {
+        *deg.entry(e.source.as_str()).or_insert(0) += 1;
+        *deg.entry(e.target.as_str()).or_insert(0) += 1;
+    }
+    deg
+}
+
+/// Ids dos god nodes: marcados explicitamente (`god`/`is_god == true`) vencem; senão os
+/// top-~2% por grau (mín. 1), exigindo grau ≥ `GOD_NODE_MIN_DEGREE` pra não promover folha.
+fn god_node_ids<'a>(nodes: &'a [GraphNode], degrees: &HashMap<&str, usize>) -> HashSet<&'a str> {
+    let explicit: HashSet<&str> = nodes
+        .iter()
+        .filter(|n| n.god == Some(true) || n.is_god == Some(true))
+        .map(|n| n.id.as_str())
+        .collect();
+    if !explicit.is_empty() {
+        return explicit;
+    }
+    if nodes.is_empty() {
+        return HashSet::new();
+    }
+    let k = std::cmp::max(1, ((nodes.len() as f64) * GOD_NODE_TOP_FRACTION).ceil() as usize);
+    let mut ranked: Vec<(&str, usize)> = nodes
+        .iter()
+        .map(|n| (n.id.as_str(), degrees.get(n.id.as_str()).copied().unwrap_or(0)))
+        .filter(|&(_, d)| d >= GOD_NODE_MIN_DEGREE)
+        .collect();
+    // Grau desc; empate por id asc → determinístico (mesmo top-k sempre).
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    ranked.into_iter().take(k).map(|(id, _)| id).collect()
+}
+
+/// Núcleo PURO do gate (sem IO): casa `changed_files` com o grafo e devolve o blast-radius.
+/// Testável isolado; `graphify_impact` é só o wrapper que lê o graph.json do disco.
+fn compute_impact(graph: &GraphJson, changed_files: &[String]) -> GraphImpact {
+    // Índice source_file → nós (mesma estratégia O(nós+arquivos) do compute_pr_impact do prs.py).
+    let mut file_nodes: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut node_community: HashMap<&str, i64> = HashMap::new();
+    let mut node_label: HashMap<&str, &str> = HashMap::new();
+    for n in &graph.nodes {
+        let id = n.id.as_str();
+        node_label.insert(id, n.label.as_deref().unwrap_or(id));
+        if let Some(c) = n.community {
+            node_community.insert(id, c);
+        }
+        if let Some(src) = n.source_file.as_deref() {
+            if !src.is_empty() {
+                file_nodes.entry(src).or_default().push(id);
+            }
+        }
+    }
+
+    // Casa o diff com os source_file dos nós (guarda `matched` evita recontar o mesmo arquivo).
+    let mut affected: HashSet<&str> = HashSet::new();
+    let mut matched: HashSet<&str> = HashSet::new();
+    for cf in changed_files {
+        let cf = cf.trim();
+        if cf.is_empty() {
+            continue;
+        }
+        for (src, ids) in &file_nodes {
+            if !matched.contains(src) && path_match(src, cf) {
+                matched.insert(src);
+                for id in ids {
+                    affected.insert(id);
+                }
+            }
+        }
+    }
+
+    // Comunidades tocadas (únicas, ordenadas).
+    let mut communities: Vec<i64> = affected
+        .iter()
+        .filter_map(|id| node_community.get(id).copied())
+        .collect();
+    communities.sort_unstable();
+    communities.dedup();
+
+    // God nodes tocados (labels, únicos, ordenados).
+    let degrees = edge_degrees(&graph.edges);
+    let gods = god_node_ids(&graph.nodes, &degrees);
+    let mut god_nodes: Vec<String> = affected
+        .iter()
+        .filter(|id| gods.contains(*id))
+        .map(|id| node_label.get(id).copied().unwrap_or(id).to_string())
+        .collect();
+    god_nodes.sort();
+    god_nodes.dedup();
+
+    // Arestas AMBIGUOUS que o diff toca: ≥1 ponta num nó afetado (editar um lado de um
+    // acoplamento incerto JÁ é o sinal de risco — não exigimos as duas pontas no diff).
+    let mut ambiguous: Vec<GraphAmbiguousEdge> = graph
+        .edges
+        .iter()
+        .filter(|e| e.confidence.as_deref() == Some("AMBIGUOUS"))
+        .filter(|e| affected.contains(e.source.as_str()) || affected.contains(e.target.as_str()))
+        .map(|e| GraphAmbiguousEdge {
+            source: node_label
+                .get(e.source.as_str())
+                .copied()
+                .unwrap_or(e.source.as_str())
+                .to_string(),
+            target: node_label
+                .get(e.target.as_str())
+                .copied()
+                .unwrap_or(e.target.as_str())
+                .to_string(),
+            confidence: "AMBIGUOUS".to_string(),
+        })
+        .collect();
+    ambiguous.sort_by(|a, b| a.source.cmp(&b.source).then_with(|| a.target.cmp(&b.target)));
+    ambiguous.dedup_by(|a, b| a.source == b.source && a.target == b.target);
+
+    GraphImpact {
+        available: true,
+        nodes_affected: affected.len(),
+        communities_touched: communities,
+        god_nodes_touched: god_nodes,
+        ambiguous_edges_touched: ambiguous,
+    }
+}
+
+/// Gate estrutural do Land (F3.1): mede o blast-radius de `changed_files` contra o graph.json
+/// já no disco de `cwd`. Rápido de propósito — **não builda** (sem grafo → `available:false`).
+/// Semântica:
+/// - `cwd` vazio / sem graph.json → `Ok(GraphImpact::default())` (`available:false` → o gate passa).
+/// - graph.json acima do teto (`GRAPH_JSON_MAX_BYTES`) → também `available:false` (parsear um
+///   JSON gigante estouraria o orçamento sub-500ms do gate; degrada pra "sem dado", não trava).
+/// - senão → parseia e devolve o impacto. Erro de parse → `Err` (o cliente loga e deixa passar).
+#[tauri::command]
+pub fn graphify_impact(cwd: String, changed_files: Vec<String>) -> Result<GraphImpact, String> {
+    let cwd = cwd.trim();
+    if cwd.is_empty() {
+        return Ok(GraphImpact::default());
+    }
+    let cwd_path = PathBuf::from(cwd);
+    let Some(graph_path) = find_existing_graph_json(&cwd_path) else {
+        return Ok(GraphImpact::default());
+    };
+    // Guarda de latência: acima do teto compartilhado, degrada pra "sem dado" (o gate NUNCA
+    // bloqueia o Land por falta de base — só quando o grafo cabe e REPROVA de fato).
+    if let Ok(meta) = std::fs::metadata(&graph_path) {
+        if meta.len() > GRAPH_JSON_MAX_BYTES {
+            return Ok(GraphImpact::default());
+        }
+    }
+    let raw = std::fs::read_to_string(&graph_path)
+        .map_err(|e| format!("ler {}: {e}", graph_path.display()))?;
+    let graph: GraphJson =
+        serde_json::from_str(&raw).map_err(|e| format!("parsear {}: {e}", graph_path.display()))?;
+    Ok(compute_impact(&graph, &changed_files))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,6 +690,44 @@ mod tests {
     }
 
     #[test]
+    fn find_existing_graph_json_prefers_graphify_out() {
+        let dir = tempfile::tempdir().unwrap();
+        // Nenhum grafo ainda.
+        assert!(find_existing_graph_json(dir.path()).is_none());
+        // graph.json em graphify-out/ (default do CLI) é encontrado.
+        let out = dir.path().join("graphify-out");
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join(GRAPH_JSON_NAME), b"{}").unwrap();
+        assert_eq!(
+            find_existing_graph_json(dir.path()),
+            Some(out.join(GRAPH_JSON_NAME))
+        );
+    }
+
+    #[test]
+    fn graphify_graph_json_none_when_empty_or_missing() {
+        // cwd vazio → None (degrada limpo, sem tocar disco).
+        assert_eq!(graphify_graph_json("   ".into()).unwrap(), None);
+        // cwd sem graph.json → None.
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            graphify_graph_json(dir.path().to_string_lossy().into_owned()).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn graphify_graph_json_reads_raw_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("graphify-out");
+        std::fs::create_dir_all(&out).unwrap();
+        let raw = r#"{"nodes":[{"id":"a","community":0}],"links":[]}"#;
+        std::fs::write(out.join(GRAPH_JSON_NAME), raw).unwrap();
+        let got = graphify_graph_json(dir.path().to_string_lossy().into_owned()).unwrap();
+        assert_eq!(got.as_deref(), Some(raw));
+    }
+
+    #[test]
     fn find_existing_report_prefers_graphify_out() {
         let dir = tempfile::tempdir().unwrap();
         // Nenhum report ainda.
@@ -396,5 +743,166 @@ mod tests {
             find_existing_report(dir.path()),
             Some(dir.path().join(REPORT_NAME))
         );
+    }
+
+    // ── F3.1 — gate estrutural ────────────────────────────────────────────────────────
+
+    fn gnode(id: &str, label: &str, source_file: Option<&str>, community: Option<i64>) -> GraphNode {
+        GraphNode {
+            id: id.into(),
+            label: Some(label.into()),
+            source_file: source_file.map(Into::into),
+            community,
+            god: None,
+            is_god: None,
+        }
+    }
+    fn gedge(source: &str, target: &str, confidence: Option<&str>) -> GraphEdge {
+        GraphEdge {
+            source: source.into(),
+            target: target.into(),
+            confidence: confidence.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn path_match_is_boundary_safe() {
+        assert!(path_match("src/foo.rs", "src/foo.rs")); // idêntico
+        assert!(path_match("a/b/src/foo.rs", "src/foo.rs")); // graph_src termina com /changed
+        assert!(path_match("src/foo.rs", "repo/src/foo.rs")); // changed termina com /graph_src
+        assert!(!path_match("src/foobar.rs", "foo.rs")); // NÃO casa: fronteira quebra
+        assert!(!path_match("src/foo.rs", "bar.rs"));
+    }
+
+    #[test]
+    fn degrees_count_both_endpoints() {
+        let edges = vec![gedge("a", "b", None), gedge("a", "c", None)];
+        let d = edge_degrees(&edges);
+        assert_eq!(d.get("a"), Some(&2));
+        assert_eq!(d.get("b"), Some(&1));
+        assert_eq!(d.get("c"), Some(&1));
+    }
+
+    #[test]
+    fn god_nodes_explicit_marks_win() {
+        let nodes = vec![
+            GraphNode { god: Some(true), ..gnode("a", "a", None, None) },
+            gnode("b", "b", None, None),
+        ];
+        let g = god_node_ids(&nodes, &HashMap::new());
+        assert!(g.contains("a") && !g.contains("b"));
+    }
+
+    #[test]
+    fn god_nodes_top_fraction_needs_min_degree() {
+        // Grafo esparso: 3 nós, só 1 hub (grau 2). Folhas (grau 1) NÃO viram god node.
+        let nodes = vec![
+            gnode("hub", "hub", None, None),
+            gnode("leaf1", "leaf1", None, None),
+            gnode("leaf2", "leaf2", None, None),
+        ];
+        let edges = vec![gedge("hub", "leaf1", None), gedge("hub", "leaf2", None)];
+        let g = god_node_ids(&nodes, &edge_degrees(&edges));
+        assert!(g.contains("hub"));
+        assert!(!g.contains("leaf1") && !g.contains("leaf2"));
+    }
+
+    #[test]
+    fn impact_end_to_end_god_community_ambiguous() {
+        let graph = GraphJson {
+            nodes: vec![
+                gnode("auth.py::login", "login", Some("src/auth.py"), Some(1)),
+                gnode("auth.py::logout", "logout", Some("src/auth.py"), Some(1)),
+                gnode("ui.py::render", "render", Some("src/ui.py"), Some(2)),
+                gnode("db.py::query", "query", Some("src/db.py"), Some(3)),
+            ],
+            edges: vec![
+                gedge("auth.py::login", "db.py::query", Some("AMBIGUOUS")),
+                gedge("auth.py::login", "auth.py::logout", Some("EXTRACTED")),
+                gedge("auth.py::login", "ui.py::render", Some("EXTRACTED")),
+            ],
+        };
+        // Muda src/auth.py → afeta login+logout (comunidade 1); login é o hub (grau 3);
+        // a aresta login↔query é AMBIGUOUS e tem uma ponta afetada.
+        let impact = compute_impact(&graph, &["src/auth.py".to_string()]);
+        assert!(impact.available);
+        assert_eq!(impact.nodes_affected, 2);
+        assert_eq!(impact.communities_touched, vec![1]);
+        assert_eq!(impact.god_nodes_touched, vec!["login".to_string()]);
+        assert_eq!(impact.ambiguous_edges_touched.len(), 1);
+        assert_eq!(impact.ambiguous_edges_touched[0].source, "login");
+        assert_eq!(impact.ambiguous_edges_touched[0].target, "query");
+    }
+
+    #[test]
+    fn impact_no_match_is_available_but_empty() {
+        let graph = GraphJson {
+            nodes: vec![gnode("a", "a", Some("src/a.py"), Some(0))],
+            edges: vec![],
+        };
+        let impact = compute_impact(&graph, &["src/other.py".to_string()]);
+        assert!(impact.available); // teve grafo → available, só não casou nada
+        assert_eq!(impact.nodes_affected, 0);
+        assert!(impact.communities_touched.is_empty());
+        assert!(impact.god_nodes_touched.is_empty());
+        assert!(impact.ambiguous_edges_touched.is_empty());
+    }
+
+    #[test]
+    fn impact_ambiguous_edge_needs_only_one_endpoint_affected() {
+        let graph = GraphJson {
+            nodes: vec![
+                gnode("x", "x", Some("src/x.py"), Some(0)),
+                gnode("y", "y", Some("src/y.py"), Some(1)),
+                gnode("z", "z", Some("src/z.py"), Some(2)),
+            ],
+            edges: vec![
+                gedge("x", "y", Some("AMBIGUOUS")), // x afetado → conta
+                gedge("y", "z", Some("AMBIGUOUS")), // nenhuma ponta afetada → não conta
+            ],
+        };
+        let impact = compute_impact(&graph, &["src/x.py".to_string()]);
+        assert_eq!(impact.ambiguous_edges_touched.len(), 1);
+        assert_eq!(impact.ambiguous_edges_touched[0].source, "x");
+    }
+
+    #[test]
+    fn graph_json_parses_links_alias() {
+        // networkx ≤ 3.1 serializa as arestas como "links" — o alias tem que cobrir.
+        let raw = r#"{"nodes":[{"id":"a","source_file":"a.py","community":0}],
+                      "links":[{"source":"a","target":"a","confidence":"AMBIGUOUS"}]}"#;
+        let g: GraphJson = serde_json::from_str(raw).unwrap();
+        assert_eq!(g.nodes.len(), 1);
+        assert_eq!(g.edges.len(), 1);
+    }
+
+    #[test]
+    fn graphify_impact_empty_cwd_and_missing_graph_are_unavailable() {
+        // cwd vazio → default (available:false), sem tocar disco.
+        let imp = graphify_impact("  ".into(), vec![]).unwrap();
+        assert!(!imp.available);
+        // cwd sem graph.json → também available:false (gate passa).
+        let dir = tempfile::tempdir().unwrap();
+        let imp = graphify_impact(dir.path().to_string_lossy().into_owned(), vec!["a.py".into()])
+            .unwrap();
+        assert!(!imp.available);
+    }
+
+    #[test]
+    fn graphify_impact_reads_graph_from_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("graphify-out");
+        std::fs::create_dir_all(&out).unwrap();
+        let raw = r#"{"nodes":[{"id":"m::f","label":"f","source_file":"src/m.py","community":7}],
+                      "edges":[]}"#;
+        std::fs::write(out.join(GRAPH_JSON_NAME), raw).unwrap();
+        let imp = graphify_impact(
+            dir.path().to_string_lossy().into_owned(),
+            vec!["src/m.py".into()],
+        )
+        .unwrap();
+        assert!(imp.available);
+        assert_eq!(imp.nodes_affected, 1);
+        assert_eq!(imp.communities_touched, vec![7]);
     }
 }

@@ -46,6 +46,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
     if (s.trigger === "floor-created") return t("routines.onFloorCreated", "ao criar floor");
     if (s.trigger === "floor-deleted") return t("routines.onFloorDeleted", "ao deletar floor");
     if (s.trigger === "gate:land") return t("routines.onGateLand", "gate de Land");
+    if (s.trigger === "gate:graph") return t("routines.onGateGraph", "gate estrutural");
     if (s.atTime) return `${t("routines.at", "às")} ${s.atTime}`;
     if (s.intervalMin) return `${t("routines.every", "a cada")} ${s.intervalMin} ${t("routines.min", "min")}`;
     return t("routines.manual", "manual");
@@ -276,6 +277,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                       <option value="floor-created">{t("routines.trigFloorCreated", "Ao criar floor")}</option>
                       <option value="floor-deleted">{t("routines.trigFloorDeleted", "Ao deletar floor")}</option>
                       <option value="gate:land">{t("routines.trigGateLand", "Gate de Land")}</option>
+                      <option value="gate:graph">{t("routines.trigGateGraph", "Gate estrutural (Graphify)")}</option>
                     </select>
                   </label>
                   {effectiveTrigger(r) === "interval" && (
@@ -307,6 +309,13 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                     // Gate roda SEMPRE no worktree do paralelo sendo landado — sem alvo.
                     <span className="text-[10px] text-textMuted opacity-70">
                       {t("routines.gateHint", "bloqueia o Land se sair ≠ 0 — roda no worktree do paralelo")}
+                    </span>
+                  ) : effectiveTrigger(r) === "gate:graph" ? (
+                    // Gate estrutural embutido (Graphify): não é comando shell — mede o
+                    // blast-radius do diff contra o grafo. A ação (avisar/bloquear) vem da
+                    // política do Graphify no Review; por padrão só AVISA.
+                    <span className="text-[10px] text-textMuted opacity-70">
+                      {t("routines.graphGateHint", "gate estrutural do Graphify (sem LLM) — roda no Land; ação configurada na política de Review (padrão: só avisa)")}
                     </span>
                   ) : (
                     <label className="flex items-center gap-1.5">

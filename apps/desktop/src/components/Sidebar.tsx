@@ -141,7 +141,8 @@ import { loadDefaultCompressor } from "@/lib/compress-client";
 import { loadLlmConfig } from "@/lib/llm-client";
 import { runReview } from "@/lib/review";
 import { loadHooks, runParallelHook } from "@/lib/hooks-client";
-import { runLandGates } from "@/lib/routines";
+import { runLandGates, runGraphGate } from "@/lib/routines";
+import type { GraphAmbiguousEdge } from "@/lib/graphify-client";
 import type { Parallel } from "@/types/workspace";
 import { parallelHost } from "@/types/workspace";
 import { Tooltip } from "@/components/Tooltip";
@@ -1062,13 +1063,33 @@ export function Sidebar() {
   async function landFloor(f: Parallel) {
     if (!f.repoRoot || !f.branch || !f.worktreePath || !f.baseBranch) return;
     if (!(await confirmDialog(tr("sidebar.landConfirm", "Land \"{branch}\" → \"{base}\"?\nFaz merge e remove o worktree.").replace("{branch}", f.branch).replace("{base}", f.baseBranch)))) return;
+    // F3.1 — GATE ESTRUTURAL do Graphify (determinístico, sub-500ms, SEM LLM). Roda ANTES do
+    // review caro pra curto-circuitar o LLM quando a estrutura já reprova/avisa (economiza
+    // tokens). Default WARN (só notifica); block é opt-in por projeto. Reaproveita o impacto
+    // (arestas AMBIGUOUS) pra afiar o review logo abaixo — sem recomputar o diff.
+    let ambiguousEdges: GraphAmbiguousEdge[] = [];
+    try {
+      const g = await runGraphGate(f.worktreePath, f.baseBranch, f.repoRoot);
+      if (g.impact.available) {
+        ambiguousEdges = g.impact.ambiguousEdgesTouched;
+        if (!g.pass) {
+          void notify(tr("sidebar.graphGateBlockedLand", "🚫 Gate estrutural reprovou — Land bloqueado:\n{reason}").replace("{reason}", g.reason), "error");
+          return;
+        }
+        if (g.reason && g.reason !== "estrutura ok" && g.reason !== "gate desligado") {
+          void notify(tr("sidebar.graphGateWarn", "▲ Gate estrutural: {reason}").replace("{reason}", g.reason), "info");
+        }
+      }
+    } catch (e) {
+      console.warn("[graph gate] falhou, não bloqueia o Land:", e);
+    }
     // Review gate: se a política liga o gate, roda o code review antes do merge.
     const policy = loadPolicy(f.repoRoot);
     if (policy.enabled && policy.gate !== "off") {
       const llm = loadLlmConfig();
       if (llm) {
         try {
-          const r = await runReview(f.worktreePath, f.baseBranch, llm, policy);
+          const r = await runReview(f.worktreePath, f.baseBranch, llm, policy, { ambiguousEdges });
           if (r.verdict === "NO-GO") {
             if (policy.gate === "block") {
               void notify(tr("sidebar.reviewBlockedLand", "🚫 Review reprovou (NO-GO · score {score}). Land bloqueado.\nAbra o Review (⊟ no paralelo) pra ver os findings e corrija.").replace("{score}", String(r.score)), "error");

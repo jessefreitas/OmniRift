@@ -8,6 +8,7 @@ import { parallelGitDiff, type ParallelDiff } from "@/lib/git-client";
 import { llmChat, type LlmConfig } from "@/lib/llm-client";
 import { assertBudgetOk } from "@/lib/usage-client";
 import type { ReviewPolicy } from "@/lib/review-policy";
+import type { GraphAmbiguousEdge } from "@/lib/graphify-client";
 
 export type Severity = "CRITICAL" | "WARNING" | "INFO";
 
@@ -45,24 +46,51 @@ function preflight(diff: ParallelDiff, policy: ReviewPolicy): Finding[] {
   return out;
 }
 
-function buildPrompt(diff: ParallelDiff, policy: ReviewPolicy): { system: string; prompt: string } {
+function buildPrompt(
+  diff: ParallelDiff,
+  policy: ReviewPolicy,
+  ambiguousEdges?: GraphAmbiguousEdge[],
+): { system: string; prompt: string } {
   const cats = policy.categories
     .map((c) => `- ${c.key} (${c.label}, peso ${c.weight}${c.blocking ? ", bloqueante" : ""})`)
     .join("\n");
   const patches = diff.files
     .map((f) => `### ${f.path} (${f.status}, +${f.additions} -${f.deletions})\n${f.patch}`)
     .join("\n\n");
+  // F3.4 — contexto estrutural do Graphify: relações que o diff toca marcadas AMBIGUOUS
+  // (baixa confiança). Instrui o LLM a tratar acoplamento incerto como risco de arquitetura.
+  const ambiguousBlock =
+    ambiguousEdges && ambiguousEdges.length > 0
+      ? `Contexto estrutural (Graphify) — o diff toca relações de BAIXA CONFIANÇA (AMBIGUOUS). ` +
+        `Trate qualquer mudança que dependa delas como RISCO de arquitetura (category "architecture"):\n` +
+        ambiguousEdges.map((e) => `- ${e.source} ↔ ${e.target} [${e.confidence}]`).join("\n") +
+        `\n\n`
+      : "";
   const system =
     "Você é um revisor de código sênior, rigoroso e objetivo. Responda SOMENTE com um array JSON válido, sem nenhuma prosa fora dele.";
   const prompt =
     `Revise o diff abaixo nestas categorias (avalie todas):\n${cats}\n\n` +
     (policy.contracts.trim() ? `Regras/contratos adicionais a verificar:\n${policy.contracts.trim()}\n\n` : "") +
+    ambiguousBlock +
     `Profundidade alvo do review: ${policy.coverage}%.\n\n` +
     `Para CADA problema encontrado, gere um objeto:\n` +
     `{"severity":"CRITICAL|WARNING|INFO","category":"<uma das chaves acima>","file":"<caminho>","line":<número ou null>,"title":"<resumo curto>","suggestion":"<como corrigir>"}\n` +
     `Responda APENAS o array JSON (use [] se não houver problemas).\n\n` +
     `DIFF:\n${patches}`;
   return { system, prompt };
+}
+
+/** F3.4 — se o diff mexe em acoplamento AMBIGUOUS, uma incerteza arquitetural deixa de ser
+ *  ruído: sobe os findings `architecture` de WARNING→CRITICAL (o peso de arquitetura passa a
+ *  reprovar). Barato e conservador: só escala quando há aresta AMBIGUOUS tocada E o finding é
+ *  de arquitetura. Sem arestas → devolve a lista intacta (zero mudança de comportamento). */
+function escalateForAmbiguous(findings: Finding[], ambiguousEdges?: GraphAmbiguousEdge[]): Finding[] {
+  if (!ambiguousEdges || ambiguousEdges.length === 0) return findings;
+  return findings.map((f) =>
+    f.category === "architecture" && f.severity === "WARNING"
+      ? { ...f, severity: "CRITICAL" as Severity, title: `${f.title} (acoplamento AMBIGUOUS)` }
+      : f,
+  );
 }
 
 /** Extrai o 1º array JSON do texto (o LLM às vezes embrulha em prosa/```). */
@@ -106,12 +134,15 @@ function aggregate(findings: Finding[], policy: ReviewPolicy): { verdict: "GO" |
   return { verdict: blocked ? "NO-GO" : "GO", score: Math.max(0, Math.round(score)) };
 }
 
-/** Roda o review completo de um floor. Degrada gracioso se o LLM falhar. */
+/** Roda o review completo de um floor. Degrada gracioso se o LLM falhar. `opts.ambiguousEdges`
+ *  (F3.4) = arestas AMBIGUOUS que o diff toca (reusadas do gate estrutural — sem recomputar):
+ *  entram como contexto no prompt e escalam findings de arquitetura WARNING→CRITICAL. */
 export async function runReview(
   worktree: string,
   base: string,
   config: LlmConfig,
   policy: ReviewPolicy,
+  opts?: { ambiguousEdges?: GraphAmbiguousEdge[] },
 ): Promise<ReviewResult> {
   const diff = await parallelGitDiff(worktree, base);
   const pre = preflight(diff, policy);
@@ -124,9 +155,9 @@ export async function runReview(
   let findings: Finding[] = [];
   let summary = "";
   try {
-    const { system, prompt } = buildPrompt(diff, policy);
+    const { system, prompt } = buildPrompt(diff, policy, opts?.ambiguousEdges);
     const text = await llmChat(config, system, prompt, { project: worktree, kind: "review" });
-    findings = parseFindings(text);
+    findings = escalateForAmbiguous(parseFindings(text), opts?.ambiguousEdges);
     summary = `${findings.length} achado(s) do LLM + ${pre.length} do pré-flight.`;
   } catch (e) {
     summary = `⚠️ LLM falhou (${String(e)}). Mostrando só o pré-flight.`;

@@ -99,7 +99,9 @@ use commands::acp::{
     hermes_list_models,
 };
 use commands::folder_canvas::{folder_canvas_load, folder_canvas_save};
-use commands::graphify::{graphify_available, graphify_report};
+use commands::graphify::{
+    graphify_available, graphify_graph_json, graphify_impact, graphify_report,
+};
 use commands::pipeline::{pipeline_load, pipeline_save};
 use commands::providers::{
     provider_delete, provider_list_models, provider_resolve, provider_save, providers_list,
@@ -353,6 +355,8 @@ pub fn run() {
             pipeline_load,
             graphify_available,
             graphify_report,
+            graphify_graph_json,
+            graphify_impact,
             pty_spawn,
             pty_write,
             pty_resize,

@@ -8,11 +8,28 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { parallelGitDiff } from "@/lib/git-client";
+import {
+  graphifyImpact,
+  loadGraphGatePolicy,
+  evaluateGraphGate,
+  EMPTY_IMPACT,
+  type GraphImpact,
+} from "@/lib/graphify-client";
 
 /** Tipo de disparo de uma routine (Fase 2). `interval`/`atTime` = MVP;
  *  `floor-created`/`floor-deleted` = ciclo-de-vida de floor (worktree git);
- *  `gate:land` = GATE bloqueante do Land (roda no worktree; exit ≠ 0 aborta o Land). */
-export type RoutineTrigger = "interval" | "atTime" | "floor-created" | "floor-deleted" | "gate:land";
+ *  `gate:land` = GATE shell bloqueante do Land (exit ≠ 0 aborta);
+ *  `gate:graph` = GATE ESTRUTURAL do Land (F3.1): blast-radius do diff contra o grafo,
+ *  determinístico e SEM LLM — comportamento embutido (não é comando shell), governado pela
+ *  política do Graphify (default WARN). */
+export type RoutineTrigger =
+  | "interval"
+  | "atTime"
+  | "floor-created"
+  | "floor-deleted"
+  | "gate:land"
+  | "gate:graph";
 
 export interface Routine {
   id: string;
@@ -51,9 +68,10 @@ export function isFloorTrigger(r: Pick<Routine, "trigger">): boolean {
 }
 
 /** True quando a routine é um GATE (bloqueia uma ação até passar). Gates NUNCA entram
- *  no agendamento por intervalo/horário — só disparam no ponto da ação (Land). */
+ *  no agendamento por intervalo/horário — só disparam no ponto da ação (Land). Cobre o
+ *  gate shell (`gate:land`) e o gate estrutural do Graphify (`gate:graph`). */
 export function isGateTrigger(r: Pick<Routine, "trigger">): boolean {
-  return r.trigger === "gate:land";
+  return r.trigger === "gate:land" || r.trigger === "gate:graph";
 }
 
 /** Uma linha do histórico de execução (espelha RunRow do backend). */
@@ -256,6 +274,44 @@ export async function runLandGates(cwd: string): Promise<GateResult> {
   return { ok: true };
 }
 
+/** Resultado do GATE ESTRUTURAL do Land (F3.1). `pass` = não bloqueia; `reason` = achado
+ *  legível (pro notify); `impact` = blast-radius medido (reusado pra afiar o review depois). */
+export interface GraphGateResult {
+  pass: boolean;
+  reason: string;
+  impact: GraphImpact;
+}
+
+/** GATE ESTRUTURAL do Land (F3.1): determinístico, sub-500ms, SEM LLM. Roda ANTES do review
+ *  caro pra curto-circuitar o LLM quando a estrutura já reprova/avisa. Pega os arquivos do
+ *  diff (mesmo diff do review, via `parallelGitDiff`) → mede o blast-radius contra o grafo
+ *  (`graphify_impact`) → aplica a política do projeto (default WARN — só avisa; `block` é
+ *  opt-in por projeto quando toca god node / N+ comunidades / aresta AMBIGUOUS). Sem grafo,
+ *  sem diff ou sem Tauri → `pass:true` (NUNCA bloqueia o Land sem base pra decidir).
+ *  `scope` = escopo da política (default = `cwd`; o Land passa o `repoRoot`, igual ao review). */
+export async function runGraphGate(cwd: string, base: string, scope?: string): Promise<GraphGateResult> {
+  if (!hasTauri() || !cwd.trim()) {
+    return { pass: true, reason: "sem Tauri/cwd", impact: EMPTY_IMPACT };
+  }
+  // Arquivos do diff = o que a branch mudou vs a base (mesmo conjunto que o review analisa).
+  let changed: string[];
+  try {
+    const diff = await parallelGitDiff(cwd, base);
+    changed = [...diff.files.map((f) => f.path), ...diff.untracked];
+  } catch {
+    return { pass: true, reason: "diff indisponível", impact: EMPTY_IMPACT };
+  }
+  let impact: GraphImpact;
+  try {
+    impact = await graphifyImpact(cwd, changed);
+  } catch {
+    // Backend indisponível / erro de parse → sem base pra decidir → passa.
+    return { pass: true, reason: "graphify indisponível", impact: EMPTY_IMPACT };
+  }
+  const verdict = evaluateGraphGate(impact, loadGraphGatePolicy(scope ?? cwd));
+  return { pass: verdict.pass, reason: verdict.reason, impact };
+}
+
 /** Histórico de uma routine (mais recentes primeiro; default 50). [] sem Tauri/erro. */
 export async function routineRuns(routineId: string, limit = 50): Promise<RunRow[]> {
   if (!hasTauri() || !routineId) return [];
@@ -315,6 +371,7 @@ export function scheduleLabel(t: {
   if (t.trigger === "floor-created") return "ao criar floor";
   if (t.trigger === "floor-deleted") return "ao deletar floor";
   if (t.trigger === "gate:land") return "gate de Land";
+  if (t.trigger === "gate:graph") return "gate estrutural";
   if (t.atTime) return `às ${t.atTime}`;
   if (t.intervalMin) return `a cada ${t.intervalMin} min`;
   return "manual";
