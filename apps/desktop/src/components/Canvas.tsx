@@ -18,6 +18,7 @@ import { FloorCanvas } from "@/components/FloorCanvas";
 import { OrchestratorDock } from "@/components/OrchestratorDock";
 import { CanvasToolbar } from "@/components/CanvasToolbar";
 import { FleetBar } from "@/components/FleetBar";
+import { GraphImportButton } from "@/components/GraphImportButton";
 import { CommandPalette } from "@/components/CommandPalette";
 import { useQuickJump } from "@/hooks/useQuickJump";
 import { useRoutines } from "@/hooks/useRoutines";
@@ -51,6 +52,8 @@ export function Canvas() {
       <CanvasToolbar />
       {/* FLEET BAR (#12): progresso agregado dos agentes do floor ativo (≥2 agentes). */}
       <FleetBar />
+      {/* Graphify F2: importar as comunidades do knowledge graph de código pro canvas. */}
+      <GraphImportButton />
       {/* Dock onipresente do Orquestrador — visível em qualquer floor. */}
       <OrchestratorDock />
       {/* Paleta de comandos (Ctrl/Cmd+K). */}

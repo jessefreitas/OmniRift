@@ -151,3 +151,10 @@ export async function graphifyAvailable(): Promise<boolean> {
 export async function graphifyReport(cwd: string): Promise<string | null> {
   return invoke<string | null>("graphify_report", { cwd });
 }
+
+/** Lê o `graph.json` CRU do repo em `cwd` (Graphify F2 — importer do canvas). `null` =
+ *  sem grafo gerado (o botão avisa). Erro (grafo grande demais / falha de IO) SOBE pra quem
+ *  chamou avisar. NÃO builda — o canvas só importa um grafo que já existe. */
+export async function graphifyGraphJson(cwd: string): Promise<string | null> {
+  return invoke<string | null>("graphify_graph_json", { cwd });
+}

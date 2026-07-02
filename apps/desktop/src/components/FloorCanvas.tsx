@@ -46,6 +46,7 @@ import { AgentNode } from "@/components/nodes/AgentNode";
 import { SubagentNode } from "@/components/nodes/SubagentNode";
 import { ReviewNode } from "@/components/nodes/ReviewNode";
 import { FilterNode } from "@/components/nodes/FilterNode";
+import { CommunityNode } from "@/components/nodes/CommunityNode";
 import { FlowEdge } from "@/components/edges/FlowEdge";
 import { useConnectionRouting } from "@/hooks/useConnectionRouting";
 import { useCanvasStore } from "@/store/canvas-store";
@@ -82,6 +83,7 @@ const nodeTypes = {
   subagent: SubagentNode,
   review: ReviewNode,
   filter: FilterNode,
+  community: CommunityNode, // Graphify F2: comunidade Leiden colapsável
 };
 
 const edgeTypes = { flow: FlowEdge };
@@ -106,6 +108,7 @@ const MINIMAP_COLORS: Record<string, string> = {
   subagent: "rgb(251, 191, 36)", // âmbar (subagente nativo .claude/agents)
   review: "rgb(250, 204, 21)", // amarelo (gate de review na linha)
   filter: "rgb(56, 189, 248)", // sky (filtro de conteúdo)
+  community: "rgb(167, 139, 250)", // violeta (comunidade Leiden do knowledge graph)
 };
 function miniMapNodeColor(n: Node): string {
   return MINIMAP_COLORS[n.type ?? ""] ?? "rgb(120, 120, 130)";
@@ -159,7 +162,9 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
         ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
         ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
         type: "flow",
-        data: { kind: e.kind },
+        // confidence só existe nas "graph-edge" (Graphify F2); nas demais é undefined
+        // e a FlowEdge ignora — comportamento das edges normais intocado.
+        data: { kind: e.kind, confidence: e.confidence },
         animated: e.kind === "pty-pipe",
         style:
           e.kind === "pty-pipe"

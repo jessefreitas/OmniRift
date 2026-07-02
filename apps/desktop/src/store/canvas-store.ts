@@ -13,6 +13,7 @@ import type {
   CanvasNode,
   CanvasNodePatch,
   CodeNode,
+  CommunityNode,
   DbNode,
   DevToolsNode,
   ExplainNode,
@@ -198,6 +199,20 @@ interface CanvasState {
   }) => SubagentNode;
   addReviewNode: (params?: { position?: { x: number; y: number } }) => ReviewNode;
   addFilterNode: (params?: { mode?: FilterNode["mode"]; value?: string; position?: { x: number; y: number } }) => FilterNode;
+  /** Graphify F2: um nó de comunidade Leiden (retrato estático do knowledge graph). */
+  addCommunityNode: (params: {
+    name: string;
+    memberCount: number;
+    godNodes?: string[];
+    topMembers?: string[];
+    fileCount?: number;
+    color?: string;
+    position?: { x: number; y: number };
+  }) => CommunityNode;
+  /** Graphify F2: importa em LOTE os nós de comunidade + arestas de acoplamento no floor ativo.
+   *  Um único `set` (não N re-renders). Os ids já vêm únicos do `importCommunities`. Retorna
+   *  quantos nós entraram (0 = nada importado). */
+  importCommunityNodes: (nodes: CanvasNode[], edges: CanvasEdge[]) => number;
   updateFilterNode: (id: string, patch: { mode?: FilterNode["mode"]; value?: string; providerId?: string; model?: string; criterion?: string }) => void;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
@@ -819,6 +834,36 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
         ns.map((n) => (n.id === id && n.kind === "filter" ? ({ ...n, ...patch } as FilterNode) : n)),
       ),
     })),
+
+  addCommunityNode: ({ name, memberCount, godNodes, topMembers, fileCount, color, position }) => {
+    const node: CommunityNode = {
+      id: nanoid(),
+      kind: "community",
+      name,
+      memberCount,
+      godNodes: godNodes ?? [],
+      topMembers: topMembers ?? [],
+      fileCount,
+      color,
+      createdAt: Date.now(),
+      position: position ?? defaultPosition(),
+      size: { width: 260, height: 150 },
+    };
+    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    return node;
+  },
+
+  importCommunityNodes: (nodes, edges) => {
+    if (nodes.length === 0) return 0;
+    set((s) => ({
+      parallels: s.parallels.map((f) =>
+        f.id === s.activeParallelId
+          ? { ...f, nodes: [...f.nodes, ...nodes], edges: [...f.edges, ...edges] }
+          : f,
+      ),
+    }));
+    return nodes.length;
+  },
 
   emitAgentOutput: (nodeId, text, extra) =>
     set((s) => ({

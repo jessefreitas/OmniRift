@@ -41,6 +41,12 @@ export function FlowEdge({
   const removeEdge = useCanvasStore((s) => s.removeEdge);
   const payloadKind = useCanvasStore((s) => s.edgePayloadKind[id]);
   const kind = (data as { kind?: string } | undefined)?.kind;
+  // Graphify F2: aresta de acoplamento entre comunidades. É ESTÁTICA (nunca ganha edgeFlow),
+  // então o estilo vem só da `confidence` — EXTRACTED sólida, INFERRED tracejada, AMBIGUOUS
+  // pontilhada vermelha. `confidence` só existe nas "graph-edge"; nas demais edges é undefined
+  // e todos os ramos abaixo são no-op (comportamento intocado).
+  const confidence = (data as { confidence?: string } | undefined)?.confidence;
+  const isGraphEdge = kind === "graph-edge" && !!confidence;
   // Pipe de terminal com o processo do SOURCE morto → a linha inteira vira vermelha
   // (não há mais quem emita). ⚠️ zustand v5: seletores retornam SÓ primitivas
   // (string/boolean) — devolver objeto/array novo re-renderiza em loop e trava o app.
@@ -69,8 +75,13 @@ export function FlowEdge({
   const active = flow !== "idle";
   // cor idle por tipo: pipe de terminal = cyan (roteamento backend), link de agente MCP
   // = roxo (OmniAgent comanda o terminal), subagente = âmbar (.claude/agents, privado), senão branco.
-  const idleColor =
-    kind === "pty-pipe"
+  const idleColor = isGraphEdge
+    ? confidence === "AMBIGUOUS"
+      ? COLORS.error // incerta → vermelha (risco de acoplamento)
+      : confidence === "INFERRED"
+        ? "rgba(255,255,255,0.45)" // deduzida → cinza tracejado
+        : "rgb(41, 162, 167)" // EXTRACTED → ciano sólido (relação certa)
+    : kind === "pty-pipe"
       ? "rgb(41, 162, 167)"
       : kind === "agent-link"
         ? "rgb(167, 139, 250)"
@@ -80,6 +91,15 @@ export function FlowEdge({
             ? "rgb(41, 162, 167)"
             : COLORS.idle;
   const stroke = flow !== "idle" ? COLORS[flow] ?? COLORS.idle : idleColor;
+  // Dash por confiança (só nas graph-edge idle): INFERRED tracejada · AMBIGUOUS pontilhada.
+  const graphDash =
+    isGraphEdge && flow === "idle"
+      ? confidence === "AMBIGUOUS"
+        ? "2 4"
+        : confidence === "INFERRED"
+          ? "6 4"
+          : undefined // EXTRACTED = sólida
+      : undefined;
 
   // Deleta a linha: se for pipe PTY, desfaz o pipe no backend (igual o onEdgesChange), depois
   // remove do canvas. Aparece um × ao SELECIONAR a linha (clicar) — mais óbvio que Delete.
@@ -101,7 +121,7 @@ export function FlowEdge({
           // sending = tracejado animado A→B; error = SÓLIDO ("none"/"animation:none"
           // anulam o dash da classe .animated que o pty-pipe carrega); demais estados
           // herdam o default (pty-pipe idle segue com o dash ciano de sempre).
-          strokeDasharray: flow === "sending" ? "6 4" : flow === "error" ? "none" : undefined,
+          strokeDasharray: flow === "sending" ? "6 4" : flow === "error" ? "none" : graphDash,
           animation:
             flow === "sending"
               ? "dashdraw 0.5s linear infinite"
