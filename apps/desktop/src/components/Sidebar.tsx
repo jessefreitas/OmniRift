@@ -8,6 +8,7 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
   Code2,
   Coins,
   Download,
@@ -124,6 +125,7 @@ const SkillLaunchPickerModal = lazy(() => import("@/components/SkillLaunchPicker
 const DiagnosticsModal = lazy(() => import("@/components/DiagnosticsModal").then((m) => ({ default: m.DiagnosticsModal })));
 const SkillsCenterModal = lazy(() => import("@/components/SkillsCenterModal").then((m) => ({ default: m.SkillsCenterModal })));
 const KanbanPanel = lazy(() => import("@/components/KanbanPanel").then((m) => ({ default: m.KanbanPanel })));
+const SnippetsPanel = lazy(() => import("@/components/SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })));
 const ProjectHealthPanel = lazy(() => import("@/components/health/ProjectHealthPanel").then((m) => ({ default: m.ProjectHealthPanel })));
 const TurboPanel = lazy(() => import("@/components/turbo/TurboPanel").then((m) => ({ default: m.TurboPanel })));
 import { ToolsSection } from "@/components/sidebar/ToolsSection";
@@ -157,6 +159,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "skills", icon: Sparkles, label: "Skills dos agentes", desc: "Selecionar skills globais (todo agente recebe) e por agente (cada role escolhe as suas)" },
   { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
   { id: "llm-providers", icon: KeyRound, label: "Central de API", desc: "Chaves de API dos providers de LLM — cadastra 1x, usa no Hermes, OmniPartner e review" },
+  { id: "snippets", icon: ClipboardList, label: "Central de copia-cola", desc: "Snippets persistentes (texto, código, imagem) — cola da área de transferência, copia ou arrasta pra qualquer nó" },
   { id: "pipeline", icon: Network, label: "Arquiteto de Pipeline", desc: "Descreve o projeto → um LLM monta o time (agentes, subagentes, conexões, paralelos, ondas) + grava e monta no canvas" },
   { id: "kanban", icon: SquareKanban, label: "Kanban do projeto", desc: "Acompanhamento visual: backlog / em andamento / review / concluído — os agentes movem os cards via tools kanban_*" },
   { id: "mobile", icon: Smartphone, label: "Dispositivos móveis", desc: "Parear o celular (QR), listar pareados, revogar e conceder controle (steering)" },
@@ -426,6 +429,7 @@ export function Sidebar() {
   const [showCompressors, setShowCompressors] = useState(false);
   const [showSkillsCenter, setShowSkillsCenter] = useState(false);
   const [showKanban, setShowKanban] = useState(false);
+  const [showSnippets, setShowSnippets] = useState(false);
   const [showDiag, setShowDiag] = useState(false);
   // Host de execução do "novo agente" (ref §3.1). "local" = máquina atual (default);
   // outros = ids do registry SSH (~/.omnirift/hosts.json). Injetado no addTerminal.
@@ -519,6 +523,7 @@ export function Sidebar() {
     compressors: () => setShowCompressors(true),
     skills: () => setShowSkillsCenter(true),
     kanban: () => setShowKanban(true),
+    snippets: () => setShowSnippets(true),
     snapshots: () => setShowSnapshots(true),
     hooks: () => setShowHooks(true),
     turbo: () => setShowTurbo(true),
@@ -535,6 +540,7 @@ export function Sidebar() {
         case "compressors": setShowCompressors(true); break;
         case "skills": setShowSkillsCenter(true); break;
         case "kanban": setShowKanban(true); break;
+        case "snippets": setShowSnippets(true); break;
         case "snapshots": setShowSnapshots(true); break;
         case "hooks": setShowHooks(true); break;
         case "memory": setShowMemory(true); break;
@@ -2256,6 +2262,7 @@ export function Sidebar() {
       {showCompressors && <CompressorsModal onClose={() => setShowCompressors(false)} />}
       {showSkillsCenter && <SkillsCenterModal cwd={currentCwd} roles={roles} customClis={customClis} onUpdateRoleSkills={updateRoleSkills} onUpdateCliSkills={updateCliSkills} onClose={() => setShowSkillsCenter(false)} />}
       {showKanban && <KanbanPanel project={currentCwd ?? ""} onClose={() => setShowKanban(false)} onFocusNode={(id) => { setShowKanban(false); focusNode(id); }} />}
+      {showSnippets && <SnippetsPanel onClose={() => setShowSnippets(false)} />}
       {showDiag && <DiagnosticsModal onClose={() => setShowDiag(false)} />}
       {closingFolder && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={() => setClosingFolder(false)}>

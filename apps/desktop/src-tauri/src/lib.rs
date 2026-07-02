@@ -99,7 +99,8 @@ use db::{
     kanban_query, memory_add, memory_delete, memory_query, reminder_add,
     reminder_delete, reminder_set_done, reminders_list, session_end, session_event,
     session_events_list, session_start, sessions_list, snapshot_create, snapshot_delete,
-    snapshot_get, snapshot_prune_auto, snapshots_list,
+    snapshot_get, snapshot_prune_auto, snapshots_list, snippet_create, snippet_delete,
+    snippets_query,
 };
 use mcp::{mcp_router, serena_health, AgentRegistry, ClaimsRegistry, MCP_PORT};
 use pty::PtyManager;
@@ -377,6 +378,9 @@ pub fn run() {
             kanban_card_delete,
             kanban_columns_query,
             kanban_columns_save,
+            snippets_query,
+            snippet_create,
+            snippet_delete,
             snapshot_create,
             snapshot_prune_auto,
             snapshots_list,

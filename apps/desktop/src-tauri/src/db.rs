@@ -149,6 +149,19 @@ CREATE TABLE IF NOT EXISTS kanban_columns (
     position INTEGER NOT NULL,
     PRIMARY KEY (project, col)
 );
+
+-- Central de copia-cola (snippets do USUÁRIO): texto/código/imagem persistentes,
+-- globais (não por projeto) e SEPARADOS do blackboard dos agentes (tabela memory).
+-- kind: text|code|image. Para image, content guarda o PATH do arquivo (MVP —
+-- o pipeline de colar imagem reusa save_paste_image). lang: linguagem do código.
+CREATE TABLE IF NOT EXISTS snippets (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT NOT NULL DEFAULT 'text',
+    title      TEXT,
+    content    TEXT NOT NULL,
+    lang       TEXT,
+    created_at TEXT NOT NULL
+);
 ";
 
 /// Metadados de um snapshot do canvas (sem o doc, pra listagem leve).
@@ -1425,6 +1438,104 @@ pub fn kanban_columns_save(
     Ok(())
 }
 
+// ---- Central de copia-cola (snippets do usuário — separada do blackboard) ----
+
+/// Snippet da central de copia-cola (serializado camelCase pro front).
+/// kind `image` guarda o PATH do arquivo em `content` (MVP).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnippetRow {
+    pub id: i64,
+    pub kind: String,
+    pub title: Option<String>,
+    pub content: String,
+    pub lang: Option<String>,
+    pub created_at: String,
+}
+
+/// Tipos válidos de snippet — defesa contra kind inventado vindo do wire.
+fn snippet_kind_ok(k: &str) -> bool {
+    matches!(k, "text" | "code" | "image")
+}
+
+impl Db {
+    /// Todos os snippets, mais novo primeiro (a central é global, sem project).
+    pub fn snippets_list(&self) -> Result<Vec<SnippetRow>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, kind, title, content, lang, created_at FROM snippets ORDER BY id DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(SnippetRow {
+                id: r.get(0)?,
+                kind: r.get(1)?,
+                title: r.get(2)?,
+                content: r.get(3)?,
+                lang: r.get(4)?,
+                created_at: r.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Valida ANTES de tocar o banco: kind ∈ text|code|image e content não-vazio.
+    pub fn snippet_add(
+        &self,
+        kind: &str,
+        title: Option<&str>,
+        content: &str,
+        lang: Option<&str>,
+    ) -> Result<i64> {
+        if !snippet_kind_ok(kind) {
+            anyhow::bail!("kind inválido: {kind:?} (use text|code|image)");
+        }
+        if content.is_empty() {
+            anyhow::bail!("content vazio");
+        }
+        let conn = self.0.lock();
+        conn.execute(
+            "INSERT INTO snippets (kind, title, content, lang, created_at)
+             VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+            rusqlite::params![kind, title, content, lang],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn snippet_delete(&self, id: i64) -> Result<()> {
+        self.0.lock().execute("DELETE FROM snippets WHERE id = ?1", [id])?;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn snippets_query(db: tauri::State<'_, Db>) -> Result<Vec<SnippetRow>, String> {
+    db.snippets_list().map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn snippet_create(
+    kind: String,
+    title: Option<String>,
+    content: String,
+    lang: Option<String>,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Db>,
+) -> Result<i64, String> {
+    // Título/lang em branco viram NULL — o painel mostra preview do content no lugar.
+    let title = title.as_deref().map(str::trim).filter(|t| !t.is_empty());
+    let lang = lang.as_deref().map(str::trim).filter(|l| !l.is_empty());
+    let id = db.snippet_add(&kind, title, &content, lang).map_err(|e| format!("{e:#}"))?;
+    let _ = app.emit("snippets://changed", ());
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn snippet_delete(id: i64, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
+    db.snippet_delete(id).map_err(|e| format!("{e:#}"))?;
+    let _ = app.emit("snippets://changed", ());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1574,5 +1685,38 @@ mod tests {
         let id = db.kanban_create("/p", "a", "t", None, None, None).unwrap();
         assert_eq!(db.kanban_card_project(id).unwrap().as_deref(), Some("/p"));
         assert_eq!(db.kanban_card_project(9999).unwrap(), None);
+    }
+
+    #[test]
+    fn snippets_roundtrip_and_validation() {
+        let db = Db::in_memory().unwrap();
+        assert!(db.snippets_list().unwrap().is_empty());
+
+        let a = db.snippet_add("text", Some("t1"), "olá", None).unwrap();
+        let b = db.snippet_add("code", None, "fn main() {}", Some("rust")).unwrap();
+        let c = db.snippet_add("image", Some("print"), "/tmp/omnirift-pastes/x.png", None).unwrap();
+        assert!(a < b && b < c);
+
+        // Lista mais novo primeiro (id DESC); campos opcionais preservados.
+        let rows = db.snippets_list().unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].id, c);
+        assert_eq!(rows[0].kind, "image");
+        assert_eq!(rows[0].content, "/tmp/omnirift-pastes/x.png");
+        assert_eq!(rows[1].lang.as_deref(), Some("rust"));
+        assert_eq!(rows[1].title, None);
+        assert_eq!(rows[2].title.as_deref(), Some("t1"));
+
+        // Validações rejeitam SEM tocar o banco: kind inventado e content vazio.
+        assert!(db.snippet_add("video", None, "x", None).is_err());
+        assert!(db.snippet_add("text", None, "", None).is_err());
+        assert_eq!(db.snippets_list().unwrap().len(), 3);
+
+        // Delete remove só o alvo; id inexistente é no-op silencioso.
+        db.snippet_delete(b).unwrap();
+        let rows = db.snippets_list().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|r| r.id != b));
+        db.snippet_delete(9999).unwrap();
     }
 }
