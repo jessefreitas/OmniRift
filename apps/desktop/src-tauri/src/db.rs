@@ -6,8 +6,8 @@
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
 use tauri::Emitter;
-use rusqlite::Connection;
-use serde::Serialize;
+use rusqlite::{Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub struct Db(Mutex<Connection>);
@@ -124,7 +124,8 @@ CREATE TABLE IF NOT EXISTS project_budgets (
 );
 
 -- Kanban do projeto (acompanhamento visual): cards por project (= cwd), movidos
--- pelos AGENTES via tools MCP kanban_* e pelo usuário no painel. col: backlog|doing|test|review|blocked|done.
+-- pelos AGENTES via tools MCP kanban_* e pelo usuário no painel. col: slug de uma
+-- coluna do projeto (custom em kanban_columns, ou o default backlog|doing|test|review|blocked|done).
 CREATE TABLE IF NOT EXISTS kanban_cards (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     project     TEXT NOT NULL,
@@ -138,6 +139,16 @@ CREATE TABLE IF NOT EXISTS kanban_cards (
     updated_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_kanban_project ON kanban_cards(project);
+
+-- Colunas customizáveis do Kanban por projeto. Sem linhas pro projeto = usa o
+-- fluxo default de 6 (não semeia). col é slug [a-z0-9_-]{1,24}; label é o nome exibido.
+CREATE TABLE IF NOT EXISTS kanban_columns (
+    project  TEXT NOT NULL,
+    col      TEXT NOT NULL,
+    label    TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (project, col)
+);
 ";
 
 /// Metadados de um snapshot do canvas (sem o doc, pra listagem leve).
@@ -1127,10 +1138,55 @@ fn map_kanban(row: &rusqlite::Row) -> rusqlite::Result<KanbanCardRow> {
     })
 }
 
-/// Colunas válidas — defesa contra tool-call de agente com coluna inventada.
-/// Fluxo profissional (estilo Jira): backlog → doing → test → review → (blocked) → done.
-pub(crate) fn kanban_valid_col(c: &str) -> bool {
-    matches!(c, "backlog" | "doing" | "test" | "review" | "blocked" | "done")
+/// Fluxo default de 6 colunas (estilo Jira): backlog → doing → test → review → (blocked) → done.
+/// Vale pra todo projeto SEM colunas custom em `kanban_columns` (não semeamos linhas).
+pub(crate) const KANBAN_DEFAULT_COLS: [(&str, &str); 6] = [
+    ("backlog", "Backlog"),
+    ("doing", "Em andamento"),
+    ("test", "Teste"),
+    ("review", "Review"),
+    ("blocked", "Bloqueado"),
+    ("done", "Concluído"),
+];
+
+/// Slug de coluna: [a-z0-9_-]{1,24} — chave estável dos cards (o label é livre).
+fn kanban_col_slug_ok(c: &str) -> bool {
+    !c.is_empty()
+        && c.len() <= 24
+        && c.bytes().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'))
+}
+
+/// Colunas efetivas do projeto: as custom (ordenadas por position) ou, sem custom,
+/// o default de 6. Retorna pares (slug, label).
+pub(crate) fn kanban_effective_columns(db: &Db, project: &str) -> Vec<(String, String)> {
+    match db.kanban_columns_list(project) {
+        Ok(cols) if !cols.is_empty() => cols.into_iter().map(|(c, l, _)| (c, l)).collect(),
+        _ => KANBAN_DEFAULT_COLS.iter().map(|(c, l)| (c.to_string(), l.to_string())).collect(),
+    }
+}
+
+/// Coluna válida pro projeto — defesa contra tool-call de agente com coluna inventada.
+/// Aceita se estiver nas colunas custom do projeto OU (sem custom) no default de 6.
+pub(crate) fn kanban_valid_col(db: &Db, project: &str, c: &str) -> bool {
+    kanban_effective_columns(db, project).iter().any(|(col, _)| col == c)
+}
+
+/// Slugs das colunas do projeto separados por `|` — pra mensagem de erro dinâmica.
+pub(crate) fn kanban_cols_hint(db: &Db, project: &str) -> String {
+    kanban_effective_columns(db, project)
+        .iter()
+        .map(|(c, _)| c.as_str())
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+/// Primeira coluna do fluxo do projeto (default do create quando `col` não vem).
+pub(crate) fn kanban_first_col(db: &Db, project: &str) -> String {
+    kanban_effective_columns(db, project)
+        .into_iter()
+        .next()
+        .map(|(c, _)| c)
+        .unwrap_or_else(|| "backlog".into())
 }
 
 impl Db {
@@ -1203,6 +1259,62 @@ impl Db {
         self.0.lock().execute("DELETE FROM kanban_cards WHERE id = ?1", [id])?;
         Ok(())
     }
+
+    /// Projeto dono do card — pra validar coluna em moves que só trazem o id.
+    pub fn kanban_card_project(&self, id: i64) -> Result<Option<String>> {
+        let conn = self.0.lock();
+        let p = conn
+            .query_row("SELECT project FROM kanban_cards WHERE id = ?1", [id], |r| {
+                r.get::<_, String>(0)
+            })
+            .optional()?;
+        Ok(p)
+    }
+
+    /// Colunas custom do projeto, ordenadas por position: (col, label, position).
+    /// Vazio = projeto usa o default de 6 (ver `KANBAN_DEFAULT_COLS`).
+    pub fn kanban_columns_list(&self, project: &str) -> Result<Vec<(String, String, i64)>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT col, label, position FROM kanban_columns WHERE project = ?1 ORDER BY position, col",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![project], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Substitui as colunas do projeto (DELETE + INSERT em ordem, transacional).
+    /// Valida ANTES de tocar o banco: slug [a-z0-9_-]{1,24}, label não-vazio,
+    /// sem duplicata, mínimo 2 colunas — falha deixa o estado anterior intacto.
+    pub fn kanban_columns_set(&self, project: &str, cols: &[(String, String)]) -> Result<()> {
+        if cols.len() < 2 {
+            anyhow::bail!("mínimo de 2 colunas");
+        }
+        let mut seen = std::collections::HashSet::new();
+        for (col, label) in cols {
+            if !kanban_col_slug_ok(col) {
+                anyhow::bail!("slug de coluna inválido: {col:?} (use [a-z0-9_-], 1-24 chars)");
+            }
+            if label.trim().is_empty() {
+                anyhow::bail!("label vazio na coluna {col:?}");
+            }
+            if !seen.insert(col.as_str()) {
+                anyhow::bail!("coluna duplicada: {col:?}");
+            }
+        }
+        let mut conn = self.0.lock();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM kanban_columns WHERE project = ?1", [project])?;
+        for (i, (col, label)) in cols.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO kanban_columns (project, col, label, position) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![project, col, label.trim(), i as i64],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -1221,12 +1333,15 @@ pub fn kanban_card_create(
     app: tauri::AppHandle,
     db: tauri::State<'_, Db>,
 ) -> Result<i64, String> {
-    let col = col.as_deref().unwrap_or("backlog");
-    if !kanban_valid_col(col) {
-        return Err(format!("coluna inválida: {col} (use backlog|doing|test|review|blocked|done)"));
+    let col = match col.filter(|c| !c.is_empty()) {
+        Some(c) => c,
+        None => kanban_first_col(&db, &project),
+    };
+    if !kanban_valid_col(&db, &project, &col) {
+        return Err(format!("coluna inválida: {col} (use {})", kanban_cols_hint(&db, &project)));
     }
     let id = db
-        .kanban_create(&project, col, &title, body.as_deref(), agent.as_deref(), node_id.as_deref())
+        .kanban_create(&project, &col, &title, body.as_deref(), agent.as_deref(), node_id.as_deref())
         .map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
     Ok(id)
@@ -1234,8 +1349,12 @@ pub fn kanban_card_create(
 
 #[tauri::command]
 pub fn kanban_card_move(id: i64, col: String, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
-    if !kanban_valid_col(&col) {
-        return Err(format!("coluna inválida: {col} (use backlog|doing|test|review|blocked|done)"));
+    let project = db
+        .kanban_card_project(id)
+        .map_err(|e| format!("{e:#}"))?
+        .ok_or_else(|| format!("card #{id} não existe"))?;
+    if !kanban_valid_col(&db, &project, &col) {
+        return Err(format!("coluna inválida: {col} (use {})", kanban_cols_hint(&db, &project)));
     }
     db.kanban_move(id, &col).map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
@@ -1260,6 +1379,48 @@ pub fn kanban_card_update(
 #[tauri::command]
 pub fn kanban_card_delete(id: i64, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
     db.kanban_delete(id).map_err(|e| format!("{e:#}"))?;
+    let _ = app.emit("kanban://changed", ());
+    Ok(())
+}
+
+/// Coluna do Kanban no wire pro front (camelCase).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KanbanColumnRow {
+    pub col: String,
+    pub label: String,
+    pub position: i64,
+}
+
+/// Par slug+label vindo do editor de colunas do painel.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KanbanColumnSpec {
+    pub col: String,
+    pub label: String,
+}
+
+/// Colunas CUSTOM do projeto (vazio = o front usa o default de 6).
+#[tauri::command]
+pub fn kanban_columns_query(project: String, db: tauri::State<'_, Db>) -> Result<Vec<KanbanColumnRow>, String> {
+    db.kanban_columns_list(&project)
+        .map(|cols| {
+            cols.into_iter()
+                .map(|(col, label, position)| KanbanColumnRow { col, label, position })
+                .collect()
+        })
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn kanban_columns_save(
+    project: String,
+    cols: Vec<KanbanColumnSpec>,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Db>,
+) -> Result<(), String> {
+    let pairs: Vec<(String, String)> = cols.into_iter().map(|c| (c.col, c.label)).collect();
+    db.kanban_columns_set(&project, &pairs).map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
     Ok(())
 }
@@ -1363,5 +1524,55 @@ mod tests {
         }
         assert_eq!(runs.len(), 50, "deve manter só as 50 runs mais recentes do escopo");
         assert!(!runs.contains("2020-01-01 00:00:00"), "a run mais antiga foi descartada");
+    }
+
+    #[test]
+    fn kanban_columns_custom_roundtrip_and_validation() {
+        let db = Db::in_memory().unwrap();
+        let pair = |c: &str, l: &str| (c.to_string(), l.to_string());
+
+        // Sem custom → default de 6 vale; lista custom vem vazia (não semeia).
+        assert!(db.kanban_columns_list("/p").unwrap().is_empty());
+        assert!(kanban_valid_col(&db, "/p", "backlog"));
+        assert!(kanban_valid_col(&db, "/p", "done"));
+        assert!(!kanban_valid_col(&db, "/p", "inventada"));
+        assert_eq!(kanban_first_col(&db, "/p"), "backlog");
+
+        // Set custom → ordem preservada por position.
+        db.kanban_columns_set("/p", &[pair("ideias", "Ideias"), pair("fazendo", "Fazendo"), pair("feito", "Feito")])
+            .unwrap();
+        let cols = db.kanban_columns_list("/p").unwrap();
+        assert_eq!(
+            cols.iter().map(|(c, _, _)| c.as_str()).collect::<Vec<_>>(),
+            ["ideias", "fazendo", "feito"]
+        );
+        assert_eq!(cols[1].1, "Fazendo");
+        assert_eq!(cols[2].2, 2);
+
+        // Com custom: só as do projeto valem — o default deixa de valer AQUI…
+        assert!(kanban_valid_col(&db, "/p", "fazendo"));
+        assert!(!kanban_valid_col(&db, "/p", "backlog"));
+        assert_eq!(kanban_first_col(&db, "/p"), "ideias");
+        assert_eq!(kanban_cols_hint(&db, "/p"), "ideias|fazendo|feito");
+        // …mas outro projeto continua no default.
+        assert!(kanban_valid_col(&db, "/q", "backlog"));
+
+        // Substituição total (DELETE do projeto + INSERT em ordem).
+        db.kanban_columns_set("/p", &[pair("a", "A"), pair("b", "B")]).unwrap();
+        assert_eq!(db.kanban_columns_list("/p").unwrap().len(), 2);
+
+        // Validações rejeitam SEM tocar o estado anterior: <2 colunas, slug fora
+        // de [a-z0-9_-]{1,24}, label vazio, slug duplicado.
+        assert!(db.kanban_columns_set("/p", &[pair("a", "A")]).is_err());
+        assert!(db.kanban_columns_set("/p", &[pair("Maiús cula", "X"), pair("b", "B")]).is_err());
+        assert!(db.kanban_columns_set("/p", &[pair("a123456789012345678901234", "X"), pair("b", "B")]).is_err());
+        assert!(db.kanban_columns_set("/p", &[pair("a", "   "), pair("b", "B")]).is_err());
+        assert!(db.kanban_columns_set("/p", &[pair("a", "A"), pair("a", "A2")]).is_err());
+        assert_eq!(db.kanban_columns_list("/p").unwrap().len(), 2, "falha de validação não corrompe");
+
+        // kanban_card_project acha o dono do card (base da validação do move).
+        let id = db.kanban_create("/p", "a", "t", None, None, None).unwrap();
+        assert_eq!(db.kanban_card_project(id).unwrap().as_deref(), Some("/p"));
+        assert_eq!(db.kanban_card_project(9999).unwrap(), None);
     }
 }

@@ -128,6 +128,19 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
     store().addTerminal({ id: p.id, command: p.command, args: await devArgs(role, p.label), label: p.label, role });
   });
 
+  // Wake de agente dormindo (tool agent_wake, task #10): o backend só conhece
+  // sessionId/label — quem tem command/args/env é o TerminalNode. Repassa via
+  // CustomEvent window; o node cujo sessionId bate chama reconnect() (mesmo
+  // padrão do omnirift:mcp-remapped no Sidebar).
+  const unWake = await listen<{ sessionId?: string; label?: string }>(
+    "canvas://agent-wake",
+    (event) => {
+      const sessionId = event.payload?.sessionId;
+      if (!sessionId) return;
+      window.dispatchEvent(new CustomEvent("omnirift:agent-wake", { detail: { sessionId } }));
+    },
+  );
+
   const unCreate = await listen<{ name?: string }>("canvas://floor-create", (e) => {
     store().createParallel(e.payload.name, { focus: true });
   });
@@ -177,6 +190,7 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
     unSpawn();
     unAttach();
     unSpawnFloor();
+    unWake();
     unCreate();
     unFocus();
     unRename();

@@ -1,10 +1,14 @@
-// Kanban do projeto — acompanhamento visual (backlog / em andamento / review / concluído).
+// Kanban do projeto — acompanhamento visual com colunas do FLUXO DO PROJETO.
 // Os AGENTES movem os cards via tools MCP kanban_*; o usuário acompanha e ajusta aqui.
 // O Arquiteto de Pipeline semeia o backlog ao Montar. Refresh ao vivo via kanban://changed.
+// Colunas customizáveis por projeto (⚙ no header); sem custom = default de 6.
 
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { SquareKanban, X, Plus, Trash2, ChevronLeft, ChevronRight, Crosshair } from "lucide-react";
+import {
+  SquareKanban, X, Plus, Trash2, ChevronLeft, ChevronRight, Crosshair,
+  Settings2, ArrowUp, ArrowDown,
+} from "lucide-react";
 
 import {
   KANBAN_COLUMNS,
@@ -12,12 +16,32 @@ import {
   kanbanCardCreate,
   kanbanCardMove,
   kanbanCardDelete,
+  kanbanColumnsList,
+  kanbanColumnsSave,
   onKanbanChanged,
   type KanbanCard,
 } from "@/lib/kanban-client";
 import { useT } from "@/lib/i18n";
 
-const ORDER = KANBAN_COLUMNS.map((c) => c.id);
+type ColDef = { col: string; label: string };
+
+const DEFAULT_COLS: ColDef[] = KANBAN_COLUMNS.map((c) => ({ col: c.id, label: c.label }));
+
+/** Slug [a-z0-9_-]{1,24} único a partir do label — pra colunas novas do editor. */
+function slugifyCol(label: string, taken: Set<string>): string {
+  let base = label
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24);
+  if (!base) base = "col";
+  let slug = base;
+  let n = 2;
+  while (taken.has(slug)) slug = `${base.slice(0, 21)}-${n++}`;
+  return slug;
+}
 
 export function KanbanPanel({
   project,
@@ -31,9 +55,20 @@ export function KanbanPanel({
   const t = useT();
   const [cards, setCards] = useState<KanbanCard[]>([]);
   const [newTitle, setNewTitle] = useState("");
+  // Colunas do fluxo do projeto: custom (labels do usuário, não traduz) ou default.
+  const [columns, setColumns] = useState<ColDef[]>(DEFAULT_COLS);
+  const [custom, setCustom] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const reload = useCallback(() => {
     kanbanList(project).then(setCards).catch((e) => console.warn("[kanban] list falhou:", e));
+    kanbanColumnsList(project)
+      .then((cols) => {
+        const hasCustom = cols.length >= 2;
+        setCustom(hasCustom);
+        setColumns(hasCustom ? cols.map((c) => ({ col: c.col, label: c.label })) : DEFAULT_COLS);
+      })
+      .catch((e) => console.warn("[kanban] columns falhou:", e));
   }, [project]);
 
   useEffect(() => {
@@ -46,16 +81,17 @@ export function KanbanPanel({
   const addCard = useCallback(() => {
     const title = newTitle.trim();
     if (!title) return;
-    kanbanCardCreate({ project, title })
+    kanbanCardCreate({ project, title, col: columns[0]?.col })
       .then(() => setNewTitle(""))
       .catch((e) => console.warn("[kanban] create falhou:", e));
-  }, [newTitle, project]);
+  }, [newTitle, project, columns]);
 
   const moveCard = useCallback((card: KanbanCard, dir: -1 | 1) => {
-    const next = ORDER[ORDER.indexOf(card.col) + dir];
+    const order = columns.map((c) => c.col);
+    const next = order[order.indexOf(card.col) + dir];
     if (!next) return;
     kanbanCardMove(card.id, next).catch((e) => console.warn("[kanban] move falhou:", e));
-  }, []);
+  }, [columns]);
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -70,6 +106,14 @@ export function KanbanPanel({
             {project}
           </span>
           <button
+            onClick={() => setEditing((v) => !v)}
+            className={`rounded p-1 hover:bg-white/10 ${editing ? "text-brand" : "text-textMuted hover:text-text"}`}
+            title={t("kanban.editCols", "Editar colunas do projeto")}
+            aria-label={t("kanban.editCols", "Editar colunas do projeto")}
+          >
+            <Settings2 size={15} />
+          </button>
+          <button
             onClick={onClose}
             className="rounded p-1 text-textMuted hover:bg-white/10 hover:text-text"
             aria-label={t("common.close", "Fechar")}
@@ -78,22 +122,37 @@ export function KanbanPanel({
           </button>
         </div>
 
-        <div className="grid flex-1 grid-cols-6 gap-2 overflow-auto p-3">
+        {editing ? (
+          <ColumnsEditor
+            t={t}
+            initial={columns}
+            onCancel={() => setEditing(false)}
+            onSave={(cols) => {
+              kanbanColumnsSave(project, cols)
+                .then(() => { setEditing(false); reload(); })
+                .catch((e) => console.warn("[kanban] salvar colunas falhou:", e));
+            }}
+          />
+        ) : (
+        <div
+          className="grid flex-1 gap-2 overflow-auto p-3"
+          style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0,1fr))` }}
+        >
           {cards.length === 0 && (
-            <p className="col-span-6 py-8 text-center text-xs text-textMuted">
+            <p className="py-8 text-center text-xs text-textMuted" style={{ gridColumn: "1 / -1" }}>
               {t(
                 "kanban.empty",
                 "Nenhum card ainda. Os agentes criam e movem cards via tools kanban_* e o Arquiteto de Pipeline semeia o backlog ao Montar — ou crie o primeiro abaixo.",
               )}
             </p>
           )}
-          {KANBAN_COLUMNS.map((col) => {
-            const colCards = cards.filter((c) => c.col === col.id);
+          {columns.map((col, ci) => {
+            const colCards = cards.filter((c) => c.col === col.col);
             return (
-              <div key={col.id} className="flex min-w-0 flex-col gap-2">
+              <div key={col.col} className="flex min-w-0 flex-col gap-2">
                 <div className="flex items-center justify-between px-1">
                   <span className="truncate text-[11px] font-semibold text-text">
-                    {t(`kanban.col.${col.id}`, col.label)}
+                    {custom ? col.label : t(`kanban.col.${col.col}`, col.label)}
                   </span>
                   <span className="text-[10px] text-textMuted">{colCards.length}</span>
                 </div>
@@ -113,7 +172,7 @@ export function KanbanPanel({
                       )}
                       <div className="flex items-center justify-end gap-0.5">
                         <button
-                          disabled={card.col === ORDER[0]}
+                          disabled={ci === 0}
                           onClick={() => moveCard(card, -1)}
                           className="rounded p-0.5 text-textMuted hover:bg-white/10 hover:text-text disabled:pointer-events-none disabled:opacity-30"
                           title={t("kanban.moveLeft", "Mover pra coluna anterior")}
@@ -121,7 +180,7 @@ export function KanbanPanel({
                           <ChevronLeft size={14} />
                         </button>
                         <button
-                          disabled={card.col === ORDER[ORDER.length - 1]}
+                          disabled={ci === columns.length - 1}
                           onClick={() => moveCard(card, 1)}
                           className="rounded p-0.5 text-textMuted hover:bg-white/10 hover:text-text disabled:pointer-events-none disabled:opacity-30"
                           title={t("kanban.moveRight", "Mover pra próxima coluna")}
@@ -148,7 +207,7 @@ export function KanbanPanel({
                     </div>
                   ))}
                 </div>
-                {col.id === "backlog" && (
+                {ci === 0 && (
                   <div className="mt-1 flex items-center gap-1.5">
                     <input
                       value={newTitle}
@@ -171,8 +230,106 @@ export function KanbanPanel({
             );
           })}
         </div>
+        )}
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** Editor inline das colunas do projeto: renomear label, reordenar ↑↓, adicionar/remover.
+ *  O slug (col) é gerado do label e fica IMUTÁVEL — é a chave dos cards no banco. */
+function ColumnsEditor({ t, initial, onSave, onCancel }: {
+  t: (key: string, fallback?: string) => string;
+  initial: ColDef[];
+  onSave: (cols: ColDef[]) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<ColDef[]>(() => initial.map((c) => ({ ...c })));
+  const [newLabel, setNewLabel] = useState("");
+  const canSave = draft.length >= 2 && draft.every((c) => c.label.trim());
+  const move = (i: number, dir: -1 | 1) =>
+    setDraft((d) => {
+      const j = i + dir;
+      if (j < 0 || j >= d.length) return d;
+      const next = [...d];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  const add = () => {
+    const label = newLabel.trim();
+    if (!label) return;
+    setDraft((d) => [...d, { col: slugifyCol(label, new Set(d.map((c) => c.col))), label }]);
+    setNewLabel("");
+  };
+  const btn =
+    "rounded p-0.5 text-textMuted hover:bg-white/10 hover:text-text disabled:pointer-events-none disabled:opacity-30";
+  return (
+    <div className="flex flex-1 flex-col gap-2 overflow-auto p-3">
+      <p className="text-[11px] text-textMuted">
+        {t(
+          "kanban.colsHint",
+          "Colunas do fluxo deste projeto — a ordem aqui é a ordem do board. Cards de colunas removidas ficam ocultos até o slug voltar.",
+        )}
+      </p>
+      {draft.map((c, i) => (
+        <div key={c.col} className="flex items-center gap-2 rounded-md border border-border bg-surface2 px-2 py-1.5">
+          <span className="w-36 shrink-0 truncate font-mono text-[10px] text-textMuted" title={c.col}>
+            {c.col}
+          </span>
+          <input
+            value={c.label}
+            onChange={(e) => setDraft((d) => d.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+            className="min-w-0 flex-1 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text outline-none focus:border-brand"
+          />
+          <button disabled={i === 0} onClick={() => move(i, -1)} className={btn} title={t("kanban.colUp", "Mover pra cima")}>
+            <ArrowUp size={14} />
+          </button>
+          <button disabled={i === draft.length - 1} onClick={() => move(i, 1)} className={btn} title={t("kanban.colDown", "Mover pra baixo")}>
+            <ArrowDown size={14} />
+          </button>
+          <button
+            disabled={draft.length <= 2}
+            onClick={() => setDraft((d) => d.filter((_, j) => j !== i))}
+            className="rounded p-0.5 text-textMuted hover:bg-red-500/20 hover:text-red-400 disabled:pointer-events-none disabled:opacity-30"
+            title={t("kanban.colRemove", "Remover coluna (mínimo 2)")}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      ))}
+      <div className="flex items-center gap-1.5">
+        <input
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+          placeholder={t("kanban.newCol", "nova coluna…")}
+          className="w-full rounded border border-border bg-bg px-2 py-1 text-[11px] text-text outline-none focus:border-brand"
+        />
+        <button
+          onClick={add}
+          disabled={!newLabel.trim()}
+          className="shrink-0 rounded p-1 text-textMuted hover:bg-brand/20 hover:text-brand disabled:pointer-events-none disabled:opacity-30"
+          title={t("kanban.addCol", "Adicionar coluna")}
+        >
+          <Plus size={15} />
+        </button>
+      </div>
+      <div className="mt-auto flex items-center justify-end gap-2 border-t border-border pt-2">
+        <button
+          onClick={onCancel}
+          className="rounded border border-border px-3 py-1 text-[11px] text-textMuted hover:bg-white/10 hover:text-text"
+        >
+          {t("common.cancel", "Cancelar")}
+        </button>
+        <button
+          onClick={() => canSave && onSave(draft.map((c) => ({ col: c.col, label: c.label.trim() })))}
+          disabled={!canSave}
+          className="rounded bg-brand px-3 py-1 text-[11px] font-semibold text-white hover:opacity-90 disabled:pointer-events-none disabled:opacity-30"
+        >
+          {t("kanban.saveCols", "Salvar colunas")}
+        </button>
+      </div>
+    </div>
   );
 }

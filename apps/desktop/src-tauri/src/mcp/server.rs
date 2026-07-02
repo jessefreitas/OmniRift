@@ -325,6 +325,7 @@ async fn handle_jsonrpc(state: Arc<McpState>, req: Value) -> Value {
                 }));
             }
             tools.extend(crate::mcp::tools::terminal_tool_defs());
+            tools.extend(crate::mcp::tools::agent_lifecycle_tool_defs());
             tools.extend(crate::mcp::tools::kanban_tool_defs());
             tools.push(crate::mcp::tools::review_tool_def());
             json!({ "tools": tools })
@@ -371,6 +372,14 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
 
         t if t.starts_with("terminal_") => {
             let text = crate::mcp::tools::terminal_dispatch(&state, t, args).await;
+            json!({ "content": [{ "type": "text", "text": text }] })
+        }
+
+        // Ciclo de vida (task #10): match EXATO, não prefixo `agent_` — labels de
+        // agente viram tools dinâmicas via to_tool_name ("Agent 01" → `agent_01`) e
+        // um prefixo capturaria essas tools registradas por engano.
+        "agent_sleep" | "agent_wake" => {
+            let text = crate::mcp::tools::agent_lifecycle_dispatch(&state, tool, args);
             json!({ "content": [{ "type": "text", "text": text }] })
         }
 

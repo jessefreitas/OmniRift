@@ -8,8 +8,8 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 export type KanbanColumn = "backlog" | "doing" | "test" | "review" | "blocked" | "done";
 
-// Fluxo profissional (estilo Jira). "blocked" cobre bugs/impedimentos — o card
-// para ali até destravar; colunas customizáveis por projeto são a próxima fatia.
+// Fluxo default (estilo Jira) — vale pra projeto SEM colunas custom no backend.
+// "blocked" cobre bugs/impedimentos — o card para ali até destravar.
 export const KANBAN_COLUMNS: { id: KanbanColumn; label: string }[] = [
   { id: "backlog", label: "Backlog" },
   { id: "doing", label: "Em andamento" },
@@ -19,10 +19,18 @@ export const KANBAN_COLUMNS: { id: KanbanColumn; label: string }[] = [
   { id: "done", label: "Concluído" },
 ];
 
+/// Coluna custom do projeto (tabela kanban_columns). col = slug [a-z0-9_-]{1,24}.
+export interface KanbanColumnDef {
+  col: string;
+  label: string;
+  position: number;
+}
+
 export interface KanbanCard {
   id: number;
   project: string;
-  col: KanbanColumn;
+  /** Slug de uma coluna do fluxo do projeto (custom ou default). */
+  col: string;
   title: string;
   body: string | null;
   agent: string | null;
@@ -39,7 +47,7 @@ export function kanbanList(project: string): Promise<KanbanCard[]> {
 export function kanbanCardCreate(p: {
   project: string;
   title: string;
-  col?: KanbanColumn;
+  col?: string;
   body?: string;
   agent?: string;
   nodeId?: string;
@@ -54,8 +62,18 @@ export function kanbanCardCreate(p: {
   });
 }
 
-export function kanbanCardMove(id: number, col: KanbanColumn): Promise<void> {
+export function kanbanCardMove(id: number, col: string): Promise<void> {
   return invoke("kanban_card_move", { id, col });
+}
+
+/** Colunas CUSTOM do projeto ([] = projeto usa o default KANBAN_COLUMNS). */
+export function kanbanColumnsList(project: string): Promise<KanbanColumnDef[]> {
+  return invoke("kanban_columns_query", { project });
+}
+
+/** Substitui as colunas do projeto (ordem do array = ordem do board). Mínimo 2. */
+export function kanbanColumnsSave(project: string, cols: { col: string; label: string }[]): Promise<void> {
+  return invoke("kanban_columns_save", { project, cols });
 }
 
 export function kanbanCardUpdate(p: { id: number; title?: string; body?: string; agent?: string }): Promise<void> {

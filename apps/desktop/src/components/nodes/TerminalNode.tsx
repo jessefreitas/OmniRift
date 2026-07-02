@@ -134,6 +134,20 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
     return () => window.clearTimeout(tid);
   }, [data.size?.width, data.size?.height, fit]);
 
+  // Wake do Orquestrador (tool agent_wake → canvas://agent-wake → CustomEvent, task #10):
+  // o reconnect() do useTerminalSession não é acessível de fora do node, então o
+  // orchestration-client repassa via window e ESTE node re-spawna quando o sessionId
+  // bate (mesmo command/args/env — a persona do role vive nos args). Padrão igual ao
+  // listener de omnirift:mcp-remapped no Sidebar.
+  useEffect(() => {
+    const onWake = (e: Event) => {
+      const sid = (e as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
+      if (sid === data.session_id) void reconnect();
+    };
+    window.addEventListener("omnirift:agent-wake", onWake);
+    return () => window.removeEventListener("omnirift:agent-wake", onWake);
+  }, [data.session_id, reconnect]);
+
   // Tempo de sessão: re-render leve a cada 30s só pra atualizar o "há Xmin".
   useEffect(() => {
     if (!data.createdAt) return;

@@ -1090,7 +1090,7 @@ pub fn kanban_tool_defs() -> Vec<Value> {
     vec![
         json!({
             "name": "kanban_list",
-            "description": "Lista os cards do Kanban do projeto (acompanhamento visual no painel do OmniRift). Use pra ver o que está em backlog/doing/review/done e achar o id do SEU card.",
+            "description": "Lista as colunas do fluxo do projeto E os cards do Kanban (acompanhamento visual no painel do OmniRift). Retorna {\"columns\":[...],\"cards\":[...]} — use pra ver o fluxo, o que está em cada coluna e achar o id do SEU card.",
             "inputSchema": { "type": "object", "properties": {
                 "project": { "type": "string", "description": "Caminho (cwd) do projeto." }
             }, "required": ["project"] }
@@ -1101,17 +1101,17 @@ pub fn kanban_tool_defs() -> Vec<Value> {
             "inputSchema": { "type": "object", "properties": {
                 "project": { "type": "string", "description": "Caminho (cwd) do projeto." },
                 "title": { "type": "string", "description": "Título curto do card." },
-                "column": { "type": "string", "enum": ["backlog", "doing", "test", "review", "blocked", "done"], "description": "Coluna inicial (default backlog)." },
+                "column": { "type": "string", "description": "coluna do fluxo do projeto — veja kanban_list (default: a primeira coluna)." },
                 "body": { "type": "string", "description": "Descrição opcional." },
                 "agent": { "type": "string", "description": "Seu papel/nome de agente." }
             }, "required": ["project", "title"] }
         }),
         json!({
             "name": "kanban_card_move",
-            "description": "Move um card do Kanban pra outra coluna (ao começar sua fatia → doing; ao terminar → review).",
+            "description": "Move um card do Kanban pra outra coluna (ao começar sua fatia → em andamento; ao terminar → review).",
             "inputSchema": { "type": "object", "properties": {
                 "id": { "type": "number", "description": "ID do card (veja kanban_list)." },
-                "column": { "type": "string", "enum": ["backlog", "doing", "test", "review", "blocked", "done"] }
+                "column": { "type": "string", "description": "coluna do fluxo do projeto — veja kanban_list" }
             }, "required": ["id", "column"] }
         }),
         json!({
@@ -1133,7 +1133,16 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
                 return "parâmetro 'project' é obrigatório".into();
             };
             match db.kanban_list(project) {
-                Ok(cards) => serde_json::to_string_pretty(&cards).unwrap_or_else(|_| "[]".into()),
+                Ok(cards) => {
+                    // Colunas efetivas do projeto (custom, ou default de 6) na frente:
+                    // é assim que o agente descobre o fluxo válido pro create/move.
+                    let columns: Vec<Value> = crate::db::kanban_effective_columns(&db, project)
+                        .into_iter()
+                        .map(|(col, label)| json!({ "col": col, "label": label }))
+                        .collect();
+                    serde_json::to_string_pretty(&json!({ "columns": columns, "cards": cards }))
+                        .unwrap_or_else(|_| r#"{"columns":[],"cards":[]}"#.into())
+                }
                 Err(e) => format!("erro ao listar cards: {e:#}"),
             }
         }
@@ -1144,13 +1153,16 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             let Some(title) = args.get("title").and_then(|v| v.as_str()).filter(|t| !t.is_empty()) else {
                 return "parâmetro 'title' é obrigatório".into();
             };
-            let column = args.get("column").and_then(|v| v.as_str()).unwrap_or("backlog");
-            if !crate::db::kanban_valid_col(column) {
-                return "coluna inválida: use backlog|doing|test|review|blocked|done".into();
+            let column = match args.get("column").and_then(|v| v.as_str()).filter(|c| !c.is_empty()) {
+                Some(c) => c.to_string(),
+                None => crate::db::kanban_first_col(&db, project),
+            };
+            if !crate::db::kanban_valid_col(&db, project, &column) {
+                return format!("coluna inválida: use {}", crate::db::kanban_cols_hint(&db, project));
             }
             let body = args.get("body").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
             let agent = args.get("agent").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
-            match db.kanban_create(project, column, title, body, agent, None) {
+            match db.kanban_create(project, &column, title, body, agent, None) {
                 Ok(id) => {
                     let _ = state.app.emit("kanban://changed", ());
                     format!("card #{id} criado em {column}")
@@ -1165,8 +1177,13 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             let Some(column) = args.get("column").and_then(|v| v.as_str()).filter(|c| !c.is_empty()) else {
                 return "parâmetro 'column' é obrigatório".into();
             };
-            if !crate::db::kanban_valid_col(column) {
-                return "coluna inválida: use backlog|doing|test|review|blocked|done".into();
+            let project = match db.kanban_card_project(id) {
+                Ok(Some(p)) => p,
+                Ok(None) => return format!("card #{id} não existe (veja kanban_list)"),
+                Err(e) => return format!("erro ao buscar card: {e:#}"),
+            };
+            if !crate::db::kanban_valid_col(&db, &project, column) {
+                return format!("coluna inválida: use {}", crate::db::kanban_cols_hint(&db, &project));
             }
             match db.kanban_move(id, column) {
                 Ok(()) => {
@@ -1192,6 +1209,63 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             }
         }
         _ => "tool kanban desconhecida".into(),
+    }
+}
+
+// ---- Ciclo de vida de agentes: sleep/wake (task #10) -------------------------
+//
+// O PROCESSO morre/nasce; o NÓ do canvas fica. Sleep mata o PTY (economia real de
+// CPU/RAM — cada claude ~350MB); wake pede ao FRONT pra re-spawnar, porque é o front
+// (TerminalNode) quem guarda command/args/env do nó e tem o reconnect().
+
+pub fn agent_lifecycle_tool_defs() -> Vec<Value> {
+    vec![
+        json!({ "name": "agent_sleep",
+            "description": "Coloca um agente pra dormir: mata o processo (libera CPU/RAM — cada claude ~350MB) mas PRESERVA o nó no canvas com command/args/env. Acorde depois com agent_wake. O agente dormindo aparece como 'dead' no terminal_list/StatusDot.",
+            "inputSchema": { "type": "object", "properties": {
+                "terminal": { "type": "string", "description": "Label do agente (veja terminal_list)." } },
+                "required": ["terminal"] } }),
+        json!({ "name": "agent_wake",
+            "description": "Acorda um agente dormindo (agent_sleep): o nó do canvas re-spawna o processo com o MESMO command/args/env (a persona do role vive nos args). Aguarde alguns segundos e confira com terminal_list/terminal_wait_status.",
+            "inputSchema": { "type": "object", "properties": {
+                "terminal": { "type": "string", "description": "Label do agente (veja terminal_list)." } },
+                "required": ["terminal"] } }),
+    ]
+}
+
+/// Despacha `agent_sleep`/`agent_wake`. Roteado por match EXATO no server (não por
+/// prefixo `agent_`): labels de agente viram tools dinâmicas via `to_tool_name`
+/// ("Agent 01" → `agent_01`), e um prefixo capturaria essas tools por engano.
+pub fn agent_lifecycle_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    let terminal = arg_str(&args, "terminal");
+    if terminal.is_empty() {
+        return "❌ 'terminal' é obrigatório (use terminal_list)".into();
+    }
+    let id = match resolve(state, &terminal) {
+        Ok(i) => i,
+        Err(e) => return format!("❌ {e}"),
+    };
+    match tool {
+        "agent_sleep" => match state.pty_manager.kill(&id) {
+            Ok(()) => format!(
+                "agente '{terminal}' dormindo — processo encerrado (RAM/CPU liberadas), \
+                 nó preservado no canvas. Aparece como 'dead' no status enquanto dorme; \
+                 acorde com agent_wake."
+            ),
+            Err(e) => format!("❌ não consegui dormir '{terminal}': {e:#} (já estava dormindo?)"),
+        },
+        "agent_wake" => {
+            // O front re-spawna: TerminalNode escuta canvas://agent-wake (via
+            // orchestration-client) e chama reconnect() quando o sessionId bate.
+            let _ = state.app.emit("canvas://agent-wake", json!({
+                "sessionId": id, "label": terminal
+            }));
+            format!(
+                "pedido de wake enviado pra '{terminal}' — o nó re-spawna o processo com o \
+                 mesmo command/args/env. Confirme com terminal_wait_status (idle/working)."
+            )
+        }
+        other => format!("❌ tool de ciclo de vida desconhecida: {other}"),
     }
 }
 
