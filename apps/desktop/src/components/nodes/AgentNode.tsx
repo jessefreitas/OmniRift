@@ -1164,7 +1164,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
                 <button
                   key={o.optionId}
                   onClick={() => respond(o.optionId)}
-                  className="rounded bg-white/5 px-2 py-1 text-text hover:bg-white/10"
+                  // truncate: opção com nome longo (ex: "Always Allow all mcp__omnirift-agents__x")
+                  // estourava o card em node estreito e escondia Allow/Reject — nome completo no title.
+                  className="max-w-full truncate rounded bg-white/5 px-2 py-1 text-text hover:bg-white/10"
+                  title={o.name}
                 >
                   {o.name}
                 </button>

@@ -6,7 +6,8 @@
 // seguro porque as sessões são do backend (AgentNode re-anexa via acp_attach/F2;
 // TerminalNode via pty_list+pty_snapshot; kill só explícito no canvas-store).
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ReactFlow,
   Background,
@@ -299,6 +300,23 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
     [floorId, reparentNode],
   );
 
+  // Delete/Backspace num AGENTE (terminal/OmniAgent): pergunta antes — o processo morre
+  // (kill explícito da F2). confirm() nativo é quebrado no WebKitGTK → overlay próprio;
+  // onBeforeDelete SEGURA a deleção até o resolve. Nós leves (nota, sketch…) deletam direto.
+  const [confirmDel, setConfirmDel] = useState<{ what: string; resolve: (ok: boolean) => void } | null>(null);
+  const onBeforeDelete = useCallback(
+    ({ nodes }: { nodes: Array<{ type?: string; data?: { label?: string; command?: string } }> }) => {
+      const heavy = nodes.filter((n) => n.type === "terminal" || n.type === "agent");
+      if (heavy.length === 0) return Promise.resolve(true);
+      const what =
+        heavy.length === 1
+          ? (heavy[0].data?.label ?? heavy[0].data?.command ?? "agente")
+          : `${heavy.length} agentes`;
+      return new Promise<boolean>((resolve) => setConfirmDel({ what, resolve }));
+    },
+    [],
+  );
+
   return (
     <ReactFlow
       nodes={rfNodes}
@@ -335,6 +353,7 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
       selectionKeyCode="Shift"
       nodeDragThreshold={4}
       deleteKeyCode={["Backspace", "Delete"]}
+      onBeforeDelete={onBeforeDelete}
       colorMode="dark"
       connectionRadius={55}
     >
@@ -349,6 +368,39 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
         maskColor="rgba(0,0,0,0.55)"
         style={{ backgroundColor: "rgb(26, 25, 30)", border: "1px solid rgb(46,45,50)", borderRadius: 8 }}
       />
+      {confirmDel &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50"
+            onClick={() => { confirmDel.resolve(false); setConfirmDel(null); }}
+          >
+            <div
+              className="w-[380px] max-w-[90vw] rounded-lg border border-border bg-surface1 p-4 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-sm font-medium text-text">Deletar {confirmDel.what}?</p>
+              <p className="mt-1 text-[11px] text-textMuted">
+                O processo do agente será encerrado e a conversa/sessão se perde. Essa ação não tem desfazer.
+              </p>
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  autoFocus
+                  onClick={() => { confirmDel.resolve(false); setConfirmDel(null); }}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs text-text hover:bg-surface2"
+                >
+                  Não
+                </button>
+                <button
+                  onClick={() => { confirmDel.resolve(true); setConfirmDel(null); }}
+                  className="rounded-md bg-red-500/80 px-3 py-1.5 text-xs text-white hover:bg-red-500"
+                >
+                  Sim, deletar
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </ReactFlow>
   );
 }
