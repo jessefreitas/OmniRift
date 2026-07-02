@@ -18,9 +18,11 @@ import {
 } from "@xyflow/react";
 import { Brain, Maximize2, Minimize2, Repeat, RotateCw, Send, Target, UserRoundPlus, X } from "lucide-react";
 import { nanoid } from "nanoid";
+import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { agentsMdInstruction, agentsMdRelPath } from "@/lib/agent-contract";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -180,13 +182,36 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // Persona: quando fica ready pela 1ª vez, injeta o papel como prompt de priming. Trocar o modelo
   // depois NÃO re-spawna → a persona (já na conversa) permanece. "Sai do Sonnet, vai pro Kimi,
   // continua Arquiteto." (No reload/resume, personaSentRef já é true e não re-injeta.)
+  // Steal #1 do deepagents — a persona APRENDE: antes de enviar, lê o AGENTS.md do papel
+  // (<cwd>/.omnirift/agents-md/<slug>.md, mantido pelo PRÓPRIO agente) e anexa ao priming;
+  // a instrução de manutenção (criar on-demand + guidelines) vai junto sempre.
   useEffect(() => {
     if (status === "ready" && data.persona && !personaSentRef.current) {
       personaSentRef.current = true;
-      void sendText(
-        `A partir de agora você atua com este papel/persona (mantenha-o independente do modelo):\n\n${data.persona}`,
-        `🎭 ${t("agent.personaSet", "persona definida")}: ${data.persona.slice(0, 48)}`,
-      );
+      const persona = data.persona;
+      const label = data.label ?? "OmniAgent";
+      void (async () => {
+        let memory = "";
+        const cwd = data.cwd || useCanvasStore.getState().currentCwd || "";
+        if (cwd) {
+          try {
+            const raw = await invoke<string>("read_file", { path: `${cwd}/${agentsMdRelPath(label)}` });
+            // Cap defensivo: a memória não pode engolir o priming (o agente é instruído a mantê-la curta).
+            memory = raw.trim().slice(0, 8000);
+          } catch {
+            // arquivo ainda não existe — o agente o cria on-demand (instrução abaixo)
+          }
+        }
+        const parts = [
+          `A partir de agora você atua com este papel/persona (mantenha-o independente do modelo):\n\n${persona}`,
+          agentsMdInstruction(label),
+        ];
+        if (memory) parts.push(`MEMÓRIA PERSISTENTE DESTE PAPEL (AGENTS.md — você mantém):\n${memory}`);
+        await sendText(
+          parts.join("\n\n"),
+          `🎭 ${t("agent.personaSet", "persona definida")}: ${persona.slice(0, 48)}${memory ? ` ${t("agent.personaMemory", "(+ memória do papel)")}` : ""}`,
+        );
+      })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, data.persona]);
