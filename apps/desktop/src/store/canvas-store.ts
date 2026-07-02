@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
 import { emit } from "@tauri-apps/api/event";
+import { acpCancel, acpAgentUnregister, acpGc } from "@/lib/acp-client";
 import { composedCompressorEnv } from "@/lib/compress-client";
 import { withinLimit } from "@/lib/license-client";
 import { useLicenseStore } from "@/store/license-store";
@@ -246,6 +247,18 @@ function emitParallelLifecycle(
   void emit(event, { floorId: floor.id, name: floor.name, branch: floor.branch ?? null }).catch(() => {});
 }
 
+/** F2 backend-owned (ACP): o unmount do AgentNode NÃO mata mais a sessão — a morte é
+ *  EXPLÍCITA nos caminhos de remoção/fechamento (X do nó, fechar floor, fechar/encerrar
+ *  projeto), espelhando os PTYs, que morrem quando o TerminalNode desmonta nesses mesmos
+ *  caminhos. Fire-and-forget: fechar o canvas não trava esperando o IPC. */
+function killAcpAgents(nodes: CanvasNode[]): void {
+  for (const n of nodes) {
+    if (n.kind !== "agent") continue;
+    void acpCancel(n.id).catch(() => {});
+    if (n.label) void acpAgentUnregister(n.label).catch(() => {});
+  }
+}
+
 const FIRST_FLOOR: Parallel = { id: "floor-main", name: "Principal", cwd: null, projectId: "proj-main", nodes: [], edges: [], hostId: LOCAL_HOST_ID };
 const FIRST_PROJECT: ProjectMeta = { id: "proj-main", name: "Principal", cwd: null, activeFloorId: FIRST_FLOOR.id };
 
@@ -354,7 +367,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       // Só troca o ponteiro ativo — os floors flat NÃO mudam → nada desmonta (PTYs vivos).
       return { projects, activeProjectId: id, activeParallelId: target.activeFloorId, currentCwd: target.cwd };
     }),
-  closeProject: (id) =>
+  closeProject: (id) => {
+    // F2: PTYs do projeto fechado morrem no unmount; sessões ACP precisam de kill explícito.
+    const s0 = get();
+    if (s0.projects.length > 1) {
+      killAcpAgents(s0.parallels.filter((f) => f.projectId === id).flatMap((f) => f.nodes));
+    }
     set((s) => {
       if (s.projects.length <= 1) return s; // nunca fecha o último
       const projects = syncActiveMeta(s).filter((p) => p.id !== id);
@@ -364,7 +382,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
         return { projects, parallels: floors, activeProjectId: next.id, activeParallelId: next.activeFloorId, currentCwd: next.cwd };
       }
       return { projects, parallels: floors };
-    }),
+    });
+  },
   renameProject: (id, name) =>
     set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, name: name.trim() || p.name } : p)) })),
 
@@ -421,6 +440,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     if (!target) return;
     const projId = target.projectId;
     if (s.parallels.filter((f) => f.projectId === projId).length <= 1) return; // nunca o último do projeto
+    // F2: PTYs do floor morrem no unmount; sessões ACP precisam de kill explícito.
+    killAcpAgents(target.nodes);
     const floors = s.parallels.filter((f) => f.id !== id);
     if (s.activeParallelId === id) {
       const next = floors.find((f) => f.projectId === projId) ?? floors[0];
@@ -441,14 +462,19 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       currentCwd: cwd,
       parallels: s.parallels.map((f) => (f.id === s.activeParallelId ? { ...f, cwd } : f)),
     })),
-  closeFolder: () =>
+  closeFolder: () => {
+    // F2: encerrar o projeto fecha os floors dele — PTYs morrem no unmount; sessões
+    // ACP (que agora sobrevivem a unmount) precisam do kill explícito.
+    const s0 = get();
+    killAcpAgents(s0.parallels.filter((f) => f.projectId === s0.activeProjectId).flatMap((f) => f.nodes));
     set((s) => {
       const pid = s.activeProjectId;
       const fresh: Parallel = { id: nanoid(), name: "Paralelo 1", cwd: null, projectId: pid, nodes: [], edges: [], hostId: LOCAL_HOST_ID };
       // Tira os floors do projeto ativo (terminais desmontam → PTYs morrem) + 1 floor limpo.
       const floors = [...s.parallels.filter((f) => f.projectId !== pid), fresh];
       return { parallels: floors, activeParallelId: fresh.id, currentCwd: null, dirtyFiles: new Set() };
-    }),
+    });
+  },
   dirtyFiles: new Set<string>(),
   setFileDirty: (nodeId, dirty) =>
     set((s) => {
@@ -854,7 +880,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     set((s) => ({ requestConnectMenu: { fromNodeId, flow, screen, mode, seq: (s.requestConnectMenu?.seq ?? 0) + 1 } })),
   clearConnectMenu: () => set({ requestConnectMenu: null }),
 
-  removeNode: (id) =>
+  removeNode: (id) => {
+    // F2 backend-owned (ACP): X/Delete num OmniAgent = kill EXPLÍCITO da sessão ANTES de
+    // remover o nó (o unmount virou só-view e não mata mais). Terminais seguem morrendo
+    // no unmount (useTerminalSession).
+    const s0 = get();
+    const active0 = s0.parallels.find((f) => f.id === s0.activeParallelId);
+    const removing = active0?.nodes.find((n) => n.id === id);
+    if (removing) killAcpAgents([removing]);
     set((s) => ({
       parallels: s.parallels.map((f) => {
         if (f.id !== s.activeParallelId) return f;
@@ -873,7 +906,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
           );
         return { ...f, nodes, edges: f.edges.filter((e) => e.source !== id && e.target !== id) };
       }),
-    })),
+    }));
+  },
 
   reparentNode: (nodeId, parentId) =>
     set((s) => ({
@@ -924,9 +958,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     }),
 
   patchNode: (id, patch) =>
+    // Procura em TODOS os paralelos (não só o ativo): ids de nó são únicos (nanoid) e o
+    // patch pode vir de um nó em floor de FUNDO (todos ficam montados) — ex: o AgentNode
+    // persistindo `acpSessionId` no ready de um agente criado pelo Montar noutro floor.
+    // Antes (só floor ativo) o patch se perdia em silêncio nesses casos.
     set((s) => ({
-      parallels: mapActiveNodes(s, (ns) =>
-        ns.map((n) => (n.id === id ? ({ ...n, ...patch } as CanvasNode) : n)),
+      parallels: s.parallels.map((f) =>
+        f.nodes.some((n) => n.id === id)
+          ? { ...f, nodes: f.nodes.map((n) => (n.id === id ? ({ ...n, ...patch } as CanvasNode) : n)) }
+          : f,
       ),
     })),
 
@@ -1085,5 +1125,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       dirtyFiles: new Set<string>(),
       orchestratorSid: null,
     });
+    // F2 backend-owned (ACP): o restore REGENERA todos os ids → as sessões das montagens
+    // anteriores viram órfãs DE PROPÓSITO (attach nunca casa; correto: sessão nova, e a
+    // conversa volta via `acpSessionId` persistido no nó remapeado). O reaper mata tudo
+    // que não corresponde a um agent-node atual.
+    const knownAgentIds = flatFloors.flatMap((f) =>
+      f.nodes.filter((n) => n.kind === "agent").map((n) => n.id),
+    );
+    void acpGc(knownAgentIds).catch(() => {});
   },
 }));

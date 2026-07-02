@@ -217,6 +217,13 @@ export interface AgentNode extends BaseCanvasNode {
    * `active` liga/desliga. Reusa `acp_prompt`. Persiste a config.
    */
   loop?: { prompt: string; everyMin: number; active: boolean };
+  /**
+   * F2 backend-owned: sessionId do ADAPTER ACP (resposta do session/new), persistido no
+   * workspace. Pós-restart do app (attach falha — o AcpManager nasceu vazio), o spawn usa
+   * este id como `resumeSessionId` → `session/load` RETOMA a conversa. Gravado no ready
+   * (patchNode); limpo quando o resume falha (exit-129) ou ao trocar de provider.
+   */
+  acpSessionId?: string;
   /** Epoch ms de criação. */
   createdAt?: number;
 }
@@ -338,6 +345,8 @@ export interface CanvasNodePatch {
   provider?: "claude" | "codex" | "hermes";
   goal?: { objective: string; condition: string; maxIter: number };
   loop?: { prompt: string; everyMin: number; active: boolean };
+  /** F2 backend-owned: sessionId do adapter ACP a persistir (resume pós-restart). */
+  acpSessionId?: string;
   model?: string;
   prompt?: string;
 }

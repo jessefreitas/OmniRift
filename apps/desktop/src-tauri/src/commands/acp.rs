@@ -147,7 +147,8 @@ pub async fn acp_authenticate(
     mgr.authenticate(&session_id, method_id).await.map_err(|e| format!("{e:#}"))
 }
 
-/// Cancela o turno e encerra o subprocesso.
+/// Cancela o turno e encerra o subprocesso. F2 backend-owned: este é o kill EXPLÍCITO
+/// (removeNode/fechar floor/projeto/reload) — o unmount do nó NÃO chama mais isto.
 #[tauri::command]
 pub async fn acp_cancel(
     session_id: String,
@@ -155,6 +156,18 @@ pub async fn acp_cancel(
 ) -> Result<(), String> {
     let mgr = manager.inner().clone();
     mgr.cancel(&session_id).await.map_err(|e| format!("{e:#}"))
+}
+
+/// Reaper F2 backend-owned: mata as sessões ACP cujo id não está em `known_ids` (= ids dos
+/// agent-nodes atuais do canvas). Restore remapeia ids de propósito → as sessões antigas
+/// viram órfãs e são colhidas aqui. Devolve os ids colhidos. Chamado no boot e pós-restore.
+#[tauri::command]
+pub async fn acp_gc(
+    known_ids: Vec<String>,
+    manager: State<'_, Arc<AcpManager>>,
+) -> Result<Vec<String>, String> {
+    let mgr = manager.inner().clone();
+    Ok(mgr.gc(&known_ids).await)
 }
 
 /// Registra um OmniAgent como COMANDÁVEL (label → spawn id) → ele passa a aparecer no

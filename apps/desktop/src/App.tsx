@@ -10,6 +10,8 @@ import { initPersistence, flushPersistence } from "@/lib/persistence-client";
 import { initResourceStore } from "@/store/resource-store";
 import { startAutoSnapshot, stopAutoSnapshot } from "@/lib/auto-snapshot";
 import { persistReviewConfig } from "@/lib/review-config-sync";
+import { acpGc } from "@/lib/acp-client";
+import { useCanvasStore } from "@/store/canvas-store";
 
 export default function App() {
   useEffect(() => {
@@ -79,6 +81,17 @@ export default function App() {
   // hook / tool MCP que vão rodar o review headless nos agentes (#2).
   useEffect(() => {
     void persistReviewConfig();
+  }, []);
+
+  // F2 backend-owned (ACP): reaper no boot — mata sessões do AcpManager cujo id não
+  // corresponde a nenhum agent-node do canvas atual (o restore remapeia ids; um crash
+  // do front também deixa órfãs). No boot limpo é no-op barato. O restoreWorkspace
+  // chama o mesmo gc após cada restore.
+  useEffect(() => {
+    const ids = useCanvasStore
+      .getState()
+      .parallels.flatMap((f) => f.nodes.filter((n) => n.kind === "agent").map((n) => n.id));
+    void acpGc(ids).catch(() => {});
   }, []);
 
   // Monitor de recursos: assina resource://sample uma vez (chip sempre-visível).

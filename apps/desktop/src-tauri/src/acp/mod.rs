@@ -17,6 +17,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -342,6 +343,11 @@ struct AcpSession {
     child: Arc<AsyncMutex<Child>>,
     /// Estado observável F1 (backend-owned sessions) — ver `SessionObserved`.
     observed: Arc<parking_lot::Mutex<SessionObserved>>,
+    /// F2 backend-owned: kill INTENCIONAL (`cancel`/`gc`/reload) → o EOF do read-loop
+    /// NÃO emite `acp://exit`. Sem isso, o exit "póstumo" da geração anterior chegaria
+    /// ao nó que acabou de re-spawnar pelo MESMO id e o marcaria dead (stale-exit race —
+    /// o mesmo problema do reconnect PTY, GLM-audit #1).
+    killed: AtomicBool,
 }
 
 #[derive(Default)]
@@ -419,6 +425,7 @@ impl AcpManager {
             acp_session_id: Arc::new(parking_lot::Mutex::new(None)),
             child: Arc::new(AsyncMutex::new(child)),
             observed: Arc::new(parking_lot::Mutex::new(SessionObserved::default())),
+            killed: AtomicBool::new(false),
         });
         self.sessions.insert(id.clone(), session.clone());
 
@@ -514,9 +521,10 @@ impl AcpManager {
                             }
                         } else if needs_auth {
                             let methods = result.get("authMethods").cloned().unwrap_or(Value::Null);
-                            sess.observed.lock().record("auth-required", methods.clone());
+                            let seq = sess.observed.lock().record("auth-required", methods.clone());
                             let _ = app.emit("acp://auth-required", GenericEvent {
                                 session_id: sid.clone(),
+                                seq,
                                 data: methods,
                             });
                         } else {
@@ -543,8 +551,8 @@ impl AcpManager {
                             *sess.acp_session_id.lock() = Some(s.to_string());
                         }
                         log::info!("[acp {sid}] session/new OK — MCP de orquestracao injetado");
-                        sess.observed.lock().record("ready", result.clone());
-                        let _ = app.emit("acp://ready", GenericEvent { session_id: sid.clone(), data: result.clone() });
+                        let seq = sess.observed.lock().record("ready", result.clone());
+                        let _ = app.emit("acp://ready", GenericEvent { session_id: sid.clone(), seq, data: result.clone() });
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] session/new falhou: {err}");
                     }
@@ -560,9 +568,10 @@ impl AcpManager {
                         }
                         log::info!("[acp {sid}] session/load OK — sessao resumida (conversa mantida)");
                         let ready = msg.get("result").cloned().unwrap_or(Value::Null);
-                        sess.observed.lock().record("ready", ready.clone());
+                        let seq = sess.observed.lock().record("ready", ready.clone());
                         let _ = app.emit("acp://ready", GenericEvent {
                             session_id: sid.clone(),
+                            seq,
                             data: ready,
                         });
                     } else if let Some(err) = msg.get("error") {
@@ -586,16 +595,16 @@ impl AcpManager {
                         let _ = write_line(&sess.stdin, &req).await;
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] authenticate falhou: {err}");
-                        sess.observed.lock().record("auth-failed", err.clone());
-                        let _ = app.emit("acp://auth-failed", GenericEvent { session_id: sid.clone(), data: err.clone() });
+                        let seq = sess.observed.lock().record("auth-failed", err.clone());
+                        let _ = app.emit("acp://auth-failed", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
                     }
                     continue;
                 }
 
                 // Resposta do prompt (id=3) → fim de turno.
                 if id_num == Some(3) {
-                    sess.observed.lock().record("turn-done", msg.clone());
-                    let _ = app.emit("acp://turn-done", GenericEvent { session_id: sid.clone(), data: msg.clone() });
+                    let seq = sess.observed.lock().record("turn-done", msg.clone());
+                    let _ = app.emit("acp://turn-done", GenericEvent { session_id: sid.clone(), seq, data: msg.clone() });
                     continue;
                 }
 
@@ -606,8 +615,8 @@ impl AcpManager {
                 if id_num == Some(6) || id_num == Some(7) {
                     if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] set_model/set_config_option (id={id_num:?}) recusado: {err}");
-                        sess.observed.lock().record("model-rejected", err.clone());
-                        let _ = app.emit("acp://model-rejected", GenericEvent { session_id: sid.clone(), data: err.clone() });
+                        let seq = sess.observed.lock().record("model-rejected", err.clone());
+                        let _ = app.emit("acp://model-rejected", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
                     } else {
                         log::info!("[acp {sid}] set_model/set_config_option (id={id_num:?}) OK");
                     }
@@ -617,8 +626,8 @@ impl AcpManager {
                 // Notificação de progresso (tool_call, agent_message_chunk, plan, …).
                 if method == Some("session/update") {
                     let update = msg.get("params").and_then(|p| p.get("update")).cloned().unwrap_or(Value::Null);
-                    sess.observed.lock().record("update", update.clone());
-                    let _ = app.emit("acp://update", GenericEvent { session_id: sid.clone(), data: update });
+                    let seq = sess.observed.lock().record("update", update.clone());
+                    let _ = app.emit("acp://update", GenericEvent { session_id: sid.clone(), seq, data: update });
                     continue;
                 }
 
@@ -627,11 +636,13 @@ impl AcpManager {
                     let req_id = msg.get("id").cloned().unwrap_or(Value::Null);
                     let params = msg.get("params").cloned().unwrap_or(Value::Null);
                     // Log + pending_permission (payload {reqId, params} — o attach re-exibe).
-                    sess.observed
+                    let seq = sess
+                        .observed
                         .lock()
                         .record("permission", json!({ "reqId": req_id.clone(), "params": params.clone() }));
                     let _ = app.emit("acp://permission", PermissionEvent {
                         session_id: sid.clone(),
+                        seq,
                         req_id,
                         params,
                     });
@@ -643,9 +654,13 @@ impl AcpManager {
                     log::info!("[acp {sid}] request do adapter: {method:?}");
                 }
             }
-            // EOF do adapter → morte real: registra + marca Dead (buffer fica p/ post-mortem).
-            sess.observed.lock().record("exit", Value::Null);
-            let _ = app.emit("acp://exit", GenericEvent { session_id: sid.clone(), data: Value::Null });
+            // EOF do adapter. Kill INTENCIONAL (cancel/gc/reload — flag `killed`) fica mudo:
+            // a entry já saiu do mapa e um exit póstumo poluiria o nó re-spawnado pelo mesmo
+            // id (F2). Morte REAL: registra + marca Dead (buffer fica p/ post-mortem).
+            if !sess.killed.load(Ordering::SeqCst) {
+                let seq = sess.observed.lock().record("exit", Value::Null);
+                let _ = app.emit("acp://exit", GenericEvent { session_id: sid.clone(), seq, data: Value::Null });
+            }
         });
 
         Ok(id)
@@ -726,9 +741,13 @@ impl AcpManager {
         Ok(snap)
     }
 
-    /// Cancela o turno e encerra o subprocesso.
+    /// Cancela o turno e encerra o subprocesso (kill EXPLÍCITO — F2: chamado só na remoção
+    /// do nó, fechar floor/projeto, reload/troca de provider e pelo `gc`; o unmount da view
+    /// NÃO passa mais por aqui). Marca `killed` ANTES do kill → o EOF do read-loop fica mudo
+    /// (sem `acp://exit` póstumo pro mesmo id re-spawnado).
     pub async fn cancel(&self, id: &str) -> Result<()> {
         if let Some((_, sess)) = self.sessions.remove(id) {
+            sess.killed.store(true, Ordering::SeqCst);
             // Clona o sessionId e SOLTA o guard parking_lot antes de qualquer await:
             // um guard no scrutinee de `if let` viveria o bloco todo → future !Send.
             let acp_sid = sess.acp_session_id.lock().clone();
@@ -739,6 +758,24 @@ impl AcpManager {
             let _ = sess.child.lock().await.kill().await;
         }
         Ok(())
+    }
+
+    /// Reaper F2 (`acp_gc`): mata as sessões cujo id NÃO está em `known_ids` — nenhum
+    /// agent-node do canvas as referencia (restore remapeia todos os ids de propósito;
+    /// crash do front também deixa órfãs). Devolve os ids colhidos. Chamado no boot do
+    /// app e após cada `restoreWorkspace`.
+    pub async fn gc(&self, known_ids: &[String]) -> Vec<String> {
+        let stale: Vec<String> = self
+            .sessions
+            .iter()
+            .map(|kv| kv.key().clone())
+            .filter(|id| !known_ids.iter().any(|k| k == id))
+            .collect();
+        for id in &stale {
+            log::info!("[acp gc] colhendo sessão órfã {id}");
+            let _ = self.cancel(id).await;
+        }
+        stale
     }
 
     /// Registra um OmniAgent comandável (label → spawn id). O front chama quando o nó
@@ -810,6 +847,9 @@ struct RawEvent {
 #[serde(rename_all = "camelCase")]
 struct GenericEvent {
     session_id: String,
+    /// F2: seq estampado pelo `record()` correspondente (mesma escala do event_log) —
+    /// o front deduplica eventos ao vivo contra o `lastSeq` do snapshot do attach.
+    seq: u64,
     data: Value,
 }
 
@@ -817,6 +857,8 @@ struct GenericEvent {
 #[serde(rename_all = "camelCase")]
 struct PermissionEvent {
     session_id: String,
+    /// F2: seq do event_log (dedup no attach — ver `GenericEvent::seq`).
+    seq: u64,
     req_id: Value,
     params: Value,
 }
@@ -992,5 +1034,67 @@ mod tests {
         assert_eq!(serde_json::to_value(AcpSessionState::Running).unwrap(), json!("running"));
         assert_eq!(serde_json::to_value(AcpSessionState::Sleeping).unwrap(), json!("sleeping"));
         assert_eq!(serde_json::to_value(AcpSessionState::Dead).unwrap(), json!("dead"));
+    }
+
+    // ------------------------------------------------------------------
+    // Testes F2 — gc/cancel usam sessões dummy (`sleep 60`) no lugar do
+    // adapter real: mesmo shape (Child + stdin piped), zero rede/npx.
+    // ------------------------------------------------------------------
+
+    async fn dummy_session() -> Arc<AcpSession> {
+        let mut cmd = Command::new("sleep");
+        cmd.arg("60")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let mut child = cmd.spawn().expect("spawn sleep");
+        let stdin = child.stdin.take().expect("stdin piped");
+        Arc::new(AcpSession {
+            stdin: Arc::new(AsyncMutex::new(stdin)),
+            acp_session_id: Arc::new(parking_lot::Mutex::new(None)),
+            child: Arc::new(AsyncMutex::new(child)),
+            observed: Arc::new(parking_lot::Mutex::new(SessionObserved::default())),
+            killed: AtomicBool::new(false),
+        })
+    }
+
+    #[tokio::test]
+    async fn gc_colhe_orfas_e_preserva_conhecidas() {
+        let mgr = AcpManager::new();
+        for id in ["viva", "orfa-1", "orfa-2"] {
+            mgr.sessions.insert(id.to_string(), dummy_session().await);
+        }
+        let mut killed = mgr.gc(&["viva".to_string()]).await;
+        killed.sort();
+        assert_eq!(killed, vec!["orfa-1".to_string(), "orfa-2".to_string()]);
+        assert!(mgr.sessions.contains_key("viva"), "sessão conhecida deve sobreviver ao gc");
+        assert!(!mgr.sessions.contains_key("orfa-1"));
+        assert!(!mgr.sessions.contains_key("orfa-2"));
+    }
+
+    #[tokio::test]
+    async fn gc_sem_nos_conhecidos_colhe_tudo_e_e_idempotente() {
+        let mgr = AcpManager::new();
+        mgr.sessions.insert("a".to_string(), dummy_session().await);
+        let killed = mgr.gc(&[]).await;
+        assert_eq!(killed, vec!["a".to_string()]);
+        assert!(mgr.sessions.is_empty());
+        // Segunda passada: nada pra colher (não panica nem inventa ids).
+        assert!(mgr.gc(&[]).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancel_marca_killed_pra_silenciar_o_exit() {
+        // O read-loop usa `killed` pra NÃO emitir acp://exit em kill intencional
+        // (stale-exit race do re-spawn pelo mesmo id — F2).
+        let mgr = AcpManager::new();
+        let sess = dummy_session().await;
+        mgr.sessions.insert("x".to_string(), sess.clone());
+        mgr.cancel("x").await.unwrap();
+        assert!(sess.killed.load(Ordering::SeqCst));
+        assert!(!mgr.sessions.contains_key("x"));
+        // cancel de id inexistente é no-op (não erra).
+        mgr.cancel("nao-existe").await.unwrap();
     }
 }

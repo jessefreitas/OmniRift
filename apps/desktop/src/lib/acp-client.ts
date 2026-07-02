@@ -66,10 +66,17 @@ export interface AcpAttachSnapshot {
 }
 
 /** Anexa a uma sessão ACP existente SEM re-spawnar: devolve o snapshot do estado
- *  observável (F1 backend-owned sessions). Rejeita se a sessão não existe → o caller
- *  spawna. Nesta fase o AgentNode ainda NÃO usa (re-hidratação é F2). */
+ *  observável (backend-owned sessions). Rejeita se a sessão não existe → o caller
+ *  spawna. F2: o AgentNode tenta isto ANTES de spawnar (o nó é view que anexa). */
 export async function acpAttach(sessionId: string): Promise<AcpAttachSnapshot> {
   return invoke<AcpAttachSnapshot>("acp_attach", { sessionId });
+}
+
+/** Reaper F2 backend-owned: mata as sessões ACP cujo id NÃO está em `knownIds` (= ids dos
+ *  agent-nodes atuais do canvas — restore remapeia ids de propósito → órfãs são colhidas).
+ *  Devolve os ids colhidos. Chamar no boot do app e após cada restoreWorkspace. */
+export async function acpGc(knownIds: string[]): Promise<string[]> {
+  return invoke<string[]>("acp_gc", { knownIds });
 }
 
 /** Lista os modelos de um provider OpenAI-compat (GET {base}/v1/models) via backend Rust
@@ -148,6 +155,9 @@ export interface AcpAuthMethod {
 
 interface BasePayload {
   sessionId: string;
+  /** F2 backend-owned: seq do event_log estampado no emit — o nó deduplica os eventos ao
+   *  vivo contra o `lastSeq` do snapshot do attach (evento ≤ lastSeq já veio no snapshot). */
+  seq?: number;
 }
 
 function onSession<P extends BasePayload>(
@@ -163,80 +173,80 @@ function onSession<P extends BasePayload>(
 /** session/new respondeu: `info` traz models + modes + capabilities. */
 export function listenAcpReady(
   sessionId: string,
-  handler: (info: Record<string, unknown>) => void,
+  handler: (info: Record<string, unknown>, seq?: number) => void,
 ): Promise<UnlistenFn> {
   return onSession<BasePayload & { data: Record<string, unknown> }>(
     "acp://ready",
     sessionId,
-    (p) => handler(p.data),
+    (p) => handler(p.data, p.seq),
   );
 }
 
 /** Notificação de progresso: tool_call / agent_message_chunk / plan / … */
 export function listenAcpUpdate(
   sessionId: string,
-  handler: (update: Record<string, unknown>) => void,
+  handler: (update: Record<string, unknown>, seq?: number) => void,
 ): Promise<UnlistenFn> {
   return onSession<BasePayload & { data: Record<string, unknown> }>(
     "acp://update",
     sessionId,
-    (p) => handler(p.data),
+    (p) => handler(p.data, p.seq),
   );
 }
 
 /** O agente pediu permissão pra uma tool — o front decide. */
 export function listenAcpPermission(
   sessionId: string,
-  handler: (reqId: unknown, params: Record<string, unknown>) => void,
+  handler: (reqId: unknown, params: Record<string, unknown>, seq?: number) => void,
 ): Promise<UnlistenFn> {
   return onSession<BasePayload & { reqId: unknown; params: Record<string, unknown> }>(
     "acp://permission",
     sessionId,
-    (p) => handler(p.reqId, p.params),
+    (p) => handler(p.reqId, p.params, p.seq),
   );
 }
 
 /** Fim do turno (resposta do session/prompt). */
 export function listenAcpTurnDone(
   sessionId: string,
-  handler: (data: Record<string, unknown>) => void,
+  handler: (data: Record<string, unknown>, seq?: number) => void,
 ): Promise<UnlistenFn> {
   return onSession<BasePayload & { data: Record<string, unknown> }>(
     "acp://turn-done",
     sessionId,
-    (p) => handler(p.data),
+    (p) => handler(p.data, p.seq),
   );
 }
 
-/** Adapter encerrou (EOF). */
+/** Adapter encerrou (EOF) — morte REAL; kill intencional (cancel/gc) NÃO emite. */
 export function listenAcpExit(
   sessionId: string,
-  handler: () => void,
+  handler: (seq?: number) => void,
 ): Promise<UnlistenFn> {
-  return onSession<BasePayload>("acp://exit", sessionId, () => handler());
+  return onSession<BasePayload>("acp://exit", sessionId, (p) => handler(p.seq));
 }
 
 /** O adapter exige login (ex: Codex) — `data` traz os authMethods ofertados. */
 export function listenAcpAuthRequired(
   sessionId: string,
-  handler: (methods: AcpAuthMethod[]) => void,
+  handler: (methods: AcpAuthMethod[], seq?: number) => void,
 ): Promise<UnlistenFn> {
   return onSession<BasePayload & { data: AcpAuthMethod[] | null }>(
     "acp://auth-required",
     sessionId,
-    (p) => handler(Array.isArray(p.data) ? p.data : []),
+    (p) => handler(Array.isArray(p.data) ? p.data : [], p.seq),
   );
 }
 
 /** A autenticação escolhida falhou — `data` traz o erro do adapter. */
 export function listenAcpAuthFailed(
   sessionId: string,
-  handler: (err: unknown) => void,
+  handler: (err: unknown, seq?: number) => void,
 ): Promise<UnlistenFn> {
   return onSession<BasePayload & { data: unknown }>(
     "acp://auth-failed",
     sessionId,
-    (p) => handler(p.data),
+    (p) => handler(p.data, p.seq),
   );
 }
 
@@ -244,11 +254,11 @@ export function listenAcpAuthFailed(
  *  ficava otimista mostrando um modelo que não estava valendo (ex: Hermes preso no default). */
 export function listenAcpModelRejected(
   sessionId: string,
-  handler: (err: unknown) => void,
+  handler: (err: unknown, seq?: number) => void,
 ): Promise<UnlistenFn> {
   return onSession<BasePayload & { data: unknown }>(
     "acp://model-rejected",
     sessionId,
-    (p) => handler(p.data),
+    (p) => handler(p.data, p.seq),
   );
 }

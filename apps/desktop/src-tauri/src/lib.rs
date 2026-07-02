@@ -82,7 +82,7 @@ use commands::pty::{
     pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_write,
 };
 use commands::acp::{
-    acp_agent_register, acp_agent_unregister, acp_attach, acp_authenticate, acp_cancel,
+    acp_agent_register, acp_agent_unregister, acp_attach, acp_authenticate, acp_cancel, acp_gc,
     acp_permission_respond, acp_prompt, acp_set_config_option, acp_set_model, acp_spawn,
     hermes_list_models,
 };
@@ -323,6 +323,7 @@ pub fn run() {
             acp_permission_respond,
             acp_authenticate,
             acp_cancel,
+            acp_gc,
             acp_agent_register,
             acp_agent_unregister,
             acp_set_model,

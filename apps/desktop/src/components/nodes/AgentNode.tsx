@@ -1,10 +1,13 @@
 // src/components/nodes/AgentNode.tsx
 //
 // Nó de AGENTE ESTRUTURADO (ACP) no canvas — coexiste com o TerminalNode (PTY).
-// Ao montar, spawna uma sessão ACP (Claude Code via adapter) e renderiza o stream
-// ESTRUTURADO: mensagens, tool-calls e badges de modelo/contexto/custo (do usage_update).
-// Sucessor do AcpDebugPanel (spike). A sessão ACP é efêmera: re-spawna a cada montagem;
-// o nó só persiste config leve (label/cwd) no workspace.
+// F2 backend-owned sessions: a sessão ACP pertence ao AcpManager (Rust) e é keyada pelo
+// id ESTÁVEL do nó (data.id) — o nó é uma VIEW DESCARTÁVEL que ANEXA (acp_attach
+// re-hidrata msgs/badges/permission pendente) e só spawna se a sessão não existe.
+// O unmount NÃO mata nada (só unlisten); o kill explícito vive no removeNode/fechar
+// floor/projeto (canvas-store) e no reload/troca de provider (mesmo id reusado).
+// Pós-restart do app, o `data.acpSessionId` persistido vira session/load (resume).
+// Mesmo contrato do TerminalNode/PtyManager (useTerminalSession + pty_snapshot).
 
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -17,7 +20,6 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import { Brain, Maximize2, Minimize2, Repeat, RotateCw, Send, Target, UserRoundPlus, X } from "lucide-react";
-import { nanoid } from "nanoid";
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -29,6 +31,7 @@ import { cn } from "@/lib/cn";
 import { useFleetUsage } from "@/lib/fleet-usage";
 import {
   acpSpawn,
+  acpAttach,
   acpPrompt,
   acpPermissionRespond,
   acpCancel,
@@ -36,7 +39,6 @@ import {
   acpSetModel,
   acpSetConfigOption,
   acpAgentRegister,
-  acpAgentUnregister,
   runCheck,
   listenAcpReady,
   listenAcpUpdate,
@@ -47,6 +49,7 @@ import {
   listenAcpAuthFailed,
   listenAcpModelRejected,
   type AcpAuthMethod,
+  type AcpAttachSnapshot,
 } from "@/lib/acp-client";
 import type { AgentNode as AgentNodeData } from "@/types/canvas";
 import { HermesWizard, type HermesProviderConfig } from "./HermesWizard";
@@ -306,7 +309,13 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     firstSentRef.current = false;
     teamRef.current = null;
     subagentsSentRef.current = false;
-    setReloadKey((k) => k + 1);
+    // F2 (id estável + unmount não mata): o kill EXPLÍCITO aqui é o que impede a próxima
+    // montagem de re-anexar à sessão velha (attach falha → spawn, com resume se houver).
+    // Kill intencional não emite acp://exit (flag `killed` no backend) — sem stale-exit.
+    void (async () => {
+      try { await acpCancel(data.id); } catch { /* já morta */ }
+      setReloadKey((k) => k + 1);
+    })();
   }
 
   // Troca o modelo do agente (ACP session/set_model). Útil pra rodar um agente barato
@@ -328,7 +337,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // sem resume. É o escape-hatch de contexto: "Sonnet cheio → Kimi 1M, continua Arquiteto."
   function changeProvider(next: "claude" | "codex" | "hermes") {
     if (next === (data.provider ?? "claude")) return;
-    patchNode(data.id, { provider: next });
+    // F2: limpa também o acpSessionId PERSISTIDO — session/load é por-adapter; deixar o id
+    // velho faria o próximo spawn tentar resumir uma sessão de OUTRO motor.
+    patchNode(data.id, { provider: next, acpSessionId: undefined });
     acpSessionIdRef.current = null;
     resumeRef.current = null;
     spawnedResumeRef.current = false;
@@ -348,7 +359,11 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       { role: "system", text: `⇄ ${t("agent.providerChanged", "trocando o motor")} → ${next}${data.persona ? ` — ${t("agent.personaKept", "mantendo a persona (nova conversa)")}` : ""}` },
     ]);
     setStatus("starting");
-    setReloadKey((k) => k + 1);
+    // F2: mata a sessão do motor antigo ANTES do re-mount (senão o attach re-anexaria a ela).
+    void (async () => {
+      try { await acpCancel(data.id); } catch { /* já morta */ }
+      setReloadKey((k) => k + 1);
+    })();
   }
 
   // Autoscroll pro fim a cada novo conteúdo.
@@ -366,13 +381,33 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mySubagentLabels]);
 
-  // Spawn + listeners no mount; cleanup no unmount.
+  // F2 backend-owned: ATTACH-primeiro + listeners no mount; cleanup SÓ desliga listeners.
+  // A sessão é keyada pelo id ESTÁVEL do nó (data.id): re-mount/troca de floor RE-ANEXA
+  // (acp_attach re-hidrata) em vez de re-spawnar. Kill explícito: removeNode / fechar
+  // floor/projeto (canvas-store) / reload / troca de provider (que matam ANTES do bump).
   useEffect(() => {
-    const id = nanoid();
+    const id = data.id;
     sessionRef.current = id;
     const cmdLabel = data.label ?? "OmniAgent"; // label sob o qual o Orquestrador o comanda
     let unsubs: UnlistenFn[] = [];
     let alive = true;
+    // Corrida attach × eventos ao vivo (padrão replayFromSnapshot do PTY): enquanto o
+    // snapshot está em voo, evento ao vivo vai pro buffer; depois drena dedupado por seq
+    // (evento com seq ≤ lastSeq do snapshot já veio DENTRO do snapshot → dropa).
+    let attaching = true;
+    let lastSeq = 0;
+    const pending: Array<{ seq?: number; fn: () => void }> = [];
+    const gated = (seq: number | undefined, fn: () => void) => {
+      if (attaching) {
+        pending.push({ seq, fn });
+        return;
+      }
+      if (seq !== undefined) {
+        if (seq <= lastSeq) return;
+        lastSeq = seq;
+      }
+      fn();
+    };
 
     // Hermes BYOK: sem provider+modelo escolhidos ainda → abre o wizard em vez de spawnar cego.
     // hermesCfgRef (com a key, em memória) tem precedência; senão data.providerConfig (persistido,
@@ -456,71 +491,112 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       }
     };
 
+    // session/new|load respondeu — OU lastReady do attach (a re-hidratação F2 passa pelo
+    // MESMO caminho): modelos/badges, sessionId do adapter e registro de comando.
+    const handleReady = (info: Record<string, unknown>) => {
+      const models = info.models as
+        | { availableModels?: { modelId: string; name?: string }[]; currentModelId?: string }
+        | undefined;
+      let avail = models?.availableModels ?? [];
+      let cur = models?.currentModelId ?? avail[0]?.modelId ?? null;
+      // Claude não usa `models`: expõe o modelo como um configOption (id="model"). Se `models`
+      // veio vazio, procura o configOption de modelo → vira o dropdown (troca via set_config_option).
+      if (avail.length === 0) {
+        const cfgOpts = (info.configOptions as
+          | { id?: string; category?: string; currentValue?: string; options?: { value: string; name?: string }[] }[]
+          | undefined) ?? [];
+        const modelOpt = cfgOpts.find((o) => o.id === "model" || o.category === "model");
+        if (modelOpt?.options?.length) {
+          modelConfigIdRef.current = modelOpt.id ?? "model";
+          avail = modelOpt.options.map((o) => ({ modelId: o.value, name: o.name ?? o.value }));
+          cur = modelOpt.currentValue ?? avail[0]?.modelId ?? null;
+        }
+      }
+      if (avail.length) setAvailableModels(avail);
+      confirmedModelRef.current = cur; // verdade do adapter, ANTES do otimismo abaixo
+      // BYOK Hermes: o HERMES_INFERENCE_MODEL não pega no ACP (inicia no default do provider) →
+      // aplica o modelo escolhido no wizard via session/set_model, com o formato `provider/model`
+      // (com BARRA — com `:` o Hermes misrouteia "kimi" pro provider kimi-coding). hermesCfgRef
+      // (sessão atual, tem a escolha) ou data.providerConfig (persistido) trazem o modelo.
+      const wantModel = hermesCfgRef.current?.model ?? data.providerConfig?.model;
+      const wantProvider = hermesCfgRef.current?.provider ?? data.providerConfig?.provider ?? data.provider;
+      if (data.provider === "hermes" && wantModel) {
+        const fullId = wantModel.includes("/") ? wantModel : `${wantProvider}/${wantModel}`;
+        if (fullId !== cur) void acpSetModel(id, fullId);
+        cur = fullId;
+        // reflete no dropdown (o availableModels curado do Hermes pode não conter este modelo)
+        setAvailableModels((prev) =>
+          prev.some((m) => m.modelId === fullId) ? prev : [{ modelId: fullId, name: wantModel }, ...prev],
+        );
+      } else if (wantModel && modelConfigIdRef.current) {
+        // Claude: o modelo sugerido pelo plano (Montar) vem como "haiku|sonnet|opus" — casa com
+        // o configOption real por substring e aplica via set_config_option (mesmo cano do dropdown).
+        const want = wantModel.toLowerCase();
+        const hit = avail.find(
+          (m) => m.modelId.toLowerCase().includes(want) || (m.name ?? "").toLowerCase().includes(want),
+        );
+        if (hit && hit.modelId !== cur) {
+          void acpSetConfigOption(id, modelConfigIdRef.current, hit.modelId);
+          cur = hit.modelId;
+        }
+      }
+      if (cur) setModel(cur);
+      if (cur) setUsage((u) => ({ ...u, model: cur }));
+      // Guarda + PERSISTE o sessionId do ADAPTER (session/new traz; session/load não →
+      // mantém o anterior). É a chave do resume: reload na mesma execução (ref) e
+      // pós-restart do app (acpSessionId no workspace → session/load).
+      const sessId = (info as { sessionId?: string }).sessionId;
+      if (sessId) {
+        acpSessionIdRef.current = sessId;
+        patchNode(data.id, { acpSessionId: sessId });
+      }
+      spawnedResumeRef.current = false; // ficou ready → uma morte futura é morte real, não resume-fail
+      setStatus("ready");
+      // Torna-se COMANDÁVEL pelo Orquestrador-terminal (entra no terminal_list).
+      // Idempotente: o re-attach re-registra o mesmo par label→id.
+      void acpAgentRegister(cmdLabel, id);
+    };
+
+    // F2: re-hidrata a view a partir do snapshot do backend (a sessão sobreviveu ao
+    // unmount / troca de floor / virtualização) — espelho do replayFromSnapshot do PTY.
+    const rehydrate = (snap: AcpAttachSnapshot) => {
+      acpSessionIdRef.current = snap.acpSessionId ?? null;
+      if (snap.acpSessionId && snap.acpSessionId !== data.acpSessionId) {
+        patchNode(data.id, { acpSessionId: snap.acpSessionId });
+      }
+      if (snap.truncated) {
+        pushSys(t("agent.historyTruncated", "… histórico truncado — a conversa completa segue viva no agente"));
+      }
+      if (snap.state === "dead") setStatus("dead");
+      else if (snap.lastReady) handleReady(snap.lastReady as Record<string, unknown>);
+      else setStatus("starting");
+      // Replay do log coalescido → bolhas/tool-calls/usage (o MESMO applyUpdate do ao-vivo).
+      for (const ev of snap.events) {
+        if (ev.event === "update") applyUpdate(ev.payload as Record<string, unknown>);
+      }
+      // Permission pendente sobreviveu no backend → re-exibe (o turno segue em voo no
+      // adapter até a resposta; por isso o status volta pra thinking).
+      if (snap.pendingPermission) {
+        const pp = snap.pendingPermission.params as { options?: Perm["options"] } | undefined;
+        setPerm({ reqId: snap.pendingPermission.reqId, options: pp?.options ?? [] });
+        if (snap.state === "running") setStatus("thinking");
+      }
+      // Conversa já em andamento → contrato de orquestrador + persona NÃO re-injetam.
+      if (snap.events.some((e) => e.event === "update" || e.event === "turn-done")) {
+        firstSentRef.current = true;
+        personaSentRef.current = true;
+      }
+      lastSeq = snap.lastSeq;
+    };
+
     (async () => {
       unsubs = await Promise.all([
-        listenAcpReady(id, (info) => {
-          const models = info.models as
-            | { availableModels?: { modelId: string; name?: string }[]; currentModelId?: string }
-            | undefined;
-          let avail = models?.availableModels ?? [];
-          let cur = models?.currentModelId ?? avail[0]?.modelId ?? null;
-          // Claude não usa `models`: expõe o modelo como um configOption (id="model"). Se `models`
-          // veio vazio, procura o configOption de modelo → vira o dropdown (troca via set_config_option).
-          if (avail.length === 0) {
-            const cfgOpts = (info.configOptions as
-              | { id?: string; category?: string; currentValue?: string; options?: { value: string; name?: string }[] }[]
-              | undefined) ?? [];
-            const modelOpt = cfgOpts.find((o) => o.id === "model" || o.category === "model");
-            if (modelOpt?.options?.length) {
-              modelConfigIdRef.current = modelOpt.id ?? "model";
-              avail = modelOpt.options.map((o) => ({ modelId: o.value, name: o.name ?? o.value }));
-              cur = modelOpt.currentValue ?? avail[0]?.modelId ?? null;
-            }
-          }
-          if (avail.length) setAvailableModels(avail);
-          confirmedModelRef.current = cur; // verdade do adapter, ANTES do otimismo abaixo
-          // BYOK Hermes: o HERMES_INFERENCE_MODEL não pega no ACP (inicia no default do provider) →
-          // aplica o modelo escolhido no wizard via session/set_model, com o formato `provider/model`
-          // (com BARRA — com `:` o Hermes misrouteia "kimi" pro provider kimi-coding). hermesCfgRef
-          // (sessão atual, tem a escolha) ou data.providerConfig (persistido) trazem o modelo.
-          const wantModel = hermesCfgRef.current?.model ?? data.providerConfig?.model;
-          const wantProvider = hermesCfgRef.current?.provider ?? data.providerConfig?.provider ?? data.provider;
-          if (data.provider === "hermes" && wantModel) {
-            const fullId = wantModel.includes("/") ? wantModel : `${wantProvider}/${wantModel}`;
-            if (fullId !== cur) void acpSetModel(id, fullId);
-            cur = fullId;
-            // reflete no dropdown (o availableModels curado do Hermes pode não conter este modelo)
-            setAvailableModels((prev) =>
-              prev.some((m) => m.modelId === fullId) ? prev : [{ modelId: fullId, name: wantModel }, ...prev],
-            );
-          } else if (wantModel && modelConfigIdRef.current) {
-            // Claude: o modelo sugerido pelo plano (Montar) vem como "haiku|sonnet|opus" — casa com
-            // o configOption real por substring e aplica via set_config_option (mesmo cano do dropdown).
-            const want = wantModel.toLowerCase();
-            const hit = avail.find(
-              (m) => m.modelId.toLowerCase().includes(want) || (m.name ?? "").toLowerCase().includes(want),
-            );
-            if (hit && hit.modelId !== cur) {
-              void acpSetConfigOption(id, modelConfigIdRef.current, hit.modelId);
-              cur = hit.modelId;
-            }
-          }
-          if (cur) setModel(cur);
-          if (cur) setUsage((u) => ({ ...u, model: cur }));
-          // Guarda o sessionId do ADAPTER (session/new traz; session/load não → mantém o anterior)
-          // pra poder dar session/load num reload futuro (mantém a conversa).
-          const sessId = (info as { sessionId?: string }).sessionId;
-          if (sessId) acpSessionIdRef.current = sessId;
-          spawnedResumeRef.current = false; // ficou ready → uma morte futura é morte real, não resume-fail
-          setStatus("ready");
-          // Torna-se COMANDÁVEL pelo Orquestrador-terminal (entra no terminal_list).
-          void acpAgentRegister(cmdLabel, id);
-        }),
-        listenAcpUpdate(id, applyUpdate),
-        listenAcpPermission(id, (reqId, params) =>
-          setPerm({ reqId, options: (params.options as Perm["options"]) ?? [] }),
+        listenAcpReady(id, (info, seq) => gated(seq, () => handleReady(info))),
+        listenAcpUpdate(id, (up, seq) => gated(seq, () => applyUpdate(up))),
+        listenAcpPermission(id, (reqId, params, seq) =>
+          gated(seq, () => setPerm({ reqId, options: (params.options as Perm["options"]) ?? [] })),
         ),
-        listenAcpTurnDone(id, async () => {
+        listenAcpTurnDone(id, (_d, seq) => gated(seq, async () => {
           setStatus("ready");
           const reply = lastReplyRef.current.trim();
           // 🧹 turno de COMPACTAÇÃO: a resposta É o resumo → substitui a conversa por
@@ -602,8 +678,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
               }
             }
           }
-        }),
-        listenAcpExit(id, () => {
+        })),
+        // acp://exit agora é só morte REAL (kill intencional — cancel/gc/reload — não emite).
+        listenAcpExit(id, (seq) => gated(seq, () => {
           // Resume falhou rápido: o spawn pediu session/load mas o processo morreu ANTES de ficar
           // ready (ex: `claude --resume` sai 129/SIGHUP quando o adapter não retoma a sessão). Em vez
           // de deixar o agente MORTO, sobe uma sessão NOVA (perde a conversa, mas o agente volta).
@@ -611,24 +688,32 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             spawnedResumeRef.current = false;
             acpSessionIdRef.current = null;
             resumeRef.current = null;
+            // F2: limpa TAMBÉM o acpSessionId persistido — senão todo spawn futuro
+            // re-tentaria o mesmo resume falho pra sempre.
+            patchNode(data.id, { acpSessionId: undefined });
             personaSentRef.current = false; // sessão nova → persona volta no ready
             pushSys(t("agent.resumeFellBack", "↻ o resume falhou (o adapter não retomou a sessão) — subindo uma sessão nova…"));
-            setReloadKey((k) => k + 1);
+            // F2: a entry Dead segue ocupando o id no AcpManager → kill limpa ANTES do
+            // re-mount (senão o acp_spawn recusa "sessão já existe").
+            void (async () => {
+              try { await acpCancel(data.id); } catch { /* já saiu */ }
+              setReloadKey((k) => k + 1);
+            })();
             return;
           }
           setStatus("dead");
-        }),
-        listenAcpAuthRequired(id, (methods) => {
+        })),
+        listenAcpAuthRequired(id, (methods, seq) => gated(seq, () => {
           setAuthMethods(methods);
           setStatus("auth");
-        }),
-        listenAcpAuthFailed(id, (err) => {
+        })),
+        listenAcpAuthFailed(id, (err, seq) => gated(seq, () => {
           pushSys(`falha no login: ${typeof err === "string" ? err : JSON.stringify(err)}`);
           setStatus("auth");
-        }),
+        })),
         // O adapter RECUSOU o modelo pedido (set_model/set_config_option) → badge volta pro
         // modelo confirmado e avisa, em vez de mentir. (Task #6: Hermes voltando pro ministral.)
-        listenAcpModelRejected(id, (err) => {
+        listenAcpModelRejected(id, (err, seq) => gated(seq, () => {
           const fallback = confirmedModelRef.current;
           if (fallback) {
             setModel(fallback);
@@ -637,34 +722,67 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           pushSys(
             `⚠️ ${t("agent.modelRejected", "o adapter recusou a troca de modelo")}${fallback ? ` — ${t("agent.modelStayed", "segue em")} ${fallback}` : ""}: ${typeof err === "string" ? err : JSON.stringify(err)}`,
           );
-        }),
+        })),
       ]);
       if (!alive) {
         unsubs.forEach((u) => u());
         return;
       }
+
+      // 1) ANEXA: a sessão pode já existir no backend (re-mount, troca de floor, F3
+      //    virtualização). Sucesso = re-hidrata SEM re-spawnar — nada morre.
+      let attached = false;
       try {
-        spawnedResumeRef.current = !!resumeRef.current; // este spawn é um resume? (pro fallback do exit)
-        await acpSpawn(id, {
-          provider: data.provider,
-          cwd: data.cwd,
-          resumeSessionId: resumeRef.current ?? undefined,
-          providerConfig: hermesCfg ?? undefined,
-        });
-        resumeRef.current = null; // consumido
-      } catch (e) {
-        pushSys(`erro ao iniciar: ${e}`);
-        setStatus("dead");
+        const snap = await acpAttach(id);
+        if (!alive) return;
+        rehydrate(snap);
+        attached = true;
+      } catch {
+        // sessão não existe → spawn abaixo (criação, pós-kill explícito ou boot novo)
+      }
+
+      // 2) SPAWN: reload na mesma execução usa o resumeRef; pós-restart do app usa o
+      //    data.acpSessionId PERSISTIDO → session/load retoma a conversa.
+      if (!attached && alive) {
+        try {
+          const resume = resumeRef.current ?? data.acpSessionId ?? undefined;
+          spawnedResumeRef.current = !!resume; // este spawn é um resume? (pro fallback do exit)
+          await acpSpawn(id, {
+            provider: data.provider,
+            cwd: data.cwd,
+            resumeSessionId: resume,
+            providerConfig: hermesCfg ?? undefined,
+          });
+          resumeRef.current = null; // consumido
+        } catch (e) {
+          pushSys(`erro ao iniciar: ${e}`);
+          setStatus("dead");
+        }
+      }
+
+      // 3) Drena o que chegou ao vivo DURANTE o attach/spawn, dedupado por seq (padrão
+      //    buffer-durante-snapshot do PTY). Sem awaits daqui pro fim → nenhum evento
+      //    novo intercala entre soltar o gate e drenar.
+      attaching = false;
+      for (const p of pending.splice(0)) {
+        if (p.seq !== undefined) {
+          if (p.seq <= lastSeq) continue;
+          lastSeq = p.seq;
+        }
+        p.fn();
       }
     })();
 
     return () => {
+      // F2: unmount = SÓ desligar listeners. A sessão (e o registro label→id no backend)
+      // SOBREVIVE — o nó é uma view descartável que re-anexa no próximo mount. O kill
+      // explícito vive no removeNode/fechar floor/projeto (canvas-store), no reload e
+      // na troca de provider.
       alive = false;
       unsubs.forEach((u) => u());
-      acpAgentUnregister(cmdLabel).catch(() => {});
-      acpCancel(id).catch(() => {});
     };
-    // reloadKey: bumpar re-spawna a sessão (carrega .claude/agents plugados depois do boot).
+    // reloadKey: bumpar re-monta a sessão (reload de subagentes / troca de provider) —
+    // o caller MATA a sessão antes do bump, senão o attach re-anexaria à antiga.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadKey]);
 
