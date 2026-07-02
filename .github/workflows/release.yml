@@ -143,6 +143,11 @@ jobs:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
           releaseName: "OmniRift ${{ github.ref_name }}"
+          # Notas automáticas: o GitHub gera o "What's Changed" (commits + PRs) desde a
+          # tag anterior — cada release passa a descrever o que mudou (antes o corpo saía
+          # VAZIO porque nenhum body era passado).
+          releaseBody: "Veja os detalhes em **What's Changed** abaixo (gerado dos commits desde a versão anterior)."
+          generateReleaseNotes: true
           releaseDraft: false # AUTO-PUBLICA: re-execução do workflow NÃO re-drafta (era
           # a causa do latest.json voltar a 404). O review acontece no PR antes da tag.
           # Gera latest.json (feed do updater) + .sig de cada bundle e anexa ao Release.
