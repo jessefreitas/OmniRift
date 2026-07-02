@@ -12,7 +12,7 @@
 //! (hoje/7d/30d/tudo) e o status de orçamento agregam em memória (instantâneo). O
 //! ↻ do painel força rebuild. O ledger é pequeno → relido a cada chamada (live).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -229,6 +229,11 @@ fn add_to(map: &mut BucketMap, date: &str, cwd: &str, model: &str, calls: i64, i
 fn scan_claude(home: &Path, map: &mut BucketMap, session_last: &mut Vec<String>) {
     let dir = home.join(".claude").join("projects");
     let Ok(slugs) = std::fs::read_dir(&dir) else { return };
+    // DEDUPE por (message.id, requestId): um turno da API vira N linhas no jsonl (1 por
+    // content block, TODAS com o MESMO usage) e sessões retomadas (--resume) recopiam o
+    // histórico em arquivo novo. Sem isto o custo infla ~2.6× (medido 2026-07-01: 2993 de
+    // 5035 linhas eram cópias = +$3k fantasma no "Hoje"). Set GLOBAL (cruza arquivos).
+    let mut seen: HashSet<(String, String)> = HashSet::new();
     for slug in slugs.flatten() {
         let Ok(files) = std::fs::read_dir(slug.path()) else { continue };
         for f in files.flatten() {
@@ -245,6 +250,16 @@ fn scan_claude(home: &Path, map: &mut BucketMap, session_last: &mut Vec<String>)
                 let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
                 let Some(msg) = v.get("message") else { continue };
                 let Some(u) = msg.get("usage") else { continue };
+                // Linha repetida do mesmo request já contado → pula (sem ids não dá pra
+                // deduplicar; conta — melhor superestimar raro do que perder usage real).
+                if let (Some(mi), Some(ri)) = (
+                    msg.get("id").and_then(|x| x.as_str()),
+                    v.get("requestId").and_then(|x| x.as_str()),
+                ) {
+                    if !seen.insert((mi.to_string(), ri.to_string())) {
+                        continue;
+                    }
+                }
                 let inp = get_i64(u, "input_tokens");
                 let out = get_i64(u, "output_tokens");
                 let cr = get_i64(u, "cache_read_input_tokens");
@@ -548,6 +563,47 @@ mod tests {
         // período >= 2026-06-15 corta o bucket de 06-10
         let (agg_p, _) = aggregate(&c, &Some("2026-06-15".into()), &[], None);
         assert_eq!(agg_p.total.input_tokens, 101);
+    }
+
+    #[test]
+    fn scan_claude_dedupes_streamed_and_resumed_lines() {
+        // 1 request da API vira N linhas no jsonl (streaming multi-block, MESMO usage) e o
+        // resume recopia o histórico em arquivo novo — cada request só pode contar UMA vez.
+        let tmp = std::env::temp_dir().join(format!("omnirift-usage-dedupe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let projects = tmp.join(".claude/projects/slug");
+        std::fs::create_dir_all(&projects).unwrap();
+
+        let line = |msg_id: &str, req_id: &str| -> String {
+            format!(
+                r#"{{"timestamp":"2026-07-01T10:00:00Z","cwd":"/proj/a","requestId":"{}","message":{{"id":"{}","model":"claude-opus-4","usage":{{"input_tokens":10,"output_tokens":20}}}}}}"#,
+                req_id, msg_id
+            )
+        };
+
+        // a.jsonl: msg_1/req_1 repetido 3× (content blocks) + msg_2/req_2 uma vez.
+        let mut a = String::new();
+        for _ in 0..3 {
+            a.push_str(&line("msg_1", "req_1"));
+            a.push('\n');
+        }
+        a.push_str(&line("msg_2", "req_2"));
+        a.push('\n');
+        std::fs::write(projects.join("a.jsonl"), a).unwrap();
+
+        // b.jsonl: msg_1/req_1 reaparece (sessão retomada/replay).
+        std::fs::write(projects.join("b.jsonl"), format!("{}\n", line("msg_1", "req_1"))).unwrap();
+
+        let mut map: BucketMap = BucketMap::new();
+        let mut session_last: Vec<String> = Vec::new();
+        scan_claude(&tmp, &mut map, &mut session_last);
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        let key = ("2026-07-01".to_string(), "/proj/a".to_string(), "claude-opus-4".to_string());
+        let usage = map.get(&key).expect("bucket esperado não encontrado");
+        assert_eq!(usage[0], 2, "apenas 2 requests únicos devem contar (não 5 linhas)");
+        assert_eq!(usage[1], 20, "input_tokens = 10 + 10 (1× por request)");
+        assert_eq!(usage[2], 40, "output_tokens = 20 + 20 (1× por request)");
     }
 
     #[test]

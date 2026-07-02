@@ -1630,7 +1630,10 @@ export function Sidebar() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
+      {/* overflow-x-hidden: overflow-y sozinho computa overflow-x:auto → qualquer linha 1px
+          mais larga fazia o CSS global de scrollbar (height:10px) pintar uma barra HORIZONTAL
+          flutuando sobre a última seção (SPECS). Sidebar não rola no eixo X. */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col min-h-0">
       {/* Floors */}
       <div className="px-2 py-2.5 border-b border-border" style={secStyle("floors")}>
         <div className="flex items-center justify-between px-2 mb-1.5">

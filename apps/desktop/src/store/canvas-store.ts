@@ -261,6 +261,27 @@ function syncActiveMeta(s: CanvasState): ProjectMeta[] {
   );
 }
 
+/** Dedupe de label (#13): o registry MCP de agentes é keyado por label — nomes repetidos
+ *  colidem quando o Orquestrador comanda ("manda pro dev" acha 2). Se o label já existe em
+ *  QUALQUER nó terminal/agent do projeto ativo (todos os paralelos), sufixa " 2", " 3"… até
+ *  ficar único. Comparação case-insensitive. Chamar SÓ com label definido (undefined não
+ *  ganha sufixo — decidido no call site). */
+function dedupeNodeLabel(s: CanvasState, label: string): string {
+  const taken = new Set<string>();
+  for (const f of s.parallels) {
+    if (f.projectId !== s.activeProjectId) continue;
+    for (const n of f.nodes) {
+      if (n.kind !== "terminal" && n.kind !== "agent") continue;
+      if (n.label) taken.add(n.label.toLowerCase());
+    }
+  }
+  if (!taken.has(label.toLowerCase())) return label;
+  for (let i = 2; ; i++) {
+    const cand = `${label} ${i}`;
+    if (!taken.has(cand.toLowerCase())) return cand;
+  }
+}
+
 // Circuit-breaker anti "infinitos terminais": se nascerem terminais demais num
 // intervalo curto (loop de spawn — agente em looping, restore bugado, etc.), bloqueia
 // os próximos e avisa, mantendo o app usável. Fan-out legítimo (orquestrador → equipe)
@@ -450,6 +471,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     _spawnTimes.push(_now);
     const nodeId = id ?? nanoid();
     const s0host = get();
+    // #13: label repetido colide no registry MCP (keyado por label) → sufixa até ser único.
+    const uniqueLabel = label === undefined ? undefined : dedupeNodeLabel(s0host, label);
     // Floor alvo: explícito (routines "Rodar em") OU floor ativo (default — idêntico
     // ao anterior). NÃO troca o floor ativo: o terminal nasce no destino em background.
     const explicitFloor = targetFloorId ? s0host.parallels.find((f) => f.id === targetFloorId) : undefined;
@@ -476,7 +499,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       command,
       args,
       role,
-      label,
+      label: uniqueLabel,
       cwd,
       env,
       createdAt: Date.now(),
@@ -676,7 +699,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       id: nanoid(),
       kind: "agent",
       provider: provider ?? "claude",
-      label: label ?? "OmniAgent",
+      // #13: dedupe do label EFETIVO (inclui o default — N "OmniAgent" também colidem no registry).
+      label: dedupeNodeLabel(get(), label ?? "OmniAgent"),
       cwd,
       providerConfig,
       persona,
