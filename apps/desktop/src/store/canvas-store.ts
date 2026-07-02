@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { nanoid } from "nanoid";
 import { emit } from "@tauri-apps/api/event";
 import { acpCancel, acpAgentUnregister, acpGc } from "@/lib/acp-client";
+import { ensurePtySessions, gcPtySessions, killPtySessions } from "@/lib/terminal-sessions";
 import { composedCompressorEnv } from "@/lib/compress-client";
 import { withinLimit } from "@/lib/license-client";
 import { useLicenseStore } from "@/store/license-store";
@@ -249,14 +250,23 @@ function emitParallelLifecycle(
 
 /** F2 backend-owned (ACP): o unmount do AgentNode NÃO mata mais a sessão — a morte é
  *  EXPLÍCITA nos caminhos de remoção/fechamento (X do nó, fechar floor, fechar/encerrar
- *  projeto), espelhando os PTYs, que morrem quando o TerminalNode desmonta nesses mesmos
- *  caminhos. Fire-and-forget: fechar o canvas não trava esperando o IPC. */
+ *  projeto). Fire-and-forget: fechar o canvas não trava esperando o IPC.
+ *  F3: os PTYs seguem o MESMO contrato (unmount = só view) — todo call site desta
+ *  função chama `killPtySessions` (terminal-sessions) com a mesma lista de nós. */
 function killAcpAgents(nodes: CanvasNode[]): void {
   for (const n of nodes) {
     if (n.kind !== "agent") continue;
     void acpCancel(n.id).catch(() => {});
     if (n.label) void acpAgentUnregister(n.label).catch(() => {});
   }
+}
+
+/** F2 (ACP) + F3 (PTY): mata TODAS as sessões dos nós — chamar em todo caminho de
+ *  remoção/fechamento explícito. O unmount (virtualização, troca de floor, restore)
+ *  nunca mata nada. */
+function killNodeSessions(nodes: CanvasNode[]): void {
+  killAcpAgents(nodes);
+  killPtySessions(nodes);
 }
 
 const FIRST_FLOOR: Parallel = { id: "floor-main", name: "Principal", cwd: null, projectId: "proj-main", nodes: [], edges: [], hostId: LOCAL_HOST_ID };
@@ -368,10 +378,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       return { projects, activeProjectId: id, activeParallelId: target.activeFloorId, currentCwd: target.cwd };
     }),
   closeProject: (id) => {
-    // F2: PTYs do projeto fechado morrem no unmount; sessões ACP precisam de kill explícito.
+    // F2/F3: fechar projeto = kill EXPLÍCITO de PTYs e sessões ACP dos floors dele
+    // (o unmount virou só-view — nada morre sozinho).
     const s0 = get();
     if (s0.projects.length > 1) {
-      killAcpAgents(s0.parallels.filter((f) => f.projectId === id).flatMap((f) => f.nodes));
+      killNodeSessions(s0.parallels.filter((f) => f.projectId === id).flatMap((f) => f.nodes));
     }
     set((s) => {
       if (s.projects.length <= 1) return s; // nunca fecha o último
@@ -440,8 +451,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     if (!target) return;
     const projId = target.projectId;
     if (s.parallels.filter((f) => f.projectId === projId).length <= 1) return; // nunca o último do projeto
-    // F2: PTYs do floor morrem no unmount; sessões ACP precisam de kill explícito.
-    killAcpAgents(target.nodes);
+    // F2/F3: deletar o floor = kill EXPLÍCITO de PTYs e sessões ACP dos nós dele.
+    killNodeSessions(target.nodes);
     const floors = s.parallels.filter((f) => f.id !== id);
     if (s.activeParallelId === id) {
       const next = floors.find((f) => f.projectId === projId) ?? floors[0];
@@ -463,10 +474,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       parallels: s.parallels.map((f) => (f.id === s.activeParallelId ? { ...f, cwd } : f)),
     })),
   closeFolder: () => {
-    // F2: encerrar o projeto fecha os floors dele — PTYs morrem no unmount; sessões
-    // ACP (que agora sobrevivem a unmount) precisam do kill explícito.
+    // F2/F3: encerrar o projeto fecha os floors dele — kill EXPLÍCITO de PTYs e
+    // sessões ACP (unmount não mata mais nada).
     const s0 = get();
-    killAcpAgents(s0.parallels.filter((f) => f.projectId === s0.activeProjectId).flatMap((f) => f.nodes));
+    killNodeSessions(s0.parallels.filter((f) => f.projectId === s0.activeProjectId).flatMap((f) => f.nodes));
     set((s) => {
       const pid = s.activeProjectId;
       const fresh: Parallel = { id: nanoid(), name: "Paralelo 1", cwd: null, projectId: pid, nodes: [], edges: [], hostId: LOCAL_HOST_ID };
@@ -552,6 +563,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     set((s) => ({
       parallels: s.parallels.map((f) => (f.id === targetFloorIdResolved ? { ...f, nodes: [...f.nodes, node] } : f)),
     }));
+    // F3 backend-owned: eager-spawn — com a virtualização, um nó que nasce FORA do
+    // viewport (Montar em ondas, routines em floor alvo) nunca monta e portanto nunca
+    // spawnaria. O PTY nasce aqui, dono = backend; o nó ANEXA quando montar (o hook
+    // detecta via pty_list; corrida spawn×spawn é benigna — "já existe" → attach).
+    // `attach` (CLI omnirift spawn) fica de fora: esse PTY já nasceu no backend.
+    if (!attach) void ensurePtySessions([node]);
     return node;
   },
 
@@ -881,13 +898,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   clearConnectMenu: () => set({ requestConnectMenu: null }),
 
   removeNode: (id) => {
-    // F2 backend-owned (ACP): X/Delete num OmniAgent = kill EXPLÍCITO da sessão ANTES de
-    // remover o nó (o unmount virou só-view e não mata mais). Terminais seguem morrendo
-    // no unmount (useTerminalSession).
+    // F2/F3 backend-owned: X/Delete num OmniAgent OU num terminal = kill EXPLÍCITO da
+    // sessão ANTES de remover o nó (o unmount virou só-view e não mata mais nada).
     const s0 = get();
     const active0 = s0.parallels.find((f) => f.id === s0.activeParallelId);
     const removing = active0?.nodes.find((n) => n.id === id);
-    if (removing) killAcpAgents([removing]);
+    if (removing) killNodeSessions([removing]);
     set((s) => ({
       parallels: s.parallels.map((f) => {
         if (f.id !== s.activeParallelId) return f;
@@ -1133,5 +1149,16 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       f.nodes.filter((n) => n.kind === "agent").map((n) => n.id),
     );
     void acpGc(knownAgentIds).catch(() => {});
+    // F3 backend-owned (PTY): mesmo reaper pros terminais — session_ids remapeados →
+    // PTYs da montagem anterior viram órfãos (o unmount não mata mais; kill explícito
+    // aqui). Na sequência, eager-spawn dos restaurados: com a virtualização, nó fora
+    // do viewport nunca monta — o PTY nasce backend-owned e o nó anexa quando aparecer
+    // (é o comportamento antigo de "reabrir = frota sobe", agora sem depender do mount).
+    const termNodes = flatFloors.flatMap((f) =>
+      f.nodes.filter((n): n is TerminalNode => n.kind === "terminal"),
+    );
+    void gcPtySessions(termNodes.map((n) => n.session_id))
+      .then(() => ensurePtySessions(termNodes))
+      .catch(() => {});
   },
 }));

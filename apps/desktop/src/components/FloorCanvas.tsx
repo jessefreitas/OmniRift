@@ -1,7 +1,10 @@
 // src/components/FloorCanvas.tsx
 //
-// Um ReactFlow por floor. Os inativos ficam em display:none (mantêm os
-// TerminalNode/xterm montados → PTYs vivos), então só o ativo é interativo.
+// Um ReactFlow por floor. Os inativos ficam em display:none; só o ativo é
+// interativo. F3 backend-owned sessions: o floor ATIVO liga a virtualização
+// (`onlyRenderVisibleElements`) — nó fora do viewport DESMONTA de verdade, e é
+// seguro porque as sessões são do backend (AgentNode re-anexa via acp_attach/F2;
+// TerminalNode via pty_list+pty_snapshot; kill só explícito no canvas-store).
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
@@ -107,7 +110,7 @@ function miniMapNodeColor(n: Node): string {
   return MINIMAP_COLORS[n.type ?? ""] ?? "rgb(120, 120, 130)";
 }
 
-export function FloorCanvas({ floorId }: { floorId: string }) {
+export function FloorCanvas({ floorId, active }: { floorId: string; active: boolean }) {
   useConnectionRouting(); // roteia saída de agente → entrada do nó conectado + anima a edge
   const floor = useCanvasStore((s) => s.parallels.find((f) => f.id === floorId));
   const updateNodePosition = useCanvasStore((s) => s.updateNodePosition);
@@ -309,6 +312,16 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       onConnectEnd={onConnectEnd}
       onNodeDragStop={onNodeDragStop}
       onInit={(inst) => registerFloorInstance(floorId, inst)}
+      // F3 backend-owned sessions: virtualização — nó fora do viewport DESMONTA (não é
+      // só display:none/LOD). Seguro pois nada de sessão vive no mount: AgentNode
+      // re-anexa via acp_attach (F2) e TerminalNode via pty_list+pty_snapshot; o
+      // unmount só desliga listeners (kill é explícito no canvas-store). SÓ no floor
+      // ativo: num floor em display:none o React Flow não re-mede o container
+      // (checkVisibility falha) e usaria o ÚLTIMO viewport — desmontaria nós
+      // arbitrários, inclusive o terminal do Orquestrador que o OrchestratorDock
+      // exibe montado de OUTRO floor (o xterm é relocado via appendChild). Floors
+      // inativos seguem montando tudo (comportamento antigo).
+      onlyRenderVisibleElements={active}
       proOptions={{ hideAttribution: true }}
       minZoom={0.15}
       maxZoom={2.5}

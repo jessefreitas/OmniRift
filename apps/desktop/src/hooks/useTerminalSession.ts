@@ -23,11 +23,13 @@ import {
   listenPtyExit,
   listenPtyOutput,
   ptyKill,
+  ptyList,
   ptyResize,
   ptySnapshot,
   ptySpawn,
   ptyWrite,
 } from "@/lib/pty-client";
+import { registerTerminalView, unregisterTerminalView } from "@/lib/terminal-sessions";
 import { useCanvasStore } from "@/store/canvas-store";
 import { sessionStart, sessionEvent, sessionEnd } from "@/lib/session-client";
 import { pasteText, copyText } from "@/lib/clipboard";
@@ -128,6 +130,10 @@ export function useTerminalSession({
     if (!containerRef.current) return;
     if (spawnedRef.current) return; // Strict Mode guard
     spawnedRef.current = true;
+    // F3 backend-owned: registra esta VIEW como montada — o sink global de
+    // status/exit (pty-global-sink) e o fallback de wake ignoram sessões com view
+    // (o nó cuida, com as supressões de reconnect que só ele conhece).
+    registerTerminalView(sessionId);
 
     // --- Cria o xterm visual --------------------------------------------
     const term = new Terminal({
@@ -229,23 +235,49 @@ export function useTerminalSession({
         try { fitAddon.fit(); } catch { /* container ainda sem dimensões */ }
 
         const { cols, rows } = term;
-        // Attach (Fase 2 do #8): o PTY desta sessão JÁ nasceu no backend (CLI
-        // `omnirift spawn` → `agent.spawn`). PULAMOS o `ptySpawn` — re-spawnar
-        // criaria um 2º processo e mataria o estado vivo. O resto (session
-        // recorder, listeners, stdin, resize) é IDÊNTICO ao spawn normal; a view é
-        // re-hidratada via `replayFromSnapshot` (mesmo caminho do retorno-de-oculto
-        // do #6) logo após os listeners estarem montados. Sem attach → spawn normal
-        // intocado.
-        if (!config.attach) {
-          await ptySpawn(sessionId, {
-            ...config,
-            cols: config.cols ?? cols,
-            rows: config.rows ?? rows,
-          });
-        } else {
-          // Ajusta o PTY existente às dimensões reais deste xterm (o backend nasceu
-          // em 80×24 no agent.spawn). Fire-and-forget — falha não bloqueia o attach.
-          ptyResize(sessionId, cols, rows).catch(() => {});
+        // Attach (Fase 2 do #8 + F3 backend-owned): o PTY desta sessão pode JÁ
+        // existir no backend — attach explícito (CLI `omnirift spawn` →
+        // `agent.spawn`, `config.attach`), re-mount de um nó que a virtualização
+        // (`onlyRenderVisibleElements`) desmontou, ou eager-spawn do store
+        // (addTerminal/restore → ensurePtySessions). Nesses casos PULAMOS o
+        // `ptySpawn` — re-spawnar criaria um 2º processo e mataria o estado vivo.
+        // O resto (session recorder, listeners, stdin, resize) é IDÊNTICO ao spawn
+        // normal; a view é re-hidratada via `replayFromSnapshot` (mesmo caminho do
+        // retorno-de-oculto do #6) logo após os listeners estarem montados.
+        let attached = config.attach === true;
+        if (!attached) {
+          try {
+            attached = (await ptyList()).includes(sessionId);
+          } catch {
+            /* lista indisponível → segue pro spawn normal */
+          }
+        }
+        if (disposed) { dropListeners(); return; }
+        if (!attached) {
+          try {
+            await ptySpawn(sessionId, {
+              ...config,
+              cols: config.cols ?? cols,
+              rows: config.rows ?? rows,
+            });
+          } catch (e) {
+            // Corrida com o eager-spawn do store (a sessão nasceu entre o pty_list
+            // e o spawn) → anexa em vez de falhar. A mensagem vem do PtyManager
+            // ("sessão {id} já existe").
+            if (String(e).includes("já existe")) attached = true;
+            else throw e;
+          }
+        }
+        if (attached) {
+          // Ajusta o PTY existente às dimensões reais deste xterm (eager-spawn e
+          // agent.spawn nascem em 80×24). SÓ quando o container tem tamanho de
+          // verdade: num mount oculto (floor em display:none) o fit não roda e
+          // cols/rows seriam o default do xterm — redimensionar um PTY vivo pra
+          // isso reflowaria a TUI à toa. Fire-and-forget — falha não bloqueia.
+          const el = containerRef.current;
+          if (el && el.clientWidth > 0 && el.clientHeight > 0) {
+            ptyResize(sessionId, cols, rows).catch(() => {});
+          }
         }
         // Desmontou durante o await do spawn → aborta antes de montar listeners
         // (senão eles resolveriam depois e escreveriam num term já disposto).
@@ -465,12 +497,12 @@ export function useTerminalSession({
           });
         });
 
-        // Attach (Fase 2 do #8): com os listeners já montados, re-hidrata a view do
-        // estado ATUAL do PTY via snapshot — reusa EXATAMENTE o caminho do #6
-        // (replayFromSnapshot): marca snapshot-em-voo (o listener de output bufferiza
-        // os chunks ao vivo), escreve o snapshot, drena o buffer dedupado por seq.
-        // No spawn normal NÃO roda (o PTY nasce vazio; o output ao vivo já cobre tudo).
-        if (config.attach && !disposed) {
+        // Attach (Fase 2 do #8 / F3): com os listeners já montados, re-hidrata a
+        // view do estado ATUAL do PTY via snapshot — reusa EXATAMENTE o caminho do
+        // #6 (replayFromSnapshot): marca snapshot-em-voo (o listener de output
+        // bufferiza os chunks ao vivo), escreve o snapshot, drena o buffer dedupado
+        // por seq. No spawn normal NÃO roda (o PTY nasce vazio; o live cobre tudo).
+        if (attached && !disposed) {
           void replayFromSnapshot();
         }
 
@@ -503,15 +535,13 @@ export function useTerminalSession({
       unlistenOutput?.();
       unlistenStatus?.();
       unlistenExit?.();
-      // Encerra o registro da sessão se o exit não chegou a disparar (node removido).
-      if (!sessionEndedRef.current) {
-        sessionEndedRef.current = true;
-        void sessionEnd(sessionId, "closed").catch(() => {});
-      }
-      // Mata o PTY no Rust — mas não bloqueia o cleanup
-      ptyKill(sessionId).catch(() => {
-        /* sessão pode já ter morrido */
-      });
+      // F3 backend-owned: o unmount NÃO mata o PTY nem encerra o session recorder —
+      // o nó é uma VIEW descartável (a virtualização/troca de floor desmonta à
+      // vontade; o próximo mount re-anexa via pty_list + snapshot). O kill +
+      // sessionEnd explícitos vivem no canvas-store (removeNode, fechar floor/
+      // projeto, gc do restore) — mesmo contrato do AgentNode (F2). O sink global
+      // (pty-global-sink) assume status/exit enquanto não há view.
+      unregisterTerminalView(sessionId);
       term.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;

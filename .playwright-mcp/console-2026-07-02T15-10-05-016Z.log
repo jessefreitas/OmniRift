@@ -1,0 +1,52 @@
+[     257ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:14337
+[     530ms] TypeError: Cannot read properties of undefined (reading 'metadata')
+    at getCurrentWindow (http://localhost:5173/node_modules/.vite/deps/@tauri-apps_api_window.js?v=fea8a2d1:385:47)
+    at http://localhost:5173/src/App.tsx?t=1783004995851:59:15
+    at Object.react_stack_bottom_frame (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:12904:13)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:851:66)
+    at commitHookEffectListMount (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:6617:153)
+    at commitHookPassiveMountEffects (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:6652:55)
+    at commitPassiveMountOnFiber (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:7618:22)
+    at recursivelyTraversePassiveMountEffects (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:7606:5)
+    at commitPassiveMountOnFiber (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:7672:14)
+    at recursivelyTraversePassiveMountEffects (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:7606:5)
+[     529ms] [WARNING] %s
+
+%s
+ An error occurred in the <App> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5173/@vite/client:509
+[     530ms] TypeError: Cannot read properties of undefined (reading 'metadata')
+    at getCurrentWindow (http://localhost:5173/node_modules/.vite/deps/@tauri-apps_api_window.js?v=fea8a2d1:385:47)
+    at http://localhost:5173/src/App.tsx?t=1783004995851:59:15
+    at Object.react_stack_bottom_frame (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:12904:13)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:851:66)
+    at commitHookEffectListMount (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:6617:153)
+    at commitHookPassiveMountEffects (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:6652:55)
+    at reconnectPassiveEffects (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:7701:6)
+    at recursivelyTraverseReconnectPassiveEffects (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:7688:5)
+    at reconnectPassiveEffects (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:7713:14)
+    at doubleInvokeEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:8924:125)
+[     530ms] [WARNING] %s
+
+%s
+ An error occurred in the <App> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5173/@vite/client:509
+[     533ms] [WARNING] [persistence] preservar sessão anterior falhou: TypeError: Cannot read properties of undefined (reading 'invoke')
+    at invoke (http://localhost:5173/node_modules/.vite/deps/core-DjP5HCxZ.js?v=4bbd1f0a:204:36)
+    at dbLoadWorkspace (http://localhost:5173/src/lib/db-client.ts:11:9)
+    at initPersistence (http://localhost:5173/src/lib/persistence-client.ts?t=1783004995851:51:22)
+    at http://localhost:5173/src/App.tsx?t=1783004995851:38:3
+    at Object.react_stack_bottom_frame (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:12904:13)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:851:66)
+    at commitHookEffectListMount (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:6617:153)
+    at commitHookPassiveMountEffects (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:6652:55)
+    at commitPassiveMountOnFiber (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:7618:22)
+    at recursivelyTraversePassiveMountEffects (http://localhost:5173/node_modules/.vite/deps/client-D3elSkPp.js?v=4bbd1f0a:7606:5) @ http://localhost:5173/@vite/client:509
+[     535ms] TypeError: Cannot read properties of undefined (reading 'transformCallback')
+    at transformCallback (http://localhost:5173/node_modules/.vite/deps/core-DjP5HCxZ.js?v=4bbd1f0a:90:36)
+    at listen (http://localhost:5173/node_modules/.vite/deps/@tauri-apps_api_event.js?v=f082c41f:76:12)
+    at initOrchestrationBridge (http://localhost:5173/src/lib/orchestration-client.ts?t=1783004995851:42:24)
+[     536ms] TypeError: Cannot read properties of undefined (reading 'transformCallback')
+    at transformCallback (http://localhost:5173/node_modules/.vite/deps/core-DjP5HCxZ.js?v=4bbd1f0a:90:36)
+    at listen (http://localhost:5173/node_modules/.vite/deps/@tauri-apps_api_event.js?v=f082c41f:76:12)
+    at initOrchestrationBridge (http://localhost:5173/src/lib/orchestration-client.ts?t=1783004995851:42:24)

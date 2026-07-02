@@ -1,8 +1,17 @@
 // src/components/Canvas.tsx
 //
 // Container multi-floor/multi-projeto: um FloorCanvas por floor de TODOS os
-// projetos; os inativos ficam display:none (PTYs/agentes vivos). Só o floor ativo
-// do projeto ativo é visível — trocar de projeto não desmonta nada.
+// projetos; os inativos ficam display:none. Só o floor ativo do projeto ativo é
+// visível — e SÓ ele liga a virtualização (onlyRenderVisibleElements, F3).
+//
+// F3 (avaliado 2026-07-02): a spec permite desmontar os FloorCanvas de fundo — as
+// sessões sobrevivem (agentes por F2/acp_attach, PTYs pelo PtyManager+attach). NÃO
+// fizemos porque há dependência de VIEW cross-floor: o OrchestratorDock exibe o
+// xterm do Orquestrador RELOCANDO o elemento DOM (appendChild) de um TerminalNode
+// montado em OUTRO floor — desmontar aquele floor destrói o elemento e esvazia o
+// dock. Portais (iframe) e sketches (tldraw) de floors de fundo também perderiam
+// estado de view. Fica como follow-up da spec (fora do escopo #19): exigiria o
+// dock ter xterm próprio (attach 2ª view) antes de desmontar floors inativos.
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { FloorCanvas } from "@/components/FloorCanvas";
@@ -22,18 +31,22 @@ export function Canvas() {
 
   return (
     <div className="absolute inset-0">
-      {parallels.map((f) => (
-        <div
-          key={f.id}
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: f.projectId === activeProjectId && f.id === activeParallelId ? "block" : "none",
-          }}
-        >
-          <FloorCanvas floorId={f.id} />
-        </div>
-      ))}
+      {parallels.map((f) => {
+        const visible = f.projectId === activeProjectId && f.id === activeParallelId;
+        return (
+          <div
+            key={f.id}
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: visible ? "block" : "none",
+            }}
+          >
+            {/* active = virtualização SÓ no floor visível (ver header do arquivo). */}
+            <FloorCanvas floorId={f.id} active={visible} />
+          </div>
+        );
+      })}
       {/* Toolbar flutuante de criação de nodes. */}
       <CanvasToolbar />
       {/* FLEET BAR (#12): progresso agregado dos agentes do floor ativo (≥2 agentes). */}

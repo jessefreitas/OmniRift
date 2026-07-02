@@ -10,6 +10,7 @@ import { floorMirrorSet, canvasAgentsSet, agentMcpConfig, agentSettingsConfig } 
 import { parallelGitCreate } from "@/lib/git-client";
 import { workerClaudeArgs } from "@/lib/agent-contract";
 import { ROLE_CLIS } from "@/lib/agent-roles";
+import { hasTerminalView, wakeDetachedTerminal } from "@/lib/terminal-sessions";
 import type { AgentRole } from "@/types/pty";
 
 interface SpawnRequest {
@@ -138,6 +139,15 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
       const sessionId = event.payload?.sessionId;
       if (!sessionId) return;
       window.dispatchEvent(new CustomEvent("omnirift:agent-wake", { detail: { sessionId } }));
+      // F3 virtualização: nó fora do viewport está DESMONTADO → o CustomEvent acima
+      // não tem ouvinte. Fallback backend-owned: re-spawna direto da config do nó no
+      // store (o nó anexa quando montar). Com view montada, o nó cuida (reconnect).
+      if (!hasTerminalView(sessionId)) {
+        const node = store()
+          .parallels.flatMap((f) => f.nodes)
+          .find((n) => n.kind === "terminal" && n.session_id === sessionId);
+        if (node && node.kind === "terminal") void wakeDetachedTerminal(node);
+      }
     },
   );
 

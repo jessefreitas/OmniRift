@@ -11,6 +11,7 @@ import { initResourceStore } from "@/store/resource-store";
 import { startAutoSnapshot, stopAutoSnapshot } from "@/lib/auto-snapshot";
 import { persistReviewConfig } from "@/lib/review-config-sync";
 import { acpGc } from "@/lib/acp-client";
+import { initPtyGlobalSink } from "@/lib/pty-global-sink";
 import { useCanvasStore } from "@/store/canvas-store";
 
 export default function App() {
@@ -92,6 +93,26 @@ export default function App() {
       .getState()
       .parallels.flatMap((f) => f.nodes.filter((n) => n.kind === "agent").map((n) => n.id));
     void acpGc(ids).catch(() => {});
+  }, []);
+
+  // F3 backend-owned (PTY): sink global de agent://status + pty://exit — com a
+  // virtualização, terminais fora do viewport estão DESMONTADOS (sem listeners);
+  // o sink mantém terminalStatuses (FleetBar/StatusDot) e o session recorder
+  // frescos pra eles. Sessões com view montada são ignoradas (o nó cuida — inclui
+  // a supressão de exit durante reconnect, que só o nó conhece).
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    initPtyGlobalSink()
+      .then((u) => {
+        if (disposed) u();
+        else unlisten = u;
+      })
+      .catch(() => {}); // fora do Tauri (vite puro) o listen rejeita — sink é opcional
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   // Monitor de recursos: assina resource://sample uma vez (chip sempre-visível).
