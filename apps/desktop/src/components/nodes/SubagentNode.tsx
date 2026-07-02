@@ -73,7 +73,8 @@ function SubagentNodeImpl({ data, selected }: NodeProps<SubagentRfNode>) {
         </button>
       </div>
 
-      <div className="flex-1 space-y-1 overflow-hidden p-2">
+      {/* min-h-0: sem isso o flex estica e a linha do modelo vaza do card (nós antigos têm 120px). */}
+      <div className="min-h-0 flex-1 space-y-1 overflow-hidden p-2">
         {/* Escopo HONESTO: global (~/.claude/agents, todos veem) vs privado de um projeto.
             "privado de <pai>" só vale quando o subagente está num cwd próprio (project). */}
         {data.scope === "global" ? (

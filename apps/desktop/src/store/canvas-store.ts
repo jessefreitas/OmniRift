@@ -703,8 +703,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       prompt,
       model,
       createdAt: Date.now(),
+      // 150 de altura: 120 cortava a linha do modelo (select "herda do pai" estourava o card).
       position: position ?? defaultPosition(),
-      size: { width: 240, height: 120 },
+      size: { width: 240, height: 150 },
     };
     set((s) => ({ parallels: mapFloorNodes(s, targetFloorId, (ns) => [...ns, node]) }));
     return node;
@@ -948,14 +949,20 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     const v3 = migrateWorkspace(ws);
     // Remapeia ids (floors/nodes/parentId/edges) e taga o projectId. Restore não
     // pode reusar ids (colidem com os já vivos).
+    // session_id velho → novo (todos os floors): usado pra remapear a filiação MCP
+    // que vive em localStorage keyado por session_id (fora do doc do workspace).
+    const sidMap = new Map<string, string>();
     const remapFloor = (f: Parallel, projId: string): { floor: Parallel; oldId: string } => {
       const idMap = new Map<string, string>();
       const remapped: CanvasNode[] = f.nodes.map((n) => {
         const newId = nanoid();
         idMap.set(n.id, newId);
-        return n.kind === "terminal"
-          ? ({ ...n, id: newId, session_id: newId } as CanvasNode)
-          : ({ ...n, id: newId } as CanvasNode);
+        if (n.kind === "terminal") {
+          sidMap.set(n.session_id ?? n.id, newId);
+          return { ...n, id: newId, session_id: newId } as CanvasNode;
+        }
+        sidMap.set(n.id, newId); // OmniAgents entram no canal por node.id
+        return { ...n, id: newId } as CanvasNode;
       });
       const nodes: CanvasNode[] = remapped.map((n) => {
         let out = n;
@@ -995,6 +1002,27 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     // antiga vira lixo. Zera status/dirty e o orquestrador designado (a sessão dele não
     // existe mais). orchestratorSid também é espelhado em localStorage — limpa lá também.
     try { localStorage.removeItem("omnirift-mcp-orch"); } catch { /* localStorage indisponível */ }
+    // REGRESSÃO "reabri e nada veio plugado": a filiação ao canal MCP (checkboxes MCP AGENTS)
+    // vive em localStorage keyada por session_id, e o restore regenera todos → o Set velho
+    // nunca casava e o agente saía do canal. Remapeia old→new e avisa o Sidebar re-registrar.
+    try {
+      for (const key of ["omnirift-mcp-agents", "omnirift-mcp-descs"]) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          localStorage.setItem(key, JSON.stringify(parsed.map((sid) => sidMap.get(String(sid))).filter(Boolean)));
+        } else if (parsed && typeof parsed === "object") {
+          const next: Record<string, unknown> = {};
+          for (const [sid, v] of Object.entries(parsed)) {
+            const ns = sidMap.get(sid);
+            if (ns) next[ns] = v;
+          }
+          localStorage.setItem(key, JSON.stringify(next));
+        }
+      }
+      window.dispatchEvent(new CustomEvent("omnirift:mcp-remapped"));
+    } catch { /* localStorage indisponível */ }
     set({
       projects,
       parallels: flatFloors,

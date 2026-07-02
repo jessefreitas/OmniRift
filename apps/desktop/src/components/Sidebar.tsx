@@ -812,7 +812,21 @@ export function Sidebar() {
     fsCowInfo(currentCwd).then(setCow).catch(() => setCow(null));
   }, [currentCwd]);
 
-  // Re-registra agentes automaticamente após restart (aguarda PTYs spawnarem)
+  // Re-registra agentes automaticamente após restart (aguarda PTYs spawnarem).
+  // Também re-dispara no restore de projeto/snapshot: o canvas-store remapeia as chaves
+  // do localStorage (session_ids novos) e emite omnirift:mcp-remapped → relê e re-registra
+  // (era a regressão "reabri o projeto e nada veio plugado").
+  const [mcpResyncTick, setMcpResyncTick] = useState(0);
+  useEffect(() => {
+    const onRemap = () => {
+      try {
+        setMcpAgents(new Set(JSON.parse(localStorage.getItem("omnirift-mcp-agents") ?? "[]")));
+      } catch { /* mantém o estado atual */ }
+      setMcpResyncTick((k) => k + 1);
+    };
+    window.addEventListener("omnirift:mcp-remapped", onRemap);
+    return () => window.removeEventListener("omnirift:mcp-remapped", onRemap);
+  }, []);
   useEffect(() => {
     if (mcpAgents.size === 0) return;
     const savedAgents = new Set(mcpAgents);
@@ -835,7 +849,7 @@ export function Sidebar() {
     }, 2500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Só no mount
+  }, [mcpResyncTick]); // mount + após restore (omnirift:mcp-remapped)
 
   // Injeta briefing completo da equipe no PTY do Orquestrador
   const sendTeamBriefing = useCallback((
