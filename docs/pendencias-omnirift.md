@@ -1,72 +1,50 @@
 # OmniRift — Pendências e Roadmap
 
-> Snapshot do que **falta** no OmniRift. Atualizado em 2026-07-01 (v0.1.71 publicada).
+> Snapshot do que **falta** no OmniRift. Atualizado em 2026-07-02 (v0.1.77 em preparo; v0.1.72 é o último PUBLICADO pros clientes).
 > Organizado por prioridade. O design de cada item está na memória do projeto (`~/.claude/projects/.../memory/`).
 
 ---
 
-## ✅ Entregue na v0.1.71 (PUBLICADA — tag + CI disparado)
+## ✅ Entregue (local, aguardando publicação — clientes estão na v0.1.72)
 
-- **Fleet bar:** progresso agregado dos agentes paralelos no canvas (N/M prontos · tempo · tokens).
-- **Kanban com colunas customizáveis por projeto** (em cima das 6 colunas estilo Jira da 0.1.70).
-- **`agent_sleep` / `agent_wake`** via MCP — o Orquestrador pausa/acorda agentes do time.
-- **Custo "Hoje" honesto:** estava inflado ~61% por dupla contagem — deflacionado.
-- **Dedupe de labels** + **fix da scrollbar fantasma**.
-- **Pipeline:** providers com mesmo nome no dropdown distinguidos (sufixo modelo/kind) +
-  **modelo PERSONALIZADO no subagente** + atalho pra Central de API.
+**OmniFS integrado (0.1.76/0.1.77) — filesystem de agentes de IA na instalação:**
+- Detecção + injeção das tools `omnifs_*` em todo agente via `--connect` (busca semântica CROSS-projeto, snapshot, log, index); `rollback` bloqueado nos agentes.
+- Daemon gerenciado (respeita o do usuário); "Criar minha Pasta de Projetos OmniFS" 1-clique.
+- Painel de acompanhamento (status/espaço/timeline de snapshots com Restaurar humano/reindex) + chip 🗄️ no rodapé.
+- F3: snapshot automático pré-onda no Montar + re-index no turn-done + evict pesquisável.
 
-## ✅ Embutido (v0.1.70, sem release próprio)
+**Aprender (Fase 9 A0+A1):** modo tutor socrático no OmniPartner, **4 trilhas de linguagem** (Shell/Python/JS/HTML+CSS) × 2 exercícios verificáveis, dica graduada 1→3 via `llm_via_cli` (sem chave), Verificar via run_check. A1: contrato socrático no Rust + teste anti-vazamento de solução.
 
-- **Kanban do projeto:** backend SQLite (`kanban_cards`) + painel — agentes movem cards via MCP,
-  usuário acompanha; 6 colunas estilo Jira (Backlog / Em andamento / Teste / Review / Bloqueado / Concluído).
-- **Fix travamento do Arquiteto de Pipeline:** abrir o modal TRAVAVA o app (seletor instável em loop).
-- **Reload sem perder a persona:** OmniAgent re-injeta; terminal ganha ⟳ sempre visível.
-- **Restore:** canal MCP sobrevive ao reabrir projeto/snapshot; card do subagente não estoura;
-  `parentAgentId` remapeado (subagente não vira órfão); resume morto (código 129) sobe sessão nova.
-- **Canvas leve:** xterm em WebGL + LOD por zoom + cap de mensagens.
-- **Persona ≠ engine parte 2:** troca de PROVIDER mantém o papel + `set_model` honesto.
+**Arquitetura backend-owned sessions (F1+F2+F3):** sessões ACP/PTY donas do backend — trocar de floor não mata agente; resume pós-restart; canvas virtualizado (onlyRenderVisibleElements).
 
-## 🔴 Estruturais restantes (tasks de verdade, não polish)
+**Produto:** Arquiteto = agente local sem chave (default) + templates ⚡ prontos; Routines fase 2 (triggers de floor + gate de Land); delete de agente com confirmação; card de permissão não estoura; ⟳ resiliente pós-morte.
 
-- **Conexões cor-por-estado** (🔶 em andamento): edge por estado — branco idle / azul saindo /
-  verde entrando / vermelho parado. Terminais já pulsam verde na atividade; falta direção/estado por edge.
-- **Central de copia-cola** (snippet manager): texto + código + imagem, SQLite persistente,
-  cola/arrasta pra qualquer nó. Separado do blackboard dos agentes.
-- **AGENTS.md por agente:** instruções persistentes por agente do canvas (contrato de papel versionado).
-- **Evict/compactação do OmniAgent:** sessão ACP longa cresce sem limite — falta política de
-  evict + compactação de contexto.
-- **Backend-owned sessions:** sessão do agente pertencer ao backend Rust (sobrevive a reload do
-  webview / restart do front), não ao node React.
-- **Revisitar o plano contra o andamento (diff rico):** o badge X/Y montados existe; falta o diff
-  qualitativo plano ↔ canvas (agente renomeado, conexão removida, modelo trocado).
+## 🔴 Estruturais restantes
 
-## 🔵 Fases do produto (CLAUDE.md do projeto)
+- **Mobile 4G** (relay Tasks 5–8: desktop dial + offer + fallback + E2E) — última fronteira, cross-repo, sessão própria.
+- **OmniFS GC/prune** do store (roadmap do OmniFS — pré-requisito comercial; store só cresce).
+- **Aprender A2–A4:** perfil do aluno na memória, grounding Serena/Context7, exercício→card no Kanban, modos Fazer/Par (sobre ACP).
+- **Bundle do omnifs-mcp no CI** (externalBin por-triple; hoje cai pro ~/.cargo/bin/PATH).
+- **Revisitar plano×andamento (diff rico):** o que divergiu, não só X/Y montados.
 
-- **Fase 6 — Routines fase 2:** MVP entregue. Falta **triggers de floor + gate**.
-- **Fase 8 — Memória plugável:** Fase 1 completa + keychain. Multi-DB Postgres = esquecer.
-- **Fase 9 — OmniPartner Aprender** (tutor socrático): spec draft, não iniciado. 9a/9c/9e ✅, 9b/9d ⏳.
-- **Mobile:** M1 push / M2 pareamento (APK Expo já roda), OU relay 4G Tasks 5–8 (relay próprio CF
-  Worker + DO já no ar — Fase 1 Tasks 1–4 done).
+## 🟡 Parciais / polish
 
-## ⚪ Polish e pequenos
+- Conexões cor-por-estado ✅ (direção nos pipes); refinar casos de review.
+- OmniFS proveniência por agente (quem escreveu o quê) — depende de branches nomeadas no OmniFS.
+- Overscan no pan (anti-churn da virtualização); trigger pós-land nas Routines; Codex/wrapper como engine do Arquiteto.
+- Central de API — mapeamento `kind` best-effort pela baseUrl.
 
-- **Modelo/contexto no header do node (terminal):** leitura da statusline é frágil (follow-up).
-- **Central de API — consumidores:** mapeamento `kind` pela baseUrl é best-effort; pode refinar.
-- **Filtro por IA:** funciona; o `result` como tipo de payload ainda é pouco usado.
+## 🔵 Fases do produto
 
-## ✅ Validações pendentes (testar, não construir) — na 0.1.71
-
-- Reinstalar o `.deb` **0.1.71** e testar de verdade:
-  - Fleet bar com 2+ agentes paralelos (progresso agregado + tempo + tokens).
-  - Kanban: criar coluna customizada por projeto + agente movendo card via MCP.
-  - `agent_sleep`/`agent_wake` pelo Orquestrador.
-  - Custo "Hoje" batendo com o esperado (sem a dupla contagem).
-  - Regressões 0.1.70: Arquiteto de Pipeline abre sem travar, reload mantém persona,
-    reabrir projeto mantém canal MCP + subagentes.
+- **Fase 6 — Routines:** COMPLETA (triggers de floor + gate).
+- **Fase 8 — Memória plugável:** Fase 1 + keychain. Multi-DB Postgres = esquecer. (OmniFS NÃO é MemoryProvider — é FS de arquivos, complementar.)
+- **Fase 9 — Aprender:** A0+A1 ✅; A2–A4 pendentes.
+- **Mobile:** relay Fase 1 no ar; Tasks 5–8 pendentes.
 
 ## 🚫 Não fazer (decisões travadas)
 
-- **Multi-DB Postgres** (Fase 2 memória) — esquecer.
-- **CSP** por conta própria — é da equipe de beta.
-- **`/admin/beta/mint`** — o Jessé pediu pra não fazer.
+- **Multi-DB Postgres** — esquecer.
+- **CSP** por conta própria — equipe de beta.
+- **`/admin/beta/mint`** — não fazer.
 - **Nome de concorrente no repo** — NUNCA (repo público).
+- **Bundlar OmniFS obrigatório** — é opt-in; sidecar dormente, ativação consciente com disclosure de espaço.

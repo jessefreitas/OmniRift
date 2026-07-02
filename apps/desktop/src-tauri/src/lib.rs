@@ -5,6 +5,9 @@ pub mod compress;
 pub mod db;
 pub mod git;
 pub mod health;
+// Contrato Socrático do OmniPartner Aprender (Fase 9, A1): system-prompt canônico
+// + garantia anti-vazamento TESTÁVEL (a solução não sai antes do nível máximo).
+pub mod learn;
 pub mod mcp;
 pub mod memory;
 pub mod metrics;
@@ -49,6 +52,7 @@ use commands::http::http_request;
 use health::ai::{health_analyze_file, health_db_report_get, health_report_get, health_reports_list};
 use health::backup::{health_backup, health_backup_list, health_backup_restore};
 use health::db::{db_scan_repo, health_analyze_db};
+use learn::{learn_check_leak, learn_socratic_prompt};
 use health::db_live::{db_introspect, health_analyze_db_live};
 use health::scan::project_scan;
 use health::HealthCache;
@@ -448,6 +452,8 @@ pub fn run() {
             llm_chat,
             llm_list_models,
             llm_via_cli,
+            learn_socratic_prompt,
+            learn_check_leak,
             review_config_write,
             review_config_path,
             agent_settings_config,
