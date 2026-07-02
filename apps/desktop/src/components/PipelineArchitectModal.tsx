@@ -10,6 +10,8 @@ import { createPortal } from "react-dom";
 import { Network, Save, Sparkles, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
+import { workerClaudeArgs } from "@/lib/agent-contract";
 import { llmProvidersList, type LlmProvider } from "@/lib/llm-providers-client";
 import {
   generatePipelinePlan,
@@ -31,16 +33,20 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   const addAgent = useCanvasStore((s) => s.addAgent);
   const addEdge = useCanvasStore((s) => s.addEdge);
   const addSubagent = useCanvasStore((s) => s.addSubagent);
-  // Andamento: labels dos agentes/terminais já montados no floor ativo (pra o diff plano × canvas).
+  const addTerminal = useCanvasStore((s) => s.addTerminal);
+  // Andamento: labels dos agentes/terminais já montados em QUALQUER floor do projeto
+  // (o Montar agora espalha por paralelos — contar só o ativo mentiria o X/Y).
   const builtLabels = useCanvasStore((s) => {
-    const active = s.parallels.find((p) => p.id === s.activeParallelId);
-    return (active?.nodes ?? [])
+    return s.parallels
+      .filter((p) => p.projectId === s.activeProjectId)
+      .flatMap((p) => p.nodes)
       .filter((n) => n.kind === "agent" || n.kind === "terminal")
       .map((n) => ("label" in n ? (n.label ?? "") : "").toLowerCase())
       .filter(Boolean);
   });
 
   const [providers, setProviders] = useState<LlmProvider[]>([]);
+  const [mountAs, setMountAs] = useState<"agent" | "terminal">("agent");
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [desc, setDesc] = useState("");
@@ -79,13 +85,33 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
     setSavedAt(Date.now());
   }
 
-  // Monta a topologia COMPLETA no canvas: um OmniAgent por agente (por onda) COM um BRIEF
-  // COMPARTILHADO (objetivo + time + fatia + conexões + trava de não-re-orquestrar) + o pontapé
-  // nos agentes de entrada, os SUBAGENTES de cada um (`.claude/agents/<role>.md` com o model:)
-  // e as conexões. Sem o brief comum, cada agente só se apresentava e perguntava "qual a tarefa?"
-  // (e só quem recebia msg trabalhava). Com o brief, o time todo sabe o objetivo e a própria parte.
-  function build() {
+  // Monta a topologia COMPLETA no canvas: um OmniAgent (ou terminal claude com role NATIVO,
+  // via toggle) por agente, COM um BRIEF COMPARTILHADO (objetivo + time + fatia + conexões +
+  // trava de não-re-orquestrar) + o pontapé nos agentes de entrada, os SUBAGENTES de cada um
+  // (`.claude/agents/<role>.md` com o model:), as conexões, o MODELO sugerido do plano nos
+  // principais (providerConfig / --model) e os FLOORS REAIS: cada paralelo do plano (além do
+  // 1º, que fica no floor ativo) vira um Parallel próprio — nós nascem lá via targetFloorId.
+  async function build() {
     if (!plan) return;
+    const store = useCanvasStore.getState();
+    // FLOORS REAIS: reusa por nome se já existir (re-Montar idempotente); createParallel
+    // devolve null no gate de licença (community = 1 floor) → esse paralelo cai no ativo.
+    const floorIdByName = new Map<string, string>();
+    let createdFloors = 0;
+    if (plan.floors.length > 1) {
+      for (const f of plan.floors.slice(1)) {
+        const existing = store.parallels.find(
+          (p) => p.projectId === store.activeProjectId && p.name.toLowerCase() === f.name.toLowerCase(),
+        );
+        const target = existing ?? store.createParallel(f.name) ?? undefined;
+        if (target) {
+          floorIdByName.set(f.name.toLowerCase(), target.id);
+          if (!existing) createdFloors++;
+        }
+      }
+    }
+    const floorIdFor = (floor?: string) => (floor ? floorIdByName.get(floor.toLowerCase()) : undefined);
+
     const teamLine = plan.agents.map((a) => a.role).join(", ");
     const repoHint = currentCwd ? `o repositório em ${currentCwd}` : "o repositório do projeto";
     const upstream = (role: string) =>
@@ -93,12 +119,20 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
     const downstream = (role: string) =>
       plan.connections.filter((c) => c.from.toLowerCase() === role.toLowerCase()).map((c) => c.to);
 
+    // Terminal-com-role: o perfil MCP de dev é um só (resolve 1x); settings é por-agente.
+    const mcpPath = mountAs === "terminal" ? await agentMcpConfig().catch(() => null) : null;
+
     const idByRole = new Map<string, string>();
-    const byWave = new Map<number, number>();
+    const floorByRole = new Map<string, string | undefined>();
+    // Colunas por (floor, onda): cada floor é um canvas próprio → layout recomeça nele.
+    const colByFloorWave = new Map<string, number>();
+    let skippedByLimit = 0;
     for (const a of plan.agents) {
       const wave = a.wave ?? 1;
-      const col = byWave.get(wave) ?? 0;
-      byWave.set(wave, col + 1);
+      const targetFloorId = floorIdFor(a.floor);
+      const colKey = `${targetFloorId ?? "active"}:${wave}`;
+      const col = colByFloorWave.get(colKey) ?? 0;
+      colByFloorWave.set(colKey, col + 1);
       const x = 80 + wave * 360;
       const y = 80 + col * 240;
       const ups = upstream(a.role);
@@ -123,12 +157,36 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
         (isSource
           ? `COMECE AGORA pela sua parte do objetivo acima; se faltar contexto, leia ${repoHint} antes de perguntar.`
           : `Prepare sua fatia agora lendo ${repoHint}; execute quando ${ups.join(", ")} te entregar o trabalho.`);
-      const node = addAgent({
-        label: a.role,
-        persona,
-        position: { x, y },
-      });
-      idByRole.set(a.role.toLowerCase(), node.id);
+
+      let nodeId: string;
+      if (mountAs === "terminal") {
+        // Terminal claude NATIVO: persona vira system prompt real (--append-system-prompt,
+        // dentro do contrato dev) + modelo do plano via --model (o CLI aceita haiku/sonnet/opus).
+        const settingsPath = await agentSettingsConfig(a.role).catch(() => null);
+        const node = addTerminal({
+          command: "claude",
+          args: [...workerClaudeArgs(mcpPath, persona, settingsPath), ...(a.model ? ["--model", a.model] : [])],
+          role: "claude-code",
+          label: a.role,
+          position: { x, y },
+          targetFloorId,
+        });
+        if (!node) { skippedByLimit++; continue; } // gate de licença (máx agentes) → pula o role
+        nodeId = node.id;
+      } else {
+        const node = addAgent({
+          label: a.role,
+          persona,
+          position: { x, y },
+          // Modelo sugerido pelo plano nos PRINCIPAIS: o AgentNode aplica no ready
+          // (configOption "model" do Claude — mesmo cano do dropdown).
+          providerConfig: a.model ? { provider: "claude", model: a.model } : undefined,
+          targetFloorId,
+        });
+        nodeId = node.id;
+      }
+      idByRole.set(a.role.toLowerCase(), nodeId);
+      floorByRole.set(a.role.toLowerCase(), targetFloorId);
       // Subagentes deste agente: cria o nó + escreve o `.claude/agents/<role>.md` com o model:
       // (o addSubagent+SubagentNode materializam; aqui passamos prompt/model do plano).
       const subs = plan.subagents.filter((s) => s.parent.toLowerCase() === a.role.toLowerCase());
@@ -138,11 +196,12 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
           label: s.role,
           description: s.why.slice(0, 120),
           prompt: `Você é o ${s.role} (subagente do ${a.role}). ${s.why}`,
-          parentAgentId: node.id,
+          parentAgentId: nodeId,
           parentLabel: a.role,
           cwd: currentCwd || undefined,
           model: s.model,
           position: { x: x + i * 250, y: y + 260 },
+          targetFloorId,
         });
         // Materializa o arquivo do subagente (.claude/agents/<role>.md) com o model: no frontmatter.
         void invoke("subagent_write", {
@@ -153,14 +212,25 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
           tools: null,
           model: s.model || null,
         }).catch(() => {});
-        addEdge(node.id, sub.id, "subagent-link", { sourceHandle: "subagent" });
+        addEdge(nodeId, sub.id, "subagent-link", { sourceHandle: "subagent", targetFloorId });
       });
     }
+    // Conexões: floors são canvases ISOLADOS → só liga quando os dois lados estão no mesmo
+    // floor; cross-floor fica documentado no plano (chips de conexões) e é pulado aqui.
+    let skippedCross = 0;
     for (const c of plan.connections) {
       const from = idByRole.get(c.from.toLowerCase());
       const to = idByRole.get(c.to.toLowerCase());
-      if (from && to && from !== to) addEdge(from, to, "generic");
+      if (!from || !to || from === to) continue;
+      const ff = floorByRole.get(c.from.toLowerCase());
+      const tf = floorByRole.get(c.to.toLowerCase());
+      if (ff !== tf) { skippedCross++; continue; }
+      addEdge(from, to, "generic", { targetFloorId: ff });
     }
+    console.info(
+      `[pipeline] Montar: ${idByRole.size} agentes (${mountAs}), ${createdFloors} paralelo(s) criado(s), ` +
+      `${skippedCross} conexão(ões) cross-floor pulada(s), ${skippedByLimit} agente(s) barrado(s) por licença`,
+    );
     onClose();
   }
 
@@ -282,10 +352,19 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
 
         {plan && (
           <footer className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+            <select
+              value={mountAs}
+              onChange={(e) => setMountAs(e.target.value as "agent" | "terminal")}
+              title={t("pipe.mountAsT", "OmniAgent = nó ACP (persona por priming). Terminal = claude nativo com role via --append-system-prompt + --model do plano.")}
+              className={`${sel} text-[11px]`}
+            >
+              <option value="agent">{t("pipe.asAgent", "montar como OmniAgent (ACP)")}</option>
+              <option value="terminal">{t("pipe.asTerminal", "montar como terminal claude (role nativo)")}</option>
+            </select>
             <button onClick={() => void save()} className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-text hover:bg-surface2">
               <Save size={13} /> {t("pipe.saveBtn", "Salvar plano")}
             </button>
-            <button onClick={build} className="flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs text-bg hover:bg-brand-hover">
+            <button onClick={() => void build()} className="flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs text-bg hover:bg-brand-hover">
               <Network size={13} /> {t("pipe.build", "Montar no canvas")}
             </button>
           </footer>

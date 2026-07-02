@@ -177,7 +177,7 @@ interface CanvasState {
   addCodeNode: (params: { filePath: string; position?: { x: number; y: number } }) => CodeNode;
   addPdfNode: (params: { filePath: string; position?: { x: number; y: number } }) => PdfNode;
   addHtmlNode: (params: { filePath: string; position?: { x: number; y: number } }) => HtmlNode;
-  addAgent: (params?: { label?: string; cwd?: string; provider?: "claude" | "codex" | "hermes"; providerConfig?: { provider: string; model: string }; persona?: string; position?: { x: number; y: number } }) => AgentNode;
+  addAgent: (params?: { label?: string; cwd?: string; provider?: "claude" | "codex" | "hermes"; providerConfig?: { provider: string; model: string }; persona?: string; position?: { x: number; y: number }; targetFloorId?: string }) => AgentNode;
   addSubagent: (params: {
     role: string;
     label: string;
@@ -190,6 +190,7 @@ interface CanvasState {
     prompt?: string;
     model?: string;
     position?: { x: number; y: number };
+    targetFloorId?: string;
   }) => SubagentNode;
   addReviewNode: (params?: { position?: { x: number; y: number } }) => ReviewNode;
   addFilterNode: (params?: { mode?: FilterNode["mode"]; value?: string; position?: { x: number; y: number } }) => FilterNode;
@@ -201,7 +202,7 @@ interface CanvasState {
   updateNodePosition: (id: string, position: { x: number; y: number }) => void;
   updateNodeSize: (id: string, size: { width: number; height: number }) => void;
   patchNode: (id: string, patch: CanvasNodePatch) => void;
-  addEdge: (source: string, target: string, kind?: CanvasEdge["kind"], handles?: { sourceHandle?: string; targetHandle?: string }) => void;
+  addEdge: (source: string, target: string, kind?: CanvasEdge["kind"], handles?: { sourceHandle?: string; targetHandle?: string; targetFloorId?: string }) => void;
   removeEdge: (id: string) => void;
 
   // clipboard (global)
@@ -244,6 +245,13 @@ const FIRST_PROJECT: ProjectMeta = { id: "proj-main", name: "Principal", cwd: nu
 /** Map sobre os nós do floor ativo (busca por activeFloorId no array flat). */
 function mapActiveNodes(s: CanvasState, fn: (nodes: CanvasNode[]) => CanvasNode[]): Parallel[] {
   return s.parallels.map((f) => (f.id === s.activeParallelId ? { ...f, nodes: fn(f.nodes) } : f));
+}
+
+/** Map sobre os nós de um floor ESPECÍFICO (Montar em paralelos); id desconhecido/ausente → ativo.
+ *  Mesmo contrato do targetFloorId do addTerminal: o nó nasce no destino SEM trocar o floor ativo. */
+function mapFloorNodes(s: CanvasState, floorId: string | undefined, fn: (nodes: CanvasNode[]) => CanvasNode[]): Parallel[] {
+  const fid = floorId && s.parallels.some((f) => f.id === floorId) ? floorId : s.activeParallelId;
+  return s.parallels.map((f) => (f.id === fid ? { ...f, nodes: fn(f.nodes) } : f));
 }
 
 /** Salva o estado vivo do projeto ativo (activeFloorId/cwd) de volta no seu meta. */
@@ -663,7 +671,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     return node;
   },
 
-  addAgent: ({ label, cwd, provider, providerConfig, persona, position } = {}) => {
+  addAgent: ({ label, cwd, provider, providerConfig, persona, position, targetFloorId } = {}) => {
     const node: AgentNode = {
       id: nanoid(),
       kind: "agent",
@@ -676,11 +684,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 420, height: 480 },
     };
-    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapFloorNodes(s, targetFloorId, (ns) => [...ns, node]) }));
     return node;
   },
 
-  addSubagent: ({ role, label, description, parentAgentId, parentLabel, cwd, filePath, scope, prompt, model, position }) => {
+  addSubagent: ({ role, label, description, parentAgentId, parentLabel, cwd, filePath, scope, prompt, model, position, targetFloorId }) => {
     const node: SubagentNode = {
       id: nanoid(),
       kind: "subagent",
@@ -698,7 +706,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       position: position ?? defaultPosition(),
       size: { width: 240, height: 120 },
     };
-    set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
+    set((s) => ({ parallels: mapFloorNodes(s, targetFloorId, (ns) => [...ns, node]) }));
     return node;
   },
 
@@ -872,19 +880,26 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
 
   addEdge: (source, target, kind = "generic", handles) => {
     if (source === target) return;
-    set((s) => ({
-      parallels: s.parallels.map((f) => {
-        if (f.id !== s.activeParallelId) return f;
-        if (f.edges.some((e) => e.source === source && e.target === target)) return f;
-        return {
-          ...f,
-          edges: [
-            ...f.edges,
-            { id: nanoid(), source, target, kind, sourceHandle: handles?.sourceHandle, targetHandle: handles?.targetHandle },
-          ],
-        };
-      }),
-    }));
+    set((s) => {
+      // Floor alvo explícito (Montar em paralelos) ou o ativo (default — idêntico ao anterior).
+      const fid =
+        handles?.targetFloorId && s.parallels.some((f) => f.id === handles.targetFloorId)
+          ? handles.targetFloorId
+          : s.activeParallelId;
+      return {
+        parallels: s.parallels.map((f) => {
+          if (f.id !== fid) return f;
+          if (f.edges.some((e) => e.source === source && e.target === target)) return f;
+          return {
+            ...f,
+            edges: [
+              ...f.edges,
+              { id: nanoid(), source, target, kind, sourceHandle: handles?.sourceHandle, targetHandle: handles?.targetHandle },
+            ],
+          };
+        }),
+      };
+    });
   },
 
   removeEdge: (id) =>
