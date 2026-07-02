@@ -493,20 +493,23 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             </span>
           )}
 
-          {/* Botão reconectar — só aparece quando o processo morreu */}
-          {termStatus === "dead" && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                reconnect();
-              }}
-              className="p-1 rounded hover:bg-bg hover:text-green-400 transition-colors"
-              aria-label={t("terminal.reconnectTerminal", "Reconectar terminal")}
-              title={t("terminal.reconnect", "Reconectar")}
-            >
-              <RefreshCw size={12} />
-            </button>
-          )}
+          {/* Reload SEMPRE visível: re-spawna o CLI com o MESMO command/args/env — a persona
+              do role vive nos args (--append-system-prompt), então o papel sobrevive por
+              construção. Morto = verde chamativo; vivo = discreto (mata e sobe de novo). */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              reconnect();
+            }}
+            className={cn(
+              "p-1 rounded hover:bg-bg transition-colors",
+              termStatus === "dead" ? "text-green-400 hover:text-green-300" : "text-text/50 hover:text-green-400",
+            )}
+            aria-label={t("terminal.reconnectTerminal", "Reconectar terminal")}
+            title={t("terminal.reloadKeepPersona", "Reload do agente (re-spawn; mantém a persona do role — ela vai nos args)")}
+          >
+            <RefreshCw size={12} />
+          </button>
 
           {/* Recarregar subagentes MANTENDO a conversa: reinicia o claude com --continue
               (resume a sessão) → relê ~/.claude/agents no boot, pega subagentes criados

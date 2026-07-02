@@ -219,6 +219,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       setMsgs([{ role: "system", text: t("agent.reloaded", "↻ Sessão recarregada — subagentes atualizados.") }]);
       setModel(null);
       setUsage({});
+      // Sessão NOVA (sem resume) = conversa perdida → re-injeta a persona no próximo ready
+      // (senão o reload apagava o papel do agente junto com a conversa).
+      personaSentRef.current = false;
     }
     setStatus("starting");
     setPerm(null);
@@ -515,6 +518,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             spawnedResumeRef.current = false;
             acpSessionIdRef.current = null;
             resumeRef.current = null;
+            personaSentRef.current = false; // sessão nova → persona volta no ready
             pushSys(t("agent.resumeFellBack", "↻ o resume falhou (o adapter não retomou a sessão) — subindo uma sessão nova…"));
             setReloadKey((k) => k + 1);
             return;
