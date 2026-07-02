@@ -126,22 +126,28 @@ pub async fn llm_list_models(config: LlmConfig) -> Result<Vec<String>, String> {
 /// (zero problema de quoting); o PATH do shell de login já foi adotado no boot
 /// (inherit_login_shell_path), então acha o mesmo binário do terminal do usuário.
 #[tauri::command]
-pub async fn llm_via_cli(prompt: String, cli: Option<String>) -> Result<String, String> {
+pub async fn llm_via_cli(prompt: String, cli: Option<String>, cwd: Option<String>) -> Result<String, String> {
     let bin = cli.unwrap_or_else(|| "claude".to_string());
-    cli_run(&bin, &prompt, Duration::from_secs(180)).await
+    cli_run(&bin, &prompt, Duration::from_secs(180), cwd.as_deref()).await
 }
 
 /// Núcleo do CLI (testável sem o State do Tauri): spawna, espera com timeout e
 /// resume o erro. `kill_on_drop(true)`: se o timeout cancelar o wait, o filho morre
 /// junto do drop — sem leak de processo (mesma lição do clone_killer do pty_kill).
-async fn cli_run(bin: &str, prompt: &str, timeout: Duration) -> Result<String, String> {
+/// `cwd`: diretório de trabalho do CLI (opcional) — o Aprender ancora o tutor no
+/// projeto do aprendiz; `None` = comportamento original (cwd do app).
+async fn cli_run(bin: &str, prompt: &str, timeout: Duration, cwd: Option<&str>) -> Result<String, String> {
     use std::process::Stdio;
-    let child = tokio::process::Command::new(bin)
-        .args(["-p", prompt])
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.args(["-p", prompt])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let child = cmd
         .spawn()
         .map_err(|e| format!("não consegui rodar `{bin}`: {e}"))?;
     let out = tokio::time::timeout(timeout, child.wait_with_output())
@@ -295,14 +301,32 @@ mod tests {
     async fn cli_run_captures_stdout_without_shell() {
         // `echo -p <prompt>` imprime os args → prova spawn direto (sem shell) + captura
         // do stdout, inclusive com aspas/acentos no prompt (zero quoting).
-        let out = cli_run("echo", "diga \"olá\" à equipe", Duration::from_secs(10)).await.unwrap();
+        let out = cli_run("echo", "diga \"olá\" à equipe", Duration::from_secs(10), None).await.unwrap();
         assert!(out.contains("diga \"olá\" à equipe"), "out: {out}");
     }
 
     #[tokio::test]
     async fn cli_run_missing_binary_is_clear_error() {
-        let err = cli_run("omnirift-cli-inexistente-xyz", "x", Duration::from_secs(5)).await.unwrap_err();
+        let err = cli_run("omnirift-cli-inexistente-xyz", "x", Duration::from_secs(5), None).await.unwrap_err();
         assert!(err.contains("não consegui rodar"), "err: {err}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cli_run_honors_cwd() {
+        use std::os::unix::fs::PermissionsExt;
+        // script que imprime o getcwd → prova que `cwd: Some(dir)` ancora o processo
+        // no diretório do projeto (é o que o tutor do Aprender usa).
+        let dir = std::env::temp_dir().join(format!("omnirift-cli-cwd-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("pwdcli.sh");
+        std::fs::write(&script, "#!/bin/sh\npwd -P\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let canon = std::fs::canonicalize(&dir).unwrap();
+        let out = cli_run(script.to_str().unwrap(), "x", Duration::from_secs(10), canon.to_str()).await.unwrap();
+        assert_eq!(out.trim(), canon.to_str().unwrap(), "out: {out}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]
@@ -316,7 +340,7 @@ mod tests {
         std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let err = cli_run(script.to_str().unwrap(), "x", Duration::from_millis(300)).await.unwrap_err();
+        let err = cli_run(script.to_str().unwrap(), "x", Duration::from_millis(300), None).await.unwrap_err();
         assert!(err.contains("timeout"), "err: {err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
