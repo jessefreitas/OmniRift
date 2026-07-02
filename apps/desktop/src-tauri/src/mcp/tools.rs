@@ -1269,6 +1269,72 @@ pub fn agent_lifecycle_dispatch(state: &McpState, tool: &str, args: Value) -> St
     }
 }
 
+// ── Evict de tool-output grande (context management — steal #2 do deepagents) ──
+//
+// Qualquer tool que devolva texto acima do limiar tem o conteúdo COMPLETO gravado
+// em `<app_data_dir>/tool-results/<timestamp>-<tool>.txt` e o agente recebe um STUB
+// (caminho + primeiras/últimas 5 linhas numeradas + instrução de leitura paginada).
+// O IO fica no server.rs (precisa do AppHandle); aqui vivem os helpers PUROS.
+
+/// Limiar de evict em bytes (~20k chars ≈ 5k tokens). Barato de propósito: conta
+/// `len()` em vez de tokenizar, igual ao deepagents (chars como proxy de tokens).
+pub(crate) const EVICT_THRESHOLD_CHARS: usize = 20_000;
+
+/// Nome do arquivo de resultado evictado: `<timestamp>-<tool>.txt`. O nome da tool
+/// é sanitizado (só alfanumérico/`_`/`-`) — labels de agente viram tools dinâmicas
+/// e não podem injetar separador de path no filename.
+pub(crate) fn evict_file_name(tool: &str, timestamp_ms: u128) -> String {
+    let safe: String = tool
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .collect();
+    let safe = if safe.is_empty() { "tool".to_string() } else { safe };
+    format!("{timestamp_ms}-{safe}.txt")
+}
+
+/// Puro (sem IO): monta o STUB que substitui um output grande já gravado em `path`.
+/// Formato: aviso + caminho do arquivo + primeiras 5 linhas + últimas 5 linhas
+/// (ambas NUMERADAS com o nº real da linha) + instrução de leitura paginada.
+pub(crate) fn evict_stub(tool: &str, path: &str, text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let total = lines.len();
+    let number = |i: usize, l: &str| format!("{:>6}\t{}", i + 1, l);
+    let head = lines
+        .iter()
+        .take(5)
+        .enumerate()
+        .map(|(i, l)| number(i, l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    // Cauda só quando não sobrepõe a cabeça (≤10 linhas = cabeça já cobre tudo).
+    let tail = if total > 10 {
+        Some(
+            lines
+                .iter()
+                .enumerate()
+                .skip(total - 5)
+                .map(|(i, l)| number(i, l))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    } else {
+        None
+    };
+    let mut out = format!(
+        "⚠️ Saída da tool `{tool}` grande demais ({} bytes, {total} linhas) — gravada em disco pra não estourar seu contexto.\n\n\
+         Arquivo completo: {path}\n\n\
+         Primeiras linhas:\n{head}",
+        text.len(),
+    );
+    if let Some(tail) = tail {
+        out.push_str(&format!("\n  …\nÚltimas linhas:\n{tail}"));
+    }
+    out.push_str(
+        "\n\nLeia PAGINADO com read_file(path, offset, limit) — NÃO leia o arquivo inteiro de uma vez.",
+    );
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1298,5 +1364,52 @@ mod tests {
         let buf = "abc\nerror: 42\nxyz";
         assert_eq!(output_matches(buf, r"error: \d+", true).as_deref(), Some("error: 42"));
         assert_eq!(output_matches(buf, r"^never$", true), None);
+    }
+
+    // ── Evict de tool-output grande (helpers puros, sem IO) ─────────────────
+
+    #[test]
+    fn evict_stub_has_path_head_tail_and_instruction() {
+        let text = (1..=100).map(|i| format!("linha {i}")).collect::<Vec<_>>().join("\n");
+        let stub = evict_stub("terminal_read", "/data/tool-results/123-terminal_read.txt", &text);
+        // caminho do arquivo completo
+        assert!(stub.contains("Arquivo completo: /data/tool-results/123-terminal_read.txt"));
+        // primeiras 5 linhas numeradas (nº real da linha)
+        assert!(stub.contains("     1\tlinha 1"));
+        assert!(stub.contains("     5\tlinha 5"));
+        assert!(!stub.contains("\tlinha 6"), "cabeça deve parar na 5ª linha");
+        // últimas 5 linhas numeradas
+        assert!(stub.contains("    96\tlinha 96"));
+        assert!(stub.contains("   100\tlinha 100"));
+        assert!(!stub.contains("\tlinha 95"), "cauda deve começar na antepenúltima janela (96)");
+        // metadados + instrução de leitura paginada
+        assert!(stub.contains("terminal_read"));
+        assert!(stub.contains("100 linhas"));
+        assert!(stub.contains("read_file(path, offset, limit)"));
+        assert!(stub.contains("NÃO leia o arquivo inteiro"));
+    }
+
+    #[test]
+    fn evict_stub_short_text_has_no_tail() {
+        // ≤10 linhas: a cabeça já cobre tudo — sem seção "Últimas linhas" duplicada.
+        let text = "a\nb\nc";
+        let stub = evict_stub("kanban_list", "/tmp/x.txt", text);
+        assert!(stub.contains("     1\ta"));
+        assert!(!stub.contains("Últimas linhas"));
+        assert!(stub.contains("read_file(path, offset, limit)"));
+    }
+
+    #[test]
+    fn evict_file_name_sanitizes_tool() {
+        // Tool dinâmica (label de agente) não pode injetar path no filename.
+        assert_eq!(evict_file_name("terminal_read", 42), "42-terminal_read.txt");
+        assert_eq!(evict_file_name("../../etc/passwd", 42), "42-______etc_passwd.txt");
+        assert_eq!(evict_file_name("", 7), "7-tool.txt");
+    }
+
+    #[test]
+    fn evict_threshold_is_about_20k_chars() {
+        // Guard de regressão: ~5k tokens por proxy de chars (deepagents-style).
+        assert_eq!(EVICT_THRESHOLD_CHARS, 20_000);
     }
 }

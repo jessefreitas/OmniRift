@@ -20,11 +20,16 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use dashmap::DashMap;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -351,6 +356,40 @@ async fn handle_jsonrpc(state: Arc<McpState>, req: Value) -> Value {
 
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
 
+/// Embrulha o texto de retorno de QUALQUER tool em content/text, com pós-processo
+/// de EVICT (context management — steal #2 do deepagents): saída acima de
+/// `EVICT_THRESHOLD_CHARS` vai pra `<app_data_dir>/tool-results/<ts>-<tool>.txt`
+/// e o agente recebe um STUB (caminho + primeiras/últimas 5 linhas + instrução de
+/// leitura paginada) em vez de 20k+ chars entupindo o contexto dele.
+fn wrap_tool_text(state: &McpState, tool: &str, text: String) -> Value {
+    json!({ "content": [{ "type": "text", "text": maybe_evict(state, tool, text) }] })
+}
+
+/// Se o texto passa do limiar, grava o conteúdo completo em disco e devolve o stub.
+/// Qualquer falha de IO = fail-open (devolve o texto original) — o evict é otimização
+/// de contexto, nunca pode quebrar a tool.
+fn maybe_evict(state: &McpState, tool: &str, text: String) -> String {
+    if text.len() <= crate::mcp::tools::EVICT_THRESHOLD_CHARS {
+        return text;
+    }
+    let Ok(base) = state.app.path().app_data_dir() else {
+        return text;
+    };
+    let dir = base.join("tool-results");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return text;
+    }
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = dir.join(crate::mcp::tools::evict_file_name(tool, ts));
+    if std::fs::write(&path, &text).is_err() {
+        return text;
+    }
+    crate::mcp::tools::evict_stub(tool, &path.to_string_lossy(), &text)
+}
+
 async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
     match tool {
         "list_agents" => {
@@ -367,12 +406,12 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
                     .collect::<Vec<_>>()
                     .join("\n")
             };
-            json!({ "content": [{ "type": "text", "text": text }] })
+            wrap_tool_text(&state, tool, text)
         }
 
         t if t.starts_with("terminal_") => {
             let text = crate::mcp::tools::terminal_dispatch(&state, t, args).await;
-            json!({ "content": [{ "type": "text", "text": text }] })
+            wrap_tool_text(&state, t, text)
         }
 
         // Ciclo de vida (task #10): match EXATO, não prefixo `agent_` — labels de
@@ -380,48 +419,48 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
         // um prefixo capturaria essas tools registradas por engano.
         "agent_sleep" | "agent_wake" => {
             let text = crate::mcp::tools::agent_lifecycle_dispatch(&state, tool, args);
-            json!({ "content": [{ "type": "text", "text": text }] })
+            wrap_tool_text(&state, tool, text)
         }
 
         t if t.starts_with("workspace_") => {
             let text = crate::mcp::tools::workspace_dispatch(&state, t, args).await;
-            json!({ "content": [{ "type": "text", "text": text }] })
+            wrap_tool_text(&state, t, text)
         }
 
         t if t.starts_with("orchestration_") => {
             let text = crate::mcp::tools::orchestration_dispatch(&state, t, args).await;
-            json!({ "content": [{ "type": "text", "text": text }] })
+            wrap_tool_text(&state, t, text)
         }
 
         // spec_path_conflicts é cross-spec/claims — roteado pelo claim_dispatch.
         "spec_path_conflicts" => {
             let text = crate::mcp::tools::claim_dispatch(&state, tool, args);
-            json!({ "content": [{ "type": "text", "text": text }] })
+            wrap_tool_text(&state, tool, text)
         }
 
         t if t.starts_with("spec_") => {
             let text = crate::mcp::tools::spec_dispatch(t, args);
-            json!({ "content": [{ "type": "text", "text": text }] })
+            wrap_tool_text(&state, t, text)
         }
 
         t if t.starts_with("memory_") => {
             let text = crate::mcp::tools::memory_dispatch(&state, t, args).await;
-            json!({ "content": [{ "type": "text", "text": text }] })
+            wrap_tool_text(&state, t, text)
         }
 
         t if t.starts_with("claim_") => {
             let text = crate::mcp::tools::claim_dispatch(&state, t, args);
-            json!({ "content": [{ "type": "text", "text": text }] })
+            wrap_tool_text(&state, t, text)
         }
 
         t if t.starts_with("kanban_") => {
             let text = crate::mcp::tools::kanban_dispatch(&state, t, args);
-            json!({ "content": [{ "type": "text", "text": text }] })
+            wrap_tool_text(&state, t, text)
         }
 
         "review_current" => {
             let text = crate::mcp::tools::review_dispatch(&state, args).await;
-            json!({ "content": [{ "type": "text", "text": text }] })
+            wrap_tool_text(&state, tool, text)
         }
 
         // Qualquer outro nome de tool: verifica se é um agente registrado
@@ -437,7 +476,7 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
                 format!("Tool desconhecida: `{tool_name}`. Use list_agents para ver as disponíveis.")
             };
 
-            json!({ "content": [{ "type": "text", "text": result }] })
+            wrap_tool_text(&state, tool_name, result)
         }
     }
 }

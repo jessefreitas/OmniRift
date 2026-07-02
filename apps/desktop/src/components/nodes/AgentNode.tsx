@@ -22,7 +22,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import { useCanvasStore } from "@/store/canvas-store";
-import { agentsMdInstruction, agentsMdRelPath } from "@/lib/agent-contract";
+import { agentsMdInstruction, agentsMdRelPath, agentsMdSlug } from "@/lib/agent-contract";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -90,6 +90,50 @@ function buildPatch(path: string | undefined, oldText: string, newText: string):
   const minus = oldText ? cap(oldText).map((l) => `-${l}`).join("\n") : "";
   const plus = newText ? cap(newText).map((l) => `+${l}`).join("\n") : "";
   return [head, minus, plus].filter(Boolean).join("\n");
+}
+
+// ── 🧹 Compactação sob demanda (context management — steal #2 do deepagents) ──────
+
+/** Serializa a conversa visível em markdown (`## papel` + texto) — vira o histórico
+ *  completo em `<cwd>/.omnirift/history/<slug>-<n>.md` antes do resumo substituir as msgs. */
+function serializeConversation(label: string, msgs: Msg[]): string {
+  const head = `# Histórico — ${label}\n\n> Compactado em ${new Date().toISOString()}\n`;
+  const body = msgs
+    .map((m) =>
+      m.role === "tool"
+        ? `## tool\n\n[${m.toolKind ?? "tool"}] ${m.text}${m.status ? ` · ${m.status}` : ""}`
+        : `## ${m.role}\n\n${m.text}`,
+    )
+    .join("\n\n");
+  return `${head}\n${body}\n`;
+}
+
+/** Próximo índice livre `<slug>-<n>.md` em `histDir` (lista via list_dir; dir ausente → 1). */
+async function nextHistoryIndex(histDir: string, slug: string): Promise<number> {
+  try {
+    const entries = await invoke<{ name: string }[]>("list_dir", { path: histDir });
+    const re = new RegExp(`^${slug}-(\\d+)\\.md$`); // slug é [a-z0-9-] — seguro em regex
+    let n = 1;
+    for (const e of entries) {
+      const m = re.exec(e.name);
+      if (m) n = Math.max(n, Number(m[1]) + 1);
+    }
+    return n;
+  } catch {
+    return 1; // dir ainda não existe → 1º arquivo
+  }
+}
+
+/** Grava o histórico via write_file; se falhar (write_file NÃO cria dir pai), cria
+ *  `.omnirift/history` pelo shell do run_check (sh -c / cmd /C) e tenta de novo. */
+async function writeHistoryFile(cwd: string, path: string, content: string): Promise<void> {
+  try {
+    await invoke("write_file", { path, content });
+  } catch {
+    const win = cwd.includes("\\");
+    await runCheck(cwd, win ? "mkdir .omnirift\\history" : "mkdir -p .omnirift/history");
+    await invoke("write_file", { path, content });
+  }
 }
 
 // Contrato injetado (invisível) no 1º prompt → faz o OmniAgent agir como orquestrador,
@@ -160,6 +204,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // Último modelo CONFIRMADO pelo adapter (ready) — se o set_model for recusado, o badge volta
   // pra cá em vez de mentir o modelo pedido (Task #6: Hermes preso no default ministral).
   const confirmedModelRef = useRef<string | null>(null);
+  // 🧹 compactação em curso: path do histórico já gravado (null = nenhuma). Ref, não state —
+  // o closure do turn-done lê o valor ATUAL sem stale state (padrão goalRef/personaSentRef).
+  const compactRef = useRef<string | null>(null);
   // 🎯 Goal (loop autônomo por-agente) + 🔁 Loop (timer). Os refs guardam o run ATIVO (estáveis
   // no closure do turn-done, sem stale state); goalRun alimenta o badge no header.
   const goalRef = useRef<{ objective: string; condition: string; maxIter: number } | null>(null);
@@ -476,6 +523,19 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         listenAcpTurnDone(id, async () => {
           setStatus("ready");
           const reply = lastReplyRef.current.trim();
+          // 🧹 turno de COMPACTAÇÃO: a resposta É o resumo → substitui a conversa por
+          // [system marcador + assistant resumo]. Turno interno de manutenção: não emite
+          // saída na linha nem roda o Goal.
+          const compactPath = compactRef.current;
+          if (compactPath) {
+            compactRef.current = null;
+            lastDiffRef.current = null;
+            setMsgs([
+              { role: "system", text: `🧹 ${t("agent.compacted", "conversa compactada — histórico completo em")} ${compactPath}` },
+              { role: "assistant", text: reply || "(sem resumo)" },
+            ]);
+            return;
+          }
           const diff = lastDiffRef.current;
           lastDiffRef.current = null;
           if (diff) {
@@ -651,6 +711,47 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     await sendText(text);
   }
 
+  // 🧹 Compactar conversa (sob demanda): (a) serializa as msgs em markdown; (b) grava em
+  // <cwd>/.omnirift/history/<slug>-<n>.md; (c) pede ao agente um resumo ≤20 linhas apontando
+  // o path; (d) no turn-done seguinte, substitui as msgs por [system + resumo] (via compactRef).
+  // O prompt vai DIRETO por acpPrompt (sem prefixos de orquestrador, sem bolha de usuário).
+  async function compactConversation() {
+    const sid = sessionRef.current;
+    if (!sid || status !== "ready" || compactRef.current || msgs.length === 0) return;
+    const cwd = data.cwd || useCanvasStore.getState().currentCwd || "";
+    if (!cwd) {
+      setMsgs((m) => [...m, { role: "system", text: `🧹 ${t("agent.compactNoCwd", "sem pasta de projeto — não dá pra gravar o histórico.")}` }]);
+      return;
+    }
+    const label = data.label ?? "OmniAgent";
+    const slug = agentsMdSlug(label) || "agente";
+    const histDir = `${cwd}/.omnirift/history`;
+    const n = await nextHistoryIndex(histDir, slug);
+    const path = `${histDir}/${slug}-${n}.md`;
+    try {
+      await writeHistoryFile(cwd, path, serializeConversation(label, msgs));
+    } catch (e) {
+      setMsgs((m) => [...m, { role: "system", text: `🧹 ${t("agent.compactWriteFail", "falha ao gravar o histórico")}: ${e}` }]);
+      return;
+    }
+    compactRef.current = path;
+    lastReplyRef.current = "";
+    setMsgs((m) => [...m, { role: "system", text: `🧹 ${t("agent.compacting", "compactando… histórico completo salvo em")} ${path}` }]);
+    setStatus("thinking");
+    try {
+      await acpPrompt(
+        sid,
+        `COMPACTAÇÃO: resuma nosso trabalho até aqui em NO MÁXIMO 20 linhas (decisões tomadas, estado atual, próximos passos). ` +
+          `O histórico completo está salvo em ${path} — se precisar de algum detalhe, releia com read_file (paginado, offset/limit; NÃO o arquivo inteiro). ` +
+          `Responda SÓ com o resumo.`,
+      );
+    } catch (e) {
+      compactRef.current = null;
+      setMsgs((m) => [...m, { role: "system", text: `erro: ${e}` }]);
+      setStatus("ready");
+    }
+  }
+
   // 🎯 Inicia um Goal: persiste a config, arma os refs e manda o 1º prompt (objetivo + condição).
   function startGoal(cfg: { objective: string; condition: string; maxIter: number }) {
     patchNode(data.id, { goal: cfg });
@@ -776,6 +877,16 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         ) : model ? (
           <Badge>{model}</Badge>
         ) : null}
+        {/* 🧹 compactar conversa — resumo ≤20 linhas; histórico completo vai pra .omnirift/history */}
+        <button
+          onClick={(e) => { e.stopPropagation(); void compactConversation(); }}
+          disabled={status !== "ready" || msgs.length === 0}
+          className="nodrag p-0.5 rounded text-[11px] leading-none text-text/50 hover:bg-white/10 hover:text-text transition-colors disabled:opacity-40"
+          title={t("agent.compact", "Compactar conversa — o agente resume em ≤20 linhas e libera contexto; o histórico completo fica em .omnirift/history")}
+          aria-label={t("agent.compactShort", "Compactar conversa")}
+        >
+          🧹
+        </button>
         {usage.used != null && (
           <Badge title={t("agent.context", "contexto usado")}>
             {fmtTokens(usage.used)}
