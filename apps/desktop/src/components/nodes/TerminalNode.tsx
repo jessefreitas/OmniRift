@@ -338,13 +338,65 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
           className="fixed inset-0 z-[9999] bg-surface1 flex flex-col"
           onContextMenu={handleContextMenu}
         >
-          {/* Header fullscreen */}
+          {/* Header fullscreen — mesmos badges do header normal (chip do CLI,
+              ⏱ sessão, ⚡compressor, ▼savings, 💾 RSS); sumir tudo na tela cheia
+              era regressão visual reportada ("pq isso some"). */}
           <header className="flex items-center gap-2 px-4 py-2 bg-surface2 border-b border-border text-textMuted shrink-0">
-            <TerminalIcon size={14} className="text-brand shrink-0" />
+            {meta ? (
+              <span className="text-sm leading-none shrink-0" title={meta.label}>
+                {meta.emoji}
+              </span>
+            ) : (
+              <TerminalIcon size={14} className="text-brand shrink-0" />
+            )}
             <span className="text-xs font-medium truncate flex-1">
               {data.label ?? data.command}
             </span>
-            <span className="text-[10px] opacity-50 shrink-0">{data.role}</span>
+
+            {/* Identidade do CLI (nome do catálogo); cai pro role cru se desconhecido. */}
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand/90 truncate shrink-0 max-w-[120px]">
+              {meta?.label ?? data.role}
+            </span>
+
+            {/* Tempo de sessão — fail-soft: some sem createdAt (nodes antigos). */}
+            {data.createdAt && (
+              <span
+                className="text-[9px] font-mono tabular-nums px-1 rounded bg-green-500/10 text-green-400/90 shrink-0"
+                title={t("terminal.sessionTime", "Tempo de sessão")}
+              >
+                ⏱ {formatAge(Date.now() - data.createdAt)}
+              </span>
+            )}
+
+            {data.compressor && (
+              <span
+                title={`Compressor de token ativo: ${data.compressor.toUpperCase()} (decora só env no spawn)`}
+                className="text-[8px] uppercase tracking-wide px-1 rounded bg-brand/15 text-brand shrink-0"
+              >
+                ⚡{data.compressor}
+              </span>
+            )}
+
+            {/* Economia REAL do OmniCompress — some quando o proxy não responde (fail-open). */}
+            {savings && savings.tokensBefore > 0 && (
+              <span
+                title={`OmniCompress: ${savings.tokensBefore.toLocaleString()} → ${savings.tokensAfter.toLocaleString()} tokens (${(savings.tokensBefore - savings.tokensAfter).toLocaleString()} economizados)`}
+                className="text-[9px] font-mono tabular-nums px-1 rounded bg-green-500/15 text-green-400 shrink-0"
+              >
+                ▼{savings.pct.toFixed(0)}% · {formatTokens(savings.tokensBefore - savings.tokensAfter)} tok
+              </span>
+            )}
+
+            {/* RSS do processo (PID no tooltip). */}
+            {proc?.alive && (
+              <span
+                className="text-[9px] font-mono tabular-nums px-1 rounded bg-textMuted/10 text-textMuted shrink-0"
+                title={`PID ${proc.pid} · ${(proc.rssKb / 1024).toFixed(1)} MB RSS`}
+              >
+                💾 {(proc.rssKb / 1024).toFixed(0)}M
+              </span>
+            )}
+
             <button
               onClick={() => setIsFullscreen(false)}
               className="p-1 rounded hover:bg-bg hover:text-text transition-colors"

@@ -57,6 +57,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { folderCanvasSave, folderCanvasLoad } from "@/lib/folder-canvas-client";
 import { snapshotCreate } from "@/lib/snapshot-client";
+import { focusNode } from "@/lib/canvas-focus";
 import { mcpRegisterAgent, mcpUnregisterAgent, agentMcpConfig, agentSettingsConfig, setMaxAgents, mcpAddCommand } from "@/lib/mcp-client";
 import { parallelGitCreate, parallelGitLand } from "@/lib/git-client";
 import { specListFiles, specArchive, specUnarchive, isDeadSpec, pathsOverlap, type SpecFile } from "@/lib/spec-client";
@@ -2254,7 +2255,7 @@ export function Sidebar() {
       {showClis && <ClisModal onClose={() => setShowClis(false)} />}
       {showCompressors && <CompressorsModal onClose={() => setShowCompressors(false)} />}
       {showSkillsCenter && <SkillsCenterModal cwd={currentCwd} roles={roles} customClis={customClis} onUpdateRoleSkills={updateRoleSkills} onUpdateCliSkills={updateCliSkills} onClose={() => setShowSkillsCenter(false)} />}
-      {showKanban && <KanbanPanel project={currentCwd ?? ""} onClose={() => setShowKanban(false)} />}
+      {showKanban && <KanbanPanel project={currentCwd ?? ""} onClose={() => setShowKanban(false)} onFocusNode={(id) => { setShowKanban(false); focusNode(id); }} />}
       {showDiag && <DiagnosticsModal onClose={() => setShowDiag(false)} />}
       {closingFolder && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={() => setClosingFolder(false)}>

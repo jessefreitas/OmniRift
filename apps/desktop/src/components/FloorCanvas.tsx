@@ -3,7 +3,7 @@
 // Um ReactFlow por floor. Os inativos ficam em display:none (mantêm os
 // TerminalNode/xterm montados → PTYs vivos), então só o ativo é interativo.
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   ReactFlow,
   Background,
@@ -45,6 +45,7 @@ import { FilterNode } from "@/components/nodes/FilterNode";
 import { FlowEdge } from "@/components/edges/FlowEdge";
 import { useConnectionRouting } from "@/hooks/useConnectionRouting";
 import { useCanvasStore } from "@/store/canvas-store";
+import { registerFloorInstance } from "@/lib/canvas-focus";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
 import type { CanvasNode } from "@/types/canvas";
 
@@ -120,6 +121,9 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
   const clearConnectMenu = useCanvasStore((s) => s.clearConnectMenu);
   const connectingFrom = useRef<string | null>(null);
   const connectingHandle = useRef<string | null>(null); // alça de origem ("subagent" = baixo)
+
+  // Solta a instance registrada em canvas-focus quando o floor desmonta (floor deletado).
+  useEffect(() => () => registerFloorInstance(floorId, null), [floorId]);
 
   const nodes = useMemo(() => floor?.nodes ?? [], [floor]);
   const edges = useMemo(() => floor?.edges ?? [], [floor]);
@@ -304,6 +308,7 @@ export function FloorCanvas({ floorId }: { floorId: string }) {
       onConnectStart={onConnectStart}
       onConnectEnd={onConnectEnd}
       onNodeDragStop={onNodeDragStop}
+      onInit={(inst) => registerFloorInstance(floorId, inst)}
       proOptions={{ hideAttribution: true }}
       minZoom={0.15}
       maxZoom={2.5}
