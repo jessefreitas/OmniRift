@@ -17,6 +17,8 @@ import { LLM_CATALOG } from "@/lib/llm-catalog";
 import {
   generatePipelinePlan,
   generatePipelinePlanViaCli,
+  graphifyAvailable,
+  graphifyReport,
   pipelineSave,
   pipelineLoad,
   PIPELINE_CLIS,
@@ -37,6 +39,9 @@ const MODEL_COLORS: Record<string, string> = {
 // o usuário já paga a subscription do Claude Code; a Central/BYOK é opt-in, não gate.
 const CLI_PREFIX = "__cli:";
 const CLI_DEFAULT = `${CLI_PREFIX}claude`;
+
+// Preferência do toggle "ancorar na arquitetura real (Graphify)" — persistida entre sessões.
+const ANCHOR_KEY = "omnirift-pipe-anchor-arch";
 
 export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -67,8 +72,13 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   const [desc, setDesc] = useState("");
   const [plan, setPlan] = useState<PipelinePlan | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [warn, setWarn] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  // Graphify: só mostra o toggle se o binário/uvx existe; a preferência do toggle persiste.
+  const [graphifyOk, setGraphifyOk] = useState(false);
+  const [anchorArch, setAnchorArch] = useState(false);
 
   useEffect(() => {
     llmProvidersList().then((ps) => {
@@ -84,19 +94,40 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
     pipelineLoad(currentCwd).then((p) => { if (p) { setPlan(p); setSavedAt(p.createdAt ?? null); } }).catch(() => {});
   }, [currentCwd]);
 
+  // Graphify disponível? + preferência salva do toggle (mount-only — não depende do cwd).
+  useEffect(() => {
+    graphifyAvailable().then(setGraphifyOk).catch(() => setGraphifyOk(false));
+    try { setAnchorArch(localStorage.getItem(ANCHOR_KEY) === "1"); } catch { /* localStorage off */ }
+  }, []);
+
   const isCli = providerId.startsWith(CLI_PREFIX);
 
   async function generate() {
     if (!desc.trim() || !providerId) { setErr(t("pipe.needDesc", "descreva o projeto e escolha um provider")); return; }
-    setLoading(true); setErr(null);
+    setLoading(true); setErr(null); setWarn(null);
     try {
+      // Âncora de arquitetura (Graphify): roda/lê o knowledge graph do repo ANTES do LLM e
+      // injeta o relatório destilado como archContext. É best-effort — build pode demorar
+      // (minutos) e, se falhar/vier vazio, cai no modo normal com um aviso (não trava).
+      let archContext: string | undefined;
+      if (anchorArch && graphifyOk && currentCwd) {
+        setLoadingMsg(t("pipe.analyzing", "analisando a arquitetura do repositório… (pode levar minutos)"));
+        try {
+          const rep = await graphifyReport(currentCwd);
+          if (rep && rep.trim()) archContext = rep;
+          else setWarn(t("pipe.archEmpty", "Graphify não gerou grafo — montando o time sem âncora de arquitetura."));
+        } catch (e) {
+          setWarn(`${t("pipe.archFail", "Graphify falhou — montando sem âncora de arquitetura")}: ${String(e).slice(0, 200)}`);
+        }
+      }
+      setLoadingMsg(t("pipe.thinking", "arquitetando…"));
       // Modo CLI local: roda `claude -p` headless (sem chave); o campo modelo é
       // ignorado — quem manda é o modelo configurado no CLI/wrapper do usuário.
       const p = isCli
         // No modo local o campo "modelo" vira o CLI/wrapper (ex: claude-glm52) — quem roda
         // claude via proxy escolhe o binário; vazio = o default da opção (claude).
-        ? await generatePipelinePlanViaCli(desc.trim(), model.trim() || providerId.slice(CLI_PREFIX.length))
-        : await generatePipelinePlan(desc.trim(), providerId, model.trim() || undefined);
+        ? await generatePipelinePlanViaCli(desc.trim(), model.trim() || providerId.slice(CLI_PREFIX.length), archContext)
+        : await generatePipelinePlan(desc.trim(), providerId, model.trim() || undefined, archContext);
       setPlan(p);
       await pipelineSave(currentCwd, p).catch(() => {});
       setSavedAt(p.createdAt ?? Date.now());
@@ -109,6 +140,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
       );
     } finally {
       setLoading(false);
+      setLoadingMsg(null);
     }
   }
 
@@ -388,9 +420,27 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
               />
               <button onClick={() => void generate()} disabled={loading || !desc.trim() || !providerId}
                 className="ml-auto flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs text-bg hover:bg-brand-hover disabled:opacity-40">
-                <Sparkles size={13} /> {loading ? t("pipe.thinking", "arquitetando…") : t("pipe.generate", "Gerar plano")}
+                <Sparkles size={13} /> {loading ? (loadingMsg ?? t("pipe.thinking", "arquitetando…")) : t("pipe.generate", "Gerar plano")}
               </button>
             </div>
+            {/* Âncora de arquitetura real: só aparece se o Graphify (binário/uvx) existe.
+                Ligado → o Gerar roda o knowledge graph do repo e ancora o time nele. */}
+            {graphifyOk && (
+              <label
+                className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text/80"
+                title={t("pipe.anchorT", "Roda o Graphify (knowledge graph do código) e ANCORA o time na arquitetura real do repo: comunidades viram floors/agentes, god nodes viram zonas de review obrigatório, acoplamento vira conexão. O build pode levar minutos na 1ª vez.")}
+              >
+                <input
+                  type="checkbox"
+                  checked={anchorArch}
+                  onChange={(e) => {
+                    setAnchorArch(e.target.checked);
+                    try { localStorage.setItem(ANCHOR_KEY, e.target.checked ? "1" : "0"); } catch { /* localStorage off */ }
+                  }}
+                />
+                🧠 {t("pipe.anchorArch", "Ancorar na arquitetura real (Graphify)")}
+              </label>
+            )}
             {/* BYOK: o dropdown lista o que tem CHAVE na Central. Atalho pra cadastrar mais
                 (OpenRouter, Anthropic, Gemini, …) sem caçar no menu Ferramentas. */}
             <button
@@ -401,6 +451,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
             </button>
             {/* Sem chave NÃO é bloqueio: o modo CLI local (default) já gera o plano. */}
             {providers.length === 0 && !isCli && <p className="text-[11px] text-amber-300/80">{t("pipe.noProviders", "cadastre uma chave em Ferramentas → Central de API")}</p>}
+            {warn && <p className="break-words text-[11px] text-amber-300/80">⚠ {warn}</p>}
             {err && <p className="break-words font-mono text-[11px] text-danger">✗ {err}</p>}
           </div>
 

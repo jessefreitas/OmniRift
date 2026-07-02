@@ -58,10 +58,21 @@ Roles disponíveis: Orquestrador, Arquiteto, Backend, Frontend, DBA, Code Review
 Modelos por custo: haiku (barato, tarefa simples) < sonnet < opus (caro, decisão crítica).
 Regras: o Orquestrador coordena; o Code Reviewer é gate obrigatório antes de deploy; tarefas
 independentes podem ir em PARALELOS (floors) diferentes; subagentes são privados de um agente (ex: o
-Arquiteto ter um subagente de pesquisa). Responda SOMENTE com um JSON válido, SEM texto fora dele.`;
+Arquiteto ter um subagente de pesquisa).
+Quando o prompt trouxer a ARQUITETURA REAL DO REPOSITÓRIO (do knowledge graph), ESPELHE-A no time —
+cada comunidade vira um agente/floor, god nodes viram agentes com review obrigatório, acoplamento vira
+conexão — em vez de usar roles genéricos.
+Responda SOMENTE com um JSON válido, SEM texto fora dele.`;
 
-function schemaHint(desc: string): string {
-  return `PROJETO:\n${desc}\n\nResponda com EXATAMENTE este formato JSON (preencha de verdade):
+function schemaHint(desc: string, archContext?: string): string {
+  const arch = archContext?.trim()
+    ? `ARQUITETURA REAL DO REPOSITÓRIO (do knowledge graph — ANCORE o time nisto):\n${archContext.trim()}\n\n` +
+      `DIRETRIZES: cada COMUNIDADE do grafo é candidata a um floor+agente (paralelismo sem colisão); ` +
+      `GOD NODES (código muito conectado) = zona quente, marque o agente responsável com review obrigatório ` +
+      `e NÃO paralelize; arestas de acoplamento entre comunidades viram CONEXÕES entre os agentes; ` +
+      `comunidades sem acoplamento entre si podem ir na MESMA onda, acopladas em ondas sequenciais.\n\n`
+    : "";
+  return `${arch}PROJETO:\n${desc}\n\nResponda com EXATAMENTE este formato JSON (preencha de verdade):
 {
   "summary": "1-2 frases do que o time entrega",
   "floors": [{"name":"Principal","why":"por quê este paralelo"}],
@@ -89,11 +100,14 @@ function parsePlan(out: string): PipelinePlan {
   return plan;
 }
 
-/** Gera o plano chamando o LLM do provider salvo (Central). Faz o parse tolerante do JSON. */
+/** Gera o plano chamando o LLM do provider salvo (Central). Faz o parse tolerante do JSON.
+ *  `archContext` (opcional): relatório destilado do knowledge graph (Graphify) — quando
+ *  presente, o schemaHint injeta a arquitetura real ANTES do projeto e o time é ancorado nela. */
 export async function generatePipelinePlan(
   description: string,
   providerId: string,
   model?: string,
+  archContext?: string,
 ): Promise<PipelinePlan> {
   const r = await llmProviderResolve(providerId);
   const cfg: LlmConfig = {
@@ -102,7 +116,7 @@ export async function generatePipelinePlan(
     apiKey: r.key || undefined,
     model: model || r.model,
   };
-  const out = await llmChat(cfg, SYSTEM, schemaHint(description), { kind: "pipeline" });
+  const out = await llmChat(cfg, SYSTEM, schemaHint(description, archContext), { kind: "pipeline" });
   return parsePlan(out);
 }
 
@@ -116,10 +130,24 @@ export const PIPELINE_CLIS = [{ id: "claude", label: "Claude Code (local, sem ch
 export async function generatePipelinePlanViaCli(
   description: string,
   cli?: string,
+  archContext?: string,
 ): Promise<PipelinePlan> {
   const out = await invoke<string>("llm_via_cli", {
-    prompt: `${SYSTEM}\n\n${schemaHint(description)}`,
+    prompt: `${SYSTEM}\n\n${schemaHint(description, archContext)}`,
     cli: cli ?? null,
   });
   return parsePlan(out);
+}
+
+/** Graphify disponível? (binário no PATH OU uvx). O modal decide se mostra o toggle de
+ *  âncora de arquitetura por isto. Nunca lança — indisponível/erro = false. */
+export async function graphifyAvailable(): Promise<boolean> {
+  return invoke<boolean>("graphify_available").catch(() => false);
+}
+
+/** Roda/lê o knowledge graph (Graphify) do repo em `cwd` e devolve o GRAPH_REPORT.md
+ *  DESTILADO (~6KB) pra ancorar o Arquiteto. `null` = graphify indisponível ou sem grafo
+ *  (o modal cai no modo normal). Erro (build falhou) sobe pra quem chamou avisar e degradar. */
+export async function graphifyReport(cwd: string): Promise<string | null> {
+  return invoke<string | null>("graphify_report", { cwd });
 }
