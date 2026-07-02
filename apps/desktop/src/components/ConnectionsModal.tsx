@@ -14,7 +14,10 @@ import {
   providerConnect,
   providerTest,
   providerSetActive,
+  memoryMigrate,
+  memoryMigratePreview,
   type ConnectionConfig,
+  type MigrateResult,
   type ProviderHealth,
   type ProviderKind,
 } from "@/lib/providers-client";
@@ -36,6 +39,12 @@ export function ConnectionsModal({ onClose }: Props) {
   const [health, setHealth] = useState<Record<string, ProviderHealth>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Migração de memórias entre providers (task #34)
+  const [migrateFor, setMigrateFor] = useState<ProviderKind | null>(null);
+  const [migratePreview, setMigratePreview] = useState<number | null>(null);
+  const [migrateResult, setMigrateResult] = useState<MigrateResult | null>(null);
+  const [migrateBusy, setMigrateBusy] = useState(false);
+  const [migrateError, setMigrateError] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -130,6 +139,129 @@ export function ConnectionsModal({ onClose }: Props) {
     );
   }
 
+  function labelFor(kind: ProviderKind): string {
+    switch (kind) {
+      case "local":
+        return t("connections.localTitle", "Local (SQLite)");
+      case "omnimemory":
+        return "OmniMemory";
+      case "obsidian":
+        return "Obsidian";
+    }
+  }
+
+  async function openMigrate(kind: ProviderKind) {
+    if (active === null) return;
+    setMigrateFor(kind);
+    setMigratePreview(null);
+    setMigrateResult(null);
+    setMigrateError(null);
+    setMigrateBusy(false);
+    try {
+      const p = await memoryMigratePreview(active, kind);
+      setMigratePreview(p.count);
+    } catch (e) {
+      setMigrateError(String(e));
+    }
+  }
+
+  function closeMigrate() {
+    setMigrateFor(null);
+    setMigratePreview(null);
+    setMigrateResult(null);
+    setMigrateError(null);
+    setMigrateBusy(false);
+  }
+
+  async function runMigrate(kind: ProviderKind, mode: "copy" | "move") {
+    if (active === null) return;
+    setMigrateBusy(true);
+    setMigrateError(null);
+    try {
+      const r = await memoryMigrate(active, kind, mode);
+      setMigrateResult(r);
+    } catch (e) {
+      setMigrateError(String(e));
+    } finally {
+      setMigrateBusy(false);
+    }
+  }
+
+  // Botão "⇄ migrar do ativo pra cá" + painel inline de confirmação/resultado.
+  // Só aparece nos cards que NÃO são o provider ativo. Destino desconectado →
+  // botão desabilitado com dica "conecte primeiro". Sem diálogos nativos
+  // (WebKitGTK não tem confirm/alert) — tudo inline.
+  function MigrateSection({ kind }: { kind: ProviderKind }) {
+    if (active === null || active === kind) return null;
+    const canMigrate = configured(kind);
+    const open = migrateFor === kind;
+    if (!open) {
+      return (
+        <div className="mt-2 pt-2 border-t border-border/60">
+          <button
+            onClick={() => void openMigrate(kind)}
+            disabled={!canMigrate}
+            title={canMigrate ? undefined : t("connections.migrateConnectFirst", "conecte primeiro")}
+            className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40"
+          >
+            ⇄ {t("connections.migrateFromActive", "migrar do ativo pra cá")}
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div className="mt-2 pt-2 border-t border-border/60 space-y-1.5">
+        {migrateBusy ? (
+          <span className="text-[11px] text-textMuted">{t("connections.migrating", "migrando…")}</span>
+        ) : migrateResult ? (
+          <div className="text-[11px] text-text">
+            <span className="text-green-400">
+              ✓ {migrateResult.copied} {t("connections.migrateCopied", "copiadas")}
+            </span>
+            {", "}
+            {migrateResult.skipped} {t("connections.migrateSkipped", "puladas")}
+            {migrateResult.errors > 0 && (
+              <span className="text-danger">
+                {", "}
+                {migrateResult.errors} {t("connections.migrateErrors", "erros")}
+              </span>
+            )}
+            <button onClick={closeMigrate} className="ml-2 underline text-textMuted hover:text-text">
+              {t("common.close", "Fechar")}
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="text-[11px] text-text">
+              {t("connections.migrateConfirm1", "Copiar")} {migratePreview ?? "…"}{" "}
+              {t("connections.migrateConfirm2", "memórias de")} <b>{labelFor(active)}</b> → <b>{labelFor(kind)}</b>?
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void runMigrate(kind, "copy")}
+                disabled={migratePreview === null || migratePreview === 0}
+                className="px-2.5 py-1 rounded text-[11px] bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 transition-colors"
+              >
+                {t("connections.migrateCopy", "Copiar")}
+              </button>
+              <button
+                onClick={() => void runMigrate(kind, "move")}
+                disabled={migratePreview === null || migratePreview === 0}
+                className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40"
+              >
+                {t("connections.migrateMove", "Mover")}
+              </button>
+              <button onClick={closeMigrate} className="px-2.5 py-1 rounded text-[11px] text-textMuted hover:text-text">
+                {t("common.cancel", "Cancelar")}
+              </button>
+            </div>
+          </>
+        )}
+        {migrateError && <p className="text-[11px] text-danger break-words">{migrateError}</p>}
+      </div>
+    );
+  }
+
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
@@ -165,6 +297,7 @@ export function ConnectionsModal({ onClose }: Props) {
               <button onClick={() => void test("local")} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border">{t("common.test", "Testar")}</button>
               <HealthLine kind="local" />
             </div>
+            <MigrateSection kind="local" />
           </div>
 
           {/* OmniMemory */}
@@ -203,6 +336,7 @@ export function ConnectionsModal({ onClose }: Props) {
               <button onClick={() => void activate("omnimemory")} disabled={!configured("omnimemory") || active === "omnimemory"} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">{t("connections.use", "Usar")}</button>
               <HealthLine kind="omnimemory" />
             </div>
+            <MigrateSection kind="omnimemory" />
           </div>
 
           {/* Obsidian — vault via plugin "Local REST API" */}
@@ -243,6 +377,7 @@ export function ConnectionsModal({ onClose }: Props) {
               <button onClick={() => void activate("obsidian")} disabled={!configured("obsidian") || active === "obsidian"} className="px-2.5 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40">{t("connections.use", "Usar")}</button>
               <HealthLine kind="obsidian" />
             </div>
+            <MigrateSection kind="obsidian" />
           </div>
         </div>
 

@@ -44,3 +44,37 @@ export async function providerSetActive(kind: ProviderKind): Promise<void> {
 export async function providerActive(): Promise<ProviderKind> {
   return invoke<ProviderKind>("memory_active");
 }
+
+// ── Migração de memórias entre providers (task #34) ─────────────────────────
+
+export interface MigratePreview {
+  /** Total de memórias na origem. */
+  count: number;
+  /** Quantas já estão no destino (serão puladas). */
+  already: number;
+}
+
+export interface MigrateResult {
+  copied: number;
+  skipped: number;
+  errors: number;
+  /** Amostra das primeiras mensagens de erro (se houver). */
+  errorSamples: string[];
+}
+
+/** Conta quantas memórias seriam migradas de `from` → `to` (não grava nada). */
+export async function memoryMigratePreview(
+  from: ProviderKind,
+  to: ProviderKind,
+): Promise<MigratePreview> {
+  return invoke<MigratePreview>("memory_migrate_preview", { from, to });
+}
+
+/** Copia (ou move) todas as memórias de `from` → `to`. */
+export async function memoryMigrate(
+  from: ProviderKind,
+  to: ProviderKind,
+  mode: "copy" | "move",
+): Promise<MigrateResult> {
+  return invoke<MigrateResult>("memory_migrate", { from, to, mode });
+}

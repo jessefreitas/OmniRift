@@ -56,6 +56,12 @@ impl MemoryProvider for LocalProvider {
         Ok(rows.into_iter().map(row_to_record).collect())
     }
 
+    async fn list_all(&self) -> anyhow::Result<Vec<MemoryRecord>> {
+        // Listagem nativa (não depende do LIKE do search): pega tudo do blackboard.
+        let rows = self.db.memory_list(None, None, 100_000)?;
+        Ok(rows.into_iter().map(row_to_record).collect())
+    }
+
     async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>> {
         let target: i64 = match id.parse() {
             Ok(n) => n,

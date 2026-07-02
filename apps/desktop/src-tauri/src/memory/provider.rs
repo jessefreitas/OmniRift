@@ -9,6 +9,18 @@ pub trait MemoryProvider: Send + Sync {
     async fn search(&self, q: MemoryQuery) -> anyhow::Result<Vec<MemoryRecord>>;
     async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>>;
     async fn forget(&self, id: &str) -> anyhow::Result<bool>;
+    /// Lê TODAS as memórias do provider (usado pela migração entre providers).
+    /// Default best-effort: `search` com query vazia + limite alto — em LIKE/substring
+    /// "" casa com tudo. Providers com listagem nativa devem sobrescrever
+    /// (ex.: `LocalProvider` usa `memory_list`, que não depende do casamento textual).
+    async fn list_all(&self) -> anyhow::Result<Vec<MemoryRecord>> {
+        self.search(MemoryQuery {
+            query: String::new(),
+            project: None,
+            limit: 10_000,
+        })
+        .await
+    }
     /// Default: sem injeção — agente usa as tools `memory_*` do MCP do OmniRift.
     fn agent_wiring(&self) -> AgentWiring {
         AgentWiring::none()

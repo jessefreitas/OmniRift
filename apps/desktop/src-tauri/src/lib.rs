@@ -82,7 +82,8 @@ use commands::mcp::{
     mcp_server_url, mcp_unregister_agent, save_paste_image, set_max_agents,
 };
 use commands::memory::{
-    memory_active, memory_connect, memory_providers_list, memory_set_active, memory_test,
+    memory_active, memory_connect, memory_migrate, memory_migrate_preview, memory_providers_list,
+    memory_set_active, memory_test,
 };
 use commands::omnifs::{
     omnifs_is_managed_cwd, omnifs_log, omnifs_provision, omnifs_reindex, omnifs_rollback,
@@ -528,6 +529,8 @@ pub fn run() {
             memory_test,
             memory_set_active,
             memory_active,
+            memory_migrate_preview,
+            memory_migrate,
             omnifs_status,
             omnifs_provision,
             omnifs_snapshot_now,
