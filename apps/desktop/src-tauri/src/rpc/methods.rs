@@ -17,8 +17,28 @@
 //! - `agent.send`    → params `{sessionId, input}` → write (texto → 200ms → `\r`,
 //!                     padrão do `do_send_task`) → `{ok:true}`. `not_found` se sumiu.
 //! - `agent.kill`    → params `{sessionId}` → kill idempotente → `{ok:true}`.
+//!
+//! Mobile ACP-permissions + Kanban (ref #9 — consumidos pelo app mobile via WS):
+//! - `permissions.list` → params `null` → varre os OmniAgents ACP (via `AcpManager`) e
+//!                     devolve os que têm permissão pendente:
+//!                     `{pending: [{sessionId, label, reqId, title, options:[{optionId,
+//!                     name, kind}]}]}`. Só entram sessões COM `pending_permission`.
+//!                     (read-only — na `MOBILE_RPC_METHOD_ALLOWLIST`.)
+//! - `permission.respond` → params `{sessionId, reqId, optionId?}` → responde o
+//!                     `session/request_permission` do agente (`optionId` ausente/null =
+//!                     cancela) → `{ok:true}`. `invalid_argument` se faltar sessionId/reqId.
+//!                     Mutação → **fora** da allowlist read-only; só via steering opt-in.
+//! - `kanban.list`   → params `null` **ou** `{project?}` → colunas efetivas do projeto
+//!                     (custom, ou o default de 6 — `KANBAN_DEFAULT_COLS`) + cards:
+//!                     `{columns:[{col,label}], cards:[{id,col,title,body,agent}]}`.
+//!                     Sem `project`: cai no board mais recentemente ativo (ou `""` se não
+//!                     há cards). (read-only — na `MOBILE_RPC_METHOD_ALLOWLIST`.)
+//! - `kanban.move`   → params `{cardId, col}` → move o card pra `col` (valida `col` contra
+//!                     as colunas do projeto dono do card) → `{ok:true}`. Emite
+//!                     `kanban://changed`. Mutação → só via steering opt-in.
 
 use super::core::{Handler, Registry, RpcContext, RpcError};
+use crate::acp::AcpManager;
 use crate::mcp::AgentRegistry;
 use crate::pty::{PtyManager, PtySpawnConfig};
 use serde::Deserialize;
@@ -44,6 +64,12 @@ pub fn register_methods(registry: &mut Registry) {
     registry.register("agent.spawn", agent_spawn as Handler);
     registry.register("agent.send", agent_send as Handler);
     registry.register("agent.kill", agent_kill as Handler);
+    // Mobile ACP-permissions + Kanban (ref #9). Read-only na allowlist mobile;
+    // as mutações (`permission.respond`, `kanban.move`) só via steering opt-in.
+    registry.register("permissions.list", permissions_list as Handler);
+    registry.register("permission.respond", permission_respond as Handler);
+    registry.register("kanban.list", kanban_list as Handler);
+    registry.register("kanban.move", kanban_move as Handler);
 }
 
 // ---------------------------------------------------------------------------
@@ -373,6 +399,236 @@ fn agent_kill(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
     Ok(json!({ "ok": true }))
 }
 
+// ===========================================================================
+// MOBILE — ACP permissions (permissions.list / permission.respond)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// permissions.list — os OmniAgents ACP com permissão pendente
+// ---------------------------------------------------------------------------
+
+/// Extrai a lista `[{optionId, name, kind}]` do `params.options` do ACP
+/// `session/request_permission` (campos ausentes viram `""` — robusto a schema torto).
+fn extract_permission_options(acp_params: &Value) -> Vec<Value> {
+    acp_params
+        .get("options")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|o| {
+                    json!({
+                        "optionId": o.get("optionId").and_then(|v| v.as_str()).unwrap_or(""),
+                        "name": o.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                        "kind": o.get("kind").and_then(|v| v.as_str()).unwrap_or(""),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Título legível do pedido: `toolCall.title` → `toolCall.rawInput` (string) → fallback.
+fn extract_permission_title(acp_params: &Value) -> String {
+    let tc = acp_params.get("toolCall");
+    tc.and_then(|t| t.get("title"))
+        .and_then(|v| v.as_str())
+        .or_else(|| tc.and_then(|t| t.get("rawInput")).and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .unwrap_or_else(|| "Permissão pendente".to_string())
+}
+
+fn permissions_list(_params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
+    // AcpManager ausente (sessão sem relay/spawns ACP) → lista vazia (degrade limpo).
+    let Some(manager) = ctx.app.try_state::<Arc<AcpManager>>() else {
+        return Ok(json!({ "pending": [] }));
+    };
+
+    // Enumera pelos OmniAgents REGISTRADOS (label → id): o `AcpManager` não expõe iterador
+    // público de todas as sessões, e todo AgentNode registra seu label ao ficar `ready` —
+    // é de lá que vêm os pedidos de permissão. `attach(id)` reusa o snapshot observável
+    // (F1) SEM lock novo (mesmo caminho do `acp_attach`); `pending_permission` já é `{reqId, params}`.
+    let mut pending: Vec<Value> = Vec::new();
+    for (label, id, _ready) in manager.labels_list() {
+        let Ok(snap) = manager.attach(&id) else { continue };
+        let Some(payload) = snap.pending_permission else { continue };
+        let req_id = payload.get("reqId").cloned().unwrap_or(Value::Null);
+        let acp_params = payload.get("params").cloned().unwrap_or(Value::Null);
+        pending.push(json!({
+            // `sessionId` = o spawn id do OmniRift (chave do AcpManager) — é o que o
+            // `permission.respond` espera de volta (NÃO o sessionId interno do ACP).
+            "sessionId": id,
+            "label": label,
+            "reqId": req_id,
+            "title": extract_permission_title(&acp_params),
+            "options": extract_permission_options(&acp_params),
+        }));
+    }
+    Ok(json!({ "pending": pending }))
+}
+
+// ---------------------------------------------------------------------------
+// permission.respond — responde um session/request_permission do agente
+// ---------------------------------------------------------------------------
+
+/// Params de `permission.respond`. `reqId` é um valor JSON cru (número ou string — o id do
+/// request ACP). `optionId` ausente/null = cancela (a assinatura já é `Option<String>`).
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct PermissionRespondParams {
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    // Sem `default`: ausente → serde erra ("missing field `reqId`") → invalid_argument.
+    #[serde(rename = "reqId")]
+    req_id: Value,
+    #[serde(default, rename = "optionId")]
+    option_id: Option<String>,
+}
+
+/// Parse puro dos params de `permission.respond`. Null/torto → `invalid_argument`; também
+/// exige `sessionId` não-vazio (após trim).
+fn parse_permission_respond_params(params: Value) -> Result<PermissionRespondParams, RpcError> {
+    if params.is_null() {
+        return Err(RpcError::invalid_argument(
+            "permission.respond exige params {sessionId, reqId, optionId?}",
+        ));
+    }
+    let parsed: PermissionRespondParams =
+        serde_json::from_value(params).map_err(|e| RpcError::invalid_argument(e.to_string()))?;
+    if parsed.session_id.trim().is_empty() {
+        return Err(RpcError::invalid_argument("permission.respond exige 'sessionId' não-vazio"));
+    }
+    Ok(parsed)
+}
+
+fn permission_respond(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
+    let p = parse_permission_respond_params(params)?;
+    let manager = ctx
+        .app
+        .try_state::<Arc<AcpManager>>()
+        .ok_or_else(|| RpcError::internal("AcpManager indisponível"))?;
+
+    // `AcpManager::permission_respond` é async (escreve no stdin do adapter) e o handler é
+    // `fn` síncrono rodando DENTRO do runtime Tokio (ws/socket) — `block_on` aqui panica.
+    // Fire-and-forget numa task (mesmo padrão do Enter atrasado do `agent.send`): o efeito
+    // observável (a `pending_permission` some) o mobile vê no próximo `permissions.list`.
+    let manager_owned: Arc<AcpManager> = Arc::clone(&manager);
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = manager_owned
+            .permission_respond(&p.session_id, p.req_id, p.option_id)
+            .await
+        {
+            log::warn!("permission.respond falhou em '{}': {e:#}", p.session_id);
+        }
+    });
+    Ok(json!({ "ok": true }))
+}
+
+// ===========================================================================
+// MOBILE — Kanban (kanban.list / kanban.move)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// kanban.list — colunas efetivas + cards de um projeto
+// ---------------------------------------------------------------------------
+
+/// Params de `kanban.list`. `project` opcional; ausente → board default (ver handler).
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct KanbanListParams {
+    #[serde(default)]
+    project: Option<String>,
+}
+
+/// Parse puro dos params de `kanban.list`. Null = `{project:None}` (params opcionais);
+/// objeto torto (campo extra / tipo errado) → `invalid_argument`.
+fn parse_kanban_list_params(params: Value) -> Result<KanbanListParams, RpcError> {
+    if params.is_null() {
+        return Ok(KanbanListParams { project: None });
+    }
+    serde_json::from_value(params).map_err(|e| RpcError::invalid_argument(e.to_string()))
+}
+
+fn kanban_list(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
+    let p = parse_kanban_list_params(params)?;
+    let db = ctx
+        .app
+        .try_state::<crate::db::Db>()
+        .ok_or_else(|| RpcError::internal("Db indisponível"))?;
+
+    // Sem `project` explícito: não há "projeto ativo" no substrato RPC — cai no board mais
+    // recentemente ativo (ou `""` se não há cards, o que devolve o default de 6 + zero cards).
+    let project = match p.project.filter(|s| !s.is_empty()) {
+        Some(pr) => pr,
+        None => db.kanban_projects().ok().and_then(|v| v.into_iter().next()).unwrap_or_default(),
+    };
+
+    let columns: Vec<Value> = crate::db::kanban_effective_columns(&db, &project)
+        .into_iter()
+        .map(|(col, label)| json!({ "col": col, "label": label }))
+        .collect();
+    let cards: Vec<Value> = db
+        .kanban_list(&project)
+        .map_err(|e| RpcError::internal(format!("{e:#}")))?
+        .into_iter()
+        .map(|c| {
+            json!({
+                "id": c.id,
+                "col": c.col,
+                "title": c.title,
+                "body": c.body,
+                "agent": c.agent,
+            })
+        })
+        .collect();
+    Ok(json!({ "columns": columns, "cards": cards }))
+}
+
+// ---------------------------------------------------------------------------
+// kanban.move — move um card de coluna (valida a coluna contra o projeto dono)
+// ---------------------------------------------------------------------------
+
+/// Params de `kanban.move`. `cardId` + `col` obrigatórios.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct KanbanMoveParams {
+    #[serde(rename = "cardId")]
+    card_id: i64,
+    col: String,
+}
+
+/// Parse puro dos params de `kanban.move`. Null/torto → `invalid_argument`.
+fn parse_kanban_move_params(params: Value) -> Result<KanbanMoveParams, RpcError> {
+    if params.is_null() {
+        return Err(RpcError::invalid_argument("kanban.move exige params {cardId, col}"));
+    }
+    serde_json::from_value(params).map_err(|e| RpcError::invalid_argument(e.to_string()))
+}
+
+fn kanban_move(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
+    let p = parse_kanban_move_params(params)?;
+    let db = ctx
+        .app
+        .try_state::<crate::db::Db>()
+        .ok_or_else(|| RpcError::internal("Db indisponível"))?;
+
+    // O projeto sai do card (não vem no param) — mesmo caminho do comando `kanban_card_move`:
+    // resolve o dono, valida a coluna contra o fluxo desse projeto, move, avisa o front.
+    let project = db
+        .kanban_card_project(p.card_id)
+        .map_err(|e| RpcError::internal(format!("{e:#}")))?
+        .ok_or_else(|| RpcError::not_found(format!("card #{} não existe", p.card_id)))?;
+    if !crate::db::kanban_valid_col(&db, &project, &p.col) {
+        return Err(RpcError::invalid_argument(format!(
+            "coluna inválida: {} (use {})",
+            p.col,
+            crate::db::kanban_cols_hint(&db, &project)
+        )));
+    }
+    db.kanban_move(p.card_id, &p.col).map_err(|e| RpcError::internal(format!("{e:#}")))?;
+    let _ = ctx.app.emit("kanban://changed", ());
+    Ok(json!({ "ok": true }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -555,5 +811,121 @@ mod tests {
         // ...e o agent_kill engole esse erro (idempotência): a forma é `let _ = kill(); Ok(ok)`.
         // Como não há AppHandle no teste unit, fixamos o contrato no nível do manager +
         // documentamos que o handler faz `let _ = manager.kill(...)` → sempre {ok:true}.
+    }
+
+    // ----------------------------------------------------------------------
+    // Mobile — permission.respond (parse) + extractores puros de permissions.list
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn permission_respond_params_require_session_and_req_id() {
+        let no_sid = parse_permission_respond_params(json!({ "reqId": 1 })).unwrap_err();
+        assert_eq!(no_sid.code, "invalid_argument");
+        assert!(no_sid.message.contains("sessionId"), "msg: {}", no_sid.message);
+
+        let no_req = parse_permission_respond_params(json!({ "sessionId": "s1" })).unwrap_err();
+        assert_eq!(no_req.code, "invalid_argument");
+        assert!(no_req.message.contains("reqId"), "msg: {}", no_req.message);
+    }
+
+    #[test]
+    fn permission_respond_params_reject_null_empty_and_unknown() {
+        assert_eq!(
+            parse_permission_respond_params(Value::Null).unwrap_err().code,
+            "invalid_argument"
+        );
+        let empty = parse_permission_respond_params(json!({ "sessionId": "  ", "reqId": 1 })).unwrap_err();
+        assert_eq!(empty.code, "invalid_argument");
+        assert!(empty.message.contains("não-vazio"), "msg: {}", empty.message);
+        let bogus =
+            parse_permission_respond_params(json!({ "sessionId": "s1", "reqId": 1, "x": 2 })).unwrap_err();
+        assert_eq!(bogus.code, "invalid_argument");
+    }
+
+    #[test]
+    fn permission_respond_params_parse_ok_and_cancel() {
+        // reqId numérico + optionId presente = "selected".
+        let sel = parse_permission_respond_params(
+            json!({ "sessionId": "s1", "reqId": 7, "optionId": "allow" }),
+        )
+        .unwrap();
+        assert_eq!(
+            sel,
+            PermissionRespondParams {
+                session_id: "s1".into(),
+                req_id: json!(7),
+                option_id: Some("allow".into()),
+            }
+        );
+        // reqId string + optionId ausente = cancela (None). reqId cru preserva o tipo.
+        let cancel =
+            parse_permission_respond_params(json!({ "sessionId": "s2", "reqId": "abc" })).unwrap();
+        assert_eq!(cancel.req_id, json!("abc"));
+        assert_eq!(cancel.option_id, None);
+    }
+
+    #[test]
+    fn permission_extractors_pull_options_and_title() {
+        let acp_params = json!({
+            "toolCall": { "title": "Rodar `rm -rf build`" },
+            "options": [
+                { "optionId": "allow", "name": "Permitir", "kind": "allow_once" },
+                { "optionId": "deny", "name": "Negar", "kind": "reject_once" }
+            ]
+        });
+        let opts = extract_permission_options(&acp_params);
+        assert_eq!(opts.len(), 2);
+        assert_eq!(opts[0], json!({ "optionId": "allow", "name": "Permitir", "kind": "allow_once" }));
+        assert_eq!(extract_permission_title(&acp_params), "Rodar `rm -rf build`");
+    }
+
+    #[test]
+    fn permission_extractors_degrade_on_missing_fields() {
+        // Sem options → vazio; sem title/rawInput → fallback legível.
+        assert!(extract_permission_options(&json!({})).is_empty());
+        assert_eq!(extract_permission_title(&json!({})), "Permissão pendente");
+        // rawInput string vira o título quando não há `title`.
+        let only_raw = json!({ "toolCall": { "rawInput": "echo oi" } });
+        assert_eq!(extract_permission_title(&only_raw), "echo oi");
+        // option com campos faltando → strings vazias (não panica).
+        let partial = json!({ "options": [ { "optionId": "x" } ] });
+        assert_eq!(
+            extract_permission_options(&partial)[0],
+            json!({ "optionId": "x", "name": "", "kind": "" })
+        );
+    }
+
+    // ----------------------------------------------------------------------
+    // Mobile — kanban.list / kanban.move (parse)
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn kanban_list_params_null_is_no_project() {
+        assert_eq!(parse_kanban_list_params(Value::Null).unwrap(), KanbanListParams { project: None });
+    }
+
+    #[test]
+    fn kanban_list_params_parse_project_and_reject_unknown() {
+        let with = parse_kanban_list_params(json!({ "project": "/home/x/proj" })).unwrap();
+        assert_eq!(with, KanbanListParams { project: Some("/home/x/proj".into()) });
+        let bogus = parse_kanban_list_params(json!({ "bogus": 1 })).unwrap_err();
+        assert_eq!(bogus.code, "invalid_argument");
+    }
+
+    #[test]
+    fn kanban_move_params_require_card_id_and_col() {
+        let no_id = parse_kanban_move_params(json!({ "col": "done" })).unwrap_err();
+        assert_eq!(no_id.code, "invalid_argument");
+        assert!(no_id.message.contains("cardId"), "msg: {}", no_id.message);
+        let no_col = parse_kanban_move_params(json!({ "cardId": 5 })).unwrap_err();
+        assert_eq!(no_col.code, "invalid_argument");
+        assert!(no_col.message.contains("col"), "msg: {}", no_col.message);
+    }
+
+    #[test]
+    fn kanban_move_params_reject_null_and_parse_ok() {
+        assert_eq!(parse_kanban_move_params(Value::Null).unwrap_err().code, "invalid_argument");
+        let p = parse_kanban_move_params(json!({ "cardId": 42, "col": "review" })).unwrap();
+        assert_eq!(p, KanbanMoveParams { card_id: 42, col: "review".into() });
     }
 }

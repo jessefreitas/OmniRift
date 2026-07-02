@@ -1235,6 +1235,18 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// Projetos DISTINTOS que têm ao menos um card, ordenados pela atividade mais
+    /// recente (max `updated_at` DESC). Usado pelo RPC do mobile (`kanban.list` sem
+    /// `project`) pra escolher um board default sensato quando não há "projeto ativo".
+    pub fn kanban_projects(&self) -> Result<Vec<String>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT project FROM kanban_cards GROUP BY project ORDER BY MAX(updated_at) DESC, project",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     pub fn kanban_create(
         &self,
         project: &str,

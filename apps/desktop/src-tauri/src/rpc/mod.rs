@@ -218,8 +218,8 @@ mod tests {
     #[test]
     fn build_registry_has_readonly_and_write_methods() {
         let reg = build_registry();
-        // #8A read-only (3) + Fase 2 escrita (3) = 6.
-        assert_eq!(reg.len(), 6, "3 read-only (#8A) + 3 escrita (Fase 2)");
+        // #8A read-only (3) + Fase 2 escrita (3) + mobile #9 (4) = 10.
+        assert_eq!(reg.len(), 10, "3 read-only (#8A) + 3 escrita (Fase 2) + 4 mobile (#9)");
         // Read-only (#8A).
         assert!(reg.get("status").is_some());
         assert!(reg.get("agents.list").is_some());
@@ -228,6 +228,11 @@ mod tests {
         assert!(reg.get("agent.spawn").is_some());
         assert!(reg.get("agent.send").is_some());
         assert!(reg.get("agent.kill").is_some());
+        // Mobile #9 (ACP-permissions + Kanban).
+        assert!(reg.get("permissions.list").is_some());
+        assert!(reg.get("permission.respond").is_some());
+        assert!(reg.get("kanban.list").is_some());
+        assert!(reg.get("kanban.move").is_some());
     }
 
     #[test]
