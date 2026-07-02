@@ -16,7 +16,7 @@ import { Sparkles, FileUp, Download, RefreshCw, X, Search, ChevronRight, Chevron
 
 import { skillsList, skillsImportMd, skillsImportGithub, type SkillInfo } from "@/lib/skills-client";
 import { loadGlobalSkills, saveGlobalSkills } from "@/lib/global-skills";
-import { loadGitProviders } from "@/lib/git-providers";
+import { githubToken } from "@/lib/git-providers";
 import { PromptModal } from "@/components/PromptModal";
 import type { AgentRoleDef } from "@/lib/agent-roles";
 import type { CustomCli } from "@/lib/custom-clis";
@@ -119,7 +119,7 @@ export function SkillsCenterModal({ cwd, roles, customClis, onUpdateRoleSkills, 
     if (!cwd || !url.trim()) return;
     setImporting(true); setImportMsg(null);
     try {
-      const token = loadGitProviders().find((p) => p.kind === "github")?.token;
+      const token = await githubToken();
       const infos = await skillsImportGithub(cwd, url.trim(), token);
       await loadSkills();
       setImportMsg(`✓ + ${infos.length} ${t("skills.fromGithub", "skill(s) do GitHub")}`);

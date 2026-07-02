@@ -240,7 +240,7 @@ export const pt: Record<string, string> = {
   "gitRepos.enterToken": "informe o token",
   "gitRepos.filterPh": "filtrar…",
   "gitRepos.footer1": "\"Abrir como projeto\" clona o repo e abre como um",
-  "gitRepos.footer2": "(canvas isolado). Token em localStorage (keychain = fase futura).",
+  "gitRepos.footer2": "(canvas isolado). Token no keychain do SO.",
   "gitRepos.footerProject": "projeto",
   "gitRepos.listRepos": "Listar repos",
   "gitRepos.loginGithub": "Entrar com GitHub",

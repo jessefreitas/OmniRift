@@ -14,7 +14,7 @@ import { Download, FileUp, Gauge, Sparkles, X } from "lucide-react";
 import { ROLE_CLIS, type AgentRoleDef, type ImportedRole } from "@/lib/agent-roles";
 import { skillsList, skillsImportMd, skillsImportGithub, type SkillInfo } from "@/lib/skills-client";
 import { mcpInventory, type McpInventoryItem } from "@/lib/mcp-client";
-import { loadGitProviders } from "@/lib/git-providers";
+import { githubToken } from "@/lib/git-providers";
 import { isCompressorEnabled } from "@/lib/compress-client";
 import { PromptModal } from "@/components/PromptModal";
 import { useT } from "@/lib/i18n";
@@ -117,7 +117,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
     if (!cwd || !url.trim()) return;
     setImporting(true); setImportMsg(null);
     try {
-      const token = loadGitProviders().find((p) => p.kind === "github")?.token;
+      const token = await githubToken();
       const infos = await skillsImportGithub(cwd, url.trim(), token);
       await loadSkills();
       setSkills((s) => [...new Set([...s, ...infos.map((i) => i.name)])]);

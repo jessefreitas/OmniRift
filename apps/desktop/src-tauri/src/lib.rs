@@ -46,6 +46,7 @@ use commands::editor::{detect_editors, open_in_editor};
 use commands::fsinfo::{fs_cow_info, reflink_clone};
 use commands::explain::whatis_lookup;
 use commands::fs::{list_dir, read_file, write_file};
+use commands::git_secret::{git_token_delete, git_token_get, git_token_set};
 use commands::gitremote::{git_clone, git_list_repos};
 use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
@@ -452,6 +453,9 @@ pub fn run() {
             write_file,
             git_list_repos,
             git_clone,
+            git_token_set,
+            git_token_get,
+            git_token_delete,
             github_device_start,
             github_device_poll,
             http_request,

@@ -10,6 +10,7 @@ import { GitFork, Lock, RefreshCw, X } from "lucide-react";
 
 import {
   gitListRepos, gitClone, loadGitProviders, saveGitProvider, loadCloneDir, saveCloneDir,
+  getGitToken, migrateLegacyGitTokens,
   GIT_PRESETS, type GitProviderConfig, type GitProviderKind, type RemoteRepo,
 } from "@/lib/git-providers";
 import { githubDeviceStart, githubDevicePoll, loadGithubClientId, saveGithubClientId } from "@/lib/github-auth-client";
@@ -31,7 +32,8 @@ export function GitReposModal({ onClose }: Props) {
   const first = saved[0];
   const [kind, setKind] = useState<GitProviderKind>(first?.kind ?? "github");
   const [baseUrl, setBaseUrl] = useState(first?.baseUrl ?? GIT_PRESETS[0].baseUrl);
-  const [token, setToken] = useState(first?.token ?? "");
+  // Token vem do keychain (async, no efeito abaixo) — nunca mais do localStorage.
+  const [token, setToken] = useState("");
   const [repos, setRepos] = useState<RemoteRepo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -56,7 +58,7 @@ export function GitReposModal({ onClose }: Props) {
     try {
       const rs = await gitListRepos(cfg);
       setRepos(rs);
-      saveGitProvider(cfg); // guarda a conexão que funcionou
+      await saveGitProvider(cfg); // guarda a conexão que funcionou (token → keychain)
     } catch (e) {
       setError(String(e));
       setRepos([]);
@@ -65,8 +67,30 @@ export function GitReposModal({ onClose }: Props) {
     }
   }
 
-  // Lista automático se já tem um provider salvo com token.
-  useEffect(() => { if (first?.token) void list(); /* eslint-disable-next-line */ }, []);
+  // Migra tokens legados (localStorage → keychain), carrega o token do 1º provider
+  // salvo (keychain) e lista automático. O token nunca mais toca o localStorage.
+  useEffect(() => {
+    void (async () => {
+      await migrateLegacyGitTokens();
+      const f = loadGitProviders()[0];
+      if (!f) return;
+      const tok = await getGitToken(f.kind, f.baseUrl);
+      if (!tok) return;
+      setKind(f.kind);
+      setBaseUrl(f.baseUrl);
+      setToken(tok);
+      setLoading(true);
+      setError(null);
+      try {
+        setRepos(await gitListRepos({ kind: f.kind, baseUrl: f.baseUrl, token: tok }));
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // OAuth Device Flow: pede o code, abre o navegador, faz poll até o token.
   async function loginGithub() {
@@ -86,7 +110,7 @@ export function GitReposModal({ onClose }: Props) {
         if (p.status === "ok" && p.token) {
           setToken(p.token); setDevice(null); setAuthMsg(t("gitRepos.connectedGithub", "✓ conectado ao GitHub"));
           const cfg: GitProviderConfig = { kind: "github", baseUrl: baseUrl.trim(), token: p.token };
-          try { setRepos(await gitListRepos(cfg)); saveGitProvider(cfg); } catch (e) { setError(String(e)); }
+          try { setRepos(await gitListRepos(cfg)); await saveGitProvider(cfg); } catch (e) { setError(String(e)); }
           return;
         }
         if (p.status === "slow_down") { interval += 5; continue; }
@@ -215,7 +239,7 @@ export function GitReposModal({ onClose }: Props) {
           )}
         </div>
         <footer className="px-4 py-1.5 border-t border-border text-[10px] text-textMuted opacity-60 shrink-0">
-          {t("gitRepos.footer1", "\"Abrir como projeto\" clona o repo e abre como um")} <b>{t("gitRepos.footerProject", "projeto")}</b> {t("gitRepos.footer2", "(canvas isolado). Token em localStorage (keychain = fase futura).")}
+          {t("gitRepos.footer1", "\"Abrir como projeto\" clona o repo e abre como um")} <b>{t("gitRepos.footerProject", "projeto")}</b> {t("gitRepos.footer2", "(canvas isolado). Token no keychain do SO.")}
         </footer>
       </div>
     </div>,

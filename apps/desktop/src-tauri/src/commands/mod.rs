@@ -13,6 +13,7 @@ pub mod folder_canvas;
 pub mod fsinfo;
 pub mod fs;
 pub mod git;
+pub mod git_secret;
 pub mod github_auth;
 pub mod omnigraph;
 pub mod gitremote;
