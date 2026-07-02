@@ -398,6 +398,11 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             "bg-surface2 border-b border-border text-textMuted cursor-grab",
             "active:cursor-grabbing select-none",
           )}
+          onDoubleClick={(e) => {
+            const el = e.target as HTMLElement;
+            if (el.closest("button,input,textarea,select,a")) return;
+            setIsFullscreen(true);
+          }}
         >
           {meta ? (
             <span className="text-sm leading-none shrink-0" title={meta.label}>
@@ -530,7 +535,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
               <UserRoundPlus size={12} />
             </button>
           )}
-          <NodeHelp text={t("terminal.help", "Terminal/agente: digite normalmente. Duplo-clique no nome pra renomear. Ligue a saída deste node na entrada de outro pelas alças laterais (pipe A→B). ⤢ abre em tela cheia; ⟳ reconecta se o processo morrer. A alça de baixo (ou +) pluga um SUBAGENTE privado.")} />
+          <NodeHelp text={t("terminal.help", "Terminal/agente: digite normalmente. Duplo-clique no nome pra renomear; no resto do header, abre em tela cheia. Ligue a saída deste node na entrada de outro pelas alças laterais (pipe A→B). ⤢ abre em tela cheia; ⟳ reconecta se o processo morrer. A alça de baixo (ou +) pluga um SUBAGENTE privado.")} />
           {/* Botão maximizar */}
           <button
             onClick={(e) => {
