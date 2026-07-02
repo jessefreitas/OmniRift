@@ -25,6 +25,7 @@ interface McpAgentsSectionProps {
   terminalStatuses: Record<string, AgentState>;
   floorNameOf: (sid: string) => string | undefined;
   toggleMcpAgent: (sessionId: string, label: string) => void;
+  linkAllMcpAgents: () => void;
   injectMcpToTerminal: (sessionId: string) => void;
   sendTeamBriefing: (
     newAgents: Set<string>,
@@ -52,6 +53,7 @@ export function McpAgentsSection({
   terminalStatuses,
   floorNameOf,
   toggleMcpAgent,
+  linkAllMcpAgents,
   injectMcpToTerminal,
   sendTeamBriefing,
   secStyle,
@@ -88,6 +90,18 @@ export function McpAgentsSection({
               />
             </label>
           </Tooltip>
+          {/* Linkar todos: marca o time inteiro do canvas no canal MCP de uma vez —
+              sem re-rodar o Arquiteto. Só aparece se há agente ainda NÃO linkado. */}
+          {terminals.some((n) => !mcpAgents.has(n.kind === "terminal" ? n.session_id : n.id)) && (
+            <Tooltip label={tr("sidebar.linkAllTip", "Adiciona TODOS os agentes do canvas ao canal MCP do Orquestrador de uma vez (sem re-montar o time)")} side="bottom">
+              <button
+                onClick={linkAllMcpAgents}
+                className="text-[10px] text-brand hover:text-brand-hover transition-colors px-1.5 py-0.5 rounded hover:bg-surface2 font-medium"
+              >
+                🔗 {tr("sidebar.linkAll", "linkar todos")}
+              </button>
+            </Tooltip>
+          )}
           <Tooltip label={tr("sidebar.copyMcpCmdTip", "Copia o comando /mcp add pra conectar o Orquestrador ao MCP")} side="bottom">
             <button
               onClick={copyMcpCmd}

@@ -947,6 +947,30 @@ export function Sidebar() {
     }
   }, [mcpAgents, agentDescriptions, orchestratorSid, terminals, sendTeamBriefing, floorNameOf]);
 
+  // "Linkar todos": marca TODO o time do canvas no canal MCP de uma vez, sem re-rodar o
+  // Arquiteto. Um time que já está rodando (montado numa versão anterior, ou à mão) entra
+  // no canal com 1 clique. Atômico: constrói o Set completo e chama setMcpAgents/briefing
+  // uma vez só (chamar toggleMcpAgent em loop daria race — cada um lê o mcpAgents do closure).
+  const linkAllMcpAgents = useCallback(() => {
+    const toAdd = terminals.filter((n) => !mcpAgents.has(n.kind === "terminal" ? n.session_id : n.id));
+    if (toAdd.length === 0) return;
+    const next = new Set(mcpAgents);
+    for (const n of toAdd) {
+      const sid = n.kind === "terminal" ? n.session_id : n.id;
+      const label = n.kind === "terminal" ? (n.label ?? n.command) : n.id;
+      next.add(sid);
+      const description = agentDescriptions[sid] ?? `Agente ${label} disponível para tarefas.`;
+      mcpRegisterAgent(label, sid, description, floorNameOf(sid)).catch(console.warn);
+      if (n.kind === "terminal") {
+        const roleText = `Você está agindo como ${label} no canvas OmniRift. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.`;
+        invoke("pty_write", { sessionId: sid, data: roleText }).catch(console.warn);
+        setTimeout(() => { invoke("pty_write", { sessionId: sid, data: "\r" }).catch(console.warn); }, 150);
+      }
+    }
+    setMcpAgents(next);
+    sendTeamBriefing(next, agentDescriptions, orchestratorSid, terminals);
+  }, [terminals, mcpAgents, agentDescriptions, orchestratorSid, sendTeamBriefing, floorNameOf]);
+
   // Auto-conexão A→B: quando o canvas pede marcar um terminal (linha OmniAgent→terminal),
   // registra via o MESMO toggleMcpAgent (backend + checkbox + briefing). Só marca se ainda
   // não estiver registrado (toggleMcpAgent alterna; aqui o intent é garantir registrado).
@@ -2180,6 +2204,7 @@ export function Sidebar() {
         terminalStatuses={terminalStatuses}
         floorNameOf={floorNameOf}
         toggleMcpAgent={toggleMcpAgent}
+        linkAllMcpAgents={linkAllMcpAgents}
         injectMcpToTerminal={injectMcpToTerminal}
         sendTeamBriefing={sendTeamBriefing}
         secStyle={secStyle}
