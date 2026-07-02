@@ -23,6 +23,7 @@ import {
   type PipelinePlan,
 } from "@/lib/pipeline-client";
 import { kanbanCardCreate } from "@/lib/kanban-client";
+import { omnifsIsManagedCwd, omnifsSnapshotNow } from "@/lib/omnifs-client";
 import { PIPELINE_TEMPLATES } from "@/lib/pipeline-templates";
 import { useT } from "@/lib/i18n";
 
@@ -125,6 +126,19 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   // 1º, que fica no floor ativo) vira um Parallel próprio — nós nascem lá via targetFloorId.
   async function build() {
     if (!plan) return;
+    // F3 item 1: ponto de restauração ANTES de montar o time. Se o cwd do projeto
+    // está num mount OmniFS vivo, tira um snapshot pré-onda — toda montagem de time
+    // fica revertível (o time inteiro pode mexer no drive). Falha silenciosa se não
+    // for mount OmniFS: NÃO bloqueia o Montar.
+    if (currentCwd) {
+      try {
+        if (await omnifsIsManagedCwd(currentCwd)) {
+          await omnifsSnapshotNow(`pré-montagem: ${plan.summary.slice(0, 160)}`);
+        }
+      } catch {
+        /* snapshot é best-effort — nunca trava a montagem do time */
+      }
+    }
     const store = useCanvasStore.getState();
     // FLOORS REAIS: reusa por nome se já existir (re-Montar idempotente); createParallel
     // devolve null no gate de licença (community = 1 floor) → esse paralelo cai no ativo.

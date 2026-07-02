@@ -375,7 +375,11 @@ fn maybe_evict(state: &McpState, tool: &str, text: String) -> String {
     let Ok(base) = state.app.path().app_data_dir() else {
         return text;
     };
-    let dir = base.join("tool-results");
+    // F3 item 3: se há um mount OmniFS vivo, grava DENTRO do mount
+    // (`<mount>/.omnirift-evict/`) pra o output evictado entrar no índice e virar
+    // recuperável por `omnifs_search`; senão cai no `<app_data>/tool-results/` de
+    // sempre. O path que vai pro STUB continua sendo real (legível pelo read_file).
+    let dir = crate::omnifs::evict_dir(&base);
     if std::fs::create_dir_all(&dir).is_err() {
         return text;
     }

@@ -56,6 +56,16 @@ pub async fn omnifs_rollback(commit: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// O `cwd` está dentro de um mount OmniFS VIVO? Usado pela automação F3 do front
+/// (snapshot pré-onda no Montar + re-index debounced no turn-done) pra só disparar
+/// quando o projeto de fato vive no OmniFS. Barato (1 read de JSON + 1 connect local).
+#[tauri::command]
+pub async fn omnifs_is_managed_cwd(cwd: String) -> bool {
+    tauri::async_runtime::spawn_blocking(move || crate::omnifs::is_managed_cwd(&cwd))
+        .await
+        .unwrap_or(false)
+}
+
 /// (Re)indexa semanticamente o drive — full-scan (pode demorar em drives grandes).
 #[tauri::command]
 pub async fn omnifs_reindex() -> Result<String, String> {

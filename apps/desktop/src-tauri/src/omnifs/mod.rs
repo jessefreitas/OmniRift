@@ -584,6 +584,52 @@ pub fn preflight_cwd_guard(cwd: Option<&str>) -> Result<(), String> {
     ))
 }
 
+/// O `cwd` está dentro de um mount OmniFS VIVO (config provisionada + cwd sob o
+/// mount + daemon atendendo no socket)? Barato: 1 leitura de JSON pequeno + 1
+/// connect de socket local, e o connect só roda se o cwd bater no prefixo do mount.
+///
+/// Base da AUTOMAÇÃO F3: o Montar (snapshot pré-onda) e o re-index debounced do
+/// turn-done só disparam quando o projeto de fato vive no OmniFS. Exposto ao front
+/// via comando `omnifs_is_managed_cwd`.
+pub fn is_managed_cwd(cwd: &str) -> bool {
+    if cwd.trim().is_empty() {
+        return false;
+    }
+    let Some(cfg) = read_config() else { return false };
+    cwd_inside_mount(cwd, &cfg.mount) && socket_alive(&socket_path())
+}
+
+// ── Evict de tool-output DENTRO do mount (F3 item 3) ────────────────────────
+//
+// O evict do MCP (mcp/server.rs) grava tool-output grande em disco e devolve um
+// STUB com o path. Se há um mount OmniFS VIVO, gravamos em `<mount>/.omnirift-evict/`
+// em vez do `<app_data>/tool-results/` — assim o output evictado ENTRA no índice do
+// OmniFS (recuperável por `omnifs_search`) sem deixar de ser um caminho real legível
+// pelo `read_file` do agente (o mount é FUSE, path de verdade no disco).
+
+/// Subpasta de evict dentro do mount OmniFS (entra no índice).
+const EVICT_SUBDIR_IN_MOUNT: &str = ".omnirift-evict";
+/// Subpasta de evict no app_data (comportamento legado, fora do mount).
+const EVICT_SUBDIR_APP_DATA: &str = "tool-results";
+
+/// Decisão PURA do diretório de evict (testável sem env/IO): mount vivo →
+/// `<mount>/.omnirift-evict`; senão `<app_data>/tool-results`.
+fn evict_dir_decision(cfg: Option<&OmniFsConfig>, daemon_up: bool, app_data: &Path) -> PathBuf {
+    match cfg {
+        Some(c) if daemon_up && !c.mount.trim().is_empty() => {
+            Path::new(&c.mount).join(EVICT_SUBDIR_IN_MOUNT)
+        }
+        _ => app_data.join(EVICT_SUBDIR_APP_DATA),
+    }
+}
+
+/// Diretório onde o evict de tool-output deve gravar — ver [`evict_dir_decision`].
+/// Chamado pelo `maybe_evict` (mcp/server.rs) com o `app_data_dir` como fallback.
+/// Só resolve pro mount quando o daemon está no ar (write num FUSE morto = ENOTCONN).
+pub fn evict_dir(app_data: &Path) -> PathBuf {
+    evict_dir_decision(read_config().as_ref(), socket_alive(&socket_path()), app_data)
+}
+
 // ── Testes ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -695,6 +741,43 @@ mod tests {
         // Cap estourado (3 entradas: a.txt, sub, sub/b.txt) → None, não trava.
         assert_eq!(dir_size_bounded(dir.path(), 2), None);
         assert_eq!(dir_size_bounded(&dir.path().join("nao-existe"), 10), None);
+    }
+
+    #[test]
+    fn is_managed_cwd_rejeita_cwd_vazio_sem_tocar_disco() {
+        // cwd vazio/em-branco não lê config nem conecta socket — curto-circuito.
+        assert!(!is_managed_cwd(""));
+        assert!(!is_managed_cwd("   "));
+    }
+
+    #[test]
+    fn evict_dir_decision_mount_vivo_vai_pro_mount() {
+        let app_data = Path::new("/app/data");
+        let cfg = OmniFsConfig {
+            store: "/s".into(),
+            mount: "/home/x/OmniRift/Projetos".into(),
+        };
+        // Mount provisionado + daemon vivo → subpasta dentro do mount (entra no índice).
+        assert_eq!(
+            evict_dir_decision(Some(&cfg), true, app_data),
+            PathBuf::from("/home/x/OmniRift/Projetos/.omnirift-evict")
+        );
+        // Daemon morto → fallback app_data (write num FUSE morto daria ENOTCONN).
+        assert_eq!(
+            evict_dir_decision(Some(&cfg), false, app_data),
+            PathBuf::from("/app/data/tool-results")
+        );
+        // Sem config provisionada → fallback app_data.
+        assert_eq!(
+            evict_dir_decision(None, true, app_data),
+            PathBuf::from("/app/data/tool-results")
+        );
+        // Config presente mas mount em branco → fallback (não monta path vazio).
+        let sem_mount = OmniFsConfig { store: "/s".into(), mount: "  ".into() };
+        assert_eq!(
+            evict_dir_decision(Some(&sem_mount), true, app_data),
+            PathBuf::from("/app/data/tool-results")
+        );
     }
 
     #[test]

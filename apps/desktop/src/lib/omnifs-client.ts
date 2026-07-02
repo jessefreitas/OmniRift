@@ -50,6 +50,43 @@ export const omnifsRollback = (commit: string) =>
 
 export const omnifsReindex = () => invoke<string>("omnifs_reindex");
 
+/** O `cwd` está dentro de um mount OmniFS VIVO? (config provisionada + daemon no ar).
+ *  Gate da automação F3 no front — barato no backend (1 read de JSON + 1 connect local). */
+export const omnifsIsManagedCwd = (cwd: string) =>
+  invoke<boolean>("omnifs_is_managed_cwd", { cwd });
+
+// ── F3 item 2: re-index debounced no turn-done ──────────────────────────────
+//
+// Quando um agente (OmniAgent ou terminal) termina um turno e o cwd é mount OmniFS,
+// agendamos um re-index do drive — busca sempre fresca sem o agente gastar um turno
+// rodando `omnifs_index`. Debounce module-level: uma RAJADA de turnos (vários agentes
+// terminando junto) coalesce num único reindex ao fim da janela de silêncio. O
+// `omnifs_index` é GLOBAL (re-varre o drive inteiro), então um timer único basta —
+// não precisa de um por-cwd.
+
+/** Janela de silêncio antes de disparar o reindex (ms). */
+const REINDEX_DEBOUNCE_MS = 60_000;
+let reindexTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Agenda um re-index do drive OmniFS após {@link REINDEX_DEBOUNCE_MS} de silêncio.
+ *  Cada chamada CANCELA o timer anterior (debounce). No disparo, re-checa que o cwd
+ *  segue sendo mount OmniFS vivo antes de reindexar. Fire-and-forget: nunca lança
+ *  pro chamador (reindex é best-effort, não pode travar o turn-done). */
+export function scheduleReindex(cwd: string): void {
+  if (!cwd) return;
+  if (reindexTimer) clearTimeout(reindexTimer);
+  reindexTimer = setTimeout(() => {
+    reindexTimer = null;
+    void (async () => {
+      try {
+        if (await omnifsIsManagedCwd(cwd)) await omnifsReindex();
+      } catch {
+        /* reindex é best-effort — silêncio total */
+      }
+    })();
+  }, REINDEX_DEBOUNCE_MS);
+}
+
 /** Bytes → "1.2 GB" legível (base 1024). */
 export function fmtBytes(n: number | null): string {
   if (n === null || !Number.isFinite(n)) return "—";

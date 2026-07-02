@@ -32,6 +32,7 @@ import {
 import { registerTerminalView, unregisterTerminalView } from "@/lib/terminal-sessions";
 import { useCanvasStore } from "@/store/canvas-store";
 import { sessionStart, sessionEvent, sessionEnd } from "@/lib/session-client";
+import { scheduleReindex } from "@/lib/omnifs-client";
 import { pasteText, copyText } from "@/lib/clipboard";
 import type { PtySpawnConfig, SessionId } from "@/types/pty";
 
@@ -377,8 +378,15 @@ export function useTerminalSession({
         unlistenStatus = await listenAgentStatus(sessionId, (state) => {
           setTerminalStatus(sessionId, state);
           if (state !== lastStateRef.current) {
+            const prev = lastStateRef.current;
             lastStateRef.current = state;
             void sessionEvent(sessionId, `state:${state}`).catch(() => {});
+            // F3 item 2: turno terminou (working/blocked → idle/done) e o cwd é mount
+            // OmniFS vivo → agenda re-index debounced do drive. Fire-and-forget + gate
+            // no backend (scheduleReindex ignora cwd vazio / fora do mount).
+            if ((state === "idle" || state === "done") && (prev === "working" || prev === "blocked")) {
+              scheduleReindex(config.cwd ?? "");
+            }
           }
         });
         if (disposed) { dropListeners(); return; }

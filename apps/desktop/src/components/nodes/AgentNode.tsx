@@ -51,6 +51,7 @@ import {
   type AcpAuthMethod,
   type AcpAttachSnapshot,
 } from "@/lib/acp-client";
+import { scheduleReindex } from "@/lib/omnifs-client";
 import type { AgentNode as AgentNodeData } from "@/types/canvas";
 import { HermesWizard, type HermesProviderConfig } from "./HermesWizard";
 import { pasteText } from "@/lib/clipboard";
@@ -598,6 +599,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         ),
         listenAcpTurnDone(id, (_d, seq) => gated(seq, async () => {
           setStatus("ready");
+          // F3 item 2: agente terminou um turno → se o cwd é mount OmniFS vivo, agenda
+          // re-index debounced (~60s) do drive. Fire-and-forget + gate no backend: busca
+          // fresca sem o agente gastar um turno rodando omnifs_index.
+          scheduleReindex(data.cwd || useCanvasStore.getState().currentCwd || "");
           const reply = lastReplyRef.current.trim();
           // 🧹 turno de COMPACTAÇÃO: a resposta É o resumo → substitui a conversa por
           // [system marcador + assistant resumo]. Turno interno de manutenção: não emite
