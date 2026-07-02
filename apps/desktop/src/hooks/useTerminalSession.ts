@@ -604,7 +604,19 @@ export function useTerminalSession({
       fitAddon?.fit();
       const { cols, rows } = term;
       const respawnArgs = extraArgs?.length ? [...(config.args ?? []), ...extraArgs] : config.args;
-      await ptySpawn(sessionId, { ...config, args: respawnArgs, cols, rows });
+      const spawnOnce = () => ptySpawn(sessionId, { ...config, args: respawnArgs, cols, rows });
+      try {
+        await spawnOnce();
+      } catch (e) {
+        // F3 backend-owned: sessão MORTA pode continuar registrada no manager (pra attach) →
+        // o spawn devolve "sessão já existe" mesmo depois do kill. Mata de novo e re-tenta
+        // UMA vez (era o "falha ao iniciar: sessão X já existe" ao clicar ⟳ pós-exit-129).
+        if (!String(e).includes("já existe")) throw e;
+        try { await ptyKill(sessionId); } catch { /* já foi */ }
+        await new Promise<void>((r) => setTimeout(r, 250));
+        if (disposedRef.current || !terminalRef.current) { reconnectingRef.current = false; return; }
+        await spawnOnce();
+      }
       // Novo PTY (mesmo sessionId): os listeners de output/exit do useEffect seguem ativos.
       sessionEndedRef.current = false; // exit REAL do novo PTY volta a contar [GLM-audit #1]
       reconnectingRef.current = false;
