@@ -15,6 +15,8 @@ import {
 import { githubDeviceStart, githubDevicePoll, loadGithubClientId, saveGithubClientId } from "@/lib/github-auth-client";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
 import { serenaEnsureProject } from "@/lib/serena-client";
+import { onboardProject } from "@/lib/repo-onboarding";
+import { notify } from "@/lib/notify";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
 
@@ -108,6 +110,14 @@ export function GitReposModal({ onClose }: Props) {
       const path = await gitClone(repo.cloneUrl, dest, token.trim() || undefined);
       addProject({ name: repo.name, cwd: path }); // abre como projeto (canvas isolado)
       void serenaEnsureProject(path); // Serena poliglota automático
+      // Onboarding inteligente (task #32): o projeto nasce VIVO — indexa a busca (OmniFS),
+      // constrói o mapa do código (OmniGraph) e semeia o Kanban. Best-effort e AGNÓSTICO de
+      // provider (roda sobre o cwd clonado — vale igual pra GitHub/GitLab/Forgejo). Fire-and-
+      // forget: não trava o fechar do modal; ao terminar, UM toast resume o que foi preparado
+      // e quais engines estavam ausentes. onboardProject nunca lança (cada passo é isolado).
+      void onboardProject(path, { indexOmnifs: true, buildGraph: true, seedKanban: true, name: repo.name })
+        .then((r) => notify(r.summary))
+        .catch(() => {});
       onClose();
     } catch (e) {
       setError(String(e));
