@@ -24,6 +24,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { useFleetUsage } from "@/lib/fleet-usage";
 import {
   acpSpawn,
   acpPrompt,
@@ -207,6 +208,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   }, [data.loop?.active, data.loop?.everyMin, data.loop?.prompt]);
   const lastDiffRef = useRef<{ diff: string; path?: string } | null>(null); // diff do turno (Fase 2a)
 
+  // FleetBar (#12): nó removido do canvas → sai da soma de tokens do lote.
+  useEffect(() => () => useFleetUsage.getState().clearTokens(data.id), [data.id]);
+
   // D2-v2 — reload re-spawna a sessão ACP pra carregar os `.claude/agents` plugados DEPOIS do
   // boot (o adapter não faz hot-reload). Se já temos o sessionId do adapter, faz `session/load`
   // → MANTÉM a conversa; senão `session/new` (perde). Avisa via system line.
@@ -219,6 +223,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       setMsgs([{ role: "system", text: t("agent.reloaded", "↻ Sessão recarregada — subagentes atualizados.") }]);
       setModel(null);
       setUsage({});
+      useFleetUsage.getState().clearTokens(data.id); // sessão nova = contagem zera (FleetBar)
       // Sessão NOVA (sem resume) = conversa perdida → re-injeta a persona no próximo ready
       // (senão o reload apagava o papel do agente junto com a conversa).
       personaSentRef.current = false;
@@ -263,6 +268,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     setModel(null);
     setAvailableModels([]);
     setUsage({});
+    useFleetUsage.getState().clearTokens(data.id); // motor novo = sessão nova → contagem zera (FleetBar)
     setPerm(null);
     setAuthMethods([]);
     setMsgs((m) => [
@@ -373,6 +379,8 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           size: size ?? u.size,
           costUsd: cost ?? u.costUsd,
         }));
+        // FleetBar (#12): publica os tokens usados no registro compartilhado (soma do lote).
+        if (used != null) useFleetUsage.getState().reportTokens(data.id, used);
       }
     };
 

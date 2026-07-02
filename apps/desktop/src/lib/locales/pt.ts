@@ -217,6 +217,8 @@ export const pt: Record<string, string> = {
   "fileTree.previewHint": "Duplo-clique pra pré-visualizar",
   "fileTree.reload": "Recarregar",
   "fileTree.showHidden": "Mostrar ocultos",
+  "fleet.ready": "prontos",
+  "fleet.tooltip": "Frota do paralelo: agentes prontos/total (concluído+ocioso = pronto) · tempo desde o 1º agente do lote · tokens dos agentes ACP. Clique pra abrir o Kanban.",
   "gitRepos.authDenied": "autorização negada",
   "gitRepos.baseUrlPh": "base URL (forgejo)",
   "gitRepos.clientIdPh": "Client ID do OAuth App (Device Flow)",

@@ -217,6 +217,8 @@ export const en: Record<string, string> = {
   "fileTree.previewHint": "Double-click to preview",
   "fileTree.reload": "Reload",
   "fileTree.showHidden": "Show hidden",
+  "fleet.ready": "ready",
+  "fleet.tooltip": "Floor fleet: ready/total agents (done+idle = ready) · time since the batch's 1st agent · ACP agents' tokens. Click to open the Kanban.",
   "gitRepos.authDenied": "authorization denied",
   "gitRepos.baseUrlPh": "base URL (forgejo)",
   "gitRepos.clientIdPh": "OAuth App Client ID (Device Flow)",

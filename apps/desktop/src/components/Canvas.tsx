@@ -8,6 +8,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { FloorCanvas } from "@/components/FloorCanvas";
 import { OrchestratorDock } from "@/components/OrchestratorDock";
 import { CanvasToolbar } from "@/components/CanvasToolbar";
+import { FleetBar } from "@/components/FleetBar";
 import { CommandPalette } from "@/components/CommandPalette";
 import { useQuickJump } from "@/hooks/useQuickJump";
 import { useRoutines } from "@/hooks/useRoutines";
@@ -35,6 +36,8 @@ export function Canvas() {
       ))}
       {/* Toolbar flutuante de criação de nodes. */}
       <CanvasToolbar />
+      {/* FLEET BAR (#12): progresso agregado dos agentes do floor ativo (≥2 agentes). */}
+      <FleetBar />
       {/* Dock onipresente do Orquestrador — visível em qualquer floor. */}
       <OrchestratorDock />
       {/* Paleta de comandos (Ctrl/Cmd+K). */}
