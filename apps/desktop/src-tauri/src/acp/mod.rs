@@ -15,6 +15,7 @@ use anyhow::{anyhow, Result};
 use dashmap::DashMap;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::VecDeque;
 use std::process::Stdio;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
@@ -92,12 +93,255 @@ fn hermes_provider_env(provider: &str, model: &str, key: &str, base_url: Option<
     envs
 }
 
+// ---------------------------------------------------------------------------
+// F1 backend-owned sessions — estado observável da sessão (spec
+// docs/superpowers/specs/2026-07-02-backend-owned-sessions-design.md).
+// O AcpManager (que já possui o processo) passa a possuir também o estado
+// observável: log de eventos + last_ready + pending_permission + state. Nesta
+// fase é ADITIVO: todo emit continua igual (front não muda de contrato), mas
+// passa antes por `record()` → o `acp_attach` devolve um snapshot re-hidratável.
+// ---------------------------------------------------------------------------
+
+/// Cap de entries do log de eventos por sessão (spec F1).
+pub const EVENT_LOG_MAX_EVENTS: usize = 500;
+/// Cap de bytes (aproximado, payload serializado) do log por sessão (spec F1).
+pub const EVENT_LOG_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+/// Estado observável da sessão. `Sleeping` existe pelo contrato (spec §2) mas só
+/// é atingível na F2 (`acp_sleep`); na F1 as transições são Running → Dead (EOF).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AcpSessionState {
+    Running,
+    Sleeping,
+    Dead,
+}
+
+/// Uma entrada do log: (`seq` monotônico por sessão, nome do evento SEM o prefixo
+/// `acp://`, payload cru). `size` é a contagem interna p/ o cap de bytes (não cruza o IPC).
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventEntry {
+    pub seq: u64,
+    pub event: String,
+    pub payload: Value,
+    #[serde(skip)]
+    size: usize,
+}
+
+/// Buffer de eventos com `seq` monotônico + caps duplos (eventos E bytes) + coalescência
+/// de `agent_message_chunk` consecutivos (como o front já faz nas bolhas — derruba o
+/// volume em ordens de grandeza). Puro (sem AppHandle) → testável em unidade.
+pub struct EventLog {
+    entries: VecDeque<EventEntry>,
+    next_seq: u64,
+    bytes: usize,
+    truncated: bool,
+    max_events: usize,
+    max_bytes: usize,
+}
+
+impl Default for EventLog {
+    fn default() -> Self {
+        Self::with_caps(EVENT_LOG_MAX_EVENTS, EVENT_LOG_MAX_BYTES)
+    }
+}
+
+impl EventLog {
+    /// Caps injetáveis (testes usam caps pequenos; produção usa os defaults da spec).
+    pub fn with_caps(max_events: usize, max_bytes: usize) -> Self {
+        Self {
+            entries: VecDeque::new(),
+            next_seq: 0,
+            bytes: 0,
+            truncated: false,
+            max_events: max_events.max(1),
+            max_bytes,
+        }
+    }
+
+    /// Registra um evento e devolve o `seq` estampado. `agent_message_chunk` consecutivos
+    /// são coalescidos na MESMA entry (texto concatenado, seq da entry avança pro mais
+    /// recente) — o dedup por seq do attach continua válido.
+    pub fn record(&mut self, event: &str, payload: Value) -> u64 {
+        self.next_seq += 1;
+        let seq = self.next_seq;
+
+        if event == "update" && is_agent_message_chunk(&payload) {
+            if let Some(added) = self.try_coalesce(seq, &payload) {
+                self.bytes += added;
+                self.enforce_caps();
+                return seq;
+            }
+        }
+
+        let size = approx_entry_size(event, &payload);
+        self.entries.push_back(EventEntry { seq, event: event.to_string(), payload, size });
+        self.bytes += size;
+        self.enforce_caps();
+        seq
+    }
+
+    /// Tenta coalescer `payload` (um agent_message_chunk) na última entry. Devolve
+    /// `Some(bytes adicionados)` se coalesceu; `None` → caller faz push normal.
+    fn try_coalesce(&mut self, seq: u64, payload: &Value) -> Option<usize> {
+        let src = chunk_text(payload)?;
+        let last = self.entries.back_mut()?;
+        if last.event != "update" || !is_agent_message_chunk(&last.payload) {
+            return None;
+        }
+        let dst = chunk_text_mut(&mut last.payload)?;
+        dst.push_str(src);
+        last.seq = seq;
+        last.size += src.len();
+        Some(src.len())
+    }
+
+    /// Estourou um cap → trunca do INÍCIO (mais antigo) e marca `truncated`. Mantém ao
+    /// menos 1 entry (a mais recente): a conversa REAL segue viva no adapter — o buffer
+    /// é só a janela visível (spec §5).
+    fn enforce_caps(&mut self) {
+        while (self.entries.len() > self.max_events || self.bytes > self.max_bytes)
+            && self.entries.len() > 1
+        {
+            if let Some(dropped) = self.entries.pop_front() {
+                self.bytes = self.bytes.saturating_sub(dropped.size);
+                self.truncated = true;
+            }
+        }
+    }
+
+    /// Último seq estampado (0 = nenhum evento ainda).
+    pub fn last_seq(&self) -> u64 {
+        self.next_seq
+    }
+
+    pub fn truncated(&self) -> bool {
+        self.truncated
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item = &EventEntry> {
+        self.entries.iter()
+    }
+}
+
+fn is_agent_message_chunk(v: &Value) -> bool {
+    v.get("sessionUpdate").and_then(|s| s.as_str()) == Some("agent_message_chunk")
+}
+
+fn chunk_text(v: &Value) -> Option<&str> {
+    v.get("content")?.get("text")?.as_str()
+}
+
+fn chunk_text_mut(v: &mut Value) -> Option<&mut String> {
+    match v.get_mut("content")?.get_mut("text")? {
+        Value::String(s) => Some(s),
+        _ => None,
+    }
+}
+
+/// Tamanho aproximado de uma entry p/ o cap de bytes (payload serializado + nome).
+fn approx_entry_size(event: &str, payload: &Value) -> usize {
+    event.len() + payload.to_string().len()
+}
+
+/// Estado observável agregado de uma sessão (guardado sob UM mutex — snapshot atômico).
+pub struct SessionObserved {
+    pub log: EventLog,
+    pub last_ready: Option<Value>,
+    /// `{ "reqId": ..., "params": ... }` — setado no request, limpo no respond.
+    pub pending_permission: Option<Value>,
+    pub state: AcpSessionState,
+}
+
+impl Default for SessionObserved {
+    fn default() -> Self {
+        Self {
+            log: EventLog::default(),
+            last_ready: None,
+            pending_permission: None,
+            state: AcpSessionState::Running,
+        }
+    }
+}
+
+impl SessionObserved {
+    /// Registra um evento de sessão ANTES do `app.emit` correspondente. Além do log:
+    /// `ready` atualiza `last_ready`; `permission` seta `pending_permission`
+    /// (payload `{reqId, params}`); `exit` → `Dead`. Devolve o seq estampado.
+    pub fn record(&mut self, event: &str, payload: Value) -> u64 {
+        match event {
+            "ready" => self.last_ready = Some(payload.clone()),
+            "permission" => self.pending_permission = Some(payload.clone()),
+            "exit" => self.state = AcpSessionState::Dead,
+            _ => {}
+        }
+        self.log.record(event, payload)
+    }
+
+    /// Limpa a permission pendente se o `req_id` respondido bate com o pendente
+    /// (respond stale de um request antigo NÃO apaga um pedido mais novo).
+    pub fn clear_permission(&mut self, req_id: &Value) {
+        let matches = self
+            .pending_permission
+            .as_ref()
+            .and_then(|p| p.get("reqId"))
+            .map(|r| r == req_id)
+            .unwrap_or(false);
+        if matches {
+            self.pending_permission = None;
+        }
+    }
+
+    /// Snapshot p/ o `acp_attach` (espelho do `pty_snapshot`).
+    pub fn snapshot(&self, acp_session_id: Option<String>) -> AttachSnapshot {
+        AttachSnapshot {
+            state: self.state,
+            acp_session_id,
+            last_ready: self.last_ready.clone(),
+            pending_permission: self.pending_permission.clone(),
+            events: self.log.entries().cloned().collect(),
+            last_seq: self.log.last_seq(),
+            truncated: self.log.truncated(),
+        }
+    }
+}
+
+/// Snapshot do estado observável devolvido pelo `acp_attach` — espelho do `PtySnapshot`.
+/// `last_seq` = último seq estampado (chave do dedup dos eventos ao vivo na F2);
+/// `truncated` = o log estourou um cap e perdeu o início (o nó mostra "… histórico truncado").
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachSnapshot {
+    pub state: AcpSessionState,
+    pub acp_session_id: Option<String>,
+    pub last_ready: Option<Value>,
+    pub pending_permission: Option<Value>,
+    pub events: Vec<EventEntry>,
+    pub last_seq: u64,
+    pub truncated: bool,
+}
+
 struct AcpSession {
     /// stdin do adapter (compartilhado: handshake-task + comandos prompt/permission/cancel).
     stdin: Arc<AsyncMutex<ChildStdin>>,
     /// sessionId do ACP (preenchido quando o session/new responde).
     acp_session_id: Arc<parking_lot::Mutex<Option<String>>>,
     child: Arc<AsyncMutex<Child>>,
+    /// Estado observável F1 (backend-owned sessions) — ver `SessionObserved`.
+    observed: Arc<parking_lot::Mutex<SessionObserved>>,
 }
 
 #[derive(Default)]
@@ -174,6 +418,7 @@ impl AcpManager {
             stdin: Arc::new(AsyncMutex::new(stdin)),
             acp_session_id: Arc::new(parking_lot::Mutex::new(None)),
             child: Arc::new(AsyncMutex::new(child)),
+            observed: Arc::new(parking_lot::Mutex::new(SessionObserved::default())),
         });
         self.sessions.insert(id.clone(), session.clone());
 
@@ -231,6 +476,8 @@ impl AcpManager {
 
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
+                // `acp://raw` NÃO entra no event_log (debug puro, duplicaria os updates) —
+                // a spec F1 loga só os eventos de sessão (ready/update/permission/…).
                 let _ = app.emit("acp://raw", RawEvent { session_id: sid.clone(), line: line.clone() });
                 let msg: Value = match serde_json::from_str(&line) {
                     Ok(v) => v,
@@ -266,9 +513,11 @@ impl AcpManager {
                                 log::error!("[acp {sid}] erro no auto-authenticate: {e}");
                             }
                         } else if needs_auth {
+                            let methods = result.get("authMethods").cloned().unwrap_or(Value::Null);
+                            sess.observed.lock().record("auth-required", methods.clone());
                             let _ = app.emit("acp://auth-required", GenericEvent {
                                 session_id: sid.clone(),
-                                data: result.get("authMethods").cloned().unwrap_or(Value::Null),
+                                data: methods,
                             });
                         } else {
                             let req = match &resume_loop {
@@ -294,6 +543,7 @@ impl AcpManager {
                             *sess.acp_session_id.lock() = Some(s.to_string());
                         }
                         log::info!("[acp {sid}] session/new OK — MCP de orquestracao injetado");
+                        sess.observed.lock().record("ready", result.clone());
                         let _ = app.emit("acp://ready", GenericEvent { session_id: sid.clone(), data: result.clone() });
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] session/new falhou: {err}");
@@ -309,9 +559,11 @@ impl AcpManager {
                             *sess.acp_session_id.lock() = Some(rs.clone());
                         }
                         log::info!("[acp {sid}] session/load OK — sessao resumida (conversa mantida)");
+                        let ready = msg.get("result").cloned().unwrap_or(Value::Null);
+                        sess.observed.lock().record("ready", ready.clone());
                         let _ = app.emit("acp://ready", GenericEvent {
                             session_id: sid.clone(),
-                            data: msg.get("result").cloned().unwrap_or(Value::Null),
+                            data: ready,
                         });
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] session/load falhou: {err} — fallback session/new");
@@ -334,6 +586,7 @@ impl AcpManager {
                         let _ = write_line(&sess.stdin, &req).await;
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] authenticate falhou: {err}");
+                        sess.observed.lock().record("auth-failed", err.clone());
                         let _ = app.emit("acp://auth-failed", GenericEvent { session_id: sid.clone(), data: err.clone() });
                     }
                     continue;
@@ -341,6 +594,7 @@ impl AcpManager {
 
                 // Resposta do prompt (id=3) → fim de turno.
                 if id_num == Some(3) {
+                    sess.observed.lock().record("turn-done", msg.clone());
                     let _ = app.emit("acp://turn-done", GenericEvent { session_id: sid.clone(), data: msg.clone() });
                     continue;
                 }
@@ -352,6 +606,7 @@ impl AcpManager {
                 if id_num == Some(6) || id_num == Some(7) {
                     if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] set_model/set_config_option (id={id_num:?}) recusado: {err}");
+                        sess.observed.lock().record("model-rejected", err.clone());
                         let _ = app.emit("acp://model-rejected", GenericEvent { session_id: sid.clone(), data: err.clone() });
                     } else {
                         log::info!("[acp {sid}] set_model/set_config_option (id={id_num:?}) OK");
@@ -362,16 +617,23 @@ impl AcpManager {
                 // Notificação de progresso (tool_call, agent_message_chunk, plan, …).
                 if method == Some("session/update") {
                     let update = msg.get("params").and_then(|p| p.get("update")).cloned().unwrap_or(Value::Null);
+                    sess.observed.lock().record("update", update.clone());
                     let _ = app.emit("acp://update", GenericEvent { session_id: sid.clone(), data: update });
                     continue;
                 }
 
                 // Pedido de permissão do agente (request COM id) → o front decide.
                 if method == Some("session/request_permission") {
+                    let req_id = msg.get("id").cloned().unwrap_or(Value::Null);
+                    let params = msg.get("params").cloned().unwrap_or(Value::Null);
+                    // Log + pending_permission (payload {reqId, params} — o attach re-exibe).
+                    sess.observed
+                        .lock()
+                        .record("permission", json!({ "reqId": req_id.clone(), "params": params.clone() }));
                     let _ = app.emit("acp://permission", PermissionEvent {
                         session_id: sid.clone(),
-                        req_id: msg.get("id").cloned().unwrap_or(Value::Null),
-                        params: msg.get("params").cloned().unwrap_or(Value::Null),
+                        req_id,
+                        params,
                     });
                     continue;
                 }
@@ -381,6 +643,8 @@ impl AcpManager {
                     log::info!("[acp {sid}] request do adapter: {method:?}");
                 }
             }
+            // EOF do adapter → morte real: registra + marca Dead (buffer fica p/ post-mortem).
+            sess.observed.lock().record("exit", Value::Null);
             let _ = app.emit("acp://exit", GenericEvent { session_id: sid.clone(), data: Value::Null });
         });
 
@@ -441,14 +705,25 @@ impl AcpManager {
     }
 
     /// Responde a um `session/request_permission`. `option_id = None` → cancelado.
+    /// F1: limpa a `pending_permission` observável (setada no request) se o req_id bate.
     pub async fn permission_respond(&self, id: &str, req_id: Value, option_id: Option<String>) -> Result<()> {
         let sess = self.session(id)?;
+        sess.observed.lock().clear_permission(&req_id);
         let outcome = match option_id {
             Some(opt) => json!({ "outcome": "selected", "optionId": opt }),
             None => json!({ "outcome": "cancelled" }),
         };
         let resp = json!({ "jsonrpc": "2.0", "id": req_id, "result": { "outcome": outcome } });
         write_line(&sess.stdin, &resp).await
+    }
+
+    /// Snapshot do estado observável p/ o front ANEXAR sem re-spawnar (F1 backend-owned;
+    /// espelho do `pty_snapshot`). Erro se a sessão não existe → o front spawna.
+    pub fn attach(&self, id: &str) -> Result<AttachSnapshot> {
+        let sess = self.session(id)?;
+        let acp_sid = sess.acp_session_id.lock().clone();
+        let snap = sess.observed.lock().snapshot(acp_sid);
+        Ok(snap)
     }
 
     /// Cancela o turno e encerra o subprocesso.
@@ -544,4 +819,178 @@ struct PermissionEvent {
     session_id: String,
     req_id: Value,
     params: Value,
+}
+
+// ---------------------------------------------------------------------------
+// Testes F1 — EventLog/SessionObserved são puros (sem AppHandle): unidade direta.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chunk(text: &str) -> Value {
+        json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": text } })
+    }
+
+    fn tool_call(name: &str) -> Value {
+        json!({ "sessionUpdate": "tool_call", "title": name })
+    }
+
+    #[test]
+    fn eventlog_seq_monotonico() {
+        let mut log = EventLog::default();
+        let s1 = log.record("ready", json!({"models": []}));
+        let s2 = log.record("update", tool_call("ls"));
+        let s3 = log.record("turn-done", Value::Null);
+        assert_eq!((s1, s2, s3), (1, 2, 3));
+        assert_eq!(log.last_seq(), 3);
+        let seqs: Vec<u64> = log.entries().map(|e| e.seq).collect();
+        assert_eq!(seqs, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn eventlog_cap_de_eventos_trunca_do_inicio() {
+        let mut log = EventLog::with_caps(3, usize::MAX);
+        for i in 0..5 {
+            log.record("update", tool_call(&format!("t{i}")));
+        }
+        assert_eq!(log.len(), 3);
+        assert!(log.truncated());
+        // Sobram os 3 mais recentes (seq 3, 4, 5).
+        let seqs: Vec<u64> = log.entries().map(|e| e.seq).collect();
+        assert_eq!(seqs, vec![3, 4, 5]);
+        // seq segue monotônico mesmo após truncar.
+        assert_eq!(log.record("exit", Value::Null), 6);
+    }
+
+    #[test]
+    fn eventlog_cap_de_bytes_trunca_e_contabiliza() {
+        // Cap apertado: cada tool_call tem dezenas de bytes → força truncagem.
+        let mut log = EventLog::with_caps(100, 150);
+        for i in 0..10 {
+            log.record("update", tool_call(&format!("ferramenta-{i}")));
+        }
+        assert!(log.truncated());
+        assert!(log.bytes() <= 150, "bytes {} estourou o cap", log.bytes());
+        assert!(log.len() >= 1);
+    }
+
+    #[test]
+    fn eventlog_cap_de_bytes_mantem_ao_menos_uma_entry() {
+        let mut log = EventLog::with_caps(100, 10);
+        // Entry sozinha maior que o cap de bytes → NÃO some (janela mínima de 1).
+        log.record("update", chunk("payload bem maior que dez bytes"));
+        assert_eq!(log.len(), 1);
+    }
+
+    #[test]
+    fn eventlog_coalesce_chunks_consecutivos() {
+        let mut log = EventLog::default();
+        log.record("update", chunk("Olá "));
+        let last = log.record("update", chunk("mundo"));
+        let last2 = log.record("update", chunk("!"));
+        assert_eq!(log.len(), 1, "chunks consecutivos devem virar UMA entry");
+        let entry = log.entries().next().unwrap();
+        assert_eq!(chunk_text(&entry.payload), Some("Olá mundo!"));
+        // O seq da entry avança pro mais recente (dedup por seq continua válido).
+        assert_eq!(entry.seq, last2);
+        assert!(last < last2);
+        assert_eq!(log.last_seq(), 3);
+    }
+
+    #[test]
+    fn eventlog_nao_coalesce_intercalado_nem_outros_eventos() {
+        let mut log = EventLog::default();
+        log.record("update", chunk("a"));
+        log.record("update", tool_call("ls")); // quebra a sequência
+        log.record("update", chunk("b"));
+        log.record("turn-done", chunk("c")); // evento != update não coalesce
+        assert_eq!(log.len(), 4);
+        let first = log.entries().next().unwrap();
+        assert_eq!(chunk_text(&first.payload), Some("a"));
+    }
+
+    #[test]
+    fn eventlog_coalesce_conta_bytes() {
+        let mut log = EventLog::default();
+        log.record("update", chunk("abc"));
+        let before = log.bytes();
+        log.record("update", chunk("defg"));
+        assert_eq!(log.bytes(), before + 4, "coalesce soma exatamente o texto adicionado");
+    }
+
+    #[test]
+    fn observed_pending_permission_set_e_clear() {
+        let mut obs = SessionObserved::default();
+        let payload = json!({ "reqId": 42, "params": { "toolCall": { "title": "rm -rf" } } });
+        obs.record("permission", payload.clone());
+        assert_eq!(obs.pending_permission, Some(payload));
+
+        // reqId errado NÃO limpa (respond stale não apaga pedido mais novo).
+        obs.clear_permission(&json!(7));
+        assert!(obs.pending_permission.is_some());
+
+        // reqId certo limpa.
+        obs.clear_permission(&json!(42));
+        assert!(obs.pending_permission.is_none());
+
+        // clear sem pending é no-op (não panica).
+        obs.clear_permission(&json!(42));
+    }
+
+    #[test]
+    fn observed_last_ready_e_estado() {
+        let mut obs = SessionObserved::default();
+        assert_eq!(obs.state, AcpSessionState::Running);
+        assert!(obs.last_ready.is_none());
+
+        let ready1 = json!({ "models": ["a"] });
+        let ready2 = json!({ "models": ["a", "b"] });
+        obs.record("ready", ready1);
+        obs.record("ready", ready2.clone());
+        assert_eq!(obs.last_ready, Some(ready2), "last_ready é o ÚLTIMO ready");
+
+        obs.record("exit", Value::Null);
+        assert_eq!(obs.state, AcpSessionState::Dead);
+    }
+
+    #[test]
+    fn observed_snapshot_espelha_estado() {
+        let mut obs = SessionObserved::default();
+        obs.record("ready", json!({ "models": [] }));
+        obs.record("update", chunk("oi"));
+        obs.record("permission", json!({ "reqId": 1, "params": {} }));
+
+        let snap = obs.snapshot(Some("acp-xyz".into()));
+        assert_eq!(snap.state, AcpSessionState::Running);
+        assert_eq!(snap.acp_session_id.as_deref(), Some("acp-xyz"));
+        assert!(snap.last_ready.is_some());
+        assert!(snap.pending_permission.is_some());
+        assert_eq!(snap.events.len(), 3);
+        assert_eq!(snap.last_seq, 3);
+        assert!(!snap.truncated);
+    }
+
+    #[test]
+    fn snapshot_serializa_camel_case() {
+        let obs = SessionObserved::default();
+        let v = serde_json::to_value(obs.snapshot(None)).unwrap();
+        for key in ["state", "acpSessionId", "lastReady", "pendingPermission", "events", "lastSeq", "truncated"] {
+            assert!(v.get(key).is_some(), "snapshot sem a chave camelCase `{key}`");
+        }
+        assert_eq!(v["state"], json!("running"));
+        // EventEntry também cruza camelCase e SEM o campo interno `size`.
+        let mut log = EventLog::default();
+        log.record("update", chunk("x"));
+        let entry = serde_json::to_value(log.entries().next().unwrap()).unwrap();
+        assert!(entry.get("seq").is_some() && entry.get("event").is_some() && entry.get("payload").is_some());
+        assert!(entry.get("size").is_none(), "`size` é interno, não cruza o IPC");
+    }
+
+    #[test]
+    fn estados_serializam_lowercase() {
+        assert_eq!(serde_json::to_value(AcpSessionState::Running).unwrap(), json!("running"));
+        assert_eq!(serde_json::to_value(AcpSessionState::Sleeping).unwrap(), json!("sleeping"));
+        assert_eq!(serde_json::to_value(AcpSessionState::Dead).unwrap(), json!("dead"));
+    }
 }

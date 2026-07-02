@@ -82,8 +82,9 @@ use commands::pty::{
     pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_write,
 };
 use commands::acp::{
-    acp_agent_register, acp_agent_unregister, acp_authenticate, acp_cancel, acp_permission_respond,
-    acp_prompt, acp_set_config_option, acp_set_model, acp_spawn, hermes_list_models,
+    acp_agent_register, acp_agent_unregister, acp_attach, acp_authenticate, acp_cancel,
+    acp_permission_respond, acp_prompt, acp_set_config_option, acp_set_model, acp_spawn,
+    hermes_list_models,
 };
 use commands::folder_canvas::{folder_canvas_load, folder_canvas_save};
 use commands::pipeline::{pipeline_load, pipeline_save};
@@ -317,6 +318,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             acp_spawn,
+            acp_attach,
             acp_prompt,
             acp_permission_respond,
             acp_authenticate,

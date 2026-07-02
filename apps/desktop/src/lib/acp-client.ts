@@ -33,6 +33,45 @@ export async function acpSpawn(
   });
 }
 
+/** Estado observável de uma sessão ACP no backend (F1 backend-owned sessions).
+ *  `sleeping` só é atingível na F2 (acp_sleep); na F1 as transições são running → dead. */
+export type AcpSessionState = "running" | "sleeping" | "dead";
+
+/** Uma entrada do log de eventos da sessão: `seq` monotônico + nome do evento
+ *  (sem o prefixo `acp://`) + payload cru. `agent_message_chunk` consecutivos
+ *  chegam já coalescidos numa entry só. */
+export interface AcpEventEntry {
+  seq: number;
+  event: string;
+  payload: unknown;
+}
+
+/** Permission pendente que sobreviveu no backend: re-exibir no attach. */
+export interface AcpPendingPermission {
+  reqId: unknown;
+  params: Record<string, unknown>;
+}
+
+/** Snapshot do `acp_attach` (espelho do pty_snapshot): estado observável da sessão
+ *  possuído pelo AcpManager. `lastSeq` = último seq estampado (dedup dos eventos ao
+ *  vivo na F2); `truncated` = o log estourou um cap e perdeu o início. */
+export interface AcpAttachSnapshot {
+  state: AcpSessionState;
+  acpSessionId: string | null;
+  lastReady: Record<string, unknown> | null;
+  pendingPermission: AcpPendingPermission | null;
+  events: AcpEventEntry[];
+  lastSeq: number;
+  truncated: boolean;
+}
+
+/** Anexa a uma sessão ACP existente SEM re-spawnar: devolve o snapshot do estado
+ *  observável (F1 backend-owned sessions). Rejeita se a sessão não existe → o caller
+ *  spawna. Nesta fase o AgentNode ainda NÃO usa (re-hidratação é F2). */
+export async function acpAttach(sessionId: string): Promise<AcpAttachSnapshot> {
+  return invoke<AcpAttachSnapshot>("acp_attach", { sessionId });
+}
+
 /** Lista os modelos de um provider OpenAI-compat (GET {base}/v1/models) via backend Rust
  *  (a key não trafega pelo front além do necessário). Usado pelo HermesWizard. */
 export async function hermesListModels(

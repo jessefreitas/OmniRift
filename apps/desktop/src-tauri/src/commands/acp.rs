@@ -1,6 +1,6 @@
 //! Comandos Tauri do spike ACP — espelham a superfície `pty_*` (commands/pty.rs).
 
-use crate::acp::{AcpManager, ProviderConfig, SessionId};
+use crate::acp::{AcpManager, AttachSnapshot, ProviderConfig, SessionId};
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
@@ -97,6 +97,17 @@ pub async fn hermes_list_models(
     ids.dedup();
     ids.truncate(500);
     Ok(ids)
+}
+
+/// Snapshot do estado observável da sessão (F1 backend-owned sessions) — espelho do
+/// `pty_snapshot`. Devolve `{ state, acpSessionId, lastReady, pendingPermission, events,
+/// lastSeq, truncated }` (camelCase). Erro se a sessão não existe → o front spawna.
+#[tauri::command]
+pub fn acp_attach(
+    session_id: SessionId,
+    manager: State<'_, Arc<AcpManager>>,
+) -> Result<AttachSnapshot, String> {
+    manager.attach(&session_id).map_err(|e| format!("{e:#}"))
 }
 
 /// Envia um prompt (turno) para a sessão.
