@@ -121,6 +121,22 @@ CREATE TABLE IF NOT EXISTS project_budgets (
     alert_pct   INTEGER NOT NULL DEFAULT 80,
     updated_at  TEXT NOT NULL
 );
+
+-- Kanban do projeto (acompanhamento visual): cards por project (= cwd), movidos
+-- pelos AGENTES via tools MCP kanban_* e pelo usuário no painel. col: backlog|doing|review|done.
+CREATE TABLE IF NOT EXISTS kanban_cards (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project     TEXT NOT NULL,
+    col         TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    body        TEXT,
+    agent       TEXT,
+    node_id     TEXT,
+    position    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kanban_project ON kanban_cards(project);
 ";
 
 /// Metadados de um snapshot do canvas (sem o doc, pra listagem leve).
@@ -1075,6 +1091,175 @@ pub fn reminder_set_done(id: i64, done: bool, db: tauri::State<'_, Db>) -> Resul
 #[tauri::command]
 pub fn reminder_delete(id: i64, db: tauri::State<'_, Db>) -> Result<(), String> {
     db.reminder_delete(id).map_err(|e| format!("{e:#}"))
+}
+
+// ---- Kanban do projeto (cards movidos por agentes via MCP + usuário no painel) ----
+
+/// Card do Kanban (serializado camelCase pro front).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KanbanCardRow {
+    pub id: i64,
+    pub project: String,
+    pub col: String,
+    pub title: String,
+    pub body: Option<String>,
+    pub agent: Option<String>,
+    pub node_id: Option<String>,
+    pub position: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+fn map_kanban(row: &rusqlite::Row) -> rusqlite::Result<KanbanCardRow> {
+    Ok(KanbanCardRow {
+        id: row.get(0)?,
+        project: row.get(1)?,
+        col: row.get(2)?,
+        title: row.get(3)?,
+        body: row.get(4)?,
+        agent: row.get(5)?,
+        node_id: row.get(6)?,
+        position: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
+}
+
+/// Colunas válidas — defesa contra tool-call de agente com coluna inventada.
+pub(crate) fn kanban_valid_col(c: &str) -> bool {
+    matches!(c, "backlog" | "doing" | "review" | "done")
+}
+
+impl Db {
+    pub fn kanban_list(&self, project: &str) -> Result<Vec<KanbanCardRow>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, project, col, title, body, agent, node_id, position, created_at, updated_at
+               FROM kanban_cards WHERE project = ?1 ORDER BY position, id",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![project], map_kanban)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn kanban_create(
+        &self,
+        project: &str,
+        col: &str,
+        title: &str,
+        body: Option<&str>,
+        agent: Option<&str>,
+        node_id: Option<&str>,
+    ) -> Result<i64> {
+        let conn = self.0.lock();
+        conn.execute(
+            "INSERT INTO kanban_cards (project, col, title, body, agent, node_id, position, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6,
+               (SELECT COALESCE(MAX(position), 0) + 1 FROM kanban_cards WHERE project = ?1 AND col = ?2),
+               datetime('now'), datetime('now'))",
+            rusqlite::params![project, col, title, body, agent, node_id],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn kanban_move(&self, id: i64, col: &str) -> Result<()> {
+        self.0.lock().execute(
+            "UPDATE kanban_cards SET col = ?2, updated_at = datetime('now') WHERE id = ?1",
+            rusqlite::params![id, col],
+        )?;
+        Ok(())
+    }
+
+    pub fn kanban_update(&self, id: i64, title: Option<&str>, body: Option<&str>, agent: Option<&str>) -> Result<()> {
+        self.0.lock().execute(
+            "UPDATE kanban_cards
+                SET title = COALESCE(?2, title),
+                    body = COALESCE(?3, body),
+                    agent = COALESCE(?4, agent),
+                    updated_at = datetime('now')
+              WHERE id = ?1",
+            rusqlite::params![id, title, body, agent],
+        )?;
+        Ok(())
+    }
+
+    /// Appenda uma nota de progresso (bullet) no body do card.
+    pub fn kanban_note(&self, id: i64, note: &str) -> Result<()> {
+        self.0.lock().execute(
+            "UPDATE kanban_cards
+                SET body = IFNULL(body,'') ||
+                           CASE WHEN body IS NULL OR body = '' THEN '' ELSE char(10) END ||
+                           '• ' || ?2,
+                    updated_at = datetime('now')
+              WHERE id = ?1",
+            rusqlite::params![id, note],
+        )?;
+        Ok(())
+    }
+
+    pub fn kanban_delete(&self, id: i64) -> Result<()> {
+        self.0.lock().execute("DELETE FROM kanban_cards WHERE id = ?1", [id])?;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn kanban_query(project: String, db: tauri::State<'_, Db>) -> Result<Vec<KanbanCardRow>, String> {
+    db.kanban_list(&project).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn kanban_card_create(
+    project: String,
+    col: Option<String>,
+    title: String,
+    body: Option<String>,
+    agent: Option<String>,
+    node_id: Option<String>,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Db>,
+) -> Result<i64, String> {
+    let col = col.as_deref().unwrap_or("backlog");
+    if !kanban_valid_col(col) {
+        return Err(format!("coluna inválida: {col} (use backlog|doing|review|done)"));
+    }
+    let id = db
+        .kanban_create(&project, col, &title, body.as_deref(), agent.as_deref(), node_id.as_deref())
+        .map_err(|e| format!("{e:#}"))?;
+    let _ = app.emit("kanban://changed", ());
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn kanban_card_move(id: i64, col: String, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
+    if !kanban_valid_col(&col) {
+        return Err(format!("coluna inválida: {col} (use backlog|doing|review|done)"));
+    }
+    db.kanban_move(id, &col).map_err(|e| format!("{e:#}"))?;
+    let _ = app.emit("kanban://changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn kanban_card_update(
+    id: i64,
+    title: Option<String>,
+    body: Option<String>,
+    agent: Option<String>,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Db>,
+) -> Result<(), String> {
+    db.kanban_update(id, title.as_deref(), body.as_deref(), agent.as_deref())
+        .map_err(|e| format!("{e:#}"))?;
+    let _ = app.emit("kanban://changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn kanban_card_delete(id: i64, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
+    db.kanban_delete(id).map_err(|e| format!("{e:#}"))?;
+    let _ = app.emit("kanban://changed", ());
+    Ok(())
 }
 
 #[cfg(test)]
