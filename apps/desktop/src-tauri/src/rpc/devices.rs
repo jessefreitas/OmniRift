@@ -46,6 +46,15 @@ pub struct DeviceEntry {
     /// celular NUNCA seta isso (não há método RPC) — só o comando Tauri local `set_steer`.
     #[serde(default)]
     pub steer: bool,
+    /// **Identidade estável do celular** (reconcile #9). A chave pública E2EE é EFÊMERA
+    /// (forward secrecy) e o `token` vem do offer do QR (novo a cada re-pareamento), então
+    /// nenhum dos dois serve de identidade persistente. O app mobile manda um `installId`
+    /// (id de instalação, estável entre re-pareamentos) no `e2ee_auth`; o desktop grava aqui
+    /// e usa em [`reconcile_install`](DeviceRegistry::reconcile_install) pra herdar steering
+    /// do pareamento anterior + deduplicar o device órfão. `#[serde(default)]` migra json
+    /// legado (sem o campo) → `None` (sem reconcile — comportamento atual). Não é segredo.
+    #[serde(default)]
+    pub install_id: Option<String>,
     pub paired_at: u64,
     pub last_seen_at: u64,
 }
@@ -94,6 +103,7 @@ impl DeviceRegistry {
             token: generate_device_token(),
             scope: DeviceScope::Mobile,
             steer: false, // opt-in: device pareado nasce read-only (default OFF)
+            install_id: None, // preenchido no 1º auth via reconcile_install (celular manda o installId)
             paired_at: now_secs(),
             last_seen_at: 0,
         };
@@ -135,6 +145,44 @@ impl DeviceRegistry {
         } else {
             Ok(false)
         }
+    }
+
+    /// **Reconcilia por `installId` persistente** (reconcile #9). Chamado no handshake quando o
+    /// celular manda um `installId` (identidade estável entre re-pareamentos — o token do QR é
+    /// efêmero e gera um device_id novo a cada scan, o que prendia o steering no device velho).
+    ///
+    /// Sob o Mutex, depois persiste:
+    /// 1. Acha o device atual (`device_id`). Ausente → `Ok(false)` (nada a fazer).
+    /// 2. Grava o `install_id` no device atual.
+    /// 3. Procura TODOS os OUTROS devices (`device_id` diferente) com o MESMO `install_id`
+    ///    (pareamentos anteriores do mesmo celular): se QUALQUER um tinha `steer == true`, o
+    ///    device atual **herda** `steer = true`; e esses órfãos são **removidos** (dedup — evita
+    ///    "Celular" duplicado na lista).
+    /// 4. Persiste (0600 via `save`). Retorna `Ok(true)` se herdou steering, senão `Ok(false)`.
+    ///
+    /// Sem constant-time: `install_id` não é segredo (id estável, como o `device_id`).
+    pub fn reconcile_install(&self, device_id: &str, install_id: &str) -> std::io::Result<bool> {
+        let mut guard = self.devices.lock();
+        // 1. Device atual precisa existir.
+        if !guard.iter().any(|d| d.device_id == device_id) {
+            return Ok(false);
+        }
+        // 3. Varre os OUTROS devices do mesmo installId (pareamentos anteriores do celular).
+        let inherited_steer = guard
+            .iter()
+            .any(|d| d.device_id != device_id && d.install_id.as_deref() == Some(install_id) && d.steer);
+        // Remove os órfãos (dedup): outros devices com o mesmo installId.
+        guard.retain(|d| d.device_id == device_id || d.install_id.as_deref() != Some(install_id));
+        // 2 + herança: grava o installId no atual e herda steering se algum antigo tinha.
+        if let Some(current) = guard.iter_mut().find(|d| d.device_id == device_id) {
+            current.install_id = Some(install_id.to_string());
+            if inherited_steer {
+                current.steer = true;
+            }
+        }
+        // 4. Persiste sempre (gravamos ao menos o install_id no device atual).
+        save(&self.path, &guard)?;
+        Ok(inherited_steer)
     }
 
     /// **Revoga** um device: remove a entrada e persiste. `true` se removeu, `false` se
@@ -376,6 +424,91 @@ mod tests {
         let reg = DeviceRegistry::open(path);
         let dev = reg.list().into_iter().next().expect("device legado carregou");
         assert!(!dev.steer, "json sem campo steer desserializa como false (migração segura)");
+    }
+
+    #[test]
+    fn json_without_install_id_deserializes_as_none() {
+        // Migração: json legado (sem `installId`) → serde default `None` (sem reconcile).
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        std::fs::write(
+            &path,
+            r#"[{"deviceId":"old-1","name":"Legacy","token":"abc123","scope":"mobile","steer":true,"pairedAt":100,"lastSeenAt":200}]"#,
+        )
+        .unwrap();
+        let reg = DeviceRegistry::open(path);
+        let dev = reg.list().into_iter().next().expect("device legado carregou");
+        assert!(dev.install_id.is_none(), "json sem installId desserializa como None (migração)");
+        assert!(dev.steer, "steer legado preservado (campos existentes intactos)");
+    }
+
+    #[test]
+    fn reconcile_inherits_steer_and_removes_old_device() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        let reg = DeviceRegistry::open(path);
+
+        // Pareamento anterior do celular: device A, installId "inst-1", steering concedido.
+        let old = reg.get_or_create_pending("Celular").unwrap();
+        assert!(reg.set_steer(&old.device_id, true).unwrap());
+        // 1ª reconcile só grava o installId no A (sem outro device igual → não herda, false).
+        assert!(!reg.reconcile_install(&old.device_id, "inst-1").unwrap());
+
+        // Re-pareamento: novo QR → novo device B (device_id novo, read-only).
+        let new = reg.get_or_create_pending("Celular (re-pareado)").unwrap();
+        assert_ne!(new.device_id, old.device_id);
+        assert!(!new.steer, "B nasce read-only");
+
+        // Reconcilia B com o MESMO installId → herda steer de A e remove A (dedup).
+        assert!(reg.reconcile_install(&new.device_id, "inst-1").unwrap(), "herdou steering do A");
+
+        let list = reg.list();
+        assert_eq!(list.len(), 1, "device antigo (A) removido — sem órfão duplicado");
+        assert_eq!(list[0].device_id, new.device_id, "sobra o device NOVO");
+        assert!(list[0].steer, "B herdou o steering do pareamento anterior");
+        assert_eq!(list[0].install_id.as_deref(), Some("inst-1"));
+    }
+
+    #[test]
+    fn reconcile_new_install_only_records_no_inherit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        let reg = DeviceRegistry::open(path);
+        let dev = reg.get_or_create_pending("Pixel").unwrap();
+        assert!(!dev.steer);
+        // installId inédito → nada a herdar (false); só grava o installId no device atual.
+        assert!(!reg.reconcile_install(&dev.device_id, "inst-novo").unwrap());
+        let after = reg.list().into_iter().find(|d| d.device_id == dev.device_id).unwrap();
+        assert_eq!(after.install_id.as_deref(), Some("inst-novo"), "installId gravado");
+        assert!(!after.steer, "sem pareamento anterior → não herda steering");
+        assert_eq!(reg.list().len(), 1, "nada removido");
+        // Device inexistente → Ok(false), no-op (não cria nada).
+        assert!(!reg.reconcile_install("não-existe", "inst-x").unwrap());
+        assert_eq!(reg.list().len(), 1);
+    }
+
+    #[test]
+    fn reconcile_distinct_install_ids_do_not_collide() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        let reg = DeviceRegistry::open(path);
+
+        let a = reg.get_or_create_pending("Celular A").unwrap();
+        assert!(reg.set_steer(&a.device_id, true).unwrap());
+        assert!(!reg.reconcile_install(&a.device_id, "inst-A").unwrap());
+
+        let b = reg.get_or_create_pending("Celular B").unwrap();
+        // installId DIFERENTE → não herda o steer do A nem remove o A.
+        assert!(!reg.reconcile_install(&b.device_id, "inst-B").unwrap(), "installId distinto não herda");
+
+        let list = reg.list();
+        assert_eq!(list.len(), 2, "os dois devices coexistem (installIds distintos)");
+        let bb = list.iter().find(|d| d.device_id == b.device_id).unwrap();
+        assert!(!bb.steer, "B não herdou steering de A (installId diferente)");
+        assert_eq!(bb.install_id.as_deref(), Some("inst-B"));
+        let aa = list.iter().find(|d| d.device_id == a.device_id).unwrap();
+        assert!(aa.steer, "A intacto com seu próprio steering");
+        assert_eq!(aa.install_id.as_deref(), Some("inst-A"));
     }
 
     #[cfg(unix)]

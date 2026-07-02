@@ -14,13 +14,23 @@
 //!
 //! Wire do handshake (espelha o cliente RN do ref, interop byte-a-byte):
 //! ```text
-//! mobile  ──► {"type":"e2ee_hello","publicKeyB64":<efêmera>}   (texto puro)
-//! desktop ──► {"type":"e2ee_ready"}                             (texto puro)
-//! mobile  ──► enc({"type":"e2ee_auth","deviceToken":<tok>})     (cifrado)
-//! desktop ──► enc({"type":"e2ee_authenticated"})                (cifrado) | fecha se token inválido
-//! mobile  ──► enc({"id","method","params"})                     (cifrado, RPC)
-//! desktop ──► enc({"id","ok","result"|"error"})                 (cifrado)
+//! mobile  ──► {"type":"e2ee_hello","publicKeyB64":<efêmera>}          (texto puro)
+//! desktop ──► {"type":"e2ee_ready"}                                    (texto puro)
+//! mobile  ──► enc({"type":"e2ee_auth","deviceToken":<tok>,            (cifrado)
+//!                  "installId":<estável, opcional>})
+//! desktop ──► enc({"type":"e2ee_authenticated"})                       (cifrado) | fecha se token inválido
+//! mobile  ──► enc({"id","method","params"})                            (cifrado, RPC)
+//! desktop ──► enc({"id","ok","result"|"error"})                        (cifrado)
 //! ```
+//!
+//! **Reconcile por `installId` (opt-in, ref #9):** o token do QR é EFÊMERO (offer novo a cada
+//! scan → device_id novo), e a chave pública E2EE também (forward secrecy) — nenhum serve de
+//! identidade estável. Se o `e2ee_auth` traz um `installId` (id de instalação persistente do
+//! app), o desktop chama [`DeviceRegistry::reconcile_install`](super::devices::DeviceRegistry::reconcile_install):
+//! grava o `installId` no device atual, **herda o steering** de um pareamento anterior do mesmo
+//! celular e **remove** os devices órfãos duplicados. Best-effort (erro só loga). Apps antigos
+//! não mandam `installId` → sem reconcile (comportamento atual). Como o steering do request path
+//! vem do `DeviceEntry` capturado no handshake, o device é RE-LIDO do registry pós-reconcile.
 
 use super::allowlist;
 use super::core::{dispatch, Registry, RpcContext, RpcRequest};
@@ -82,11 +92,16 @@ enum HandshakeMsg {
     },
 }
 
-/// `e2ee_auth` (cifrado): traz o token-por-dispositivo.
+/// `e2ee_auth` (cifrado): traz o token-por-dispositivo + (opcional) o `installId` persistente.
 #[derive(Debug, Deserialize)]
 struct AuthMsg {
     #[serde(rename = "deviceToken")]
     device_token: String,
+    /// Identidade **estável** do celular entre re-pareamentos (o token do QR é efêmero → gera
+    /// device_id novo a cada scan, prendendo o steering no device velho). Usado no reconcile.
+    /// Apps antigos não mandam → `None` → sem reconcile (comportamento atual preservado).
+    #[serde(rename = "installId", default)]
+    install_id: Option<String>,
 }
 
 /// Sobe o servidor WS no runtime do Tauri. **Chame via `tauri::async_runtime::spawn`** no
@@ -331,7 +346,7 @@ where
         serde_json::from_slice(&plain).map_err(|e| format!("auth inválido: {e}"))?;
 
     // Valida o token. Falhou → manda e2ee_error cifrado e fecha (identidade vem do canal).
-    let Some(device) = devices.validate_token(&auth.device_token) else {
+    let Some(mut device) = devices.validate_token(&auth.device_token) else {
         if let Ok(err_frame) =
             channel.encrypt_frame(json!({"type":"e2ee_error","error":{"code":"unauthorized"}}).to_string().as_bytes())
         {
@@ -339,6 +354,26 @@ where
         }
         return Err("device token inválido".into());
     };
+
+    // Reconcile por `installId` persistente (se o app mandou): herda o steering de um pareamento
+    // anterior do MESMO celular + deduplica o device órfão (o token do QR é efêmero → device_id
+    // novo a cada scan). Best-effort: erro só loga, não derruba o handshake. Como o reconcile pode
+    // ter setado `steer=true`, RE-LEMOS o device do registry — o request path usa o `device.steer`
+    // capturado AQUI (não relê fresh por request), então precisa refletir a herança.
+    if let Some(install_id) = auth.install_id.as_deref() {
+        match devices.reconcile_install(&device.device_id, install_id) {
+            Ok(_) => {
+                if let Some(updated) =
+                    devices.list().into_iter().find(|d| d.device_id == device.device_id)
+                {
+                    device = updated; // versão pós-reconcile (steer herdado, se houver)
+                }
+            }
+            Err(e) => log::warn!(
+                "relay mobile: reconcile_install falhou ({e}) — segue com o device atual"
+            ),
+        }
+    }
 
     // 4) e2ee_authenticated (cifrado) → ready.
     channel.mark_ready().map_err(|e| format!("mark_ready: {e}"))?;
@@ -525,6 +560,7 @@ mod tests {
             token: "tok".into(),
             scope: super::super::devices::DeviceScope::Mobile,
             steer,
+            install_id: None,
             paired_at: 1,
             last_seen_at: 2,
         }
