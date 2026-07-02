@@ -4,6 +4,7 @@ import {
   Handle,
   NodeResizer,
   Position,
+  useStore as useRfStore,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
@@ -91,6 +92,10 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   // handles de resize aparecem ao selecionar OU passar o mouse (descobribilidade)
   const [hovered, setHovered] = useState(false);
   const [inViewport, setInViewport] = useState(true);
+  // LOD por zoom: abaixo de 35% o conteúdo do xterm é ilegível — esconde o paint (o PTY e o
+  // buffer seguem vivos) e mostra o label grande pra navegação. Selector BOOLEANO: o nó só
+  // re-renderiza ao cruzar o limiar, não a cada tick de zoom.
+  const lodOut = useRfStore((s) => s.transform[2] < 0.35);
   const [dragOver, setDragOver] = useState(false);
   // Economia do OmniCompress (badge "▼ X% · Yk tok"). Só quando o nativo está ligado.
   const [savings, setSavings] = useState<SavingsReport | null>(null);
@@ -572,10 +577,16 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
           <div
             ref={containerRef}
             className="terminal nowheel absolute inset-0"
-            style={{ visibility: isOrch || inViewport ? "visible" : "hidden" }}
+            style={{ visibility: isOrch || isFullscreen || (inViewport && !lodOut) ? "visible" : "hidden" }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={fit}
           />
+          {/* LOD: em zoom baixo o xterm some (paint caro à toa) e o label grande orienta. */}
+          {lodOut && !isFullscreen && !isOrch && (
+            <div className="absolute inset-0 flex items-center justify-center bg-bg pointer-events-none select-none">
+              <span className="max-w-full truncate px-4 text-2xl font-semibold text-text/40">{data.label ?? data.command}</span>
+            </div>
+          )}
 
           {!ready && !error && (
             <div className="absolute inset-0 flex items-center justify-center text-textMuted text-xs pointer-events-none">

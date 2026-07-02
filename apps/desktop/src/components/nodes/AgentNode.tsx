@@ -12,6 +12,7 @@ import {
   Handle,
   NodeResizer,
   Position,
+  useStore as useRfStore,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
@@ -167,6 +168,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const statusRef = useRef<Status>("starting");
   const [goalRun, setGoalRun] = useState<{ iter: number; status: "running" | "done" | "stopped" | "fail" } | null>(null);
   const [panel, setPanel] = useState<"none" | "goal" | "loop">("none");
+  // LOD por zoom: abaixo de 35% a conversa é ilegível — o corpo vira label grande (ver render).
+  // Selector booleano → re-render só ao cruzar o limiar.
+  const lodOut = useRfStore((s) => s.transform[2] < 0.35);
   // Espelha o status num ref (o timer do 🔁 Loop e o turn-done do 🎯 Goal leem sem stale state).
   useEffect(() => {
     statusRef.current = status;
@@ -316,7 +320,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           if (last && last.role === "assistant") {
             return [...m.slice(0, -1), { ...last, text: last.text + text }];
           }
-          return [...m, { role: "assistant", text }];
+          // Cap do histórico visível: sessões longas acumulavam milhares de bolhas no DOM
+          // (peso de render por nó). Mantém as últimas 400 quando passa de 600.
+          const next = [...m, { role: "assistant" as const, text }];
+          return next.length > 600 ? next.slice(-400) : next;
         });
       } else if (kind === "tool_call" || kind === "tool_call_update") {
         const tcId = up.toolCallId as string | undefined;
@@ -804,10 +811,17 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         </button>
       </div>
 
+      {/* LOD: em zoom baixo a conversa é ilegível — corpo some (display:none, estado intacto)
+          e o label grande orienta a navegação no canvas. */}
+      {lodOut && !isFullscreen && (
+        <div className="flex flex-1 items-center justify-center select-none">
+          <span className="max-w-full truncate px-4 text-2xl font-semibold text-text/40">{data.label ?? "OmniAgent"}</span>
+        </div>
+      )}
       {/* corpo — nowheel: scroll dentro não dá zoom no canvas; nodrag: não arrasta o nó */}
       <div
         ref={bodyRef}
-        className="nodrag nowheel flex-1 space-y-1.5 overflow-auto p-2"
+        className={cn("nodrag nowheel flex-1 space-y-1.5 overflow-auto p-2", lodOut && !isFullscreen && "hidden")}
         onPointerDown={(e) => e.stopPropagation()}
       >
         {/* 🎯 chip de status do Goal em execução */}

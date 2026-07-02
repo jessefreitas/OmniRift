@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { emit } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -180,6 +181,17 @@ export function useTerminalSession({
     term.loadAddon(webLinks);
 
     term.open(containerRef.current);
+    // Renderer GPU (WebGL2): ordens de grandeza mais leve que o DOM renderer default
+    // com N terminais vivos no canvas. WebKitGTK varia por GPU/driver → try/catch com
+    // fallback silencioso pro DOM; perda de contexto (driver reset) → dispose e o
+    // xterm volta pro DOM sozinho. Precisa vir DEPOIS do term.open().
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch (e) {
+      console.warn("[terminal] WebGL indisponível — seguindo no renderer DOM:", e);
+    }
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
     term.focus();
