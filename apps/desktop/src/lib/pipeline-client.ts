@@ -73,6 +73,22 @@ function schemaHint(desc: string): string {
 }`;
 }
 
+/** Parse tolerante compartilhado (Central e CLI): extrai o 1º bloco { ... } — o modelo
+ *  às vezes embrulha em prosa/```json — e saneia campos que ele pode omitir. */
+function parsePlan(out: string): PipelinePlan {
+  const start = out.indexOf("{");
+  const end = out.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("o modelo não devolveu JSON — tente outro modelo/provider");
+  const plan = JSON.parse(out.slice(start, end + 1)) as PipelinePlan;
+  plan.createdAt = Date.now();
+  plan.floors ??= [];
+  plan.agents ??= [];
+  plan.subagents ??= [];
+  plan.connections ??= [];
+  plan.criticalPath ??= [];
+  return plan;
+}
+
 /** Gera o plano chamando o LLM do provider salvo (Central). Faz o parse tolerante do JSON. */
 export async function generatePipelinePlan(
   description: string,
@@ -87,17 +103,23 @@ export async function generatePipelinePlan(
     model: model || r.model,
   };
   const out = await llmChat(cfg, SYSTEM, schemaHint(description), { kind: "pipeline" });
-  // Parse tolerante: extrai o 1º bloco { ... } (o modelo às vezes embrulha em prosa/```json).
-  const start = out.indexOf("{");
-  const end = out.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new Error("o modelo não devolveu JSON — tente outro modelo/provider");
-  const plan = JSON.parse(out.slice(start, end + 1)) as PipelinePlan;
-  plan.createdAt = Date.now();
-  // saneia campos ausentes (modelo pode omitir)
-  plan.floors ??= [];
-  plan.agents ??= [];
-  plan.subagents ??= [];
-  plan.connections ??= [];
-  plan.criticalPath ??= [];
-  return plan;
+  return parsePlan(out);
+}
+
+/** CLIs locais headless suportados — caminho SEM CHAVE (a subscription que o usuário já
+ *  paga no terminal; wrappers tipo claude-glm52 respondem pelo mesmo binário/alias). */
+export const PIPELINE_CLIS = [{ id: "claude", label: "Claude Code (local, sem chave)" }];
+
+/** Gera o plano pelo CLI local (`claude -p`, headless) — sem chave/Central/BYOK.
+ *  Mesmo prompt (SYSTEM + schemaHint) e mesmo parse tolerante do generatePipelinePlan;
+ *  o modelo é o configurado no próprio CLI/wrapper do usuário. */
+export async function generatePipelinePlanViaCli(
+  description: string,
+  cli?: string,
+): Promise<PipelinePlan> {
+  const out = await invoke<string>("llm_via_cli", {
+    prompt: `${SYSTEM}\n\n${schemaHint(description)}`,
+    cli: cli ?? null,
+  });
+  return parsePlan(out);
 }

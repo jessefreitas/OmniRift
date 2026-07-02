@@ -49,7 +49,7 @@ use health::db_live::{db_introspect, health_analyze_db_live};
 use health::scan::project_scan;
 use health::HealthCache;
 use commands::license::{license_activate, license_status, license_store_meta, license_stored_key, license_was_beta};
-use commands::llm::{llm_chat, llm_list_models};
+use commands::llm::{llm_chat, llm_list_models, llm_via_cli};
 use commands::review_cfg::{
     agent_settings_config, review_config_path, review_config_write, review_context_read,
     review_context_write, review_pathrules_read, review_pathrules_write, review_suppress_read,
@@ -436,6 +436,7 @@ pub fn run() {
             whatis_lookup,
             llm_chat,
             llm_list_models,
+            llm_via_cli,
             review_config_write,
             review_config_path,
             agent_settings_config,
