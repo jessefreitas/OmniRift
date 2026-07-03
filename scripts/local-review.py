@@ -337,6 +337,98 @@ def security_gates(cwd):
     return findings, skipped
 
 
+# ── Estágio 1 · gate de error-handling (complementa o de segurança) ─────────────
+#
+# Espelho conceitual do gate de segurança acima, mas para anti-padrões de
+# TRATAMENTO DE ERRO (except vazio, catch vazio, swallow silencioso). Roda o
+# scanner AST portado do marketplace OmniForge (`omnirift-anti-patterns.py`, gate
+# 8) sobre o WORKING TREE do cwd — o mesmo alvo do gate de segurança. CRITICAL do
+# scanner → CRITICAL; WARNING → WARNING; category="error-handling". Degrada SEMPRE
+# limpo: scanner ausente / interpretador ausente / timeout / JSON inválido =
+# registrado em `skipped` (NEUTRAL — não vira finding e não bloqueia o review).
+
+# rule do scanner → frase legível para o campo `title`.
+_EH_RULE_TITLES = {
+    "except-pass": "except vazio (pass/…) engole o erro",
+    "bare-except-swallow": "bare except sem log nem re-raise engole tudo",
+    "empty-catch": "catch vazio engole o erro",
+    "empty-promise-catch": ".catch(() => {}) engole a rejeição",
+    "bare-except-log-only": "bare except só loga (sem re-raise)",
+    "broad-except-log-continue": "except Exception loga e segue (sem re-raise)",
+    "broad-except-swallow": "except amplo engole sem contexto",
+    "catch-log-only": "catch só loga (sem rethrow)",
+    "catch-swallow": "catch engole o erro sem usar/relançar",
+    "promise-catch-log-only": ".catch() só loga (sem rethrow)",
+    "promise-catch-swallow": ".catch() engole a rejeição",
+}
+_EH_SUGGESTION = (
+    "Trate, re-lance (raise/throw) ou registre com contexto; "
+    "ou marque `# anti-pattern: allow <razão>` (`//` em TS/JS)."
+)
+
+
+def _anti_patterns_scanner():
+    """Path do scanner, robusto: relativo ao PRÓPRIO local-review.py (não hardcode)."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "omnirift-anti-patterns.py")
+
+
+def error_handling_gate(cwd):
+    """Roda `omnirift-anti-patterns.py --json <cwd>` e converte os achados pro
+    MESMO formato dos findings do review ({severity, category, file, title,
+    suggestion}). Devolve (findings, skipped). Nunca levanta — degrada limpo
+    (scanner/python ausente, timeout ou saída não-JSON → skipped)."""
+    findings, skipped = [], []
+    if not cwd or not os.path.isdir(cwd):
+        return findings, skipped
+    scanner = _anti_patterns_scanner()
+    if not os.path.isfile(scanner):
+        skipped.append("anti-patterns: scanner ausente")
+        return findings, skipped
+    cmd = [sys.executable or "python3", scanner, "--json", cwd]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except FileNotFoundError:
+        skipped.append("anti-patterns: interpretador python ausente")
+        return findings, skipped
+    except subprocess.TimeoutExpired:
+        skipped.append("anti-patterns: timeout após 60s")
+        return findings, skipped
+    except Exception as e:  # qualquer falha de execução = NEUTRAL (não bloqueia)
+        skipped.append(f"anti-patterns: {e}")
+        return findings, skipped
+    try:
+        data = json.loads((out.stdout or "").strip())
+    except Exception:
+        err = (out.stderr or "").strip().splitlines()
+        snip = (err[-1] if err else "saída não-JSON")[:100]
+        skipped.append(f"anti-patterns: saída inconclusiva ({snip})")
+        return findings, skipped
+    raw = data.get("findings") if isinstance(data, dict) else None
+    if not isinstance(raw, list):
+        skipped.append("anti-patterns: saída inconclusiva (sem findings)")
+        return findings, skipped
+    for f in raw:
+        if not isinstance(f, dict):
+            continue
+        sev = str(f.get("severity") or "").upper()
+        if sev not in ("CRITICAL", "WARNING"):
+            continue
+        file = str(f.get("file") or "?")
+        line = f.get("line") or 0
+        rule = str(f.get("rule") or "anti-pattern")
+        snippet = str(f.get("snippet") or "").strip()
+        phrase = _EH_RULE_TITLES.get(rule, "anti-padrão de tratamento de erro")
+        title = f"{phrase} [{rule}]"
+        if snippet:
+            title += f": {snippet[:80]}"
+        findings.append({
+            "severity": sev, "category": "error-handling",
+            "file": f"{file}:{line}",
+            "title": title, "suggestion": _EH_SUGGESTION,
+        })
+    return findings, skipped
+
+
 def llm_call(llm, system, prompt):
     base = (llm.get("baseUrl") or "").rstrip("/")
     provider = llm.get("provider") or "openai"
@@ -433,16 +525,22 @@ def review(cwd, config_path, base):
     cfg = load_config(config_path)
     llm = cfg.get("llm")
     policy = pick_policy(cfg, cwd)
-    # Estágio 1 — pré-flight de segurança determinístico (gitleaks + semgrep) sobre o
-    # WORKING TREE, mesmo sem diff. Espelha mcp/tools.rs::run_preflight.
+    # Estágio 1 — gates determinísticos sobre o WORKING TREE, mesmo sem diff:
+    #   • segurança (gitleaks + semgrep) — espelha mcp/tools.rs::run_preflight;
+    #   • error-handling (omnirift-anti-patterns.py, gate 8 do marketplace).
+    # Ambos degradam limpo (ferramenta/scanner ausente ou timeout → skipped).
     sec_findings, sec_skipped = security_gates(cwd)
+    eh_findings, eh_skipped = error_handling_gate(cwd)
+    det_findings = sec_findings + eh_findings  # gates determinísticos consolidados
+    det_skipped = sec_skipped + eh_skipped
     diff = git_diff(cwd, base)
     if not diff.strip():
-        # Sem diff, mas o gate de segurança ainda vale (secret pode estar no working
-        # tree não commitado). Se limpo, mantém o GO "nada a revisar" de antes.
-        verdict, crit, warn = decide(sec_findings, policy)
-        summary = render(sec_findings, verdict, crit, warn) if sec_findings else "sem diff — nada a revisar"
-        return {"verdict": verdict, "crit": crit, "warn": warn, "findings": sec_findings, "summary": summary, "llmError": None, "skipped": sec_skipped, "policy": policy}
+        # Sem diff, mas os gates determinísticos ainda valem (secret / anti-padrão
+        # podem estar no working tree não commitado). Se limpos, mantém o GO
+        # "nada a revisar" de antes.
+        verdict, crit, warn = decide(det_findings, policy)
+        summary = render(det_findings, verdict, crit, warn) if det_findings else "sem diff — nada a revisar"
+        return {"verdict": verdict, "crit": crit, "warn": warn, "findings": det_findings, "summary": summary, "llmError": None, "skipped": det_skipped, "policy": policy}
     findings = preflight(diff, policy)
     llm_err = None
     if llm and (llm.get("model")):
@@ -451,9 +549,9 @@ def review(cwd, config_path, base):
             findings += ai
     findings += pathrule_findings(diff, load_pathrules(cwd))  # regras por path
     findings = [f for f in findings if not suppressed(f, load_extra_suppress(cwd))]  # FPs ACK
-    findings += sec_findings  # segurança determinística: NÃO passa pela supressão de FP-de-IA
+    findings += det_findings  # gates determinísticos: NÃO passam pela supressão de FP-de-IA
     verdict, crit, warn = decide(findings, policy)
-    return {"verdict": verdict, "crit": crit, "warn": warn, "findings": findings, "summary": render(findings, verdict, crit, warn), "llmError": llm_err, "skipped": sec_skipped, "policy": policy}
+    return {"verdict": verdict, "crit": crit, "warn": warn, "findings": findings, "summary": render(findings, verdict, crit, warn), "llmError": llm_err, "skipped": det_skipped, "policy": policy}
 
 
 def default_config_path():
