@@ -9,6 +9,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { Tooltip } from "@/components/Tooltip";
+import { WorkflowTemplatesMenu } from "@/components/WorkflowTemplatesMenu";
 import { useT } from "@/lib/i18n";
 
 function ToolBtn({
@@ -74,6 +75,8 @@ export function CanvasToolbar() {
       />
       <ToolBtn label={t("toolbar.review", "Review (gate de diff na linha)")} icon={GitPullRequestArrow} onClick={() => addReviewNode()} />
       <ToolBtn label={t("toolbar.filter", "Filtro (roteamento por conteúdo)")} icon={Filter} onClick={() => addFilterNode()} />
+      {/* Inserir workflow: layout pronto dos 6 padrões de orquestração multi-agente. */}
+      <WorkflowTemplatesMenu />
       <ToolBtn label={t("toolbar.note", "Nota")} icon={StickyNote} onClick={() => addNote()} />
       <ToolBtn label={t("toolbar.group", "Grupo (frame)")} icon={Frame} onClick={() => addGroup()} />
       <ToolBtn

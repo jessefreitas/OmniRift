@@ -54,3 +54,38 @@ export function focusNode(nodeId: string): void {
     );
   }, 80);
 }
+
+/**
+ * Centro do viewport VISÍVEL (floor ativo) em coordenadas de FLUXO — pra inserções
+ * imperativas (templates de workflow) nascerem no que o usuário está vendo. Só o floor
+ * ativo fica `display:block` (os inativos, `display:none`, não têm `offsetParent`), então
+ * o pane visível é o do floor ativo → casa com a instância registrada por `activeParallelId`.
+ * Fallback fixo quando o React Flow ainda não montou.
+ */
+export function viewportCenterFlow(): { x: number; y: number } {
+  const s = useCanvasStore.getState();
+  const inst = instances.get(s.activeParallelId);
+  if (inst) {
+    const panes = Array.from(document.querySelectorAll<HTMLElement>(".react-flow"));
+    const visible = panes.find((p) => p.offsetParent !== null) ?? panes[0];
+    const rect = visible?.getBoundingClientRect();
+    if (rect && rect.width > 0 && rect.height > 0) {
+      return inst.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    }
+  }
+  return { x: 200, y: 150 };
+}
+
+/**
+ * Enquadra a câmera do floor ativo num conjunto de nós recém-inseridos (após um tick, pro
+ * React Flow medir os nós novos). No-op sem instância ou lista vazia.
+ */
+export function fitToNodes(ids: string[]): void {
+  if (ids.length === 0) return;
+  const s = useCanvasStore.getState();
+  const inst = instances.get(s.activeParallelId);
+  if (!inst) return;
+  setTimeout(() => {
+    void inst.fitView({ nodes: ids.map((id) => ({ id })), duration: 400, padding: 0.25, maxZoom: 1 });
+  }, 60);
+}

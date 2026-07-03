@@ -392,6 +392,19 @@ export interface CanvasNodePatch {
   prompt?: string;
 }
 
+/**
+ * Resultado da última validação da saída do SOURCE contra o `responseSchema` de uma conexão
+ * (Fase 2 — conexões semânticas tipadas). Vira o badge ✓/✗ na FlowEdge.
+ */
+export interface EdgeValidation {
+  /** true = a saída bateu com o schema; false = não bateu (ver `error`). */
+  ok: boolean;
+  /** Epoch ms da validação (o badge ✓ some ~alguns segundos após `at`; ✗ fica). */
+  at: number;
+  /** Mensagem do 1º desvio quando `ok` é false (mostrada no tooltip do badge). */
+  error?: string;
+}
+
 /** Conexão entre nós. */
 export interface CanvasEdge {
   id: string;
@@ -413,4 +426,10 @@ export interface CanvasEdge {
   /** Só nas "graph-edge": confiança dominante do acoplamento agregado entre as duas comunidades.
    *  Vira estilo de linha na FlowEdge (EXTRACTED sólida · INFERRED tracejada · AMBIGUOUS pontilhada vermelha). */
   confidence?: GraphConfidence;
+  /** Fase 2 (conexões semânticas tipadas): JSON Schema OU exemplo JSON (texto) que a saída do
+   *  SOURCE deve satisfazer. Vazio/undefined = conexão SEM contrato — comportamento idêntico ao
+   *  anterior (zero validação, zero badge, zero regressão). Editado na Área de Conexões. */
+  responseSchema?: string;
+  /** Resultado da última validação da saída do source contra `responseSchema` (badge ✓/✗). */
+  lastValidation?: EdgeValidation;
 }

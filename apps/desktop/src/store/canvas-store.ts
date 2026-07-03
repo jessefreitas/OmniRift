@@ -16,6 +16,7 @@ import type {
   CommunityNode,
   DbNode,
   DevToolsNode,
+  EdgeValidation,
   ExplainNode,
   FileTreeNode,
   HtmlNode,
@@ -231,6 +232,11 @@ interface CanvasState {
   patchNode: (id: string, patch: CanvasNodePatch) => void;
   addEdge: (source: string, target: string, kind?: CanvasEdge["kind"], handles?: { sourceHandle?: string; targetHandle?: string; targetFloorId?: string }) => void;
   removeEdge: (id: string) => void;
+  /** Fase 2 (conexões semânticas tipadas): edita o `responseSchema` e/ou grava o resultado da
+   *  `lastValidation` de uma edge. Busca em TODOS os paralelos (edge ids são únicos — o source
+   *  pode viver num floor de fundo). `responseSchema: ""` limpa o contrato; `lastValidation: null`
+   *  limpa o badge. Campo ausente no patch = intocado. */
+  updateEdge: (id: string, patch: { responseSchema?: string; lastValidation?: EdgeValidation | null }) => void;
 
   // clipboard (global)
   clipboardHistory: string[];
@@ -1071,6 +1077,30 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       parallels: s.parallels.map((f) =>
         f.id === s.activeParallelId ? { ...f, edges: f.edges.filter((e) => e.id !== id) } : f,
       ),
+    })),
+
+  updateEdge: (id, patch) =>
+    set((s) => ({
+      parallels: s.parallels.map((f) => {
+        if (!f.edges.some((e) => e.id === id)) return f;
+        return {
+          ...f,
+          edges: f.edges.map((e) => {
+            if (e.id !== id) return e;
+            const next: CanvasEdge = { ...e };
+            if (patch.responseSchema !== undefined) {
+              // "" (ou só espaço) = tirar o contrato → some o campo (edge byte-idêntica à de antes).
+              next.responseSchema = patch.responseSchema.trim() ? patch.responseSchema : undefined;
+              // trocou/limpou o schema → a validação antiga não vale mais (limpa o badge).
+              next.lastValidation = undefined;
+            }
+            if (patch.lastValidation !== undefined) {
+              next.lastValidation = patch.lastValidation ?? undefined;
+            }
+            return next;
+          }),
+        };
+      }),
     })),
 
   // ---- clipboard ----

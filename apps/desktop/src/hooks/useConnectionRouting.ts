@@ -13,8 +13,10 @@
 
 import { useEffect, useRef } from "react";
 import { useCanvasStore, type AgentOutput } from "@/store/canvas-store";
-import type { FilterNode } from "@/types/canvas";
+import type { CanvasNode, FilterNode } from "@/types/canvas";
 import { ptyWrite } from "@/lib/pty-client";
+import { validateOutputAgainstSchema } from "@/lib/response-schema";
+import { notify } from "@/lib/notify";
 
 /** Condição do FilterNode: por tipo (kind), regex no texto+diff, ou substring de path. */
 function passesFilter(out: AgentOutput, f: FilterNode): boolean {
@@ -30,6 +32,12 @@ function passesFilter(out: AgentOutput, f: FilterNode): boolean {
   return true;
 }
 
+/** Rótulo legível de um nó (label > kind) para a mensagem de notificação. */
+function nodeLabel(n: CanvasNode | undefined): string {
+  if (!n) return "?";
+  return "label" in n && n.label ? n.label : n.kind;
+}
+
 export function useConnectionRouting() {
   const agentOutputs = useCanvasStore((s) => s.agentOutputs);
   const emitNodeInput = useCanvasStore((s) => s.emitNodeInput);
@@ -38,6 +46,7 @@ export function useConnectionRouting() {
   const setEdgePayloadKind = useCanvasStore((s) => s.setEdgePayloadKind);
   const setReviewPayload = useCanvasStore((s) => s.setReviewPayload);
   const setFilterPending = useCanvasStore((s) => s.setFilterPending);
+  const updateEdge = useCanvasStore((s) => s.updateEdge);
   const seenRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
@@ -55,6 +64,22 @@ export function useConnectionRouting() {
       for (const edge of edges) {
         const target = active.nodes.find((n) => n.id === edge.target);
         if (!target) continue;
+
+        // Fase 2 — conexão tipada: se a edge carrega um responseSchema, valida a saída do SOURCE
+        // ANTES de rotear. Independente do tipo do alvo (chat/terminal/review/filter). Grava o
+        // veredito na edge (badge ✓/✗ na FlowEdge) e, se não bater, avisa. Não bloqueia o
+        // roteamento — v1 só valida + sinaliza (o retry/gate fica pra depois).
+        if (edge.responseSchema && edge.responseSchema.trim()) {
+          const result = validateOutputAgainstSchema(out, edge.responseSchema);
+          if (result) {
+            updateEdge(edge.id, { lastValidation: result });
+            if (!result.ok) {
+              const from = nodeLabel(active.nodes.find((n) => n.id === sourceId));
+              const to = nodeLabel(target);
+              void notify(`Conexão ${from} → ${to}: a saída não bate com o schema — ${result.error}`, "error");
+            }
+          }
+        }
 
         setEdgeFlow(edge.id, "sending");
         setEdgePayloadKind(edge.id, out.kind);
@@ -97,5 +122,5 @@ export function useConnectionRouting() {
         window.setTimeout(() => setEdgeFlow(eid, "idle"), 1600);
       }
     }
-  }, [agentOutputs, emitNodeInput, emitAgentOutput, setEdgeFlow, setEdgePayloadKind, setReviewPayload, setFilterPending]);
+  }, [agentOutputs, emitNodeInput, emitAgentOutput, setEdgeFlow, setEdgePayloadKind, setReviewPayload, setFilterPending, updateEdge]);
 }

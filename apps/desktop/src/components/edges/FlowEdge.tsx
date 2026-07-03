@@ -8,10 +8,11 @@
 // (store.edgePayloadKind). Estado vem de store.edgeFlow (setado pelo useConnectionRouting
 // e pelo pulseTerminalEdges, que diferencia direção: source ativo = azul, target = verde).
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react";
 import { useCanvasStore } from "@/store/canvas-store";
 import { ptyPipeRemove } from "@/lib/pty-client";
+import type { EdgeValidation } from "@/types/canvas";
 
 const COLORS: Record<string, string> = {
   idle: "rgba(255,255,255,0.22)",
@@ -41,6 +42,10 @@ export function FlowEdge({
   const removeEdge = useCanvasStore((s) => s.removeEdge);
   const payloadKind = useCanvasStore((s) => s.edgePayloadKind[id]);
   const kind = (data as { kind?: string } | undefined)?.kind;
+  // Fase 2 — conexão tipada: veredito da última validação da saída contra o responseSchema.
+  // Vem via data (FloorCanvas espelha e.lastValidation) → sem seletor zustand (zero risco de
+  // loop). undefined nas edges sem contrato = nenhum badge (comportamento intocado).
+  const lastValidation = (data as { lastValidation?: EdgeValidation } | undefined)?.lastValidation;
   // OmniGraph F2: aresta de acoplamento entre comunidades. É ESTÁTICA (nunca ganha edgeFlow),
   // então o estilo vem só da `confidence` — EXTRACTED sólida, INFERRED tracejada, AMBIGUOUS
   // pontilhada vermelha. `confidence` só existe nas "graph-edge"; nas demais edges é undefined
@@ -74,6 +79,20 @@ export function FlowEdge({
   useEffect(() => {
     prevFlowRef.current = flow;
   });
+
+  // Badge de validação: ✗ (não bateu) FICA visível até a próxima validação; ✓ (bateu) aparece
+  // discreto e some ~4s depois (não polui a linha). Timer key-ado por `at` — reseta a cada
+  // validação nova. Degrada limpo: sem lastValidation, nenhum badge.
+  const [showOkBadge, setShowOkBadge] = useState(false);
+  useEffect(() => {
+    if (lastValidation?.ok) {
+      setShowOkBadge(true);
+      const timer = window.setTimeout(() => setShowOkBadge(false), 4000);
+      return () => window.clearTimeout(timer);
+    }
+    setShowOkBadge(false);
+  }, [lastValidation?.at, lastValidation?.ok]);
+  const showValidationBadge = !!lastValidation && (!lastValidation.ok || showOkBadge);
 
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   const active = flow !== "idle";
@@ -165,6 +184,26 @@ export function FlowEdge({
           >
             {PAYLOAD_BADGE[payloadKind] ?? payloadKind}
             {flow === "review" ? " · aguardando ✋" : ""}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+      {showValidationBadge && lastValidation && (
+        <EdgeLabelRenderer>
+          <div
+            className={
+              "nodrag nopan absolute flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-semibold shadow " +
+              (lastValidation.ok
+                ? "pointer-events-none bg-bg/90 text-green-400"
+                : "pointer-events-auto cursor-help bg-red-500/90 text-white")
+            }
+            style={{ transform: `translate(-50%,-50%) translate(${labelX}px,${labelY + 14}px)` }}
+            title={
+              lastValidation.ok
+                ? "Saída válida — bate com o schema da conexão"
+                : `Schema não bateu: ${lastValidation.error ?? "saída inesperada"}`
+            }
+          >
+            {lastValidation.ok ? "✓ schema" : "✗ schema"}
           </div>
         </EdgeLabelRenderer>
       )}

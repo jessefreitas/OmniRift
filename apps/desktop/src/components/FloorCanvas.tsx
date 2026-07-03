@@ -164,7 +164,9 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
         type: "flow",
         // confidence só existe nas "graph-edge" (OmniGraph F2); nas demais é undefined
         // e a FlowEdge ignora — comportamento das edges normais intocado.
-        data: { kind: e.kind, confidence: e.confidence },
+        // responseSchema/lastValidation (Fase 2 — conexões tipadas): só nas edges com contrato;
+        // a FlowEdge renderiza o badge ✓/✗. Undefined nas demais = sem badge (intocado).
+        data: { kind: e.kind, confidence: e.confidence, responseSchema: e.responseSchema, lastValidation: e.lastValidation },
         animated: e.kind === "pty-pipe",
         style:
           e.kind === "pty-pipe"
