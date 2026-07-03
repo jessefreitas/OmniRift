@@ -213,6 +213,20 @@ async fn run_build(launcher: &OmniGraphLauncher, cwd: &Path) -> Result<(), Strin
     args.push("update".into());
     args.push(cwd.to_string_lossy().into_owned());
 
+    // Prioridade BAIXA (nice): o graphify usa cpu_count workers de AST (12 num host de
+    // 12 cores) e, somado aos agentes Claude + UI, TRAVAVA a máquina no onboarding de um
+    // repo grande (ex: 2.744 arquivos). `nice -n 15` faz o build CEDER CPU pro resto — a
+    // UI e os agentes ficam responsivos; o grafo só demora um pouco mais. `update` não
+    // expõe limite de workers, então controlamos pela prioridade do SO. Unix: `nice`
+    // (coreutils) faz execvp → vira o próprio graphify (mesmo PID, kill_on_drop segue
+    // valendo). Windows: roda direto (sem nice; o pico lá é aceitável).
+    #[cfg(unix)]
+    let (prog, args) = {
+        let mut prefixed = vec!["-n".to_string(), "15".to_string(), prog];
+        prefixed.extend(args);
+        ("nice".to_string(), prefixed)
+    };
+
     let mut cmd = tokio::process::Command::new(&prog);
     cmd.args(&args)
         .current_dir(cwd)
