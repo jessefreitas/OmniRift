@@ -36,22 +36,15 @@ function FilterNodeImpl({ data, selected }: NodeProps<FilterRfNode>) {
   const updateFilterNode = useCanvasStore((s) => s.updateFilterNode);
   const emitAgentOutput = useCanvasStore((s) => s.emitAgentOutput);
   const setFilterPending = useCanvasStore((s) => s.setFilterPending);
-  const updateNodeSize = useCanvasStore((s) => s.updateNodeSize);
   const pending = useCanvasStore((s) => s.filterPending[data.id]);
   const t = useT();
 
-  // Nós criados antes do default maior (240×130) nascem espremidos — o modo IA nem
-  // cabe. Cresce UMA vez pro mínimo do modo atual (guardado: só sobe se está menor,
-  // então não re-dispara nem entra em loop). Conserta filtros já no canvas sem migração.
-  useEffect(() => {
-    const minH = data.mode === "ai" ? 250 : 160;
-    if (data.size.height < minH || data.size.width < 300) {
-      updateNodeSize(data.id, {
-        width: Math.max(data.size.width, 300),
-        height: Math.max(data.size.height, minH),
-      });
-    }
-  }, [data.mode, data.size.height, data.size.width, data.id, updateNodeSize]);
+  // ⚠️ REMOVIDO (v0.1.95): o auto-bump de tamanho por useEffect+updateNodeSize causava
+  // LOOP DE RENDER INFINITO (tela preta + WebKit 100%): ele forçava height>=minH, o
+  // React Flow/NodeResizer media o DOM real (< minH) e reportava de volta, o effect
+  // "corrigia" de novo → cabo-de-guerra sem convergência. A migração de nós antigos
+  // pequenos agora acontece UMA vez no restore (canvas-store.restoreWorkspace), no
+  // estado, sem brigar com o DOM em runtime. Novos filtros já nascem 300×250 + NodeResizer.
 
   const [providers, setProviders] = useState<CentralProvider[]>([]);
   const [evalStatus, setEvalStatus] = useState<"idle" | "evaluating" | "pass" | "block">("idle");

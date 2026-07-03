@@ -1162,6 +1162,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
           // de uma vez — era o que saturava a CPU/RAM e travava a máquina.
           return { ...n, id: newId, session_id: newId, dormant: true } as CanvasNode;
         }
+        if (n.kind === "filter") {
+          // Migra filtros antigos pequenos pro mínimo do modo AQUI (no estado), UMA vez.
+          // O auto-bump em runtime (useEffect+updateNodeSize) foi removido por causar loop
+          // de render infinito brigando com o NodeResizer/DOM — ver FilterNode.tsx.
+          const minH = n.mode === "ai" ? 250 : 160;
+          const size = { width: Math.max(n.size.width, 300), height: Math.max(n.size.height, minH) };
+          sidMap.set(n.id, newId);
+          return { ...n, id: newId, size } as CanvasNode;
+        }
         sidMap.set(n.id, newId); // OmniAgents entram no canal por node.id
         return { ...n, id: newId } as CanvasNode;
       });
