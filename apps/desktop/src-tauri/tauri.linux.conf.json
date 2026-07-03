@@ -1,0 +1,11 @@
+{
+  "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
+  "bundle": {
+    "externalBin": [
+      "binaries/omnicompress-proxy",
+      "binaries/omnicompress-mcp",
+      "binaries/omnicompress",
+      "binaries/omnifs-mcp"
+    ]
+  }
+}
