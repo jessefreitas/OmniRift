@@ -24,6 +24,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { kanbanList } from "@/lib/kanban-client";
+import { buildRecitation } from "@/lib/recitation";
 import { agentsMdInstruction, agentsMdRelPath, agentsMdSlug } from "@/lib/agent-contract";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
@@ -206,6 +208,11 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // OmniFS. Ref (não state): não re-renderiza e sobrevive ao reload/troca-de-provider (que só
   // bumpam reloadKey, sem desmontar) → o nº do snapshot fica monotônico com o histórico do drive.
   const turnCounterRef = useRef(0);
+  // 📿 Recitação (Manus): turnos concluídos desde a última reinjeção de foco. Ao passar de
+  // RECITE_EVERY_TURNS, o PRÓXIMO prompt leva o bloco de FOCO de carona (sem gastar um turno
+  // à toa). Agentes em 🎯 Goal já recitam a cada iteração → o contador só serve aos demais.
+  const RECITE_EVERY_TURNS = 6;
+  const turnsSinceReciteRef = useRef(0);
   const firstSentRef = useRef(false); // prefixa o contrato de orquestrador só no 1º prompt
   const teamRef = useRef<string | null>(null); // roster pendente p/ injetar no próximo prompt
   const subagentsSentRef = useRef(false); // a lista de subagentes já foi injetada num prompt?
@@ -648,6 +655,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           // da re-iteração do Goal (que abre um turno novo com t0 novo mais abaixo).
           finishTurn(true);
           turnCounterRef.current += 1; // 📸 nº do turno concluído (rótulo do checkpoint OmniFS)
+          turnsSinceReciteRef.current += 1; // 📿 recitação: +1 turno desde a última reinjeção de foco
           // F3 item 2: agente terminou um turno → se o cwd é mount OmniFS vivo, agenda
           // re-index debounced (~60s) do drive. Fire-and-forget + gate no backend: busca
           // fresca sem o agente gastar um turno rodando omnifs_index.
@@ -770,9 +778,13 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
                 // Reinjeta o OBJETIVO a cada iteração (ponto #4 do Jessé): o goal vive no goalRef
                 // (estado separado), mas o Claude Code compacta o contexto → o objetivo original
                 // some. Reinjetar mantém o norte + exige VERIFICAÇÃO articulada (adapta finish_task).
+                // 📿 Recitação: reinjeta o FOCO completo (objetivo + card do Kanban do agente),
+                // não só o objetivo. O Goal já recitava a cada iteração; agora o card vai junto.
+                const focus = (await collectFocus(true)) ?? `📿 FOCO:\n• Objetivo: ${g.objective}`;
+                turnsSinceReciteRef.current = 0;
                 await acpPrompt(
                   id,
-                  `OBJETIVO (não perca de vista):\n${g.objective}\n\n` +
+                  `${focus}\n\n` +
                     `A condição de PRONTO \`${g.condition}\` ainda FALHA (exit ${res.exit}). Saída:\n${out}\n\n` +
                     `Corrija a causa raiz e continue até \`${g.condition}\` sair com exit 0. ` +
                     `NÃO diga que terminou sem rodar a condição você mesmo; relate COMO verificou.`,
@@ -892,6 +904,20 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
 
   // `systemNote` → mostra uma linha de sistema em vez da bolha de usuário (ex: reação
   // automática a mudança de equipe), mas ainda envia `text` como o turno real.
+  // 📿 Colhe o bloco de FOCO deste agente (objetivo do 🎯 Goal + card ativo do Kanban) pra
+  // reinjeção. Async (lê o Kanban do projeto); tolerante a falha (sem projeto/erro → null).
+  async function collectFocus(includeGoal: boolean): Promise<string | null> {
+    const project = data.cwd || useCanvasStore.getState().currentCwd || "";
+    if (!project) return null;
+    const cards = await kanbanList(project).catch(() => []);
+    const g = includeGoal ? goalRef.current : null;
+    return buildRecitation({
+      goal: g ? { objective: g.objective, condition: g.condition } : null,
+      cards,
+      nodeId: data.id,
+    });
+  }
+
   async function sendText(text: string, systemNote?: string) {
     const sid = sessionRef.current;
     if (!sid || status !== "ready" || !text.trim()) return;
@@ -914,6 +940,14 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     if (!subagentsSentRef.current && mySubagentLabels) {
       prefixes.push(`No canvas você plugou: ${mySubagentLabels} — MAS isso NÃO é a lista completa: liste seus subagentes REAIS pelo que está carregado em .claude/agents (pode haver globais em ~/.claude/agents). Pra invocar um plugado DEPOIS do boot, recarregue (↻).`);
       subagentsSentRef.current = true;
+    }
+    // 📿 Recitação periódica: agente FORA do 🎯 Goal e já com ≥RECITE_EVERY_TURNS turnos sem
+    // reinjeção → o foco (objetivo/card do Kanban) viaja de carona NESTE prompt. Não dispara
+    // turno extra: reforça o norte no fim do contexto quando o usuário já ia falar de qualquer jeito.
+    if (!goalRef.current && turnsSinceReciteRef.current >= RECITE_EVERY_TURNS) {
+      const focus = await collectFocus(false);
+      if (focus) prefixes.push(focus);
+      turnsSinceReciteRef.current = 0;
     }
     const payload = prefixes.length
       ? `${prefixes.join("\n\n")}\n\n---\nTarefa do usuário: ${text}`
