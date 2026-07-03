@@ -12,6 +12,7 @@ import {
   Code2,
   Coins,
   Download,
+  Flag,
   Folder,
   FolderOpen,
   GitBranch,
@@ -114,6 +115,7 @@ const ConnectionsModal = lazy(() => import("@/components/ConnectionsModal").then
 const ProvidersCentralModal = lazy(() => import("@/components/ProvidersCentralModal").then((m) => ({ default: m.ProvidersCentralModal })));
 const PipelineArchitectModal = lazy(() => import("@/components/PipelineArchitectModal").then((m) => ({ default: m.PipelineArchitectModal })));
 const MobileDevicesModal = lazy(() => import("@/components/MobileDevicesModal").then((m) => ({ default: m.MobileDevicesModal })));
+const FeatureFlagsPanel = lazy(() => import("@/components/FeatureFlagsPanel").then((m) => ({ default: m.FeatureFlagsPanel })));
 const HelpModal = lazy(() => import("@/components/HelpModal").then((m) => ({ default: m.HelpModal })));
 const McpServersModal = lazy(() => import("@/components/McpServersModal").then((m) => ({ default: m.McpServersModal })));
 const OmniFsModal = lazy(() => import("@/components/OmniFsModal").then((m) => ({ default: m.OmniFsModal })));
@@ -168,6 +170,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "pipeline", icon: Network, label: "Arquiteto de Pipeline", desc: "Descreve o projeto → um LLM monta o time (agentes, subagentes, conexões, paralelos, ondas) + grava e monta no canvas" },
   { id: "kanban", icon: SquareKanban, label: "Kanban do projeto", desc: "Acompanhamento visual: backlog / em andamento / review / concluído — os agentes movem os cards via tools kanban_*" },
   { id: "mobile", icon: Smartphone, label: "Dispositivos móveis", desc: "Parear o celular (QR), listar pareados, revogar e conceder controle (steering)" },
+  { id: "feature-flags", icon: Flag, label: "Feature flags", desc: "Liga/desliga recursos localmente — rollout gradual, kill-switch e gating de beta (persiste por máquina)" },
   { id: "history", icon: History, label: "Histórico de sessões", desc: "Sessões anteriores gravadas dos agentes" },
   { id: "hooks", icon: Webhook, label: "Hooks do paralelo", desc: "Comandos disparados em eventos do paralelo (pre/post)" },
   { id: "reminders", icon: Bookmark, label: "Lembretes", desc: "Notas do canvas viram lembretes com prazo" },
@@ -487,6 +490,7 @@ export function Sidebar() {
   const [showLlmProviders, setShowLlmProviders] = useState(false);
   const [showPipeline, setShowPipeline] = useState(false);
   const [showMobile, setShowMobile] = useState(false);
+  const [showFeatureFlags, setShowFeatureFlags] = useState(false);
   const [reviewFloor, setReviewFloor] = useState<Parallel | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
@@ -551,6 +555,7 @@ export function Sidebar() {
     "llm-providers": () => setShowLlmProviders(true),
     pipeline: () => setShowPipeline(true),
     mobile: () => setShowMobile(true),
+    "feature-flags": () => setShowFeatureFlags(true),
     "review-ai": () => setShowReviewAi(true),
     appearance: () => setShowAppearance(true),
     usage: () => setShowUsage(true),
@@ -592,6 +597,7 @@ export function Sidebar() {
         case "llm-providers": setShowLlmProviders(true); break;
         case "pipeline": setShowPipeline(true); break;
         case "mobile": setShowMobile(true); break;
+        case "feature-flags": setShowFeatureFlags(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "project-health": setShowHealth(true); break;
         case "turbo": setShowTurbo(true); break;
@@ -2416,6 +2422,7 @@ export function Sidebar() {
       {showLlmProviders && <ProvidersCentralModal onClose={() => setShowLlmProviders(false)} />}
       {showPipeline && <PipelineArchitectModal onClose={() => setShowPipeline(false)} />}
       {showMobile && <MobileDevicesModal onClose={() => setShowMobile(false)} />}
+      {showFeatureFlags && <FeatureFlagsPanel onClose={() => setShowFeatureFlags(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
       {showOmniFs && <OmniFsModal onClose={() => setShowOmniFs(false)} />}
