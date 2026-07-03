@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import {
   ChevronDown,
@@ -87,7 +87,7 @@ function TreeItem({ entry, depth, showHidden }: { entry: DirEntry; depth: number
   );
 }
 
-export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) {
+function FileTreeNodeImpl({ id, data, selected }: NodeProps<FileTreeRfNode>) {
   const t = useT();
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [roots, setRoots] = useState<DirEntry[] | null>(null);
@@ -150,3 +150,5 @@ export function FileTreeNode({ id, data, selected }: NodeProps<FileTreeRfNode>) 
     </div>,
   );
 }
+
+export const FileTreeNode = memo(FileTreeNodeImpl);

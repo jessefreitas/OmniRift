@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
@@ -20,7 +20,7 @@ function baseName(p: string): string {
   return parts[parts.length - 1] || p;
 }
 
-export function DbNode({ id, data, selected }: NodeProps<DbRfNode>) {
+function DbNodeImpl({ id, data, selected }: NodeProps<DbRfNode>) {
   const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -198,3 +198,5 @@ export function DbNode({ id, data, selected }: NodeProps<DbRfNode>) {
     </div>
   );
 }
+
+export const DbNode = memo(DbNodeImpl);

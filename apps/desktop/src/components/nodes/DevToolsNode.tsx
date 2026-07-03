@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
@@ -12,7 +12,7 @@ import type { DevToolsNode as DevToolsNodeData } from "@/types/canvas";
 
 type DevRfNode = Node<DevToolsNodeData & Record<string, unknown>, "devtools">;
 
-export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
+function DevToolsNodeImpl({ id, data, selected }: NodeProps<DevRfNode>) {
   const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -135,3 +135,5 @@ export function DevToolsNode({ id, data, selected }: NodeProps<DevRfNode>) {
     </div>
   );
 }
+
+export const DevToolsNode = memo(DevToolsNodeImpl);

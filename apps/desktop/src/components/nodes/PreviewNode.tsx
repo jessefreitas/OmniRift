@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { SafeTextarea } from "@/components/SafeInput";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -20,7 +20,7 @@ function baseName(p: string): string {
   return parts[parts.length - 1] || p;
 }
 
-export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
+function PreviewNodeImpl({ id, data, selected }: NodeProps<PreviewRfNode>) {
   const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -141,3 +141,5 @@ export function PreviewNode({ id, data, selected }: NodeProps<PreviewRfNode>) {
     </div>,
   );
 }
+
+export const PreviewNode = memo(PreviewNodeImpl);

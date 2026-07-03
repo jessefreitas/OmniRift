@@ -19,17 +19,15 @@ import { migrateWorkspace } from "@/types/workspace";
 // double-mount do StrictMode em dev).
 let didLoad = false;
 
-// Timer do debounce em escopo de módulo: o handler de fechamento da janela
-// (App.tsx → flushPersistence) precisa cancelá-lo e gravar na hora, senão o
-// debounce de 600ms perde a última edição quando o usuário fecha o app.
-let pendingTimer: number | undefined;
+// Autosave PERIÓDICO — a cada 5 min (decisão 2026-07-03), NÃO mais debounce de 600ms:
+// serializar o canvas inteiro a cada edição dava micro-jank no WebKitGTK. Agora o
+// subscribe só MARCA dirty (barato); um tick de 5 min grava quando há mudança pendente.
+// O flush no fechamento (App.tsx → flushPersistence) grava a última edição NA HORA;
+// snapshots + OmniFS são a rede de segurança extra contra crash entre ticks.
+const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 
-/** Cancela o debounce pendente e grava o snapshot atual NA HORA (close da janela). */
+/** Grava o snapshot atual NA HORA (close da janela / flush manual). */
 export async function flushPersistence(): Promise<void> {
-  if (pendingTimer !== undefined) {
-    window.clearTimeout(pendingTimer);
-    pendingTimer = undefined;
-  }
   try {
     const s = useCanvasStore.getState();
     await dbSaveWorkspace(JSON.stringify(s.getWorkspaceSnapshot()));
@@ -66,15 +64,16 @@ export async function initPersistence(): Promise<() => void> {
     }
   }
 
-  // Auto-save debounced. Dedup por referência: o store muda muito (status,
-  // clipboard), mas só floors/ativo/nome entram no snapshot — comparar a
-  // referência de `floors` evita salvar (e nem reagendar) em mudança de status.
+  // Dedup por referência: o store muda muito (status, clipboard), mas só
+  // floors/ativo/nome/projetos entram no snapshot — comparar a referência de `floors`
+  // evita marcar dirty em mudança de status.
   const s0 = useCanvasStore.getState();
   let lastParallels = s0.parallels;
   let lastActive = s0.activeParallelId;
   let lastName = s0.workspaceName;
   let lastProjects = s0.projects;
   let lastActiveProject = s0.activeProjectId;
+  let dirty = false;
 
   const unsub = useCanvasStore.subscribe(() => {
     const s = useCanvasStore.getState();
@@ -92,20 +91,23 @@ export async function initPersistence(): Promise<() => void> {
     lastName = s.workspaceName;
     lastProjects = s.projects;
     lastActiveProject = s.activeProjectId;
-    // Timer em escopo de módulo (pendingTimer) → flushPersistence pode forçá-lo no close.
-    if (pendingTimer !== undefined) window.clearTimeout(pendingTimer);
-    pendingTimer = window.setTimeout(() => {
-      pendingTimer = undefined;
-      const doc = JSON.stringify(s.getWorkspaceSnapshot());
-      dbSaveWorkspace(doc).catch((e) => console.warn("[persistence] save falhou:", e));
-      // Canvas por pasta: além do slot único (boot limpo), salva atrelado ao cwd atual → ao
-      // reabrir a pasta, os agentes daquele projeto voltam (folderCanvasLoad no pickFolder).
-      if (s.currentCwd) folderCanvasSave(s.currentCwd, doc).catch(() => {});
-    }, 600);
+    dirty = true; // barato: só marca — a serialização (cara) acontece no tick de 5 min
   });
 
+  // Tick de 5 min: grava SÓ se houve mudança desde o último save (evita I/O à toa).
+  const saveTimer = window.setInterval(() => {
+    if (!dirty) return;
+    dirty = false;
+    const s = useCanvasStore.getState();
+    const doc = JSON.stringify(s.getWorkspaceSnapshot());
+    dbSaveWorkspace(doc).catch((e) => console.warn("[persistence] save falhou:", e));
+    // Canvas por pasta: além do slot único (boot limpo), salva atrelado ao cwd atual → ao
+    // reabrir a pasta, os agentes daquele projeto voltam (folderCanvasLoad no pickFolder).
+    if (s.currentCwd) folderCanvasSave(s.currentCwd, doc).catch(() => {});
+  }, AUTOSAVE_INTERVAL_MS);
+
   return () => {
-    if (pendingTimer !== undefined) { window.clearTimeout(pendingTimer); pendingTimer = undefined; }
+    window.clearInterval(saveTimer);
     unsub();
   };
 }

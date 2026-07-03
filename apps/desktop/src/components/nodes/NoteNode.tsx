@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { SafeTextarea } from "@/components/SafeInput";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Check, Pin, StickyNote, X } from "lucide-react";
@@ -13,7 +13,7 @@ type NoteRfNode = Node<NoteNodeData & Record<string, unknown>, "note">;
 
 const NOTE_COLORS = ["#f5d98a", "#a8d8b9", "#a3c4f3", "#f3a3a3", "#d9c2f0", "#f0e6c2"];
 
-export function NoteNode({ id, data, selected }: NodeProps<NoteRfNode>) {
+function NoteNodeImpl({ id, data, selected }: NodeProps<NoteRfNode>) {
   const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -90,3 +90,5 @@ export function NoteNode({ id, data, selected }: NodeProps<NoteRfNode>) {
     </div>
   );
 }
+
+export const NoteNode = memo(NoteNodeImpl);

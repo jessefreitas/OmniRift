@@ -60,6 +60,16 @@ pub fn pty_proc_info(
     manager.proc_info(&session_id)
 }
 
+/// BATCH: PID + RSS de TODAS as sessões num só invoke (chave = session_id). Substitui
+/// N chamadas `pty_proc_info` (1 por node) por 1 só — o hook singleton `useProcInfo`
+/// distribui pros nodes. Menos IPC + menos re-render no tick de recursos.
+#[tauri::command]
+pub fn pty_proc_info_all(
+    manager: State<'_, std::sync::Arc<PtyManager>>,
+) -> std::collections::HashMap<SessionId, ProcInfo> {
+    manager.proc_info_all()
+}
+
 /// Tela renderizada (VT100) de uma sessão — usada pra semear o espelho do
 /// Orquestrador no dock sem re-spawnar a sessão.
 #[tauri::command]

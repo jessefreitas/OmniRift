@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { X } from "lucide-react";
 
@@ -11,7 +11,7 @@ type GroupRfNode = Node<GroupNodeData & Record<string, unknown>, "group">;
 
 const GROUP_COLORS = ["#29a2a7", "#9a6dd7", "#46a758", "#f5a623", "#e5484d", "#3b8bd4"];
 
-export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
+function GroupNodeImpl({ id, data, selected }: NodeProps<GroupRfNode>) {
   const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -101,3 +101,5 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupRfNode>) {
     </div>
   );
 }
+
+export const GroupNode = memo(GroupNodeImpl);

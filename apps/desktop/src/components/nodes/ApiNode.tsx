@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Globe, Send, X } from "lucide-react";
@@ -32,7 +32,7 @@ function pretty(body: string): string {
   }
 }
 
-export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
+function ApiNodeImpl({ id, data, selected }: NodeProps<ApiRfNode>) {
   const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -154,3 +154,5 @@ export function ApiNode({ id, data, selected }: NodeProps<ApiRfNode>) {
     </div>,
   );
 }
+
+export const ApiNode = memo(ApiNodeImpl);

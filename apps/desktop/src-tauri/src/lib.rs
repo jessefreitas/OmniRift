@@ -93,6 +93,7 @@ use commands::omnifs::{
 use commands::hosts::{hosts_add, hosts_list, hosts_remove};
 use commands::pty::{
     pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
+    pty_proc_info_all,
     pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_write,
 };
 use commands::acp::{
@@ -374,6 +375,7 @@ pub fn run() {
             pty_pipe_list,
             pty_read_screen,
             pty_proc_info,
+            pty_proc_info_all,
             pty_snapshot,
             mobile_pairing_offer,
             mobile_devices_list,

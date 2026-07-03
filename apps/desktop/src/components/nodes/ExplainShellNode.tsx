@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { invoke } from "@tauri-apps/api/core";
 import { Terminal, X } from "lucide-react";
@@ -29,7 +29,7 @@ const KIND_LABEL: Record<SegKind, string> = {
   string: "string",
 };
 
-export function ExplainShellNode({ id, data, selected }: NodeProps<ExplainRfNode>) {
+function ExplainShellNodeImpl({ id, data, selected }: NodeProps<ExplainRfNode>) {
   const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -119,3 +119,5 @@ export function ExplainShellNode({ id, data, selected }: NodeProps<ExplainRfNode
     </div>,
   );
 }
+
+export const ExplainShellNode = memo(ExplainShellNodeImpl);

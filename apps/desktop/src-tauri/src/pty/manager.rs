@@ -170,6 +170,18 @@ impl PtyManager {
         })
     }
 
+    /// PID + RSS de TODAS as sessões vivas de uma vez (BATCH). O front fazia N invokes
+    /// `pty_proc_info` a cada tick (1 por node) → N chamadas IPC + N re-renders; agora é
+    /// 1 invoke que devolve o mapa inteiro. Coletamos os ids ANTES de iterar chamando
+    /// `proc_info` (que faz `sessions.get`) — iterar o DashMap e dar get no mesmo map
+    /// durante a iteração pode deadlockar no mesmo shard.
+    pub fn proc_info_all(&self) -> std::collections::HashMap<String, ProcInfo> {
+        let ids: Vec<String> = self.sessions.iter().map(|e| e.key().clone()).collect();
+        ids.into_iter()
+            .filter_map(|id| self.proc_info(&id).map(|info| (id, info)))
+            .collect()
+    }
+
     /// Estado atual de um agente (consumido pelo Sub-projeto B / UI de debug).
     pub fn agent_state(&self, id: &str) -> Option<AgentState> {
         self.state_map.get(id).map(|e| *e.value())

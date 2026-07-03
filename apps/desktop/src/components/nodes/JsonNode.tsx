@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { SafeTextarea } from "@/components/SafeInput";
 import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
@@ -125,7 +125,7 @@ function GraphNode({ k, value }: { k: string | null; value: unknown }) {
   );
 }
 
-export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
+function JsonNodeImpl({ id, data, selected }: NodeProps<JsonRfNode>) {
   const t = useT();
   const patchNode = useCanvasStore((s) => s.patchNode);
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -329,3 +329,5 @@ export function JsonNode({ id, data, selected }: NodeProps<JsonRfNode>) {
     </div>
   );
 }
+
+export const JsonNode = memo(JsonNodeImpl);

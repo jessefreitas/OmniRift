@@ -4,7 +4,7 @@
 // canvas. Lê/salva/observa via comandos Rust (code-client). O Monaco é lazy
 // (chunk separado). Métricas de complexidade entram na sub-fase 9c.
 
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { Bug, FileCode2, Maximize2, Minimize2, Save, Send, X } from "lucide-react";
@@ -40,7 +40,7 @@ function worstFunction(m: CodeMetrics): FunctionMetrics | null {
   );
 }
 
-export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
+function CodeNodeImpl({ id, data, selected }: NodeProps<CodeRfNode>) {
   const t = useT();
   const removeNode = useCanvasStore((s) => s.removeNode);
   const patchNode = useCanvasStore((s) => s.patchNode);
@@ -363,3 +363,5 @@ export function CodeNode({ id, data, selected }: NodeProps<CodeRfNode>) {
     </div>
   );
 }
+
+export const CodeNode = memo(CodeNodeImpl);
