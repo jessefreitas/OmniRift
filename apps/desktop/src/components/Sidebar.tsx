@@ -14,6 +14,7 @@ import {
   Download,
   Flag,
   Trophy,
+  Settings,
   Folder,
   FolderOpen,
   GitBranch,
@@ -118,6 +119,7 @@ const PipelineArchitectModal = lazy(() => import("@/components/PipelineArchitect
 const MobileDevicesModal = lazy(() => import("@/components/MobileDevicesModal").then((m) => ({ default: m.MobileDevicesModal })));
 const FeatureFlagsPanel = lazy(() => import("@/components/FeatureFlagsPanel").then((m) => ({ default: m.FeatureFlagsPanel })));
 const BenchModal = lazy(() => import("@/components/BenchModal").then((m) => ({ default: m.BenchModal })));
+const SettingsModal = lazy(() => import("@/components/SettingsModal").then((m) => ({ default: m.SettingsModal })));
 const HelpModal = lazy(() => import("@/components/HelpModal").then((m) => ({ default: m.HelpModal })));
 const ReleaseNotesModal = lazy(() => import("@/components/ReleaseNotesModal").then((m) => ({ default: m.ReleaseNotesModal })));
 const McpServersModal = lazy(() => import("@/components/McpServersModal").then((m) => ({ default: m.McpServersModal })));
@@ -161,6 +163,7 @@ import type { AgentRole } from "@/types/pty";
 // palette). Ordem reordenável por drag-and-drop; ações no map runTool() abaixo.
 // Ordem alfabética por label (o usuário ainda pode reordenar por drag).
 const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[] = [
+  { id: "settings", icon: Settings, label: "Configurações", desc: "Conta, licença, idioma, privacidade e atalhos pra todos os painéis de config num lugar só" },
   { id: "help", icon: BookOpen, label: "Ajuda / Manual", desc: "Manual do OmniRift — como usar tudo (tópicos + busca)" },
   { id: "appearance", icon: Palette, label: "Aparência", desc: "Cores, fontes e temas do app (claro/escuro + personalizado)" },
   { id: "clis", icon: Download, label: "CLIs de IA", desc: "Instalar e gerenciar CLIs de agentes (Claude Code, Codex, Gemini, Aider, …)" },
@@ -498,6 +501,7 @@ export function Sidebar() {
   const [showMobile, setShowMobile] = useState(false);
   const [showFeatureFlags, setShowFeatureFlags] = useState(false);
   const [showBench, setShowBench] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [reviewFloor, setReviewFloor] = useState<Parallel | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
@@ -564,6 +568,7 @@ export function Sidebar() {
     mobile: () => setShowMobile(true),
     "feature-flags": () => setShowFeatureFlags(true),
     bench: () => setShowBench(true),
+    settings: () => setShowSettings(true),
     "review-ai": () => setShowReviewAi(true),
     appearance: () => setShowAppearance(true),
     usage: () => setShowUsage(true),
@@ -609,6 +614,7 @@ export function Sidebar() {
         case "mobile": setShowMobile(true); break;
         case "feature-flags": setShowFeatureFlags(true); break;
         case "bench": setShowBench(true); break;
+        case "settings": setShowSettings(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "project-health": setShowHealth(true); break;
         case "turbo": setShowTurbo(true); break;
@@ -2435,6 +2441,7 @@ export function Sidebar() {
       {showMobile && <MobileDevicesModal onClose={() => setShowMobile(false)} />}
       {showFeatureFlags && <FeatureFlagsPanel onClose={() => setShowFeatureFlags(false)} />}
       {showBench && <BenchModal onClose={() => setShowBench(false)} />}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showReleases && <ReleaseNotesModal onClose={() => setShowReleases(false)} />}
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
