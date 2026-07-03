@@ -10,7 +10,7 @@
 // Os 3 primeiros são síncronos (useConnectionRouting/passesFilter); o `ai` é async, aqui no nó.
 
 import { memo, useEffect, useRef, useState } from "react";
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { Handle, NodeResizer, Position, type Node, type NodeProps } from "@xyflow/react";
 import { Filter, Sparkles, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
@@ -36,8 +36,22 @@ function FilterNodeImpl({ data, selected }: NodeProps<FilterRfNode>) {
   const updateFilterNode = useCanvasStore((s) => s.updateFilterNode);
   const emitAgentOutput = useCanvasStore((s) => s.emitAgentOutput);
   const setFilterPending = useCanvasStore((s) => s.setFilterPending);
+  const updateNodeSize = useCanvasStore((s) => s.updateNodeSize);
   const pending = useCanvasStore((s) => s.filterPending[data.id]);
   const t = useT();
+
+  // Nós criados antes do default maior (240×130) nascem espremidos — o modo IA nem
+  // cabe. Cresce UMA vez pro mínimo do modo atual (guardado: só sobe se está menor,
+  // então não re-dispara nem entra em loop). Conserta filtros já no canvas sem migração.
+  useEffect(() => {
+    const minH = data.mode === "ai" ? 250 : 160;
+    if (data.size.height < minH || data.size.width < 300) {
+      updateNodeSize(data.id, {
+        width: Math.max(data.size.width, 300),
+        height: Math.max(data.size.height, minH),
+      });
+    }
+  }, [data.mode, data.size.height, data.size.width, data.id, updateNodeSize]);
 
   const [providers, setProviders] = useState<CentralProvider[]>([]);
   const [evalStatus, setEvalStatus] = useState<"idle" | "evaluating" | "pass" | "block">("idle");
@@ -96,6 +110,7 @@ function FilterNodeImpl({ data, selected }: NodeProps<FilterRfNode>) {
         selected ? "border-brand" : "border-white/10",
       )}
     >
+      <NodeResizer isVisible={selected} minWidth={260} minHeight={180} color="rgb(56 189 248)" handleStyle={{ width: 8, height: 8, borderRadius: 2 }} />
       <Handle type="target" position={Position.Left} className="!bg-sky-400 !border-surface1" />
       <Handle type="source" position={Position.Right} className="!bg-sky-400 !border-surface1" />
 

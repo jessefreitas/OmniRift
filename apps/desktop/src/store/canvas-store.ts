@@ -837,7 +837,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       label: "Filtro",
       createdAt: Date.now(),
       position: position ?? defaultPosition(),
-      size: { width: 240, height: 130 },
+      // Nasce grande o bastante pro modo IA (help + select + provider + modelo +
+      // critério) — 240×130 espremia tudo e forçava scroll. Redimensionável via NodeResizer.
+      size: { width: 300, height: 250 },
     };
     set((s) => ({ parallels: mapActiveNodes(s, (ns) => [...ns, node]) }));
     return node;
