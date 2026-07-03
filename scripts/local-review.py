@@ -14,8 +14,10 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 
 DEFAULT_CATEGORIES = [
@@ -195,6 +197,146 @@ def preflight(diff_text, policy):
     return findings
 
 
+# ── Estágio 1 · pré-flight de segurança determinístico ──────────────────────────
+#
+# Espelho em Python do reforço já implementado no lado Rust
+# (apps/desktop/src-tauri/src/mcp/tools.rs :: run_preflight / preflight_gitleaks /
+# preflight_semgrep). Roda gitleaks + semgrep sobre o WORKING TREE do cwd (não sobre o
+# diff — pega secret/regra mesmo que ainda não commitado). Degrada SEMPRE limpo: binário
+# ausente / timeout / JSON inválido = registrado em `skipped` (NEUTRAL — não vira finding
+# e não bloqueia o review). Sem libs externas: só subprocess/json/shutil/tempfile.
+
+def _run_tool(cmd, timeout):
+    """Roda um binário externo. Espelha o `ToolRun` do Rust (Ran/Missing/Failed):
+    devolve ("ran", CompletedProcess) | ("missing", None) | ("failed", "<motivo>").
+    Ferramenta ausente (`shutil.which` None ou FileNotFoundError) e timeout NUNCA
+    derrubam o review — viram NEUTRAL no chamador."""
+    if shutil.which(cmd[0]) is None:
+        return "missing", None
+    try:
+        return "ran", subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        return "missing", None
+    except subprocess.TimeoutExpired:
+        return "failed", f"timeout após {timeout}s"
+    except Exception as e:  # qualquer falha de execução = NEUTRAL (não bloqueia)
+        return "failed", str(e)
+
+
+def _gitleaks_gate(cwd, findings, skipped):
+    """gitleaks --no-git (só o working tree), report JSON em arquivo temp. Cada leak =
+    1 CRITICAL `security` (arquivo:linha + RuleID). Fallback: exit 1 sem report legível
+    = 1 CRITICAL genérico (não perde o gate). Ausente/erro/inconclusivo → skipped."""
+    fd, report_path = tempfile.mkstemp(prefix="omnirift-gitleaks-", suffix=".json")
+    os.close(fd)
+    cmd = [
+        "gitleaks", "detect", "--source", cwd, "--no-git", "--redact",
+        "--report-format", "json", "--report-path", report_path, "--exit-code", "1",
+    ]
+    kind, out = _run_tool(cmd, 60)
+    try:
+        if kind == "missing":
+            skipped.append("gitleaks: ferramenta ausente")
+            return
+        if kind == "failed":
+            skipped.append(f"gitleaks: {out}")
+            return
+        try:
+            with open(report_path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception:
+            data = None
+        leaks = []
+        if isinstance(data, list):
+            for f in data:
+                if not isinstance(f, dict):
+                    continue
+                file = str(f.get("File") or "?")
+                line = f.get("StartLine") or 0
+                rule = f.get("RuleID") or f.get("Description") or "secret"
+                leaks.append({
+                    "severity": "CRITICAL", "category": "security",
+                    "file": f"{file}:{line}",
+                    "title": f"secret no working tree ({str(rule)[:80]})",
+                    "suggestion": "Remova o segredo; use variável de ambiente/cofre.",
+                })
+        code = out.returncode
+        if leaks:
+            findings.extend(leaks)
+        elif code == 1:
+            findings.append({
+                "severity": "CRITICAL", "category": "security", "file": "(working tree)",
+                "title": "secret no working tree (gitleaks exit 1)",
+                "suggestion": "Remova o segredo; use variável de ambiente/cofre.",
+            })
+        elif code != 0:
+            skipped.append(f"gitleaks: execução inconclusiva (código {code})")
+        # code == 0 sem achados → working tree limpo, nada a fazer.
+    finally:
+        try:
+            os.remove(report_path)
+        except OSError:
+            pass
+
+
+def _semgrep_gate(cwd, findings, skipped):
+    """semgrep p/security-audit + p/secrets (severity ERROR), saída --json. ERROR →
+    CRITICAL, senão WARNING; file `arquivo:linha [regra]`. Saída não-JSON (falha de
+    rede/download de regras) / ausente / timeout → skipped (NEUTRAL)."""
+    cmd = [
+        "semgrep", "scan", "--config", "p/security-audit", "--config", "p/secrets",
+        "--severity", "ERROR", "--error", "--json", "--quiet", "--metrics=off",
+        "--disable-version-check", cwd,
+    ]
+    kind, out = _run_tool(cmd, 120)
+    if kind == "missing":
+        skipped.append("semgrep: ferramenta ausente")
+        return
+    if kind == "failed":
+        skipped.append(f"semgrep: {out}")
+        return
+    try:
+        data = json.loads((out.stdout or "").strip())
+    except Exception:
+        err = (out.stderr or "").strip().splitlines()
+        snip = (err[-1] if err else "saída não-JSON")[:100]
+        skipped.append(f"semgrep: saída inconclusiva ({snip})")
+        return
+    results = data.get("results") if isinstance(data, dict) else None
+    if not isinstance(results, list):
+        skipped.append("semgrep: saída inconclusiva (sem results)")
+        return
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        path = str(r.get("path") or "?")
+        start = r.get("start")
+        line = start.get("line", 0) if isinstance(start, dict) else 0
+        rule = str(r.get("check_id") or "semgrep")
+        extra = r.get("extra") if isinstance(r.get("extra"), dict) else {}
+        sev_raw = str(extra.get("severity") or "ERROR").upper()
+        msg = str(extra.get("message") or rule)
+        severity = "CRITICAL" if sev_raw == "ERROR" else "WARNING"
+        short = (msg.splitlines()[0] if msg.strip() else msg)[:140]
+        findings.append({
+            "severity": severity, "category": "security",
+            "file": f"{path}:{line} [{rule[:80]}]",
+            "title": short, "suggestion": None,
+        })
+
+
+def security_gates(cwd):
+    """Estágio 1 espelhado do Rust (mcp/tools.rs): gitleaks + semgrep sobre o working
+    tree do cwd. Devolve (findings, skipped). Nunca levanta — degrada limpo se as
+    ferramentas faltarem/demorarem, pra jamais derrubar o review por infra."""
+    findings, skipped = [], []
+    if not cwd or not os.path.isdir(cwd):
+        return findings, skipped
+    _gitleaks_gate(cwd, findings, skipped)
+    _semgrep_gate(cwd, findings, skipped)
+    return findings, skipped
+
+
 def llm_call(llm, system, prompt):
     base = (llm.get("baseUrl") or "").rstrip("/")
     provider = llm.get("provider") or "openai"
@@ -264,11 +406,16 @@ def decide(findings, policy):
     blocking = {k for k, _l, _w, b in DEFAULT_CATEGORIES if b}  # categorias bloqueantes (Segurança)
     crit = [f for f in findings if f["severity"] == "CRITICAL"]
     warn = [f for f in findings if f["severity"] == "WARNING"]
-    # Gate respeita a política: só categorias bloqueantes derrubam (alinhado ao CI).
+    # Gate original (respeita a política): só CRITICAL de categoria bloqueante
+    # (Segurança) derruba, honrando o maxCritical configurado.
     bc = [f for f in crit if f.get("category") in blocking]
-    # Gate estável: só CRITICAL de categoria bloqueante (Segurança) derruba; WARNINGs
-    # de IA são advisory/voláteis. (FPs de design já reconhecidos são suprimidos — SUPPRESS.)
-    blocked = len(bc) > th.get("maxCritical", 0)
+    prev_blocked = len(bc) > th.get("maxCritical", 0)
+    # Reforço espelhado do lado Rust (mcp/tools.rs::decide_go_nogo): 1+ CRITICAL OU
+    # 2+ WARNING = NO-GO. A união com prev_blocked só ENDURECE o gate — um NO-GO que
+    # já existia NUNCA é rebaixado (FPs de design reconhecidos já saíram via SUPPRESS,
+    # e o gate de segurança determinístico [gitleaks/semgrep] não passa por supressão).
+    rust_blocked = len(crit) >= 1 or len(warn) >= 2
+    blocked = prev_blocked or rust_blocked
     return ("NO-GO" if blocked else "GO"), len(crit), len(warn)
 
 
@@ -286,9 +433,16 @@ def review(cwd, config_path, base):
     cfg = load_config(config_path)
     llm = cfg.get("llm")
     policy = pick_policy(cfg, cwd)
+    # Estágio 1 — pré-flight de segurança determinístico (gitleaks + semgrep) sobre o
+    # WORKING TREE, mesmo sem diff. Espelha mcp/tools.rs::run_preflight.
+    sec_findings, sec_skipped = security_gates(cwd)
     diff = git_diff(cwd, base)
     if not diff.strip():
-        return {"verdict": "GO", "crit": 0, "warn": 0, "findings": [], "summary": "sem diff — nada a revisar", "llmError": None, "policy": policy}
+        # Sem diff, mas o gate de segurança ainda vale (secret pode estar no working
+        # tree não commitado). Se limpo, mantém o GO "nada a revisar" de antes.
+        verdict, crit, warn = decide(sec_findings, policy)
+        summary = render(sec_findings, verdict, crit, warn) if sec_findings else "sem diff — nada a revisar"
+        return {"verdict": verdict, "crit": crit, "warn": warn, "findings": sec_findings, "summary": summary, "llmError": None, "skipped": sec_skipped, "policy": policy}
     findings = preflight(diff, policy)
     llm_err = None
     if llm and (llm.get("model")):
@@ -297,8 +451,9 @@ def review(cwd, config_path, base):
             findings += ai
     findings += pathrule_findings(diff, load_pathrules(cwd))  # regras por path
     findings = [f for f in findings if not suppressed(f, load_extra_suppress(cwd))]  # FPs ACK
+    findings += sec_findings  # segurança determinística: NÃO passa pela supressão de FP-de-IA
     verdict, crit, warn = decide(findings, policy)
-    return {"verdict": verdict, "crit": crit, "warn": warn, "findings": findings, "summary": render(findings, verdict, crit, warn), "llmError": llm_err, "policy": policy}
+    return {"verdict": verdict, "crit": crit, "warn": warn, "findings": findings, "summary": render(findings, verdict, crit, warn), "llmError": llm_err, "skipped": sec_skipped, "policy": policy}
 
 
 def default_config_path():
