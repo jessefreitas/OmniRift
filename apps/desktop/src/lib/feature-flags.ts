@@ -34,6 +34,14 @@ export interface FlagDef {
 // ainda em construção — liga sob demanda.
 export const FLAGS: FlagDef[] = [
   {
+    key: "recitation",
+    label: "Recitação de foco (agentes)",
+    description:
+      "Em loop longo, reinjeta o FOCO (objetivo do Goal + card do Kanban + progresso do projeto) no contexto do agente pra ele não perder o rumo — técnica de recitação do Manus. Toggle 📿 por-agente no nó. Desligue pra voltar ao comportamento antigo.",
+    default: true,
+    stage: "beta",
+  },
+  {
     key: "insights-por-agente",
     label: "Insights por agente",
     description:

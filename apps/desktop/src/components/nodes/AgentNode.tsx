@@ -19,7 +19,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Brain, Maximize2, Minimize2, Repeat, RotateCw, Send, Target, UserRoundPlus, X } from "lucide-react";
+import { Brain, Maximize2, Minimize2, Repeat, RotateCw, ScrollText, Send, Target, UserRoundPlus, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -55,7 +55,7 @@ import {
   type AcpAttachSnapshot,
 } from "@/lib/acp-client";
 import { scheduleReindex, omnifsIsManagedCwd, omnifsSnapshotNow } from "@/lib/omnifs-client";
-import { getFlag } from "@/lib/feature-flags";
+import { getFlag, useFlag } from "@/lib/feature-flags";
 import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
 import { communityForPath } from "@/lib/omnigraph-graph";
 import { useAgentCheckpoints } from "@/lib/agent-checkpoints";
@@ -243,6 +243,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const statusRef = useRef<Status>("starting");
   const [goalRun, setGoalRun] = useState<{ iter: number; status: "running" | "done" | "stopped" | "fail" } | null>(null);
   const [panel, setPanel] = useState<"none" | "goal" | "loop">("none");
+  const reciteFlag = useFlag("recitation"); // 📿 gate global da recitação (reativo p/ o botão)
   // LOD por zoom: abaixo de 35% a conversa é ilegível — o corpo vira label grande (ver render).
   // Selector booleano → re-render só ao cruzar o limiar.
   const lodOut = useRfStore((s) => s.transform[2] < 0.35);
@@ -778,9 +779,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
                 // Reinjeta o OBJETIVO a cada iteração (ponto #4 do Jessé): o goal vive no goalRef
                 // (estado separado), mas o Claude Code compacta o contexto → o objetivo original
                 // some. Reinjetar mantém o norte + exige VERIFICAÇÃO articulada (adapta finish_task).
-                // 📿 Recitação: reinjeta o FOCO completo (objetivo + card do Kanban do agente),
-                // não só o objetivo. O Goal já recitava a cada iteração; agora o card vai junto.
-                const focus = (await collectFocus(true)) ?? `📿 FOCO:\n• Objetivo: ${g.objective}`;
+                // 📿 Recitação LIGADA → FOCO completo (objetivo + card do Kanban + progresso do
+                // projeto). DESLIGADA (nó/flag) → collectFocus=null → objetivo puro (comportamento antigo).
+                const focus = (await collectFocus(true)) ?? `OBJETIVO (não perca de vista):\n${g.objective}`;
                 turnsSinceReciteRef.current = 0;
                 await acpPrompt(
                   id,
@@ -907,6 +908,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // 📿 Colhe o bloco de FOCO deste agente (objetivo do 🎯 Goal + card ativo do Kanban) pra
   // reinjeção. Async (lê o Kanban do projeto); tolerante a falha (sem projeto/erro → null).
   async function collectFocus(includeGoal: boolean): Promise<string | null> {
+    if (data.recite === false || !getFlag("recitation")) return null; // 📿 desligado (nó ou flag global)
     const project = data.cwd || useCanvasStore.getState().currentCwd || "";
     if (!project) return null;
     const cards = await kanbanList(project).catch(() => []);
@@ -1193,6 +1195,23 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           aria-label={t("agent.loop", "Loop")}
         >
           <Repeat size={13} />
+        </button>
+        {/* 📿 Recitação — reinjeta o foco (objetivo + Kanban + progresso) no loop longo (Manus) */}
+        <button
+          onClick={(e) => { e.stopPropagation(); patchNode(data.id, { recite: data.recite === false ? true : false }); }}
+          disabled={!reciteFlag}
+          className={cn(
+            "p-0.5 rounded hover:bg-white/10 transition-colors disabled:opacity-30 disabled:hover:bg-transparent",
+            data.recite !== false && reciteFlag ? "text-violet-400" : "text-text/50 hover:text-violet-300",
+          )}
+          title={reciteFlag
+            ? (data.recite === false
+                ? t("agent.reciteOff", "Recitação desligada neste agente — clique pra ligar")
+                : t("agent.reciteOn", "Recitação ligada — reinjeta o foco (objetivo + Kanban) no loop"))
+            : t("agent.reciteFlagOff", "Recitação desligada nas flags (kill-switch global)")}
+          aria-label={t("agent.recite", "Recitação")}
+        >
+          <ScrollText size={13} />
         </button>
         {/* Plugar subagente (privado deste agente) */}
         <button

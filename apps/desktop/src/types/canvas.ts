@@ -234,6 +234,12 @@ export interface AgentNode extends BaseCanvasNode {
    */
   loop?: { prompt: string; everyMin: number; active: boolean };
   /**
+   * 📿 Recitação (Manus): reinjeta o FOCO (objetivo do Goal + card do Kanban + progresso do
+   * projeto) no loop longo pra combater lost-in-the-middle. Toggle por-agente; ausente/true =
+   * ligado (gate global na flag `recitation`). `false` = volta ao comportamento antigo.
+   */
+  recite?: boolean;
+  /**
    * F2 backend-owned: sessionId do ADAPTER ACP (resposta do session/new), persistido no
    * workspace. Pós-restart do app (attach falha — o AcpManager nasceu vazio), o spawn usa
    * este id como `resumeSessionId` → `session/load` RETOMA a conversa. Gravado no ready
@@ -394,6 +400,8 @@ export interface CanvasNodePatch {
   provider?: "claude" | "codex" | "hermes";
   goal?: { objective: string; condition: string; maxIter: number };
   loop?: { prompt: string; everyMin: number; active: boolean };
+  /** 📿 Recitação (Manus): reinjeta o foco no loop. Ausente/true = ligado; false = desligado. */
+  recite?: boolean;
   /** F2 backend-owned: sessionId do adapter ACP a persistir (resume pós-restart). */
   acpSessionId?: string;
   model?: string;

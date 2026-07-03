@@ -43,6 +43,24 @@ export function activeCardFor(cards: KanbanCard[], nodeId: string): KanbanCard |
 }
 
 /**
+ * Resumo de PROGRESSO do projeto (control-flow explícito, 12-factor #8): "3 em andamento ·
+ * 1 BLOQUEADO · 5 concluídos". Dá ao agente consciência de ONDE o projeto está — não só da
+ * tarefa dele — pra ele coordenar o próximo passo com o time. `null` se não há cards.
+ */
+export function kanbanProgress(cards: KanbanCard[]): string | null {
+  if (cards.length === 0) return null;
+  const n = (col: string) => cards.filter((c) => c.col === col).length;
+  const doing = n("doing"), test = n("test"), review = n("review"), blocked = n("blocked"), done = n("done");
+  const parts: string[] = [];
+  if (doing) parts.push(`${doing} em andamento`);
+  if (test) parts.push(`${test} em teste`);
+  if (review) parts.push(`${review} em review`);
+  if (blocked) parts.push(`${blocked} BLOQUEADO${blocked > 1 ? "S" : ""}`);
+  if (done) parts.push(`${done} concluído${done > 1 ? "s" : ""}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/**
  * Monta o bloco de recitação (ou `null` quando não há nada a lembrar — agente sem Goal
  * nem card). Curto de propósito: é reinjetado com frequência; inchar o contexto seria o
  * oposto do objetivo. O chamador decide o veículo (prefixar ao próximo prompt, sem gastar
@@ -61,6 +79,8 @@ export function buildRecitation(input: RecitationInput): string | null {
     const body = card.body?.trim();
     if (body) lines.push(`  ${body.length > BODY_MAX ? body.slice(0, BODY_MAX) + "…" : body}`);
   }
+  const progress = kanbanProgress(cards);
+  if (progress) lines.push(`• Projeto (Kanban): ${progress}`);
   if (goal) lines.push(`• Pronto quando \`${goal.condition.trim()}\` sair com exit 0 (verifique você mesmo).`);
   return lines.join("\n");
 }
