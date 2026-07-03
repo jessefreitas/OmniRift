@@ -26,6 +26,7 @@ import { useT } from "@/lib/i18n";
 import { MiniSparkline, type SparkBar } from "@/components/MiniSparkline";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useFleetUsage } from "@/lib/fleet-usage";
+import { useAgentMetrics, percentile, errorRate } from "@/lib/agent-metrics";
 
 /** Uso agregado por dia — campo `byDay` que o backend/usage-client publica no
  *  `UsageReport`. Definido local (não importado) pra o painel compilar mesmo
@@ -76,6 +77,20 @@ function estimateAgentCost(
   return rate === undefined ? undefined : rate * tokens;
 }
 
+/** Latência de turno (ms) em unidade legível: <1s → "ms", senão "s" (1 casa até 10s). */
+function fmtLatency(ms?: number): string {
+  if (ms === undefined) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const s = ms / 1000;
+  return `${s < 10 ? s.toFixed(1) : Math.round(s)}s`;
+}
+
+/** Taxa de erro (0..1) → percentual inteiro; undefined (sem turnos) → "—". */
+function fmtErrPct(rate?: number): string {
+  if (rate === undefined) return "—";
+  return `${Math.round(rate * 100)}%`;
+}
+
 interface AgentRow {
   id: string;
   label: string;
@@ -84,6 +99,10 @@ interface AgentRow {
   tokens: number;
   costUsd?: number;
   age?: string;
+  /** p95 da latência de turno (ms) — undefined se o agente ainda não fechou nenhum turno. */
+  latencyP95?: number;
+  /** taxa de erro de turno (0..1) — undefined se não há turnos registrados. */
+  errorPct?: number;
 }
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
@@ -110,6 +129,9 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
   // dentro do seletor. A derivação vai toda pro useMemo abaixo.
   const parallels = useCanvasStore((s) => s.parallels);
   const tokensByNode = useFleetUsage((s) => s.tokensByNode);
+  // Métricas de turno (latência/erro) por nó — MESMO padrão conservador: pega a ref ESTÁVEL
+  // do record (só muda em recordTurn/clearNode); a derivação (p95/erro%) vai pro useMemo abaixo.
+  const turnsByNode = useAgentMetrics((s) => s.turnsByNode);
 
   // Timeline (Tendência): `byDay` do relatório, lido defensivamente (o campo pode
   // ainda não estar no tipo — outro worker o adiciona). Vazio → seção não renderiza.
@@ -142,8 +164,11 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
     const rows: AgentRow[] = [];
     for (const f of parallels) {
       for (const n of f.nodes) {
-        const tokens = tokensByNode[n.id];
-        if (tokens === undefined || tokens <= 0) continue;
+        const tokens = tokensByNode[n.id] ?? 0;
+        const turns = turnsByNode[n.id];
+        // Inclui quem gastou tokens OU já fechou algum turno (agente ativo sem token
+        // contável — ex: motor que não loga `used` — ainda tem latência/erro pra mostrar).
+        if (tokens <= 0 && (!turns || turns.length === 0)) continue;
         const withLabel = n as { label?: string; createdAt?: number };
         const model =
           n.kind === "agent" ? n.providerConfig?.model ?? n.provider : undefined;
@@ -153,14 +178,16 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
           floor: f.name,
           model,
           tokens,
-          costUsd: estimateAgentCost(model, tokens, rateByModel),
+          costUsd: tokens > 0 ? estimateAgentCost(model, tokens, rateByModel) : undefined,
           age: fmtAge(withLabel.createdAt),
+          latencyP95: turns && turns.length ? percentile(turns.map((x) => x.durationMs), 95) : undefined,
+          errorPct: turns ? errorRate(turns) : undefined,
         });
       }
     }
-    rows.sort((a, b) => b.tokens - a.tokens);
+    rows.sort((a, b) => b.tokens - a.tokens); // critério mantido: tokens desc
     return rows;
-  }, [parallels, tokensByNode, rateByModel]);
+  }, [parallels, tokensByNode, turnsByNode, rateByModel]);
 
   const proj = onlyThis && activeProject ? activeProject : null;
   const loadSeq = useRef(0);
@@ -329,6 +356,17 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
                   <span className="text-[10px] text-textMuted opacity-60">{t("usage.byAgentNote", "sessão atual do canvas")}</span>
                 </div>
                 <div className="rounded-md border border-border divide-y divide-border/40 max-h-52 overflow-auto">
+                  {agentRows.length > 0 && (
+                    <div className="flex items-center gap-2 px-3 py-1 text-[10px] uppercase tracking-wide text-textMuted opacity-60">
+                      <span className="flex-1">{t("usage.agentCol", "Agente")}</span>
+                      <span className="w-16 text-right">{t("usage.floorCol", "Floor")}</span>
+                      <span className="w-10 text-right">{t("usage.ageCol", "Idade")}</span>
+                      <span className="w-14 text-right" title={t("usage.p95Tip", "Latência p95 do turno")}>{t("usage.p95Col", "p95")}</span>
+                      <span className="w-10 text-right" title={t("usage.errTip", "Taxa de erro por turno")}>{t("usage.errCol", "Erro")}</span>
+                      <span className="w-14 text-right">{t("usage.tokensCol", "Tokens")}</span>
+                      <span className="w-14 text-right">{t("usage.costCol", "Custo")}</span>
+                    </div>
+                  )}
                   {agentRows.map((a) => (
                     <div
                       key={a.id}
@@ -336,10 +374,17 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
                       title={a.model ? `${a.label} · ${a.model}` : a.label}
                     >
                       <span className="text-text truncate flex-1">{a.label}</span>
-                      <span className="text-textMuted opacity-70 truncate w-20 text-right" title={a.floor}>{a.floor}</span>
+                      <span className="text-textMuted opacity-70 truncate w-16 text-right" title={a.floor}>{a.floor}</span>
                       <span className="text-textMuted opacity-60 tabular-nums w-10 text-right">{a.age ?? "—"}</span>
-                      <span className="text-textMuted tabular-nums w-16 text-right">{fmtTokens(a.tokens)}</span>
-                      <span className="text-brand tabular-nums w-16 text-right">{a.costUsd !== undefined ? fmtUsd(a.costUsd) : "—"}</span>
+                      <span className="text-textMuted tabular-nums w-14 text-right" title={t("usage.p95Tip", "Latência p95 do turno")}>{fmtLatency(a.latencyP95)}</span>
+                      <span
+                        className={"tabular-nums w-10 text-right " + (a.errorPct ? "text-danger" : "text-textMuted opacity-60")}
+                        title={t("usage.errTip", "Taxa de erro por turno")}
+                      >
+                        {fmtErrPct(a.errorPct)}
+                      </span>
+                      <span className="text-textMuted tabular-nums w-14 text-right">{fmtTokens(a.tokens)}</span>
+                      <span className="text-brand tabular-nums w-14 text-right">{a.costUsd !== undefined ? fmtUsd(a.costUsd) : "—"}</span>
                     </div>
                   ))}
                   {agentRows.length === 0 && (

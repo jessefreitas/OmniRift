@@ -29,6 +29,7 @@ import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { useFleetUsage } from "@/lib/fleet-usage";
+import { useAgentMetrics } from "@/lib/agent-metrics";
 import {
   acpSpawn,
   acpAttach,
@@ -194,6 +195,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const sessionRef = useRef<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const lastReplyRef = useRef(""); // acumula a resposta do turno → vira "saída" no turn-done
+  // Insights (latência/erro por turno): t0 do turno em voo (null = ocioso). Ref, não state
+  // — o turn-done/exit lê o valor ATUAL sem stale state (mesmo padrão de goalRef/compactRef).
+  // Marcado onde o prompt sai (setStatus("thinking")); consumido em finishTurn no fim do turno.
+  const turnStartRef = useRef<number | null>(null);
   const firstSentRef = useRef(false); // prefixa o contrato de orquestrador só no 1º prompt
   const teamRef = useRef<string | null>(null); // roster pendente p/ injetar no próximo prompt
   const subagentsSentRef = useRef(false); // a lista de subagentes já foi injetada num prompt?
@@ -277,6 +282,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     const ms = Math.max(1, lp.everyMin) * 60_000;
     const timer = window.setInterval(() => {
       if (statusRef.current === "ready" && sessionRef.current) {
+        turnStartRef.current = performance.now(); // Insights: t0 do turno disparado pelo loop
         void acpPrompt(sessionRef.current, lp.prompt);
         setMsgs((m) => [...m, { role: "system", text: `🔁 loop — disparando (a cada ${lp.everyMin} min)` }]);
       }
@@ -288,6 +294,26 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
 
   // FleetBar (#12): nó removido do canvas → sai da soma de tokens do lote.
   useEffect(() => () => useFleetUsage.getState().clearTokens(data.id), [data.id]);
+
+  // Insights: métricas de turno (latência/erro) do nó saem quando ele é REMOVIDO.
+  // Floor inativo fica display:none (não desmonta — sessão não vive no mount) → unmount
+  // ≈ remoção real. Espelha o clearTokens acima; o CAP do store já limita a memória viva.
+  useEffect(() => () => useAgentMetrics.getState().clearNode(data.id), [data.id]);
+
+  // Fecha o turno em voo: mede a duração (t0 marcado no envio) e registra {durationMs, ok}.
+  // No-op se não há turno aberto (turnStartRef null) — seguro chamar em qualquer fim (done/dead/erro).
+  // `ok=false` = turno morreu/lançou; `ok=true` = turn-done normal. Inclui espera por permissão
+  // na latência (v1 — é a latência ponta-a-ponta do turno, não só a geração).
+  const finishTurn = (ok: boolean) => {
+    const t0 = turnStartRef.current;
+    if (t0 === null) return;
+    turnStartRef.current = null;
+    useAgentMetrics.getState().recordTurn(data.id, {
+      durationMs: Math.max(0, Math.round(performance.now() - t0)),
+      ok,
+      at: Date.now(),
+    });
+  };
 
   // D2-v2 — reload re-spawna a sessão ACP pra carregar os `.claude/agents` plugados DEPOIS do
   // boot (o adapter não faz hot-reload). Se já temos o sessionId do adapter, faz `session/load`
@@ -302,6 +328,8 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       setModel(null);
       setUsage({});
       useFleetUsage.getState().clearTokens(data.id); // sessão nova = contagem zera (FleetBar)
+      useAgentMetrics.getState().clearNode(data.id); // Insights: latência/erro zeram com a sessão
+      turnStartRef.current = null;
       // Sessão NOVA (sem resume) = conversa perdida → re-injeta a persona no próximo ready
       // (senão o reload apagava o papel do agente junto com a conversa).
       personaSentRef.current = false;
@@ -355,6 +383,8 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     setAvailableModels([]);
     setUsage({});
     useFleetUsage.getState().clearTokens(data.id); // motor novo = sessão nova → contagem zera (FleetBar)
+    useAgentMetrics.getState().clearNode(data.id); // Insights: motor novo → latência/erro zeram
+    turnStartRef.current = null;
     setPerm(null);
     setAuthMethods([]);
     setMsgs((m) => [
@@ -601,6 +631,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         ),
         listenAcpTurnDone(id, (_d, seq) => gated(seq, async () => {
           setStatus("ready");
+          // Insights: turno concluiu sem erro → registra latência (t0..agora) + ok. Vem ANTES
+          // da re-iteração do Goal (que abre um turno novo com t0 novo mais abaixo).
+          finishTurn(true);
           // F3 item 2: agente terminou um turno → se o cwd é mount OmniFS vivo, agenda
           // re-index debounced (~60s) do drive. Fire-and-forget + gate no backend: busca
           // fresca sem o agente gastar um turno rodando omnifs_index.
@@ -691,6 +724,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
                 setGoalRun({ iter: it, status: "running" });
                 pushSys(`🎯 iteração ${it}/${g.maxIter} — condição falhou (exit ${res.exit}), corrigindo…`);
                 setStatus("thinking");
+                turnStartRef.current = performance.now(); // Insights: t0 do turno da nova iteração
                 // Reinjeta o OBJETIVO a cada iteração (ponto #4 do Jessé): o goal vive no goalRef
                 // (estado separado), mas o Claude Code compacta o contexto → o objetivo original
                 // some. Reinjetar mantém o norte + exige VERIFICAÇÃO articulada (adapta finish_task).
@@ -727,6 +761,8 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             })();
             return;
           }
+          // Insights: morte REAL com um turno em voo → turno de erro (no-op se estava ocioso).
+          finishTurn(false);
           setStatus("dead");
         })),
         listenAcpAuthRequired(id, (methods, seq) => gated(seq, () => {
@@ -820,6 +856,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     lastReplyRef.current = "";
     setMsgs((m) => [...m, systemNote ? { role: "system", text: systemNote } : { role: "user", text }]);
     setStatus("thinking");
+    turnStartRef.current = performance.now(); // Insights: t0 do turno (fecha no turn-done/erro)
     // Prefixos invisíveis: contrato de orquestrador (só no 1º prompt) + roster pendente da
     // equipe (T2 — sempre que a equipe muda, o próximo prompt já leva a lista atualizada).
     const prefixes: string[] = [];
@@ -843,6 +880,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     try {
       await acpPrompt(sid, payload);
     } catch (e) {
+      finishTurn(false); // Insights: o prompt não saiu → turno de erro
       setMsgs((m) => [...m, { role: "system", text: `erro: ${e}` }]);
       setStatus("ready");
     }
@@ -882,6 +920,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     lastReplyRef.current = "";
     setMsgs((m) => [...m, { role: "system", text: `🧹 ${t("agent.compacting", "compactando… histórico completo salvo em")} ${path}` }]);
     setStatus("thinking");
+    turnStartRef.current = performance.now(); // Insights: t0 do turno de compactação
     try {
       await acpPrompt(
         sid,
@@ -890,6 +929,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           `Responda SÓ com o resumo.`,
       );
     } catch (e) {
+      finishTurn(false); // Insights: o prompt de compactação não saiu → turno de erro
       compactRef.current = null;
       setMsgs((m) => [...m, { role: "system", text: `erro: ${e}` }]);
       setStatus("ready");
