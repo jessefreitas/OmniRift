@@ -13,6 +13,7 @@ import {
   Coins,
   Download,
   Flag,
+  Trophy,
   Folder,
   FolderOpen,
   GitBranch,
@@ -116,6 +117,7 @@ const ProvidersCentralModal = lazy(() => import("@/components/ProvidersCentralMo
 const PipelineArchitectModal = lazy(() => import("@/components/PipelineArchitectModal").then((m) => ({ default: m.PipelineArchitectModal })));
 const MobileDevicesModal = lazy(() => import("@/components/MobileDevicesModal").then((m) => ({ default: m.MobileDevicesModal })));
 const FeatureFlagsPanel = lazy(() => import("@/components/FeatureFlagsPanel").then((m) => ({ default: m.FeatureFlagsPanel })));
+const BenchModal = lazy(() => import("@/components/BenchModal").then((m) => ({ default: m.BenchModal })));
 const HelpModal = lazy(() => import("@/components/HelpModal").then((m) => ({ default: m.HelpModal })));
 const ReleaseNotesModal = lazy(() => import("@/components/ReleaseNotesModal").then((m) => ({ default: m.ReleaseNotesModal })));
 const McpServersModal = lazy(() => import("@/components/McpServersModal").then((m) => ({ default: m.McpServersModal })));
@@ -172,6 +174,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "kanban", icon: SquareKanban, label: "Kanban do projeto", desc: "Acompanhamento visual: backlog / em andamento / review / concluído — os agentes movem os cards via tools kanban_*" },
   { id: "mobile", icon: Smartphone, label: "Dispositivos móveis", desc: "Parear o celular (QR), listar pareados, revogar e conceder controle (steering)" },
   { id: "feature-flags", icon: Flag, label: "Feature flags", desc: "Liga/desliga recursos localmente — rollout gradual, kill-switch e gating de beta (persiste por máquina)" },
+  { id: "bench", icon: Trophy, label: "Terminal-Bench", desc: "Roda uma suíte de tarefas-terminal verificáveis num agente e mede quantas ele resolve (selo objetivo + regression guard)" },
   { id: "history", icon: History, label: "Histórico de sessões", desc: "Sessões anteriores gravadas dos agentes" },
   { id: "hooks", icon: Webhook, label: "Hooks do paralelo", desc: "Comandos disparados em eventos do paralelo (pre/post)" },
   { id: "reminders", icon: Bookmark, label: "Lembretes", desc: "Notas do canvas viram lembretes com prazo" },
@@ -494,6 +497,7 @@ export function Sidebar() {
   const [showPipeline, setShowPipeline] = useState(false);
   const [showMobile, setShowMobile] = useState(false);
   const [showFeatureFlags, setShowFeatureFlags] = useState(false);
+  const [showBench, setShowBench] = useState(false);
   const [reviewFloor, setReviewFloor] = useState<Parallel | null>(null);
   const [showLlmConfig, setShowLlmConfig] = useState(false);
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
@@ -559,6 +563,7 @@ export function Sidebar() {
     pipeline: () => setShowPipeline(true),
     mobile: () => setShowMobile(true),
     "feature-flags": () => setShowFeatureFlags(true),
+    bench: () => setShowBench(true),
     "review-ai": () => setShowReviewAi(true),
     appearance: () => setShowAppearance(true),
     usage: () => setShowUsage(true),
@@ -603,6 +608,7 @@ export function Sidebar() {
         case "pipeline": setShowPipeline(true); break;
         case "mobile": setShowMobile(true); break;
         case "feature-flags": setShowFeatureFlags(true); break;
+        case "bench": setShowBench(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "project-health": setShowHealth(true); break;
         case "turbo": setShowTurbo(true); break;
@@ -2428,6 +2434,7 @@ export function Sidebar() {
       {showPipeline && <PipelineArchitectModal onClose={() => setShowPipeline(false)} />}
       {showMobile && <MobileDevicesModal onClose={() => setShowMobile(false)} />}
       {showFeatureFlags && <FeatureFlagsPanel onClose={() => setShowFeatureFlags(false)} />}
+      {showBench && <BenchModal onClose={() => setShowBench(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showReleases && <ReleaseNotesModal onClose={() => setShowReleases(false)} />}
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}

@@ -1039,6 +1039,32 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     setGoalRun(null);
   }
 
+  // 🏁 Terminal-Bench: o BenchModal comanda Goals remotamente (rodar a suíte NESTE agente).
+  // Ref sempre-atual de startGoal → o listener abaixo (registrado 1×) nunca chama uma versão
+  // stale (o closure de sendText leria `status` velho e engoliria o disparo).
+  const startGoalRef = useRef(startGoal);
+  startGoalRef.current = startGoal;
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d = (e as CustomEvent<{ nodeId: string; cfg: { objective: string; condition: string; maxIter: number } }>).detail;
+      if (d?.nodeId === data.id) startGoalRef.current(d.cfg);
+    };
+    window.addEventListener("omnirift:agent-goal-run", h);
+    return () => window.removeEventListener("omnirift:agent-goal-run", h);
+  }, [data.id]);
+  // Cada término de Goal (done/fail/stopped — status ≠ running) → avisa o BenchModal pra
+  // registrar o resultado e avançar a suíte. Um único ponto (transição de goalRun), sem tocar
+  // o handler do Goal.
+  useEffect(() => {
+    if (goalRun && goalRun.status !== "running") {
+      window.dispatchEvent(
+        new CustomEvent("omnirift:agent-goal-done", {
+          detail: { nodeId: data.id, status: goalRun.status, iters: goalRun.iter },
+        }),
+      );
+    }
+  }, [goalRun, data.id]);
+
   async function respond(optionId: string | null) {
     const sid = sessionRef.current;
     if (!sid || !perm) return;
