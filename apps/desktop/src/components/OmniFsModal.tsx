@@ -32,6 +32,7 @@ import {
   fmtBytes,
   omnifsLog,
   omnifsProvision,
+  omnifsRecover,
   omnifsReindex,
   omnifsRollback,
   omnifsSearch,
@@ -135,6 +136,14 @@ export function OmniFsModal({ onClose }: Props) {
 
   const reindex = () => run("reindex", () => omnifsReindex());
 
+  const recover = () =>
+    run("recover", async () => {
+      const st = await omnifsRecover();
+      return st.socketAlive
+        ? t("omnifs.recovered", "Drive OmniFS religado — mount respondendo de novo.")
+        : t("omnifs.recoverPartial", "Daemon reiniciado, verificando o mount…");
+    });
+
   const doSearch = useCallback(async () => {
     const q = searchQuery.trim();
     if (!q) return;
@@ -222,6 +231,50 @@ export function OmniFsModal({ onClose }: Props) {
                 <code className="block mt-1 text-[10px] bg-black/30 rounded px-1.5 py-1">
                   sudo apt install fuse3 && cargo build --release && cp target/release/omnifs-mcp ~/.cargo/bin/
                 </code>
+              </span>
+            </div>
+          )}
+
+          {/* Mount CONGELADO (daemon vivo mas FUSE preso — disco cheio/I-O travado):
+              o incidente ENOTCONN. Oferece religar o mount sem reiniciar o app. */}
+          {status?.stale && (
+            <div className="rounded-md border border-danger/50 bg-danger/10 px-3 py-2 text-[11px] text-danger flex items-start gap-2">
+              <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-medium">
+                  {t("omnifs.staleTitle", "Drive travado (ENOTCONN)")}
+                </div>
+                <div className="text-danger/80 mt-0.5 leading-snug">
+                  {t(
+                    "omnifs.staleBody",
+                    "O daemon está no ar mas o mount não responde — provável disco cheio ou I/O preso. Os arquivos ficam inacessíveis até religar.",
+                  )}
+                </div>
+                <button
+                  onClick={() => void recover()}
+                  disabled={busy === "recover"}
+                  className="mt-1.5 inline-flex items-center gap-1.5 rounded bg-danger/20 hover:bg-danger/30 px-2.5 py-1 text-[11px] font-medium disabled:opacity-50"
+                >
+                  {t("omnifs.reconnect", "Reconectar")}
+                  {busy === "recover" && <RefreshCw size={12} className="animate-spin" />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Disco baixo (< 1 GB livre no store): avisa ANTES de encher e congelar
+              o FUSE. Não bloqueia — abaixo de 256 MB o snapshot é recusado no backend. */}
+          {status?.lowDisk && !status?.stale && (
+            <div className="rounded-md border border-yellow-400/40 bg-yellow-400/10 px-3 py-2 text-[11px] text-yellow-200 flex items-start gap-2">
+              <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+              <span>
+                {t(
+                  "omnifs.lowDisk",
+                  "Disco quase cheio no store do OmniFS — libere espaço. Com disco cheio o snapshot é pulado pra não congelar o drive.",
+                )}{" "}
+                <span className="tabular-nums opacity-80">
+                  ({fmtBytes(status?.storeFreeBytes ?? null)} {t("omnifs.free", "livres")})
+                </span>
               </span>
             </div>
           )}

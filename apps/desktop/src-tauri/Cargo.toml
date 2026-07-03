@@ -134,9 +134,10 @@ tauri-plugin-clipboard-manager = "2.3.2"
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 
-# PR_SET_PDEATHSIG: filhos (omnicompress-proxy) recebem SIGKILL quando o app morre,
-# evitando órfãos que segurariam a porta e fariam o watchdog respawnar em loop.
-[target.'cfg(target_os = "linux")'.dependencies]
+# libc (unix) — PR_SET_PDEATHSIG (linux-only, atrás de cfg no código) + statvfs
+# pro guard de disco do OmniFS (linux+macOS): escrever num FUSE com disco cheio
+# CONGELA o mount (ENOTCONN em cascata), então checamos espaço livre antes.
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]

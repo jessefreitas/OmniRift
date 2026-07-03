@@ -87,8 +87,8 @@ use commands::memory::{
     memory_set_active, memory_test,
 };
 use commands::omnifs::{
-    omnifs_is_managed_cwd, omnifs_log, omnifs_provision, omnifs_reindex, omnifs_rollback,
-    omnifs_search, omnifs_snapshot_now, omnifs_status,
+    omnifs_is_managed_cwd, omnifs_log, omnifs_provision, omnifs_recover, omnifs_reindex,
+    omnifs_rollback, omnifs_search, omnifs_snapshot_now, omnifs_status,
 };
 use commands::hosts::{hosts_add, hosts_list, hosts_remove};
 use commands::pty::{
@@ -537,6 +537,7 @@ pub fn run() {
             memory_migrate,
             omnifs_status,
             omnifs_provision,
+            omnifs_recover,
             omnifs_snapshot_now,
             omnifs_log,
             omnifs_rollback,

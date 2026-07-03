@@ -21,6 +21,15 @@ export interface OmniFsStatus {
   /** du do backing/ (cap 20k entradas) — null = inexistente OU grande demais. */
   backingBytes: number | null;
   backingPath: string | null;
+  /** Espaço livre (bytes) no filesystem do store — alimenta o aviso de disco. */
+  storeFreeBytes: number | null;
+  /** Disco do store abaixo de 1 GB livre — a UI avisa ANTES de encher e congelar o FUSE. */
+  lowDisk: boolean;
+  /** O mount responde a um read_dir (probe com timeout)? null sem mount/daemon. */
+  mountResponsive: boolean | null;
+  /** Socket vivo MAS mount não responde = daemon congelado (o incidente ENOTCONN).
+   *  Quando true, a UI mostra "Reconectar" — socketAlive sozinho não pega isso. */
+  stale: boolean;
 }
 
 /** Item da timeline de snapshots (omnifs_log + ledger local). */
@@ -48,6 +57,10 @@ export const omnifsStatus = () => invoke<OmniFsStatus>("omnifs_status");
 
 export const omnifsProvision = (mountDir?: string) =>
   invoke<OmniFsStatus>("omnifs_provision", { mountDir: mountDir ?? null });
+
+/** Religa um mount OmniFS travado (daemon congelado por disco cheio/I-O preso —
+ *  o incidente ENOTCONN): desmonta lazy o FUSE stale e re-sobe o daemon limpo. */
+export const omnifsRecover = () => invoke<OmniFsStatus>("omnifs_recover");
 
 export const omnifsSnapshotNow = (message?: string) =>
   invoke<string>("omnifs_snapshot_now", { message: message ?? null });

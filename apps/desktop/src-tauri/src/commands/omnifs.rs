@@ -29,6 +29,16 @@ pub async fn omnifs_provision(mount_dir: Option<String>) -> Result<DaemonStatus,
         .map_err(|e| e.to_string())?
 }
 
+/// Religa um mount OmniFS travado (daemon congelado por disco cheio/I-O preso —
+/// o incidente ENOTCONN): desmonta lazy o FUSE stale, mata o daemon gerenciado
+/// congelado e re-sobe limpo. Botão "Reconectar" do OmniFsModal quando `stale`.
+#[tauri::command]
+pub async fn omnifs_recover() -> Result<DaemonStatus, String> {
+    tauri::async_runtime::spawn_blocking(crate::omnifs::recover_stale_mount)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Snapshot AGORA (mensagem opcional) — devolve "snapshot: <hash>" e registra o
 /// hash completo no ledger local (habilita o Restaurar da timeline).
 #[tauri::command]

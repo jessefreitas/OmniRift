@@ -90,6 +90,81 @@ pub fn socket_alive(_path: &Path) -> bool {
     false // daemon usa UnixListener + FUSE — Windows fica pra fase do sidecar nativo
 }
 
+// ── Blindagem anti-ENOTCONN (guard de disco + probe de mount + recovery) ────
+//
+// Incidente 2026-07-03: o disco encheu (100%) durante um build; o daemon FUSE do
+// OmniFS não conseguiu escrever, CONGELOU (sem morrer — socket seguia aceitando),
+// e o kernel marcou o mount como stale → todo IO no drive virou ENOTCONN, travando
+// até o `cd`/`claude` na pasta. `socket_alive` NÃO pega isso (o listener responde).
+// Três defesas: (1) recusar escrita quando o disco está crítico, (2) provar que o
+// mount de fato responde antes de nascer um agente lá, (3) religar o mount travado.
+
+/// Abaixo disto o disco é CRÍTICO: recusamos snapshot/escrita pra não congelar o
+/// FUSE (o cenário do incidente). Um erro limpo > um drive travado.
+const DISK_CRITICAL_BYTES: u64 = 256 * 1024 * 1024; // 256 MB
+/// Abaixo disto avisamos (`low_disk` no status) mas ainda operamos.
+const DISK_LOW_BYTES: u64 = 1024 * 1024 * 1024; // 1 GB
+/// Teto do probe de mount: um `read_dir` saudável volta em ms; só o FUSE congelado
+/// atinge o timeout. Roda no status (poll de 30s) e no guard pré-spawn.
+const MOUNT_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Espaço livre (bytes, cota de usuário não-root) no filesystem que contém `path`,
+/// via `statvfs`. None em erro/plataforma sem suporte.
+#[cfg(unix)]
+pub fn free_space_bytes(path: &Path) -> Option<u64> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let c = CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: statvfs preenche uma struct POD; c aponta pra um path NUL-terminado válido.
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+        return None;
+    }
+    // f_bavail = blocos livres p/ não-root; f_frsize = bytes por bloco.
+    Some((st.f_bavail as u64).saturating_mul(st.f_frsize as u64))
+}
+#[cfg(not(unix))]
+pub fn free_space_bytes(_path: &Path) -> Option<u64> {
+    None
+}
+
+/// O mount responde a um `read_dir` dentro de `timeout`? Detecta o daemon FUSE
+/// VIVO-mas-CONGELADO que `socket_alive` não pega: o socket aceita conexão mas
+/// toda syscall no mount trava/ENOTCONN. Roda o probe num thread destacado pra
+/// NÃO pendurar o app se o FUSE nunca responder (o thread órfão morre quando o
+/// mount recupera ou é desmontado no recovery).
+#[cfg(unix)]
+pub fn mount_responsive(mount: &Path, timeout: Duration) -> bool {
+    let m = mount.to_path_buf();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        // read_dir toca o FUSE de verdade (lookup + readdir); ENOTCONN/erro → false.
+        let _ = tx.send(std::fs::read_dir(&m).is_ok());
+    });
+    matches!(rx.recv_timeout(timeout), Ok(true))
+}
+#[cfg(not(unix))]
+pub fn mount_responsive(_mount: &Path, _timeout: Duration) -> bool {
+    false
+}
+
+/// Recusa uma escrita quando o disco do store está CRÍTICO (`< DISK_CRITICAL_BYTES`).
+/// Chamado no `snapshot_now` (cobre snapshot manual E auto-checkpoint por turno):
+/// escrever num FUSE sem espaço congela o mount inteiro. Sem config = sem guard.
+pub fn disk_guard() -> Result<(), String> {
+    let Some(cfg) = read_config() else { return Ok(()) };
+    if let Some(free) = free_space_bytes(Path::new(&cfg.store)) {
+        if free < DISK_CRITICAL_BYTES {
+            return Err(format!(
+                "OmniFS: disco quase cheio (~{} MB livres no store) — snapshot pulado pra \
+                 NÃO congelar o drive (ENOTCONN). Libere espaço e tente de novo.",
+                free / (1024 * 1024)
+            ));
+        }
+    }
+    Ok(())
+}
+
 // ── Cliente JSON-RPC (newline-delimited) ────────────────────────────────────
 
 /// Uma request JSON-RPC numa linha. `id=None` → notificação (o server não responde).
@@ -234,6 +309,15 @@ pub struct DaemonStatus {
     /// pro status barato (a UI mostra só o path nesse caso).
     pub backing_bytes: Option<u64>,
     pub backing_path: Option<String>,
+    /// Espaço livre (bytes) no filesystem do store — alimenta o aviso de disco na UI.
+    pub store_free_bytes: Option<u64>,
+    /// Disco do store abaixo de `DISK_LOW_BYTES` (1 GB) — a UI avisa antes de encher.
+    pub low_disk: bool,
+    /// O mount responde a um read_dir (probe com timeout)? None sem mount/daemon.
+    pub mount_responsive: Option<bool>,
+    /// Socket VIVO mas mount NÃO responde = daemon congelado (o incidente ENOTCONN).
+    /// A UI mostra "Reconectar" quando `stale` — `socket_alive` sozinho não pega isto.
+    pub stale: bool,
 }
 
 /// Tamanho de um arquivo em bytes (None se não existe / erro).
@@ -293,10 +377,23 @@ pub fn daemon_status() -> DaemonStatus {
         }
         None => (None, None, None),
     };
+    // Guard de disco + probe de mount. O probe só roda com socket vivo (senão o
+    // daemon já está morto e o guard pré-spawn cobre) e paga o timeout SÓ quando
+    // o FUSE está congelado — no caminho saudável o read_dir volta em ms.
+    let sock_up = socket_alive(&sock);
+    let store_free_bytes = cfg.as_ref().and_then(|c| free_space_bytes(Path::new(&c.store)));
+    let low_disk = store_free_bytes.map(|b| b < DISK_LOW_BYTES).unwrap_or(false);
+    let (mount_responsive_v, stale) = match (cfg.as_ref(), sock_up) {
+        (Some(c), true) => {
+            let ok = mount_responsive(Path::new(&c.mount), MOUNT_PROBE_TIMEOUT);
+            (Some(ok), !ok)
+        }
+        _ => (None, false),
+    };
     DaemonStatus {
         bin_found: bin.is_some(),
         bin_path: bin.map(|p| p.to_string_lossy().into_owned()),
-        socket_alive: socket_alive(&sock),
+        socket_alive: sock_up,
         socket_path: sock.to_string_lossy().into_owned(),
         mount: cfg.as_ref().map(|c| c.mount.clone()),
         store: cfg.map(|c| c.store),
@@ -304,6 +401,10 @@ pub fn daemon_status() -> DaemonStatus {
         store_bytes,
         backing_bytes,
         backing_path,
+        store_free_bytes,
+        low_disk,
+        mount_responsive: mount_responsive_v,
+        stale,
     }
 }
 
@@ -528,6 +629,7 @@ pub fn snapshot_log() -> Result<Vec<LogEntry>, String> {
 
 /// Tira um snapshot AGORA e registra o hash completo no ledger local.
 pub fn snapshot_now(message: &str) -> Result<String, String> {
+    disk_guard()?; // disco crítico → pula o snapshot em vez de congelar o FUSE
     let out = call("omnifs_snapshot", json!({ "message": message }))?;
     if let Some(hex) = out.strip_prefix("snapshot: ").map(str::trim) {
         if is_full_hash(hex) {
@@ -547,6 +649,71 @@ pub fn rollback_full(commit: &str) -> Result<String, String> {
         return Err("hash de restauração inválido — cole o hash COMPLETO (64 chars hex)".into());
     }
     call("omnifs_rollback", json!({ "commit": commit }))
+}
+
+// ── Recovery de mount stale/congelado ───────────────────────────────────────
+
+/// Desmonta um mount FUSE de forma tolerante: `fusermount -u -z` (lazy: destaca já
+/// e limpa quando os handles fecham) — fuse3 primeiro, fuse2 depois; no macOS cai
+/// pro `umount -f`. Best-effort: se nada existir, o ensure_daemon seguinte reporta.
+#[cfg(unix)]
+fn unmount_lazy(mount: &Path) {
+    use crate::proc_ext::NoWindow;
+    use std::process::Command;
+    for bin in ["fusermount3", "fusermount"] {
+        let ok = Command::new(bin)
+            .arg("-u")
+            .arg("-z")
+            .arg(mount)
+            .no_window()
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            return;
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("umount").arg("-f").arg(mount).no_window().status();
+    }
+}
+
+/// Religa um mount OmniFS travado (o incidente ENOTCONN): desmonta lazy o FUSE
+/// stale, mata o daemon gerenciado congelado (se for filho nosso) e re-sobe limpo
+/// via `ensure_daemon`. Idempotente. Exposto no comando `omnifs_recover` (botão
+/// "Reconectar" na UI) e sugerido no aviso do guard pré-spawn.
+#[cfg(unix)]
+pub fn recover_stale_mount() -> Result<DaemonStatus, String> {
+    let cfg = read_config()
+        .ok_or_else(|| "OmniFS não provisionado — nada a reconectar".to_string())?;
+    let mount = PathBuf::from(&cfg.mount);
+    let store = PathBuf::from(&cfg.store);
+    let sock = socket_path();
+
+    // 1) desmonta o FUSE stale (lazy — não trava mesmo com handles presos).
+    unmount_lazy(&mount);
+
+    // 2) mata o daemon gerenciado congelado (só o que NÓS subimos; daemon do
+    //    usuário fica intocado — o unmount lazy acima já soltou o mount dele).
+    {
+        let mut g = managed_lock();
+        if let Some(child) = g.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        *g = None;
+    }
+
+    // 3) deixa o unmount assentar e re-sobe limpo.
+    std::thread::sleep(Duration::from_millis(300));
+    ensure_daemon(&store, &mount, &sock)?;
+    Ok(daemon_status())
+}
+
+#[cfg(not(unix))]
+pub fn recover_stale_mount() -> Result<DaemonStatus, String> {
+    Err("OmniFS requer Linux/macOS (daemon usa unix socket + FUSE)".into())
 }
 
 // ── Guard pré-spawn (F2 item 7) ─────────────────────────────────────────────
@@ -572,16 +739,27 @@ pub fn preflight_cwd_guard(cwd: Option<&str>) -> Result<(), String> {
     if !cwd_inside_mount(cwd, &cfg.mount) {
         return Ok(());
     }
-    if socket_alive(&socket_path()) {
-        return Ok(());
+    if !socket_alive(&socket_path()) {
+        return Err(format!(
+            "OmniFS: a pasta {cwd} está no drive OmniFS ({mount}), mas o daemon não está no ar — \
+             os arquivos ficariam inacessíveis (ENOTCONN). Abra Ferramentas → \"OmniFS — Pasta de \
+             agentes\" e clique em \"Criar minha Pasta de Projetos OmniFS\" pra religar o daemon, \
+             depois inicie o agente de novo.",
+            mount = cfg.mount
+        ));
     }
-    Err(format!(
-        "OmniFS: a pasta {cwd} está no drive OmniFS ({mount}), mas o daemon não está no ar — \
-         os arquivos ficariam inacessíveis (ENOTCONN). Abra Ferramentas → \"OmniFS — Pasta de \
-         agentes\" e clique em \"Criar minha Pasta de Projetos OmniFS\" pra religar o daemon, \
-         depois inicie o agente de novo.",
-        mount = cfg.mount
-    ))
+    // Socket vivo NÃO garante mount são: o daemon pode estar CONGELADO (disco cheio,
+    // I/O preso — o incidente 2026-07-03). Prova que o mount responde antes de nascer
+    // o agente lá dentro (senão todo IO dele daria ENOTCONN).
+    if !mount_responsive(Path::new(&cfg.mount), MOUNT_PROBE_TIMEOUT) {
+        return Err(format!(
+            "OmniFS: o daemon está no ar mas o drive {mount} não responde (provável disco cheio \
+             ou I/O travado — ENOTCONN). Abra Ferramentas → \"OmniFS — Pasta de agentes\" e clique \
+             em \"Reconectar\" pra religar o mount, depois inicie o agente de novo.",
+            mount = cfg.mount
+        ));
+    }
+    Ok(())
 }
 
 /// O `cwd` está dentro de um mount OmniFS VIVO (config provisionada + cwd sob o
@@ -778,6 +956,33 @@ mod tests {
             evict_dir_decision(Some(&sem_mount), true, app_data),
             PathBuf::from("/app/data/tool-results")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mount_responsive_dir_real_true_inexistente_false() {
+        let dir = tempfile::tempdir().unwrap();
+        // read_dir num dir real volta em ms → responsive dentro do timeout.
+        assert!(mount_responsive(dir.path(), Duration::from_secs(2)));
+        // Path inexistente → read_dir erra na hora → NÃO responsive (não trava o timeout).
+        assert!(!mount_responsive(&dir.path().join("nao-existe"), Duration::from_secs(2)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn free_space_bytes_root_positivo_e_erro_none() {
+        // A raiz sempre existe e tem algum espaço livre reportável.
+        assert!(free_space_bytes(Path::new("/")).unwrap_or(0) > 0);
+        // Path inexistente → statvfs falha → None (não entra no guard como 0).
+        assert!(free_space_bytes(Path::new("/nao/existe/xyzzy")).is_none());
+    }
+
+    #[test]
+    fn disk_guard_sem_config_e_noop() {
+        // Sem OmniFS provisionado não há store pra checar → nunca bloqueia.
+        // (Em CI/dev sem ~/.omnirift/omnifs.json; se existir, o teste ainda passa
+        //  porque o disco de dev tem > 256 MB livres.)
+        assert!(disk_guard().is_ok());
     }
 
     #[test]
