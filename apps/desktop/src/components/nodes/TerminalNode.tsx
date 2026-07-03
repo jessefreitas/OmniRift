@@ -709,4 +709,42 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
 }
 
 // memo: o terminal é o node mais pesado — evita re-render quando outro node muda.
-export const TerminalNode = memo(TerminalNodeBase);
+/** Card LEVE do terminal DORMENTE (restaurado, processo não religado). NÃO monta
+ *  `useTerminalSession` → nenhum PTY/claude nasce. Mantém os Handles pras conexões e o
+ *  header arrastável; o botão central religa sob demanda (`wakeTerminal` limpa `dormant`,
+ *  o wrapper passa a renderizar o `TerminalNodeBase`, que aí sim spawna). É o que faz abrir
+ *  um projeto com N agentes NÃO acordar N processos de uma vez. */
+function DormantTerminalCard({ id, data, selected }: TerminalNodeProps) {
+  const wakeTerminal = useCanvasStore((s) => s.wakeTerminal);
+  return (
+    <div
+      className={cn(
+        "flex h-full w-full flex-col overflow-hidden rounded-lg border bg-bg",
+        selected ? "border-brand" : "border-border/60",
+      )}
+    >
+      <Handle type="target" position={Position.Left} className="!bg-brand !border-surface1" />
+      <Handle type="source" position={Position.Right} className="!bg-brand !border-surface1" />
+      <Handle type="source" id="subagent" position={Position.Bottom} className="!bg-amber-400 !border-surface1" />
+      <header className="node-drag-handle flex items-center gap-2 px-3 py-2 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
+        <span className="text-sm leading-none shrink-0">💤</span>
+        <span className="flex-1 truncate text-sm font-medium">{data.label ?? data.command}</span>
+      </header>
+      <button
+        onClick={() => wakeTerminal(id)}
+        title="Religar o agente (sobe o processo sob demanda)"
+        className="flex flex-1 flex-col items-center justify-center gap-1.5 text-textMuted hover:text-brand transition-colors"
+      >
+        <span className="text-3xl">💤</span>
+        <span className="text-xs font-medium">Dormindo — clique pra acordar</span>
+        <span className="text-[10px] opacity-60">{data.role}</span>
+      </button>
+    </div>
+  );
+}
+
+/** Restaurado DORMENTE → card leve (sem sessão); senão o terminal vivo. O split garante
+ *  que o `useTerminalSession` (e o spawn do PTY) só monta quando o nó NÃO está dormente. */
+export const TerminalNode = memo(function TerminalNode(props: TerminalNodeProps) {
+  return props.data.dormant ? <DormantTerminalCard {...props} /> : <TerminalNodeBase {...props} />;
+});

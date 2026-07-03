@@ -85,6 +85,14 @@ export interface TerminalNode extends BaseCanvasNode {
   /** Epoch ms de quando o node/agente foi criado — alimenta o badge de tempo de
    *  sessão no header. Opcional: nodes antigos (sem o campo) só não mostram o badge. */
   createdAt?: number;
+  /**
+   * DORMENTE (lazy restore): o nó foi RESTAURADO de um projeto salvo e ainda NÃO teve
+   * o processo (claude/shell) religado. Enquanto `true`, o TerminalNode mostra um card
+   * "💤 dormindo" e NÃO monta a sessão PTY — abrir um projeto com N agentes deixa de
+   * acordar N processos de uma vez (era o que travava a máquina). O 1º clique/ação
+   * limpa a flag (`wakeTerminal`) e o processo sobe sob demanda. Só o restore seta isto.
+   */
+  dormant?: boolean;
   /** Compressor de token ativo neste agente (kind: "rtk"|"headroom"|"none"). */
   compressor?: string;
   /**

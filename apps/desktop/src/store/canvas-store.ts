@@ -254,6 +254,9 @@ interface CanvasState {
   // persistência
   getWorkspaceSnapshot: () => WorkspaceFileV3;
   restoreWorkspace: (ws: AnyWorkspaceFile) => void;
+  /** Religa um terminal DORMENTE (restaurado): limpa `dormant` → o nó monta a sessão
+   *  PTY sob demanda. Chamado no 1º clique/ação do card "💤 dormindo". */
+  wakeTerminal: (id: string) => void;
 }
 
 function defaultPosition(): { x: number; y: number } {
@@ -1154,7 +1157,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
         idMap.set(n.id, newId);
         if (n.kind === "terminal") {
           sidMap.set(n.session_id ?? n.id, newId);
-          return { ...n, id: newId, session_id: newId } as CanvasNode;
+          // Restaura DORMENTE: o processo (claude/shell) só religa no 1º clique
+          // (wakeTerminal). Abrir um projeto com N agentes deixa de acordar N processos
+          // de uma vez — era o que saturava a CPU/RAM e travava a máquina.
+          return { ...n, id: newId, session_id: newId, dormant: true } as CanvasNode;
         }
         sidMap.set(n.id, newId); // OmniAgents entram no canal por node.id
         return { ...n, id: newId } as CanvasNode;
@@ -1252,8 +1258,20 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     const termNodes = flatFloors.flatMap((f) =>
       f.nodes.filter((n): n is TerminalNode => n.kind === "terminal"),
     );
-    void gcPtySessions(termNodes.map((n) => n.session_id))
-      .then(() => ensurePtySessions(termNodes))
-      .catch(() => {});
+    // NÃO eager-spawnamos no restore: os terminais nascem DORMENTES (dormant:true acima)
+    // e religam sob demanda (wakeTerminal). Só o reaper roda, pra matar PTYs órfãos da
+    // montagem anterior. Era o `ensurePtySessions(termNodes)` que acordava N agentes de
+    // uma vez ao abrir o projeto — o que travava a máquina do Jessé. Ver TerminalNode.dormant.
+    void gcPtySessions(termNodes.map((n) => n.session_id)).catch(() => {});
   },
+
+  wakeTerminal: (id) =>
+    set((s) => ({
+      parallels: s.parallels.map((f) => ({
+        ...f,
+        nodes: f.nodes.map((n) =>
+          n.id === id && n.kind === "terminal" ? ({ ...n, dormant: false } as CanvasNode) : n,
+        ),
+      })),
+    })),
 }));
