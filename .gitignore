@@ -8,6 +8,10 @@ dist/
 target/
 apps/desktop/src-tauri/target/
 
+# OmniGraph — grafo de código gerado pela engine (graphify update); local, não versionar
+graphify-out/
+.graphify/
+
 # Tauri
 apps/desktop/src-tauri/WixTools/
 
