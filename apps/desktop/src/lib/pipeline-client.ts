@@ -62,6 +62,18 @@ Arquiteto ter um subagente de pesquisa).
 Quando o prompt trouxer a ARQUITETURA REAL DO REPOSITÓRIO (do knowledge graph), ESPELHE-A no time —
 cada comunidade vira um agente/floor, god nodes viram agentes com review obrigatório, acoplamento vira
 conexão — em vez de usar roles genéricos.
+DISCIPLINA POR TIPO DE TAREFA — classifique cada frente do projeto e ajuste a metodologia:
+- Tipos: bug-fix | feature | refactor | hotfix | incident | spike.
+- bug-fix → debug sistemático (causa-raiz ANTES do fix) + teste de regressão red-green real.
+- feature → brainstorming + plano ANTES de codar + verificação.
+- refactor → rede de testes de caracterização antes de tocar; 1 mudança por commit.
+- hotfix → fix mínimo + post-mortem 5-whys registrado.
+- incident → debug sistemático + retrospectiva; action items viram cards.
+- spike → timebox + ADR concluindo.
+- AUTO-ELEVAÇÃO: frente que toca migration/schema/auth/pagamento/PII/infra-de-produção → força
+  revisão redobrada (papel de Code Reviewer/Security dedicado no time), independente do tipo.
+- Anexe a disciplina escolhida ao campo "why" de CADA agente/fatia (1 linha), pra o agente daquele
+  papel já nascer sabendo COMO atacar. NÃO altere o schema de saída.
 Responda SOMENTE com um JSON válido, SEM texto fora dele.`;
 
 function schemaHint(desc: string, archContext?: string): string {

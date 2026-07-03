@@ -1036,13 +1036,24 @@ pub fn review_tool_def() -> Value {
     })
 }
 
-/// Roda o `local-review.py` headless sobre o worktree do agente e devolve o veredito.
+/// Roda o review headless em DOIS estágios sobre o worktree do agente e devolve o
+/// veredito consolidado:
+///   - **Estágio 1 (pré-flight, determinístico):** gitleaks + semgrep + grep de
+///     padrões perigosos, no working tree (aqui, em Rust). NÃO depende de LLM.
+///   - **Estágio 2 (review por IA):** `local-review.py` (diff + LLM BYOK, inalterado).
+/// Consolida os achados dos dois e aplica GO/NO-GO: 1+ CRITICAL OU 2+ WARNING = NO-GO.
+/// Ferramenta ausente / timeout = pulada (NEUTRAL, não bloqueia).
 pub async fn review_dispatch(state: &McpState, args: Value) -> String {
     let cwd = args.get("cwd").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     if cwd.is_empty() {
         return "Erro: passe `cwd` (a pasta absoluta do seu worktree) para review_current.".into();
     }
     let base = args.get("base").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+    // ── Estágio 1 — pré-flight determinístico (working tree do cwd) ──────────────
+    let preflight = run_preflight(&cwd).await;
+
+    // ── Estágio 2 — review por IA (local-review.py, contrato inalterado) ─────────
     let app = state.app.clone();
     let script = match crate::commands::review_cfg::ensure_review_script(&app) {
         Ok(p) => p,
@@ -1053,9 +1064,10 @@ pub async fn review_dispatch(state: &McpState, args: Value) -> String {
         Err(e) => return format!("Erro: app_data_dir indisponível: {e}"),
     };
 
+    let cwd_py = cwd.clone();
     let result = tokio::task::spawn_blocking(move || {
         let mut cmd = std::process::Command::new("python3");
-        cmd.arg(&script).arg("--cwd").arg(&cwd).arg("--config").arg(&cfg);
+        cmd.arg(&script).arg("--cwd").arg(&cwd_py).arg("--config").arg(&cfg);
         if !base.is_empty() {
             cmd.arg("--base").arg(&base);
         }
@@ -1063,25 +1075,515 @@ pub async fn review_dispatch(state: &McpState, args: Value) -> String {
     })
     .await;
 
+    // Extrai o Estágio 2. Se o Python falhar (ou não devolver JSON), o Estágio 2 vira
+    // NEUTRAL — não bloqueia sozinho, mas o pré-flight determinístico ainda gate-keia.
+    let mut stage2_summary = String::new();
+    let mut stage2_crit = 0i64;
+    let mut stage2_warn = 0i64;
+    let mut stage2_nogo = false;
+    let mut stage2_note: Option<String> = None;
     match result {
         Ok(Ok(o)) => {
             let stdout = String::from_utf8_lossy(&o.stdout);
             match serde_json::from_str::<Value>(stdout.trim()) {
                 Ok(v) => {
                     let verdict = v.get("verdict").and_then(|x| x.as_str()).unwrap_or("?");
-                    let summary = v.get("summary").and_then(|x| x.as_str()).unwrap_or("");
-                    let mut s = format!("Code review: {verdict}\n{summary}");
+                    stage2_nogo = verdict == "NO-GO";
+                    stage2_crit = v.get("crit").and_then(|x| x.as_i64()).unwrap_or(0);
+                    stage2_warn = v.get("warn").and_then(|x| x.as_i64()).unwrap_or(0);
+                    stage2_summary =
+                        v.get("summary").and_then(|x| x.as_str()).unwrap_or("").to_string();
                     if let Some(e) = v.get("llmError").and_then(|x| x.as_str()) {
-                        s.push_str(&format!("\n(LLM indisponível: {e} — só o pré-flight rodou)"));
+                        stage2_note =
+                            Some(format!("LLM indisponível: {e} — Estágio 2 rodou só o pré-flight interno"));
                     }
-                    s
                 }
-                Err(_) => format!("review (saída crua):\n{}", stdout.trim()),
+                Err(_) => {
+                    stage2_summary = format!("Estágio 2 (saída crua):\n{}", stdout.trim());
+                    stage2_note = Some("Estágio 2 não retornou JSON — tratado como NEUTRAL".into());
+                }
             }
         }
-        Ok(Err(e)) => format!("Erro ao rodar python3 local-review.py: {e}"),
-        Err(e) => format!("Erro de execução do review: {e}"),
+        Ok(Err(e)) => {
+            stage2_note = Some(format!("Estágio 2 indisponível (python3 local-review.py: {e}) — NEUTRAL"))
+        }
+        Err(e) => stage2_note = Some(format!("Estágio 2 falhou na execução: {e} — NEUTRAL")),
     }
+
+    // ── Consolidação + GO/NO-GO ─────────────────────────────────────────────────
+    let verdict = decide_go_nogo(&preflight.findings, stage2_crit, stage2_warn, stage2_nogo);
+    let mut s = format!("Code review: {verdict}\n{}", render_preflight(&preflight));
+    if !stage2_summary.is_empty() {
+        s.push('\n');
+        s.push_str(&stage2_summary);
+    }
+    if let Some(note) = stage2_note {
+        s.push_str(&format!("\n({note})"));
+    }
+    s
+}
+
+// ── Estágio 1 · pré-flight determinístico de segurança ──────────────────────────
+//
+// Roda ANTES do review por IA, direto no working tree do cwd (não no diff — pega
+// secret/padrão perigoso mesmo que ainda não commitado). Três checks independentes:
+//   1. gitleaks  (`--no-git`: só o working tree, NÃO o histórico) → secret = CRITICAL
+//   2. semgrep   (p/security-audit + p/secrets, severity ERROR)   → regra  = CRITICAL
+//   3. grep      (padrões perigosos determinísticos, conservador) → hit    = WARNING
+// Cada achado reusa `crate::db::ReviewHistItem` (severity + category "security" +
+// arquivo:linha no `file` + descrição no `title`). Degrada limpo: binário ausente /
+// timeout / erro = registrado em `skipped` (NEUTRAL — não vira finding, não bloqueia).
+
+use crate::db::ReviewHistItem;
+
+/// Resultado do Estágio 1: achados + ferramentas puladas (NEUTRAL, não bloqueiam).
+struct PreflightReport {
+    findings: Vec<ReviewHistItem>,
+    skipped: Vec<String>,
+}
+
+/// Desfecho de um binário externo do pré-flight.
+enum ToolRun {
+    Ran(std::process::Output),
+    Missing,          // nenhum candidato existe no PATH (NEUTRAL)
+    Failed(String),   // timeout ou erro de execução (NEUTRAL)
+}
+
+/// Candidatos de binário: nome no PATH (o app já herda o PATH do shell de login,
+/// que inclui ~/.local/bin) + fallbacks absolutos conhecidos, pra degradar limpo
+/// mesmo quando o PATH não foi propagado.
+fn bin_candidates(name: &str) -> Vec<String> {
+    let mut v = vec![name.to_string()];
+    let home = std::env::var("HOME").unwrap_or_default();
+    match name {
+        "gitleaks" => v.push("/usr/local/bin/gitleaks".into()),
+        "semgrep" => {
+            if !home.is_empty() {
+                v.push(format!("{home}/.local/bin/semgrep"));
+            }
+            v.push("/usr/local/bin/semgrep".into());
+        }
+        _ => {}
+    }
+    v
+}
+
+/// Roda um binário externo com timeout + kill_on_drop (sem leak de processo). Tenta
+/// os candidatos em ordem até um spawnar; NotFound em todos = Missing. Não bloqueia o
+/// executor async indefinidamente: no timeout, o future é dropado e o filho é morto.
+async fn run_tool(cands: &[String], args: &[String], timeout: Duration) -> ToolRun {
+    for (i, bin) in cands.iter().enumerate() {
+        let mut cmd = tokio::process::Command::new(bin);
+        cmd.args(args)
+            .kill_on_drop(true)
+            .stdin(std::process::Stdio::null());
+        cmd.no_window();
+        match tokio::time::timeout(timeout, cmd.output()).await {
+            Ok(Ok(out)) => return ToolRun::Ran(out),
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                if i + 1 < cands.len() {
+                    continue; // tenta o próximo candidato
+                }
+                return ToolRun::Missing;
+            }
+            Ok(Err(e)) => return ToolRun::Failed(e.to_string()),
+            Err(_) => return ToolRun::Failed(format!("timeout após {}s", timeout.as_secs())),
+        }
+    }
+    ToolRun::Missing
+}
+
+/// Trunca uma string em `n` CHARS (não bytes) — nunca parte no meio de um code point.
+fn truncate_chars(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
+/// Parser puro do report JSON do gitleaks (array de findings). Cada entrada vira um
+/// CRITICAL "security" com `arquivo:linha`. O `--redact` já mascara o segredo no report.
+fn parse_gitleaks(json: &str) -> Vec<ReviewHistItem> {
+    let Ok(val) = serde_json::from_str::<Value>(json) else {
+        return Vec::new();
+    };
+    let Some(arr) = val.as_array() else {
+        return Vec::new();
+    };
+    arr.iter()
+        .map(|f| {
+            let file = f.get("File").and_then(|v| v.as_str()).unwrap_or("?");
+            let line = f.get("StartLine").and_then(|v| v.as_i64()).unwrap_or(0);
+            let rule = f
+                .get("RuleID")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .or_else(|| f.get("Description").and_then(|v| v.as_str()))
+                .unwrap_or("secret");
+            ReviewHistItem {
+                file: format!("{file}:{line}"),
+                category: "security".into(),
+                severity: "CRITICAL".into(),
+                title: format!("secret no working tree ({})", truncate_chars(rule, 80)),
+            }
+        })
+        .collect()
+}
+
+/// Núcleo do parser do semgrep (`.results[]`). ERROR → CRITICAL, WARNING → WARNING,
+/// resto → INFO. `arquivo:linha` + regra (`check_id`) no título.
+fn semgrep_findings_from_value(v: &Value) -> Vec<ReviewHistItem> {
+    let Some(results) = v.get("results").and_then(|r| r.as_array()) else {
+        return Vec::new();
+    };
+    results
+        .iter()
+        .map(|r| {
+            let path = r.get("path").and_then(|v| v.as_str()).unwrap_or("?");
+            let line = r
+                .get("start")
+                .and_then(|s| s.get("line"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let rule = r.get("check_id").and_then(|v| v.as_str()).unwrap_or("semgrep");
+            let extra = r.get("extra");
+            let sev_raw = extra
+                .and_then(|e| e.get("severity"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("ERROR");
+            let msg = extra
+                .and_then(|e| e.get("message"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(rule);
+            let severity = match sev_raw.to_ascii_uppercase().as_str() {
+                "ERROR" => "CRITICAL",
+                "WARNING" => "WARNING",
+                _ => "INFO",
+            };
+            let short = msg.lines().next().unwrap_or(msg);
+            ReviewHistItem {
+                file: format!("{path}:{line}"),
+                category: "security".into(),
+                severity: severity.into(),
+                title: format!("{} [{}]", truncate_chars(short, 140), truncate_chars(rule, 80)),
+            }
+        })
+        .collect()
+}
+
+/// Parser puro (str) da saída `--json` do semgrep — wrapper testável do núcleo acima.
+#[cfg(test)]
+fn parse_semgrep(json: &str) -> Vec<ReviewHistItem> {
+    match serde_json::from_str::<Value>(json) {
+        Ok(v) => semgrep_findings_from_value(&v),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Regexes compilados 1x dos padrões perigosos (parte determinística do grep).
+fn danger_regexes() -> &'static Vec<(regex::Regex, &'static str)> {
+    static RE: std::sync::OnceLock<Vec<(regex::Regex, &'static str)>> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        let p = |re: &str, d: &'static str| (regex::Regex::new(re).unwrap(), d);
+        vec![
+            p(r"\beval\s*\(", "uso de eval("),
+            p(r"\bexec\s*\(", "uso de exec("),
+            p(r"\bnew\s+Function\s*\(", "new Function("),
+            p(r"shell\s*=\s*True", "subprocess shell=True"),
+            p(r"\bpickle\.loads?\s*\(", "pickle.load (desserialização insegura)"),
+            // hash fraco SÓ em contexto de chamada (conservador — evita FP em comentário/nome)
+            p(r#"(?i)createHash\(\s*['"](md5|sha1)"#, "hash fraco (MD5/SHA1)"),
+            p(r"(?i)hashlib\.(md5|sha1)\s*\(", "hash fraco (MD5/SHA1)"),
+            p(r#"(?i)getInstance\(\s*"(md5|sha-?1)""#, "hash fraco (MD5/SHA1)"),
+        ]
+    })
+}
+
+/// Checagem determinística de padrões perigosos numa ÚNICA linha. Conservadora de
+/// propósito (WARNING conta pro NO-GO em 2+). Pura → testável sem FS nem binários.
+fn scan_line_dangers(line: &str) -> Vec<&'static str> {
+    let mut hits: Vec<&'static str> = Vec::new();
+    for (re, desc) in danger_regexes() {
+        if re.is_match(line) && !hits.contains(desc) {
+            hits.push(desc);
+        }
+    }
+    // yaml.load sem Loader — o crate regex não tem lookahead, então checa em código.
+    if line.contains("yaml.load(") && !line.contains("Loader") {
+        hits.push("yaml.load sem Loader");
+    }
+    // SQL concatenada: `.query(`/`.execute(` com interpolação (`${`, `" +`, `' +`).
+    let sql_call = line.contains(".query(") || line.contains(".execute(");
+    let interp = line.contains("${")
+        || line.contains("\" +")
+        || line.contains("' +")
+        || line.contains("`+");
+    if sql_call && interp {
+        hits.push("SQL concatenada (possível injeção)");
+    }
+    // Comparação de assinatura/HMAC com `==`/`===` (não-constante → timing attack).
+    let lc = line.to_ascii_lowercase();
+    if (lc.contains("signature") || lc.contains("hmac"))
+        && (line.contains("===") || line.contains("!==") || line.contains("=="))
+    {
+        hits.push("comparação de assinatura não-constante (===)");
+    }
+    hits
+}
+
+/// Só varre extensões de código-fonte; pula testes/fixtures/.d.ts (baixo valor, FP alto).
+fn is_scannable(path: &std::path::Path) -> bool {
+    const CODE_EXT: [&str; 14] = [
+        "rs", "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rb", "java", "php", "cs", "sql",
+    ];
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !CODE_EXT.contains(&ext.as_str()) {
+        return false;
+    }
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let full = path.to_string_lossy().to_ascii_lowercase();
+    let is_test = full.contains("/test")
+        || full.contains("test.")
+        || full.contains(".test.")
+        || full.contains("spec.")
+        || full.contains(".spec.")
+        || full.contains("__tests__")
+        || full.contains("/fixtures/")
+        || full.contains("/e2e/")
+        || name.ends_with(".d.ts");
+    !is_test
+}
+
+/// Varre o working tree por padrões perigosos determinísticos. Honra `.gitignore`,
+/// pula dirs canônicos (node_modules/target/…), testes/fixtures/.md e arquivos grandes.
+/// Bounded (nº de arquivos e achados) pra nunca travar. Sync → chamado via spawn_blocking.
+fn grep_dangers(cwd: &str) -> Vec<ReviewHistItem> {
+    const MAX_FILES: usize = 4000;
+    const MAX_FINDINGS: usize = 60;
+    const MAX_FILE_BYTES: u64 = 1_000_000;
+    let mut out: Vec<ReviewHistItem> = Vec::new();
+    let walker = ignore::WalkBuilder::new(cwd)
+        .hidden(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .require_git(false)
+        .parents(true)
+        .filter_entry(|e| {
+            if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                if let Some(n) = e.file_name().to_str() {
+                    return !matches!(
+                        n,
+                        "node_modules"
+                            | "target"
+                            | "dist"
+                            | ".git"
+                            | "build"
+                            | ".next"
+                            | "vendor"
+                            | "__pycache__"
+                            | ".venv"
+                            | "venv"
+                            | "coverage"
+                    );
+                }
+            }
+            true
+        })
+        .build();
+    let mut seen_files = 0usize;
+    for res in walker {
+        if out.len() >= MAX_FINDINGS {
+            break;
+        }
+        let entry = match res {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            continue;
+        }
+        let path = entry.path();
+        if !is_scannable(path) {
+            continue;
+        }
+        if entry.metadata().map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true) {
+            continue;
+        }
+        seen_files += 1;
+        if seen_files > MAX_FILES {
+            break;
+        }
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue, // binário/ilegível → ignora
+        };
+        let rel = path
+            .strip_prefix(cwd)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .into_owned();
+        for (i, line) in content.lines().enumerate() {
+            if line.len() > 4000 {
+                continue; // minificado / linhão → pula (evita FP e custo)
+            }
+            for desc in scan_line_dangers(line) {
+                out.push(ReviewHistItem {
+                    file: format!("{rel}:{}", i + 1),
+                    category: "security".into(),
+                    severity: "WARNING".into(),
+                    title: desc.to_string(),
+                });
+                if out.len() >= MAX_FINDINGS {
+                    break;
+                }
+            }
+            if out.len() >= MAX_FINDINGS {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// gitleaks — só o working tree (`--no-git`), redigido. Report JSON em arquivo temp
+/// (parse robusto de arquivo:linha); fallback a 1 CRITICAL genérico se exit sinaliza
+/// leak sem report legível. Erro de execução real = NEUTRAL (skipped).
+async fn preflight_gitleaks(cwd: &str, report: &mut PreflightReport) {
+    let tmp = std::env::temp_dir().join(format!("omnirift-gitleaks-{}.json", uuid::Uuid::new_v4()));
+    let args: Vec<String> = vec![
+        "detect".into(),
+        "--source".into(),
+        cwd.into(),
+        "--no-git".into(),
+        "--redact".into(),
+        "--report-format".into(),
+        "json".into(),
+        "--report-path".into(),
+        tmp.to_string_lossy().into_owned(),
+        "--exit-code".into(),
+        "1".into(),
+    ];
+    match run_tool(&bin_candidates("gitleaks"), &args, Duration::from_secs(60)).await {
+        ToolRun::Missing => report.skipped.push("gitleaks: ferramenta ausente".into()),
+        ToolRun::Failed(e) => report.skipped.push(format!("gitleaks: {e}")),
+        ToolRun::Ran(out) => {
+            let json = std::fs::read_to_string(&tmp).unwrap_or_default();
+            let _ = std::fs::remove_file(&tmp);
+            let mut found = parse_gitleaks(&json);
+            let code = out.status.code().unwrap_or(-1);
+            if !found.is_empty() {
+                report.findings.append(&mut found);
+            } else if code == 1 {
+                // exit 1 = leak sinalizado, mas sem report parseável → não perde o gate.
+                report.findings.push(ReviewHistItem {
+                    file: "(working tree)".into(),
+                    category: "security".into(),
+                    severity: "CRITICAL".into(),
+                    title: "secret no working tree (gitleaks exit 1)".into(),
+                });
+            } else if code != 0 {
+                report
+                    .skipped
+                    .push(format!("gitleaks: execução inconclusiva (código {code})"));
+            }
+            // code == 0 sem achados → working tree limpo, nada a fazer.
+        }
+    }
+}
+
+/// semgrep — rulesets de segurança (severity ERROR), saída `--json` parseada. Falha
+/// de rede/download de regras (saída não-JSON) = NEUTRAL (skipped), não bloqueia.
+async fn preflight_semgrep(cwd: &str, report: &mut PreflightReport) {
+    let args: Vec<String> = [
+        "scan",
+        "--config",
+        "p/security-audit",
+        "--config",
+        "p/secrets",
+        "--severity",
+        "ERROR",
+        "--error",
+        "--json",
+        "--quiet",
+        "--metrics=off",
+        "--disable-version-check",
+        cwd,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    match run_tool(&bin_candidates("semgrep"), &args, Duration::from_secs(120)).await {
+        ToolRun::Missing => report.skipped.push("semgrep: ferramenta ausente".into()),
+        ToolRun::Failed(e) => report.skipped.push(format!("semgrep: {e}")),
+        ToolRun::Ran(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            match serde_json::from_str::<Value>(stdout.trim()) {
+                Ok(v) if v.get("results").and_then(|r| r.as_array()).is_some() => {
+                    let mut f = semgrep_findings_from_value(&v);
+                    report.findings.append(&mut f);
+                }
+                _ => {
+                    // sem JSON válido → provável falha de rede/download de regras → NEUTRAL
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    let snip = err.trim().lines().last().unwrap_or("saída não-JSON");
+                    report
+                        .skipped
+                        .push(format!("semgrep: saída inconclusiva ({})", truncate_chars(snip, 100)));
+                }
+            }
+        }
+    }
+}
+
+/// Orquestra o Estágio 1: gitleaks + semgrep (subprocessos, timeout+kill_on_drop) +
+/// grep (sync IO-bound → spawn_blocking, pra não travar o executor async).
+async fn run_preflight(cwd: &str) -> PreflightReport {
+    let mut report = PreflightReport { findings: Vec::new(), skipped: Vec::new() };
+    preflight_gitleaks(cwd, &mut report).await;
+    preflight_semgrep(cwd, &mut report).await;
+    let cwd_owned = cwd.to_string();
+    match tokio::task::spawn_blocking(move || grep_dangers(&cwd_owned)).await {
+        Ok(mut g) => report.findings.append(&mut g),
+        Err(e) => report.skipped.push(format!("grep: {e}")),
+    }
+    report
+}
+
+/// Decisão consolidada GO/NO-GO. Regra: **1+ CRITICAL OU 2+ WARNING = NO-GO** sobre os
+/// achados do pré-flight SOMADOS aos contadores do Estágio 2. O NO-GO da IA nunca é
+/// rebaixado. INFO/style não conta. Pura → testável sem os binários.
+fn decide_go_nogo(
+    preflight: &[ReviewHistItem],
+    stage2_crit: i64,
+    stage2_warn: i64,
+    stage2_nogo: bool,
+) -> &'static str {
+    let crit = preflight.iter().filter(|f| f.severity == "CRITICAL").count() as i64 + stage2_crit;
+    let warn = preflight.iter().filter(|f| f.severity == "WARNING").count() as i64 + stage2_warn;
+    if stage2_nogo || crit >= 1 || warn >= 2 {
+        "NO-GO"
+    } else {
+        "GO"
+    }
+}
+
+/// Seção legível do Estágio 1 (achados por severidade + ferramentas puladas/NEUTRAL).
+fn render_preflight(report: &PreflightReport) -> String {
+    let n = report.findings.len();
+    let mut lines = vec![format!(
+        "Pré-flight (Estágio 1 · gitleaks+semgrep+grep): {n} achado(s)"
+    )];
+    for sev in ["CRITICAL", "WARNING", "INFO"] {
+        for f in report.findings.iter().filter(|f| f.severity == sev) {
+            lines.push(format!("  [{sev}/{}] {}: {}", f.category, f.file, f.title));
+        }
+    }
+    for s in &report.skipped {
+        lines.push(format!("  (pulado: {s})"));
+    }
+    lines.join("\n")
 }
 
 // ---- Kanban: acompanhamento visual do projeto — os AGENTES movem os cards ----
@@ -1411,5 +1913,152 @@ mod tests {
     fn evict_threshold_is_about_20k_chars() {
         // Guard de regressão: ~5k tokens por proxy de chars (deepagents-style).
         assert_eq!(EVICT_THRESHOLD_CHARS, 20_000);
+    }
+
+    // ── Estágio 1 · pré-flight determinístico (parsers puros + decisão GO/NO-GO) ──
+
+    fn item(sev: &str) -> ReviewHistItem {
+        ReviewHistItem {
+            file: "x:1".into(),
+            category: "security".into(),
+            severity: sev.into(),
+            title: "t".into(),
+        }
+    }
+
+    #[test]
+    fn decide_1_critical_is_nogo() {
+        // 1+ CRITICAL (do pré-flight) já derruba.
+        assert_eq!(decide_go_nogo(&[item("CRITICAL")], 0, 0, false), "NO-GO");
+    }
+
+    #[test]
+    fn decide_2_warnings_is_nogo() {
+        // 2+ WARNING = NO-GO; 1 sozinho ainda é GO.
+        assert_eq!(decide_go_nogo(&[item("WARNING")], 0, 0, false), "GO");
+        assert_eq!(decide_go_nogo(&[item("WARNING"), item("WARNING")], 0, 0, false), "NO-GO");
+    }
+
+    #[test]
+    fn decide_combines_stages_and_info_is_go() {
+        // 1 WARNING do pré-flight + 1 WARNING do Estágio 2 = 2 → NO-GO (contagens somam).
+        assert_eq!(decide_go_nogo(&[item("WARNING")], 0, 1, false), "NO-GO");
+        // Só INFO/style não bloqueia.
+        assert_eq!(decide_go_nogo(&[item("INFO"), item("INFO")], 0, 0, false), "GO");
+        // Nada em nenhum estágio → GO.
+        assert_eq!(decide_go_nogo(&[], 0, 0, false), "GO");
+    }
+
+    #[test]
+    fn decide_never_downgrades_ai_nogo() {
+        // NO-GO da IA (Estágio 2) nunca é rebaixado, mesmo sem achado no pré-flight.
+        assert_eq!(decide_go_nogo(&[], 0, 0, true), "NO-GO");
+        // CRITICAL do Estágio 2 (contador) também derruba sem achado no pré-flight.
+        assert_eq!(decide_go_nogo(&[], 1, 0, false), "NO-GO");
+    }
+
+    #[test]
+    fn parse_gitleaks_maps_each_leak_to_critical() {
+        let sample = r#"[
+            {"RuleID":"aws-access-token","File":"src/cfg.rs","StartLine":42,"Description":"AWS key"},
+            {"RuleID":"","File":"lib/db.ts","StartLine":7,"Description":"Generic API Key"}
+        ]"#;
+        let got = parse_gitleaks(sample);
+        assert_eq!(got.len(), 2);
+        assert!(got.iter().all(|f| f.severity == "CRITICAL" && f.category == "security"));
+        assert_eq!(got[0].file, "src/cfg.rs:42");
+        assert!(got[0].title.contains("aws-access-token"));
+        // RuleID vazio → cai na Description.
+        assert_eq!(got[1].file, "lib/db.ts:7");
+        assert!(got[1].title.contains("Generic API Key"));
+    }
+
+    #[test]
+    fn parse_gitleaks_empty_and_garbage_are_no_findings() {
+        assert!(parse_gitleaks("[]").is_empty());
+        assert!(parse_gitleaks("not json").is_empty());
+        assert!(parse_gitleaks("").is_empty());
+    }
+
+    #[test]
+    fn parse_semgrep_maps_error_to_critical_with_file_line_rule() {
+        let sample = r#"{"results":[
+            {"check_id":"python.lang.security.audit.dangerous-exec",
+             "path":"app/run.py",
+             "start":{"line":13},
+             "extra":{"severity":"ERROR","message":"Detected exec usage"}},
+            {"check_id":"js.weak","path":"a.js","start":{"line":1},
+             "extra":{"severity":"WARNING","message":"weak"}}
+        ]}"#;
+        let got = parse_semgrep(sample);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].severity, "CRITICAL");
+        assert_eq!(got[0].category, "security");
+        assert_eq!(got[0].file, "app/run.py:13");
+        assert!(got[0].title.contains("Detected exec usage"));
+        assert!(got[0].title.contains("dangerous-exec"));
+        // WARNING do semgrep preserva a severidade.
+        assert_eq!(got[1].severity, "WARNING");
+    }
+
+    #[test]
+    fn parse_semgrep_no_results_and_garbage_are_empty() {
+        assert!(parse_semgrep(r#"{"results":[]}"#).is_empty());
+        assert!(parse_semgrep("boom not json").is_empty());
+    }
+
+    #[test]
+    fn scan_line_dangers_flags_known_patterns() {
+        assert!(scan_line_dangers("const r = eval(userInput);").contains(&"uso de eval("));
+        assert!(scan_line_dangers("out = subprocess.run(cmd, shell=True)").contains(&"subprocess shell=True"));
+        assert!(scan_line_dangers("data = pickle.loads(buf)").contains(&"pickle.load (desserialização insegura)"));
+        assert!(scan_line_dangers("cfg = yaml.load(f)").contains(&"yaml.load sem Loader"));
+        // yaml.load COM Loader → não flaga.
+        assert!(scan_line_dangers("cfg = yaml.load(f, Loader=SafeLoader)").is_empty());
+        // SQL concatenada.
+        assert!(scan_line_dangers("db.query(`SELECT * FROM u WHERE id=${id}`)")
+            .contains(&"SQL concatenada (possível injeção)"));
+        // Comparação de assinatura não-constante.
+        assert!(scan_line_dangers("if (signature === expected) {")
+            .contains(&"comparação de assinatura não-constante (===)"));
+        // hash fraco em contexto de chamada.
+        assert!(scan_line_dangers("crypto.createHash('md5')").contains(&"hash fraco (MD5/SHA1)"));
+    }
+
+    #[test]
+    fn scan_line_dangers_conservative_no_false_positives() {
+        // Menção em comentário/nome de variável não deve flagar (conservador).
+        assert!(scan_line_dangers("// avoid md5 and sha1 for passwords").is_empty());
+        assert!(scan_line_dangers("let evaluation = computeEval();").is_empty());
+        assert!(scan_line_dangers("const signatureLabel = 'ok';").is_empty());
+        assert!(scan_line_dangers("db.query('SELECT 1')").is_empty());
+    }
+
+    #[test]
+    fn is_scannable_filters_code_and_skips_tests() {
+        use std::path::Path;
+        assert!(is_scannable(Path::new("/proj/src/main.rs")));
+        assert!(is_scannable(Path::new("/proj/app/handler.ts")));
+        // não-código.
+        assert!(!is_scannable(Path::new("/proj/README.md")));
+        assert!(!is_scannable(Path::new("/proj/data.json")));
+        // testes/fixtures/.d.ts.
+        assert!(!is_scannable(Path::new("/proj/src/main.test.ts")));
+        assert!(!is_scannable(Path::new("/proj/__tests__/x.ts")));
+        assert!(!is_scannable(Path::new("/proj/fixtures/sample.py")));
+        assert!(!is_scannable(Path::new("/proj/types/api.d.ts")));
+    }
+
+    #[test]
+    fn render_preflight_lists_findings_and_skips() {
+        let report = PreflightReport {
+            findings: vec![item("CRITICAL"), item("WARNING")],
+            skipped: vec!["semgrep: ferramenta ausente".into()],
+        };
+        let out = render_preflight(&report);
+        assert!(out.contains("2 achado(s)"));
+        assert!(out.contains("[CRITICAL/security]"));
+        assert!(out.contains("[WARNING/security]"));
+        assert!(out.contains("(pulado: semgrep: ferramenta ausente)"));
     }
 }
