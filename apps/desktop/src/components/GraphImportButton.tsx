@@ -26,7 +26,7 @@ import { Network, Loader2, Sparkles, ChevronDown, Share2, Boxes, Flame, GitCompa
 import { useCanvasStore } from "@/store/canvas-store";
 import { omnigraphGraphJson } from "@/lib/pipeline-client";
 import { importGraph, VIEW_META, type GraphJson, type GraphView } from "@/lib/omnigraph-graph";
-import { topAmbiguousEdges, buildAmbiguityResolverBrief } from "@/lib/omnigraph-client";
+import { topAmbiguousEdges, buildAmbiguityResolverBrief, omnigraphRebuild } from "@/lib/omnigraph-client";
 import { OmniGraphDiffModal } from "@/components/OmniGraphDiffModal";
 import { notify } from "@/lib/notify";
 import { useT } from "@/lib/i18n";
@@ -73,6 +73,35 @@ export function GraphImportButton() {
     return t(`graph.view.${view}`, VIEW_META[view].label);
   }
 
+  // Lê o graph.json; se ainda não existe, GERA na hora (1ª vez) e relê — em vez do
+  // antigo dead-end "Rode o OmniGraph primeiro" (mensagem circular: o botão É o OmniGraph).
+  // O grafo demora ~1-2min só na primeira vez; depois o loop F4 mantém fresco.
+  async function loadOrBuildGraph(cwd: string): Promise<string | null> {
+    let raw = await omnigraphGraphJson(cwd);
+    if (raw) return raw;
+    void notify(
+      t("graph.building", "Gerando o grafo de código pela primeira vez… (~1-2 min, roda uma vez só)"),
+      "info",
+    );
+    try {
+      await omnigraphRebuild(cwd);
+    } catch (e) {
+      void notify(
+        t("graph.buildFail", "Não consegui gerar o grafo (engine OmniGraph indisponível?): {e}").replace("{e}", String(e)),
+        "error",
+      );
+      return null;
+    }
+    raw = await omnigraphGraphJson(cwd);
+    if (!raw) {
+      void notify(
+        t("graph.stillNone", "O grafo veio vazio — esse diretório pode não ter código indexável."),
+        "error",
+      );
+    }
+    return raw;
+  }
+
   async function handleImport(view: GraphView) {
     if (busy) return;
     const cwd = currentCwd?.trim();
@@ -89,14 +118,8 @@ export function GraphImportButton() {
     }
     setBusy(true);
     try {
-      const raw = await omnigraphGraphJson(cwd); // Err (grafo grande demais) sobe pro catch
-      if (!raw) {
-        void notify(
-          t("graph.none", "Nenhum grafo de código encontrado. Rode o OmniGraph (Arquiteto de Pipeline ancorado) primeiro."),
-          "error",
-        );
-        return;
-      }
+      const raw = await loadOrBuildGraph(cwd); // gera na hora se ainda não existe (era dead-end circular)
+      if (!raw) return; // loadOrBuildGraph já avisou o usuário
       let parsed: GraphJson;
       try {
         parsed = JSON.parse(raw) as GraphJson;
@@ -139,14 +162,8 @@ export function GraphImportButton() {
     }
     setBusyClean(true);
     try {
-      const raw = await omnigraphGraphJson(cwd); // Err (grafo grande demais) sobe pro catch
-      if (!raw) {
-        void notify(
-          t("graph.none", "Nenhum grafo de código encontrado. Rode o OmniGraph (Arquiteto de Pipeline ancorado) primeiro."),
-          "error",
-        );
-        return;
-      }
+      const raw = await loadOrBuildGraph(cwd); // gera na hora se ainda não existe (era dead-end circular)
+      if (!raw) return; // loadOrBuildGraph já avisou o usuário
       let parsed: GraphJson;
       try {
         parsed = JSON.parse(raw) as GraphJson;
