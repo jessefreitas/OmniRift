@@ -23,6 +23,9 @@ import {
   Undo2,
   ScanSearch,
   FolderCheck,
+  Search,
+  Copy,
+  Check,
 } from "lucide-react";
 
 import {
@@ -31,11 +34,14 @@ import {
   omnifsProvision,
   omnifsReindex,
   omnifsRollback,
+  omnifsSearch,
   omnifsSnapshotNow,
   omnifsStatus,
   type OmniFsLogEntry,
   type OmniFsStatus,
+  type SearchHit,
 } from "@/lib/omnifs-client";
+import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 
@@ -64,6 +70,14 @@ export function OmniFsModal({ onClose }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
   const [snapMsg, setSnapMsg] = useState("");
   const [restore, setRestore] = useState<RestoreTarget | null>(null);
+
+  // BUSCA semântica — estado próprio (não passa pelo `run`/`msg` global: o retorno
+  // é uma lista de hits, não uma string de status, e não deve disparar refresh).
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchHits, setSearchHits] = useState<SearchHit[] | null>(null);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [copiedFile, setCopiedFile] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -120,6 +134,29 @@ export function OmniFsModal({ onClose }: Props) {
     });
 
   const reindex = () => run("reindex", () => omnifsReindex());
+
+  const doSearch = useCallback(async () => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    setSearching(true);
+    setSearchErr(null);
+    setCopiedFile(null);
+    try {
+      setSearchHits(await omnifsSearch(q));
+    } catch (e) {
+      setSearchHits(null);
+      setSearchErr(String(e));
+    } finally {
+      setSearching(false);
+    }
+  }, [searchQuery]);
+
+  /** Clique no hit copia o caminho (sem window.open/diálogos nativos no WebKitGTK). */
+  async function copyHit(file: string) {
+    await copyText(file);
+    setCopiedFile(file);
+    setTimeout(() => setCopiedFile((f) => (f === file ? null : f)), 1500);
+  }
 
   /** Hash completo efetivo do alvo de restauração (ledger OU colado + validado). */
   function restoreHash(r: RestoreTarget): string | null {
@@ -255,6 +292,78 @@ export function OmniFsModal({ onClose }: Props) {
                   ? fmtBytes(status.backingBytes)
                   : status?.backingPath ?? "—"}
               </span>
+            </div>
+          </section>
+
+          {/* BUSCA semântica — o headline: acha por SIGNIFICADO, não por grep */}
+          <section className="rounded-md border border-border/60 bg-surface2/20">
+            <div className="px-2 py-1.5 text-[10px] uppercase tracking-wide text-textMuted border-b border-border/40 flex items-center gap-1.5">
+              <Search size={11} /> {t("omnifs.search", "Busca semântica")}
+            </div>
+            <div className="px-2 py-2 flex items-center gap-2 border-b border-border/40">
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void doSearch();
+                }}
+                placeholder={t("omnifs.searchPh", "onde no projeto… (ex.: a lógica de login)")}
+                disabled={!alive}
+                className="flex-1 bg-bg border border-border rounded px-2 py-1 text-[11px] text-text placeholder:text-textMuted focus:outline-none disabled:opacity-40"
+              />
+              <button
+                onClick={() => void doSearch()}
+                disabled={!alive || searching || !searchQuery.trim()}
+                className="px-2.5 py-1 rounded-md text-[11px] bg-surface2 border border-border text-text hover:bg-bg disabled:opacity-40 flex items-center gap-1.5 shrink-0"
+              >
+                <Search size={12} /> {t("omnifs.searchGo", "Buscar")}
+                {searching && <RefreshCw size={11} className="animate-spin" />}
+              </button>
+            </div>
+            <div className="max-h-52 overflow-auto">
+              {!alive ? (
+                <p className="px-3 py-2 text-[11px] text-textMuted opacity-70">
+                  {t("omnifs.searchNeedsDaemon", "Busca indisponível — daemon fora do ar. Provisione a Pasta de Projetos acima.")}
+                </p>
+              ) : searchErr ? (
+                <p className="px-3 py-2 text-[11px] text-danger">{searchErr}</p>
+              ) : searchHits === null ? (
+                <p className="px-3 py-2 text-[11px] text-textMuted opacity-70">
+                  {t("omnifs.searchHint", "Descreva o que procura em linguagem natural — os agentes buscam por conceito, não por *.ext. Rode o Índice abaixo se a busca vier vazia.")}
+                </p>
+              ) : searchHits.length === 0 ? (
+                <p className="px-3 py-2 text-[11px] text-textMuted opacity-70">
+                  {t("omnifs.searchEmpty", "Nenhum resultado — reindexe o drive abaixo ou tente outros termos.")}
+                </p>
+              ) : (
+                searchHits.map((h, i) => (
+                  <button
+                    key={`${h.file}-${i}`}
+                    onClick={() => void copyHit(h.file)}
+                    title={t("omnifs.searchCopy", "Clique pra copiar o caminho")}
+                    className="w-full text-left border-b border-border/30 last:border-b-0 px-2 py-1.5 hover:bg-surface2/40 group"
+                  >
+                    <div className="flex items-center gap-2 text-[11px]">
+                      <span className="text-[10px] text-brand tabular-nums shrink-0" title={t("omnifs.searchScore", "relevância (score cosseno)")}>
+                        {h.score.toFixed(3)}
+                      </span>
+                      <span className="flex-1 min-w-0 truncate font-mono text-text" title={h.file}>
+                        {h.file}
+                      </span>
+                      {copiedFile === h.file ? (
+                        <Check size={11} className="text-green-400 shrink-0" />
+                      ) : (
+                        <Copy size={11} className="text-textMuted opacity-0 group-hover:opacity-100 shrink-0" />
+                      )}
+                    </div>
+                    {h.preview && (
+                      <p className="mt-0.5 text-[10px] text-textMuted truncate" title={h.preview}>
+                        {h.preview}
+                      </p>
+                    )}
+                  </button>
+                ))
+              )}
             </div>
           </section>
 

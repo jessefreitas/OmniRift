@@ -88,7 +88,7 @@ use commands::memory::{
 };
 use commands::omnifs::{
     omnifs_is_managed_cwd, omnifs_log, omnifs_provision, omnifs_reindex, omnifs_rollback,
-    omnifs_snapshot_now, omnifs_status,
+    omnifs_search, omnifs_snapshot_now, omnifs_status,
 };
 use commands::hosts::{hosts_add, hosts_list, hosts_remove};
 use commands::pty::{
@@ -541,6 +541,7 @@ pub fn run() {
             omnifs_log,
             omnifs_rollback,
             omnifs_reindex,
+            omnifs_search,
             omnifs_is_managed_cwd,
             clis_list,
             cli_install,

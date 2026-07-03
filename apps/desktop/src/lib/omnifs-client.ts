@@ -34,6 +34,16 @@ export interface OmniFsLogEntry {
   at: number | null;
 }
 
+/** Um hit da busca semântica do OmniFS (SearchHit do Rust, camelCase). */
+export interface SearchHit {
+  /** Score cosseno — mais alto = mais relevante (o daemon devolve top-5). */
+  score: number;
+  /** Caminho do arquivo dentro do drive OmniFS. */
+  file: string;
+  /** Trecho do arquivo em volta do match (uma linha, `\n` já vira espaço). */
+  preview: string;
+}
+
 export const omnifsStatus = () => invoke<OmniFsStatus>("omnifs_status");
 
 export const omnifsProvision = (mountDir?: string) =>
@@ -49,6 +59,11 @@ export const omnifsRollback = (commit: string) =>
   invoke<string>("omnifs_rollback", { commit });
 
 export const omnifsReindex = () => invoke<string>("omnifs_reindex");
+
+/** Busca semântica no drive OmniFS por SIGNIFICADO (não grep). Requer daemon vivo
+ *  — sem ele o backend devolve erro amigável pedindo pra provisionar a pasta. */
+export const omnifsSearch = (query: string) =>
+  invoke<SearchHit[]>("omnifs_search", { query });
 
 /** O `cwd` está dentro de um mount OmniFS VIVO? (config provisionada + daemon no ar).
  *  Gate da automação F3 no front — barato no backend (1 read de JSON + 1 connect local). */
