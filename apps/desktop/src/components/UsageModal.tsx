@@ -27,6 +27,7 @@ import { MiniSparkline, type SparkBar } from "@/components/MiniSparkline";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useFleetUsage } from "@/lib/fleet-usage";
 import { useAgentMetrics, percentile, errorRate } from "@/lib/agent-metrics";
+import { agentHealth, medianCost, type AgentHealth, type HealthStatus } from "@/lib/agent-health";
 
 /** Uso agregado por dia — campo `byDay` que o backend/usage-client publica no
  *  `UsageReport`. Definido local (não importado) pra o painel compilar mesmo
@@ -103,6 +104,8 @@ interface AgentRow {
   latencyP95?: number;
   /** taxa de erro de turno (0..1) — undefined se não há turnos registrados. */
   errorPct?: number;
+  /** health gate derivado (erro/latência/cost-spike) — ok|warn|critical + motivos. */
+  health?: AgentHealth;
 }
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
@@ -113,6 +116,13 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
     </div>
   );
 }
+
+/** Cor do dot de saúde por status (health gate: verde ok, amarelo warn, vermelho critical). */
+const HEALTH_DOT: Record<HealthStatus, string> = {
+  ok: "bg-emerald-500/50",
+  warn: "bg-yellow-400",
+  critical: "bg-red-500",
+};
 
 export function UsageModal({ onClose, activeProject }: { onClose: () => void; activeProject?: string | null }) {
   const t = useT();
@@ -186,8 +196,22 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
       }
     }
     rows.sort((a, b) => b.tokens - a.tokens); // critério mantido: tokens desc
+    // Health gates: o cost-spike é RELATIVO à mediana da frota, então derivamos o health
+    // depois de ter todas as rows (com custo). Erro/latência são absolutos por agente.
+    const fleetMedian = medianCost(rows.map((r) => r.costUsd ?? 0));
+    for (const r of rows) {
+      r.health = agentHealth({
+        errorPct: r.errorPct,
+        latencyP95Ms: r.latencyP95,
+        costUsd: r.costUsd,
+        fleetMedianCostUsd: fleetMedian,
+      });
+    }
     return rows;
   }, [parallels, tokensByNode, turnsByNode, rateByModel]);
+
+  // Resumo de saúde: quantos agentes pedem atenção (warn/critical) — cabeçalho "Por agente".
+  const unhealthy = agentRows.filter((a) => a.health && a.health.status !== "ok");
 
   const proj = onlyThis && activeProject ? activeProject : null;
   const loadSeq = useRef(0);
@@ -354,6 +378,15 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
                 <div className="flex items-baseline gap-2 mb-1">
                   <span className="text-[11px] uppercase tracking-wider text-textMuted">{t("usage.byAgent", "Por agente")}</span>
                   <span className="text-[10px] text-textMuted opacity-60">{t("usage.byAgentNote", "sessão atual do canvas")}</span>
+                  <div className="flex-1" />
+                  {unhealthy.length > 0 && (
+                    <span
+                      className="text-[10px] text-yellow-400 flex items-center gap-1 cursor-help"
+                      title={unhealthy.map((a) => `${a.label}: ${a.health?.reasons.join(", ")}`).join("\n")}
+                    >
+                      ⚠ {unhealthy.length} {t("usage.needAttention", "com alerta")}
+                    </span>
+                  )}
                 </div>
                 <div className="rounded-md border border-border divide-y divide-border/40 max-h-52 overflow-auto">
                   {agentRows.length > 0 && (
@@ -373,6 +406,10 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
                       className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
                       title={a.model ? `${a.label} · ${a.model}` : a.label}
                     >
+                      <span
+                        className={"inline-block w-2 h-2 rounded-full shrink-0 " + HEALTH_DOT[a.health?.status ?? "ok"]}
+                        title={a.health && a.health.reasons.length ? a.health.reasons.join(" · ") : t("usage.healthOk", "saudável")}
+                      />
                       <span className="text-text truncate flex-1">{a.label}</span>
                       <span className="text-textMuted opacity-70 truncate w-16 text-right" title={a.floor}>{a.floor}</span>
                       <span className="text-textMuted opacity-60 tabular-nums w-10 text-right">{a.age ?? "—"}</span>
