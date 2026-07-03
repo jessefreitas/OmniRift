@@ -117,6 +117,7 @@ const PipelineArchitectModal = lazy(() => import("@/components/PipelineArchitect
 const MobileDevicesModal = lazy(() => import("@/components/MobileDevicesModal").then((m) => ({ default: m.MobileDevicesModal })));
 const FeatureFlagsPanel = lazy(() => import("@/components/FeatureFlagsPanel").then((m) => ({ default: m.FeatureFlagsPanel })));
 const HelpModal = lazy(() => import("@/components/HelpModal").then((m) => ({ default: m.HelpModal })));
+const ReleaseNotesModal = lazy(() => import("@/components/ReleaseNotesModal").then((m) => ({ default: m.ReleaseNotesModal })));
 const McpServersModal = lazy(() => import("@/components/McpServersModal").then((m) => ({ default: m.McpServersModal })));
 const OmniFsModal = lazy(() => import("@/components/OmniFsModal").then((m) => ({ default: m.OmniFsModal })));
 const ClisModal = lazy(() => import("@/components/ClisModal").then((m) => ({ default: m.ClisModal })));
@@ -176,6 +177,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "reminders", icon: Bookmark, label: "Lembretes", desc: "Notas do canvas viram lembretes com prazo" },
   { id: "mcpservers", icon: Server, label: "MCP Servers", desc: "Tools MCP dos agentes (Postgres, GitHub, …) — liga/desliga por servidor" },
   { id: "memory", icon: Brain, label: "Memória dos agentes", desc: "Ver e editar o que os agentes lembram (blackboard SQLite)" },
+  { id: "releases", icon: Rocket, label: "Novidades", desc: "Histórico completo de versões do OmniRift — o que mudou em cada release (timeline + busca)" },
   { id: "omnifs", icon: HardDrive, label: "OmniFS — Pasta de agentes", desc: "Drive versionado dos agentes: status do daemon, espaço, snapshots (com restauração humana) e reindexação da busca semântica" },
   { id: "companion", icon: Sparkles, label: "OmniPartner (IA)", desc: "Chat IA lateral que enxerga o canvas e ajuda a operar" },
   { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
@@ -452,6 +454,7 @@ export function Sidebar() {
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showRoutines, setShowRoutines] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showReleases, setShowReleases] = useState(false);
   const [showMcpServers, setShowMcpServers] = useState(false);
   const [showOmniFs, setShowOmniFs] = useState(false);
   const [showClis, setShowClis] = useState(false);
@@ -564,6 +567,7 @@ export function Sidebar() {
     history: () => setShowHistory(true),
     routines: () => setShowRoutines(true),
     help: () => setShowHelp(true),
+    releases: () => setShowReleases(true),
     mcpservers: () => setShowMcpServers(true),
     omnifs: () => setShowOmniFs(true),
     clis: () => setShowClis(true),
@@ -582,6 +586,7 @@ export function Sidebar() {
       switch ((e as CustomEvent<string>).detail) {
         case "routines": setShowRoutines(true); break;
         case "help": setShowHelp(true); break;
+        case "releases": setShowReleases(true); break;
         case "mcpservers": setShowMcpServers(true); break;
         case "omnifs": setShowOmniFs(true); break;
         case "clis": setShowClis(true); break;
@@ -2424,6 +2429,7 @@ export function Sidebar() {
       {showMobile && <MobileDevicesModal onClose={() => setShowMobile(false)} />}
       {showFeatureFlags && <FeatureFlagsPanel onClose={() => setShowFeatureFlags(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showReleases && <ReleaseNotesModal onClose={() => setShowReleases(false)} />}
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
       {showOmniFs && <OmniFsModal onClose={() => setShowOmniFs(false)} />}
       {showClis && <ClisModal onClose={() => setShowClis(false)} />}

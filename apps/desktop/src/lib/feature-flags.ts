@@ -65,6 +65,38 @@ export const FLAGS: FlagDef[] = [
     default: false,
     stage: "experimental",
   },
+  {
+    key: "omnifs-auto-checkpoint",
+    label: "Checkpoint automático (OmniFS)",
+    description:
+      "Cada turno de agente que edita arquivos vira um snapshot restaurável no drive OmniFS (undo por ação, com rollback no nó). Desligue pra economizar disco em drives OmniFS.",
+    default: true,
+    stage: "stable",
+  },
+  {
+    key: "omnifs-semantic-search",
+    label: "Busca semântica (OmniFS)",
+    description:
+      "Busca no drive dos agentes por SIGNIFICADO (\"a lógica de auth\"), não por nome de arquivo. 100% local (embeddings offline). Desligue pra ocultar a busca no painel do OmniFS.",
+    default: true,
+    stage: "stable",
+  },
+  {
+    key: "omnigraph-import",
+    label: "Grafo de código no canvas (OmniGraph)",
+    description:
+      "Botão \"importar visão\" que traz as comunidades do grafo de conhecimento do código pro canvas. Desligue pra ocultar o atalho na toolbar.",
+    default: true,
+    stage: "beta",
+  },
+  {
+    key: "omnigraph-land-gate",
+    label: "Gate estrutural no Land (OmniGraph)",
+    description:
+      "Ao concluir (Land), mede o blast-radius das mudanças contra o grafo do código e alerta quando tocam um god node / muitas comunidades. Desligue pra não gatear o Land pela estrutura.",
+    default: true,
+    stage: "beta",
+  },
 ];
 
 const FLAGS_BY_KEY: Record<string, FlagDef> = Object.fromEntries(FLAGS.map((f) => [f.key, f]));

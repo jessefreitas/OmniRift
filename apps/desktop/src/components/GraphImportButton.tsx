@@ -29,6 +29,7 @@ import { importGraph, VIEW_META, type GraphJson, type GraphView } from "@/lib/om
 import { topAmbiguousEdges, buildAmbiguityResolverBrief, omnigraphRebuild } from "@/lib/omnigraph-client";
 import { OmniGraphDiffModal } from "@/components/OmniGraphDiffModal";
 import { notify } from "@/lib/notify";
+import { useFlag } from "@/lib/feature-flags";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
@@ -68,6 +69,8 @@ export function GraphImportButton() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [lastView, setLastView] = useState<GraphView>(loadLastView);
+  // Feature flag: o dono pode ocultar o atalho do OmniGraph na toolbar (kill-switch).
+  const omnigraphEnabled = useFlag("omnigraph-import");
 
   function viewLabel(view: GraphView): string {
     return t(`graph.view.${view}`, VIEW_META[view].label);
@@ -77,8 +80,18 @@ export function GraphImportButton() {
   // antigo dead-end "Rode o OmniGraph primeiro" (mensagem circular: o botão É o OmniGraph).
   // O grafo demora ~1-2min só na primeira vez; depois o loop F4 mantém fresco.
   async function loadOrBuildGraph(cwd: string): Promise<string | null> {
-    let raw = await omnigraphGraphJson(cwd);
+    // 1ª leitura: se já existe um grafo, o backend pode barrar por tamanho (repo
+    // guarda-chuva → graph.json gigante que trava o WebKitGTK). Nesse caso o Err já
+    // vem com a orientação certa (abrir um subprojeto) — não tentamos regerar.
+    let raw: string | null;
+    try {
+      raw = await omnigraphGraphJson(cwd);
+    } catch (e) {
+      void notify(String(e), "error");
+      return null;
+    }
     if (raw) return raw;
+
     void notify(
       t("graph.building", "Gerando o grafo de código pela primeira vez… (~1-2 min, roda uma vez só)"),
       "info",
@@ -86,16 +99,33 @@ export function GraphImportButton() {
     try {
       await omnigraphRebuild(cwd);
     } catch (e) {
+      const msg = String(e);
+      // Timeout do build (300s) = repo grande demais, não engine quebrada.
+      const isTimeout = /timeout|estourou|passou de/i.test(msg);
       void notify(
-        t("graph.buildFail", "Não consegui gerar o grafo (engine OmniGraph indisponível?): {e}").replace("{e}", String(e)),
+        isTimeout
+          ? t(
+              "graph.buildTimeout",
+              "A geração passou do tempo limite — esse repo é grande demais (muito código/vendor, ex: node_modules). Abra um SUBPROJETO específico (uma subpasta com o código) em vez da pasta-mãe inteira.",
+            )
+          : t("graph.buildFail", "Não consegui gerar o grafo: {e}").replace("{e}", msg),
         "error",
       );
       return null;
     }
-    raw = await omnigraphGraphJson(cwd);
+    // 2ª leitura pós-build: pode vir vazio (sem código) OU grande demais (Err).
+    try {
+      raw = await omnigraphGraphJson(cwd);
+    } catch (e) {
+      void notify(String(e), "error");
+      return null;
+    }
     if (!raw) {
       void notify(
-        t("graph.stillNone", "O grafo veio vazio — esse diretório pode não ter código indexável."),
+        t(
+          "graph.stillNone",
+          "O grafo veio vazio — esse diretório pode não ter código indexável (ou o build não completou a tempo).",
+        ),
         "error",
       );
     }
@@ -215,6 +245,9 @@ export function GraphImportButton() {
 
   const btn =
     "flex items-center gap-1.5 rounded-md border border-border bg-surface1/90 px-2.5 py-1 text-[11px] text-textMuted backdrop-blur transition-colors hover:border-brand/50 hover:text-text disabled:cursor-wait disabled:opacity-60";
+
+  // Flag off → sem atalho do OmniGraph na toolbar (early return DEPOIS de todos os hooks).
+  if (!omnigraphEnabled) return null;
 
   return (
     <div className="absolute top-3 right-3 z-30 flex items-center gap-1.5">

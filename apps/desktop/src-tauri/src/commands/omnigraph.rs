@@ -50,9 +50,15 @@ const ENGINE_DOT_DIR: &str = ".graphify"; // engine externa (binário 'graphify'
 /// Teto do graph.json que topamos ler pro WebView (F2, importer do canvas). O grafo de
 /// entidade inteiro pode passar de centenas de MB — e a memória do projeto registra que
 /// jogar o grafo INTEIRO no WebKitGTK o mata. O importer só extrai o DIGEST de comunidades,
-/// mas segurar um JSON gigante numa String + cruzar o IPC já é OOM. Acima do teto → `Err`
-/// (o botão avisa "grafo grande demais" e nada trava).
-const GRAPH_JSON_MAX_BYTES: u64 = 128 * 1024 * 1024;
+/// mas segurar um JSON gigante numa String + cruzar o IPC + `JSON.parse` no WebView já é OOM.
+/// Acima do teto → `Err` (o botão avisa "grafo grande demais" e nada trava).
+///
+/// ⚠️ 2026-07-03: baixado de 128 → 40 MB. Um repo guarda-chuva (checkout_asaas: Next+Vite+
+/// Laravel+Python + node_modules não-ignorados pelo graphify) gerou um graph.json de 95 MB
+/// (75k nós) que PASSAVA no teto antigo e travava o WebKitGTK do Jessé. 40 MB cobre repos
+/// grandes razoáveis (o próprio OmniRift = 6 MB) e barra os monstros — que devem ser
+/// importados por SUBPROJETO, não pela pasta-mãe inteira.
+const GRAPH_JSON_MAX_BYTES: u64 = 40 * 1024 * 1024;
 
 /// Como invocar a engine: binário direto (PATH/sidecar) ou via `uvx` (pacote python de
 /// terceiro). O 2º caminho só existe quando o `uvx` está instalado.
@@ -186,8 +192,10 @@ pub fn omnigraph_graph_json(cwd: String) -> Result<Option<String>, String> {
         .len();
     if size > GRAPH_JSON_MAX_BYTES {
         return Err(format!(
-            "graph.json tem {} MB (teto {} MB) — grande demais pra importar no canvas sem \
-             arriscar travar o WebView. Filtre o grafo ou use o relatório destilado do Arquiteto.",
+            "O grafo desse repo é grande demais ({} MB, teto {} MB) pra abrir no canvas sem \
+             travar. Provável pasta guarda-chuva com muito código/vendor (node_modules?). \
+             Abra um SUBPROJETO específico (uma subpasta com o código) em vez da pasta-mãe \
+             inteira, ou use o relatório destilado do Arquiteto de Pipeline.",
             size / (1024 * 1024),
             GRAPH_JSON_MAX_BYTES / (1024 * 1024),
         ));

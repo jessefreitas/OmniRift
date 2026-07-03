@@ -53,6 +53,7 @@ import {
   type AcpAttachSnapshot,
 } from "@/lib/acp-client";
 import { scheduleReindex, omnifsIsManagedCwd, omnifsSnapshotNow } from "@/lib/omnifs-client";
+import { getFlag } from "@/lib/feature-flags";
 import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
 import { communityForPath } from "@/lib/omnigraph-graph";
 import { useAgentCheckpoints } from "@/lib/agent-checkpoints";
@@ -676,7 +677,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           // rollback do nó. Gate duplo (managed + edited): snapshot sem edição é lixo. Roda numa
           // IIFE async best-effort — o omnifsIsManagedCwd é async e NÃO pode travar o turn-done
           // (Goal/reindex seguem); qualquer falha só é engolida (nunca quebra o turno).
-          if (diff) {
+          if (diff && getFlag("omnifs-auto-checkpoint")) {
             const cpLabel = data.label ?? "OmniAgent";
             const cpTurn = turnCounterRef.current;
             const cpCwd = turnCwd;
