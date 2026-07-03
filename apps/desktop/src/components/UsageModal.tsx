@@ -3,9 +3,11 @@
 // Painel "Uso de Tokens": indicadores do consumo real (Claude Code + Codex) +
 // o ledger NATIVO do OmniRift, agregado das sessões — total geral, por modelo/LLM
 // e por projeto. Filtro por período (tudo/hoje/7d/30d) e orçamento mensal por
-// projeto com alerta/gate.
+// projeto com alerta/gate. Duas visões estilo PostHog: TENDÊNCIA (timeline de
+// custo/tokens por dia, via `report.byDay`) e POR AGENTE (tokens/custo/tempo dos
+// agentes vivos do canvas, via `useFleetUsage`).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Coins, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
@@ -21,10 +23,67 @@ import {
   type UsageReport,
 } from "@/lib/usage-client";
 import { useT } from "@/lib/i18n";
+import { MiniSparkline, type SparkBar } from "@/components/MiniSparkline";
+import { useCanvasStore } from "@/store/canvas-store";
+import { useFleetUsage } from "@/lib/fleet-usage";
+
+/** Uso agregado por dia — campo `byDay` que o backend/usage-client publica no
+ *  `UsageReport`. Definido local (não importado) pra o painel compilar mesmo
+ *  enquanto o campo ainda não está no tipo (leitura defensiva via cast). */
+interface DayUsage {
+  day: string;
+  totalTokens: number;
+  costUsd: number;
+  calls: number;
+}
 
 function basename(p: string): string {
   const parts = p.split("/").filter(Boolean);
   return parts[parts.length - 1] || p;
+}
+
+/** Idade da sessão a partir do `createdAt` (epoch ms). Snapshot no render (o modal
+ *  recarrega no ↻); nós sem `createdAt` → undefined (coluna mostra "—"). */
+function fmtAge(createdAt?: number): string | undefined {
+  if (!createdAt) return undefined;
+  const s = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem ? `${h}h${rem}m` : `${h}h`;
+}
+
+/** Custo estimado de um agente: usa a taxa (USD/token) do modelo casado no `byModel`
+ *  do relatório. Match exato → contains (nos dois sentidos, cobre "claude" ⊂ id longo).
+ *  Sem modelo ou sem taxa → undefined (a linha mostra só tokens). */
+function estimateAgentCost(
+  model: string | undefined,
+  tokens: number,
+  rates: Map<string, number>,
+): number | undefined {
+  if (!model || rates.size === 0) return undefined;
+  let rate = rates.get(model);
+  if (rate === undefined) {
+    for (const [m, r] of rates) {
+      if (m === model || m.includes(model) || model.includes(m)) {
+        rate = r;
+        break;
+      }
+    }
+  }
+  return rate === undefined ? undefined : rate * tokens;
+}
+
+interface AgentRow {
+  id: string;
+  label: string;
+  floor: string;
+  model?: string;
+  tokens: number;
+  costUsd?: number;
+  age?: string;
 }
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
@@ -44,6 +103,64 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
   const [onlyThis, setOnlyThis] = useState(false);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [trendMetric, setTrendMetric] = useState<"cost" | "tokens">("cost");
+
+  // Seletores CONSERVADORES (zustand v5 loop-trap): pegam a referência ESTÁVEL do
+  // array/objeto do store (só muda em mutação real) — nunca derivam array/objeto novo
+  // dentro do seletor. A derivação vai toda pro useMemo abaixo.
+  const parallels = useCanvasStore((s) => s.parallels);
+  const tokensByNode = useFleetUsage((s) => s.tokensByNode);
+
+  // Timeline (Tendência): `byDay` do relatório, lido defensivamente (o campo pode
+  // ainda não estar no tipo — outro worker o adiciona). Vazio → seção não renderiza.
+  const byDay = useMemo<DayUsage[]>(
+    () => (report ? (report as { byDay?: DayUsage[] }).byDay ?? [] : []),
+    [report],
+  );
+  const trendBars = useMemo<SparkBar[]>(
+    () =>
+      byDay.map((d) => ({
+        label: d.day,
+        value: trendMetric === "cost" ? d.costUsd : d.totalTokens,
+        tooltip: `${d.day} · ${fmtUsd(d.costUsd)} · ${fmtTokens(d.totalTokens)} · ${fmtTokens(d.calls)}×`,
+      })),
+    [byDay, trendMetric],
+  );
+
+  // Taxa USD/token por modelo (do byModel do relatório) → estimativa de custo por agente.
+  const rateByModel = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of report?.byModel ?? []) {
+      if (r.totalTokens > 0) m.set(r.model, r.costUsd / r.totalTokens);
+    }
+    return m;
+  }, [report]);
+
+  // Por agente: resolve nodeId → {label, floor, model} varrendo os floors (referência
+  // estável) e cruzando com `tokensByNode` (estado VIVO do canvas, não histórico).
+  const agentRows = useMemo<AgentRow[]>(() => {
+    const rows: AgentRow[] = [];
+    for (const f of parallels) {
+      for (const n of f.nodes) {
+        const tokens = tokensByNode[n.id];
+        if (tokens === undefined || tokens <= 0) continue;
+        const withLabel = n as { label?: string; createdAt?: number };
+        const model =
+          n.kind === "agent" ? n.providerConfig?.model ?? n.provider : undefined;
+        rows.push({
+          id: n.id,
+          label: withLabel.label || (n.kind === "agent" ? "OmniAgent" : n.id.slice(0, 6)),
+          floor: f.name,
+          model,
+          tokens,
+          costUsd: estimateAgentCost(model, tokens, rateByModel),
+          age: fmtAge(withLabel.createdAt),
+        });
+      }
+    }
+    rows.sort((a, b) => b.tokens - a.tokens);
+    return rows;
+  }, [parallels, tokensByNode, rateByModel]);
 
   const proj = onlyThis && activeProject ? activeProject : null;
   const loadSeq = useRef(0);
@@ -137,6 +254,31 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
                 )}
               </div>
 
+              {/* Tendência (timeline por dia) — só quando há série. */}
+              {byDay.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-[11px] uppercase tracking-wider text-textMuted flex-1">{t("usage.trend", "Tendência")}</span>
+                    <div className="flex items-center rounded-md border border-border overflow-hidden">
+                      {(["cost", "tokens"] as const).map((m) => (
+                        <button
+                          key={m}
+                          onClick={() => setTrendMetric(m)}
+                          className={"px-2 py-0.5 text-[10px] " + (trendMetric === m ? "bg-brand/20 text-brand" : "text-textMuted hover:text-text")}
+                        >
+                          {m === "cost" ? t("usage.estCost", "Custo estimado") : t("usage.tokens", "Tokens")}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <MiniSparkline bars={trendBars} />
+                  <div className="flex justify-between text-[10px] text-textMuted opacity-70 mt-1 tabular-nums">
+                    <span>{byDay[0]?.day}</span>
+                    <span>{byDay[byDay.length - 1]?.day}</span>
+                  </div>
+                </div>
+              )}
+
               {/* Orçamentos por projeto */}
               <BudgetSection
                 t={t}
@@ -176,6 +318,32 @@ export function UsageModal({ onClose, activeProject }: { onClose: () => void; ac
                   ))}
                   {report!.byProject.length === 0 && (
                     <div className="px-3 py-2 text-[12px] text-textMuted">{t("usage.empty", "Nada neste período.")}</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Por agente (estado VIVO do canvas — não histórico). */}
+              <div>
+                <div className="flex items-baseline gap-2 mb-1">
+                  <span className="text-[11px] uppercase tracking-wider text-textMuted">{t("usage.byAgent", "Por agente")}</span>
+                  <span className="text-[10px] text-textMuted opacity-60">{t("usage.byAgentNote", "sessão atual do canvas")}</span>
+                </div>
+                <div className="rounded-md border border-border divide-y divide-border/40 max-h-52 overflow-auto">
+                  {agentRows.map((a) => (
+                    <div
+                      key={a.id}
+                      className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
+                      title={a.model ? `${a.label} · ${a.model}` : a.label}
+                    >
+                      <span className="text-text truncate flex-1">{a.label}</span>
+                      <span className="text-textMuted opacity-70 truncate w-20 text-right" title={a.floor}>{a.floor}</span>
+                      <span className="text-textMuted opacity-60 tabular-nums w-10 text-right">{a.age ?? "—"}</span>
+                      <span className="text-textMuted tabular-nums w-16 text-right">{fmtTokens(a.tokens)}</span>
+                      <span className="text-brand tabular-nums w-16 text-right">{a.costUsd !== undefined ? fmtUsd(a.costUsd) : "—"}</span>
+                    </div>
+                  ))}
+                  {agentRows.length === 0 && (
+                    <div className="px-3 py-2 text-[12px] text-textMuted">{t("usage.noAgents", "Nenhum agente ativo no canvas.")}</div>
                   )}
                 </div>
               </div>

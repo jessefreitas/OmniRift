@@ -25,12 +25,23 @@ export interface ProjectUsage extends Tally {
   project: string;
 }
 
+/** Ponto da série temporal (um por dia, dentro do período). */
+export interface DayUsage {
+  /** "YYYY-MM-DD" (UTC). */
+  day: string;
+  totalTokens: number;
+  costUsd: number;
+  calls: number;
+}
+
 export interface UsageReport {
   total: Tally;
   /** Subconjunto do total: só as chamadas nativas do OmniRift (ledger). */
   native: Tally;
   byModel: ModelUsage[];
   byProject: ProjectUsage[];
+  /** Série temporal por dia (ASC). Dias sem uso são omitidos (preencher gaps no front). */
+  byDay: DayUsage[];
   sessions: number;
 }
 

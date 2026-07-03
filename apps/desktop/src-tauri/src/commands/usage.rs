@@ -53,6 +53,18 @@ pub struct ProjectUsage {
     tally: Tally,
 }
 
+/// Série temporal: um ponto por dia (dentro do período). Só os campos que a
+/// tendência precisa — o frontend plota total/custo e mostra nº de chamadas.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayUsage {
+    /// "YYYY-MM-DD" (UTC).
+    day: String,
+    total_tokens: i64,
+    cost_usd: f64,
+    calls: i64,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageReport {
@@ -61,6 +73,9 @@ pub struct UsageReport {
     native: Tally,
     by_model: Vec<ModelUsage>,
     by_project: Vec<ProjectUsage>,
+    /// Série temporal por dia (ASC). Dias sem uso são OMITIDOS — o frontend
+    /// preenche os gaps. Respeita o mesmo filtro de período (`since_days`).
+    by_day: Vec<DayUsage>,
     sessions: i64,
 }
 
@@ -128,14 +143,16 @@ struct Agg {
     total: Tally,
     models: HashMap<String, Tally>,
     projects: HashMap<String, Tally>,
+    days: HashMap<String, Tally>,
 }
 
 impl Agg {
     /// `inp` = input NÃO-cacheado; `cr`/`cc` = cache read/creation (separados).
-    fn add(&mut self, cwd: &str, model: &str, calls: i64, inp: i64, out: i64, cr: i64, cc: i64) {
+    fn add(&mut self, date: &str, cwd: &str, model: &str, calls: i64, inp: i64, out: i64, cr: i64, cc: i64) {
         bump(&mut self.total, calls, inp, out, cr, cc, model);
         bump(self.models.entry(model.to_string()).or_default(), calls, inp, out, cr, cc, model);
         bump(self.projects.entry(cwd.to_string()).or_default(), calls, inp, out, cr, cc, model);
+        bump(self.days.entry(date.to_string()).or_default(), calls, inp, out, cr, cc, model);
     }
 }
 
@@ -390,7 +407,7 @@ fn aggregate(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow], only
             continue;
         }
         if within_date(&b.date, cutoff) {
-            agg.add(&b.cwd, &b.model, b.calls, b.inp, b.out, b.cr, b.cc);
+            agg.add(&b.date, &b.cwd, &b.model, b.calls, b.inp, b.out, b.cr, b.cc);
         }
     }
     let mut native = Tally::default();
@@ -401,7 +418,7 @@ fn aggregate(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow], only
         }
         let date = r.at.get(..10).unwrap_or(NO_DATE);
         if within_date(date, cutoff) {
-            agg.add(project, &r.model, 1, r.input_tokens, r.output_tokens, 0, 0);
+            agg.add(date, project, &r.model, 1, r.input_tokens, r.output_tokens, 0, 0);
             bump(&mut native, 1, r.input_tokens, r.output_tokens, 0, 0, &r.model);
         }
     }
@@ -425,8 +442,21 @@ fn build_report(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow], o
         .collect();
     by_project.sort_by(|a, b| b.tally.total_tokens.cmp(&a.tally.total_tokens));
 
+    // Série temporal: ASC por dia (string ISO ordena lexicograficamente = cronológico).
+    let mut by_day: Vec<DayUsage> = agg
+        .days
+        .into_iter()
+        .map(|(day, tally)| DayUsage {
+            day,
+            total_tokens: tally.total_tokens,
+            cost_usd: tally.cost_usd,
+            calls: tally.calls,
+        })
+        .collect();
+    by_day.sort_by(|a, b| a.day.cmp(&b.day));
+
     let sessions = c.session_last.iter().filter(|d| within_date(d, cutoff)).count() as i64;
-    UsageReport { total: agg.total, native, by_model, by_project, sessions }
+    UsageReport { total: agg.total, native, by_model, by_project, by_day, sessions }
 }
 
 /// Varre as sessões dos CLIs + o ledger nativo e agrega o uso de tokens.
@@ -563,6 +593,34 @@ mod tests {
         // período >= 2026-06-15 corta o bucket de 06-10
         let (agg_p, _) = aggregate(&c, &Some("2026-06-15".into()), &[], None);
         assert_eq!(agg_p.total.input_tokens, 101);
+    }
+
+    #[test]
+    fn by_day_aggregates_and_sorts_asc() {
+        // 3 buckets em 2 dias (06-10 e 06-18); o 06-18 soma 2 buckets/2 calls.
+        let c = CacheInner {
+            built: Instant::now(),
+            buckets: vec![
+                bucket("2026-06-18", "/proj/a", "opus", 100, 200),
+                bucket("2026-06-10", "/proj/a", "opus", 10, 20),
+                bucket("2026-06-18", "/proj/b", "sonnet", 1, 2),
+            ],
+            session_last: vec![],
+        };
+        let report = build_report(&c, &None, &[], None);
+        assert_eq!(report.by_day.len(), 2);
+        // ordenado ASC por dia
+        assert_eq!(report.by_day[0].day, "2026-06-10");
+        assert_eq!(report.by_day[1].day, "2026-06-18");
+        // 06-10: 1 call, 30 tokens (10 inp + 20 out)
+        assert_eq!(report.by_day[0].calls, 1);
+        assert_eq!(report.by_day[0].total_tokens, 30);
+        // 06-18: 2 calls, (100+200)+(1+2) = 303 tokens
+        assert_eq!(report.by_day[1].calls, 2);
+        assert_eq!(report.by_day[1].total_tokens, 303);
+        // custo do dia soma: opus(100 in/200 out) + sonnet(1 in/2 out)
+        let expected = cost_usd("opus", 100, 200, 0, 0) + cost_usd("sonnet", 1, 2, 0, 0);
+        assert!((report.by_day[1].cost_usd - expected).abs() < 1e-12);
     }
 
     #[test]
