@@ -34,6 +34,14 @@ export interface FlagDef {
 // ainda em construção — liga sob demanda.
 export const FLAGS: FlagDef[] = [
   {
+    key: "capability-risk-scan",
+    label: "Scan de risco (Lurkr)",
+    description:
+      "Antes de mandar contexto pro agente, avisa se há credencial CRÍTICA (token/chave privada) indo pro LLM — o segredo aparece redigido, nunca cru. Complementa o gate gitleaks/semgrep (que olha o diff, não o contexto vivo). Só alerta, não bloqueia. Desligue pra silenciar.",
+    default: true,
+    stage: "beta",
+  },
+  {
     key: "recitation",
     label: "Recitação de foco (agentes)",
     description:

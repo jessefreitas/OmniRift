@@ -26,6 +26,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useCanvasStore } from "@/store/canvas-store";
 import { kanbanList } from "@/lib/kanban-client";
 import { buildRecitation } from "@/lib/recitation";
+import { scanTextForSecrets } from "@/lib/capability-risk";
 import { agentsMdInstruction, agentsMdRelPath, agentsMdSlug } from "@/lib/agent-contract";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
@@ -954,6 +955,21 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     const payload = prefixes.length
       ? `${prefixes.join("\n\n")}\n\n---\nTarefa do usuário: ${text}`
       : text;
+    // 🔒 Lurkr: credencial CRÍTICA (token/chave privada) indo pro LLM → alerta (redigida, não bloqueia).
+    // Cobre o CONTEXTO vivo que o gate gitleaks/semgrep (diff) não vê. Só critical: warn heurístico
+    // pegaria "password: …" do texto do usuário e viraria ruído.
+    if (getFlag("capability-risk-scan")) {
+      const crit = scanTextForSecrets(payload, "contexto").filter((r) => r.severity === "critical");
+      if (crit.length) {
+        setMsgs((m) => [
+          ...m,
+          {
+            role: "system",
+            text: `🔒 Lurkr: ${crit.length} credencial(is) no contexto indo pro LLM (${crit.map((r) => `${r.label} ${r.redacted}`).join(", ")}) — evite mandar segredo; prefira variável de ambiente/cofre.`,
+          },
+        ]);
+      }
+    }
     firstSentRef.current = true;
     try {
       await acpPrompt(sid, payload);
