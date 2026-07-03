@@ -52,9 +52,11 @@ import {
   type AcpAuthMethod,
   type AcpAttachSnapshot,
 } from "@/lib/acp-client";
-import { scheduleReindex } from "@/lib/omnifs-client";
+import { scheduleReindex, omnifsIsManagedCwd, omnifsSnapshotNow } from "@/lib/omnifs-client";
 import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
 import { communityForPath } from "@/lib/omnigraph-graph";
+import { useAgentCheckpoints } from "@/lib/agent-checkpoints";
+import { AgentCheckpointsMenu } from "@/components/AgentCheckpointsMenu";
 import type { AgentNode as AgentNodeData } from "@/types/canvas";
 import { HermesWizard, type HermesProviderConfig } from "./HermesWizard";
 import { pasteText } from "@/lib/clipboard";
@@ -199,6 +201,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // — o turn-done/exit lê o valor ATUAL sem stale state (mesmo padrão de goalRef/compactRef).
   // Marcado onde o prompt sai (setStatus("thinking")); consumido em finishTurn no fim do turno.
   const turnStartRef = useRef<number | null>(null);
+  // 📸 Contador de turnos concluídos deste nó — vira o "turno N" na mensagem do checkpoint
+  // OmniFS. Ref (não state): não re-renderiza e sobrevive ao reload/troca-de-provider (que só
+  // bumpam reloadKey, sem desmontar) → o nº do snapshot fica monotônico com o histórico do drive.
+  const turnCounterRef = useRef(0);
   const firstSentRef = useRef(false); // prefixa o contrato de orquestrador só no 1º prompt
   const teamRef = useRef<string | null>(null); // roster pendente p/ injetar no próximo prompt
   const subagentsSentRef = useRef(false); // a lista de subagentes já foi injetada num prompt?
@@ -299,6 +305,12 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // Floor inativo fica display:none (não desmonta — sessão não vive no mount) → unmount
   // ≈ remoção real. Espelha o clearTokens acima; o CAP do store já limita a memória viva.
   useEffect(() => () => useAgentMetrics.getState().clearNode(data.id), [data.id]);
+
+  // 📸 Checkpoints do drive (OmniFS): idem — saem quando o nó é REMOVIDO de vez (unmount ≈
+  // remoção real; floor inativo é display:none, não desmonta). NÃO limpamos no reload/troca
+  // de provider: os commits do drive sobrevivem à conversa (são pontos de restauração válidos
+  // mesmo com contexto novo) — só a remoção do nó zera o histórico local.
+  useEffect(() => () => useAgentCheckpoints.getState().clearNode(data.id), [data.id]);
 
   // Fecha o turno em voo: mede a duração (t0 marcado no envio) e registra {durationMs, ok}.
   // No-op se não há turno aberto (turnStartRef null) — seguro chamar em qualquer fim (done/dead/erro).
@@ -634,6 +646,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           // Insights: turno concluiu sem erro → registra latência (t0..agora) + ok. Vem ANTES
           // da re-iteração do Goal (que abre um turno novo com t0 novo mais abaixo).
           finishTurn(true);
+          turnCounterRef.current += 1; // 📸 nº do turno concluído (rótulo do checkpoint OmniFS)
           // F3 item 2: agente terminou um turno → se o cwd é mount OmniFS vivo, agenda
           // re-index debounced (~60s) do drive. Fire-and-forget + gate no backend: busca
           // fresca sem o agente gastar um turno rodando omnifs_index.
@@ -658,6 +671,34 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           }
           const diff = lastDiffRef.current;
           lastDiffRef.current = null;
+          // 📸 CHECKPOINT POR TURNO (feature-assinatura): se este turno EDITOU o drive (diff) E
+          // o cwd é um mount OmniFS VIVO, tira um snapshot do drive e registra pro menu de
+          // rollback do nó. Gate duplo (managed + edited): snapshot sem edição é lixo. Roda numa
+          // IIFE async best-effort — o omnifsIsManagedCwd é async e NÃO pode travar o turn-done
+          // (Goal/reindex seguem); qualquer falha só é engolida (nunca quebra o turno).
+          if (diff) {
+            const cpLabel = data.label ?? "OmniAgent";
+            const cpTurn = turnCounterRef.current;
+            const cpCwd = turnCwd;
+            void (async () => {
+              try {
+                if (!cpCwd || !(await omnifsIsManagedCwd(cpCwd))) return;
+                const cpMessage = `🤖 ${cpLabel} · turno ${cpTurn}`;
+                const commit = await omnifsSnapshotNow(cpMessage);
+                if (commit) {
+                  useAgentCheckpoints.getState().recordCheckpoint(data.id, {
+                    commit,
+                    message: cpMessage,
+                    at: Date.now(),
+                    turn: cpTurn,
+                    ok: true,
+                  });
+                }
+              } catch {
+                /* checkpoint é best-effort — nunca trava/quebra o turno */
+              }
+            })();
+          }
           if (diff) {
             // Fase 2a: um diff produzido no turno vira payload "diff" na linha (não só texto).
             emitAgentOutput(data.id, reply || `diff em ${diff.path ?? "arquivo"}`, { kind: "diff", diff: diff.diff, path: diff.path });
@@ -1092,6 +1133,8 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             <RotateCw size={13} />
           </button>
         )}
+        {/* 📸 Checkpoints do drive OmniFS — só aparece se o nó tem ≥1 snapshot; abre o menu de rollback */}
+        <AgentCheckpointsMenu nodeId={data.id} label={data.label} />
         {/* 🎯 Goal — loop autônomo até a condição passar */}
         <button
           onClick={(e) => { e.stopPropagation(); setPanel((p) => (p === "goal" ? "none" : "goal")); }}
