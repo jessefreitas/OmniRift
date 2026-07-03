@@ -1169,17 +1169,24 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     // vive em localStorage keyada por session_id, e o restore regenera todos → o Set velho
     // nunca casava e o agente saía do canal. Remapeia old→new e avisa o Sidebar re-registrar.
     try {
+      // NÃO tocamos em "omnirift-mcp-labels" aqui de propósito: é a âncora de identidade
+      // ESTÁVEL (nome do papel) que o Sidebar usa pra re-linkar quando o remap não cobre
+      // todos os nós. Zerá-la mataria a recuperação por label.
       for (const key of ["omnirift-mcp-agents", "omnirift-mcp-descs"]) {
         const raw = localStorage.getItem(key);
         if (!raw) continue;
         const parsed: unknown = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          localStorage.setItem(key, JSON.stringify(parsed.map((sid) => sidMap.get(String(sid))).filter(Boolean)));
+          // PRESERVA o sid não-mapeado (antes: `.filter(Boolean)` DROPAVA tudo fora do
+          // sidMap → num restore parcial o Set inteiro ZERAVA). Mantendo o sid antigo,
+          // mcpAgents fica não-vazio → o guard anti-clobber protege a âncora de labels, e
+          // o resync-por-label reidrata o resto.
+          localStorage.setItem(key, JSON.stringify(parsed.map((sid) => sidMap.get(String(sid)) ?? String(sid))));
         } else if (parsed && typeof parsed === "object") {
           const next: Record<string, unknown> = {};
           for (const [sid, v] of Object.entries(parsed)) {
-            const ns = sidMap.get(sid);
-            if (ns) next[ns] = v;
+            const ns = sidMap.get(sid) ?? sid; // preserva a descrição mesmo sem remap
+            next[ns] = v;
           }
           localStorage.setItem(key, JSON.stringify(next));
         }

@@ -84,7 +84,7 @@ const BETA_WHATSAPP_GROUP = "https://chat.whatsapp.com/D8jBZtQd70k2VponOHvETX";
 import { fsCowInfo, type CowInfo } from "@/lib/fsinfo-client";
 import { clisList, type CliInfo } from "@/lib/clis-client";
 import { hostsList, type SshHostEntry } from "@/lib/hosts-client";
-import { LOCAL_EXECUTION_HOST, toSshHostId } from "@/types/canvas";
+import { LOCAL_EXECUTION_HOST, toSshHostId, type TerminalNode, type AgentNode, type CanvasNode } from "@/types/canvas";
 import { loadCustomClis, saveCustomClis, type CustomCli } from "@/lib/custom-clis";
 import { getVersion } from "@tauri-apps/api/app";
 
@@ -330,6 +330,25 @@ function detectShell(): string {
     return "powershell.exe";
   }
   return "bash";
+}
+
+// ── Identidade do nó no canal MCP ─────────────────────────────────────────────
+// O link MCP é keyado pelo `sid` EFÊMERO (regenerado a cada spawn/restore) — por isso
+// se perdia no restart. `stableKeyOf` devolve a identidade ESTÁVEL (o "nome do papel"),
+// que sobrevive a restart e é usada como âncora de recuperação (re-link por label).
+//   • terminal → sid = session_id (efêmero) · chave estável = label ?? command
+//   • agent (OmniAgent/ACP) → sid = node.id (efêmero no restore) · chave estável = label
+// AgentNode SEM label não tem identidade estável além do id efêmero → stableKeyOf = ""
+// (o re-link por label NÃO cobre esse caso; degrada pro match direto por sid).
+type McpCapableNode = TerminalNode | AgentNode;
+function isMcpCapable(n: CanvasNode): n is McpCapableNode {
+  return n.kind === "terminal" || n.kind === "agent";
+}
+function sidOf(n: McpCapableNode): string {
+  return n.kind === "terminal" ? n.session_id : n.id;
+}
+function stableKeyOf(n: McpCapableNode): string {
+  return n.kind === "terminal" ? (n.label ?? n.command) : (n.label ?? "");
 }
 
 
@@ -741,6 +760,18 @@ export function Sidebar() {
   useEffect(() => {
     localStorage.setItem("omnirift-mcp-descs", JSON.stringify(agentDescriptions));
   }, [agentDescriptions]);
+  // Âncora de recuperação: as CHAVES ESTÁVEIS (nome do papel) dos agentes linkados.
+  // Diferente de omnirift-mcp-agents (sids efêmeros), esta chave NÃO é tocada pelo restore
+  // → é a partir dela que o resync re-linka por IDENTIDADE quando os sids mudam.
+  // Anti-clobber: se HÁ sids linkados mas NENHUM casa um nó atual (keys vazio), NÃO
+  // sobrescreve a âncora — estamos num instante pós-restore em que mcpAgents traz sids
+  // antigos e os nós já ganharam ids novos; zerar aqui destruiria a única fonte de recuperação.
+  useEffect(() => {
+    const nodes = useCanvasStore.getState().parallels.flatMap((f) => f.nodes).filter(isMcpCapable);
+    const keys = Array.from(new Set(nodes.filter((n) => mcpAgents.has(sidOf(n))).map(stableKeyOf).filter(Boolean)));
+    if (mcpAgents.size > 0 && keys.length === 0) return; // não casou nada → preserva a âncora
+    try { localStorage.setItem("omnirift-mcp-labels", JSON.stringify(keys)); } catch { /* ignore */ }
+  }, [mcpAgents]);
 
   // Resolve o perfil universal de MCP (Serena = estrutura de código + Context7 =
   // docs ao vivo) uma vez — injetado via --mcp-config nos agentes claude.
@@ -865,24 +896,44 @@ export function Sidebar() {
     return () => window.removeEventListener("omnirift:mcp-remapped", onRemap);
   }, []);
   useEffect(() => {
-    if (mcpAgents.size === 0) return;
+    // Âncora de labels: permite re-linkar por IDENTIDADE ESTÁVEL mesmo quando os sids
+    // mudaram (restart/restore). Roda mesmo com mcpAgents vazio, DESDE QUE haja labels
+    // a recuperar (o bug era: restore zerava mcpAgents e o link sumia de vez).
+    const savedLabels = (() => {
+      try { return new Set<string>(JSON.parse(localStorage.getItem("omnirift-mcp-labels") ?? "[]")); }
+      catch { return new Set<string>(); }
+    })();
+    if (mcpAgents.size === 0 && savedLabels.size === 0) return;
     const savedAgents = new Set(mcpAgents);
     const savedDescs = { ...agentDescriptions };
     const timer = setTimeout(() => {
-      // getState() garante nodes atuais, não a snapshot do mount
+      // getState() garante nodes atuais, não a snapshot do mount.
       const st = useCanvasStore.getState();
-      const currentNodes = st.allTerminalNodes();
-      for (const sid of savedAgents) {
-        const node = currentNodes.find((n) => n.session_id === sid);
-        if (!node) continue;
-        const label = node.label ?? node.command;
+      // Universo agente-capaz: terminais + OmniAgents (ACP), em todos os paralelos.
+      const nodes = st.parallels.flatMap((f) => f.nodes).filter(isMcpCapable);
+      const resolved = new Set<string>();
+      for (const node of nodes) {
+        const sid = sidOf(node);
+        const key = stableKeyOf(node);
+        // "Deve estar linkado" se casa o sid atual OU a chave estável salva (re-link por label).
+        const shouldLink = savedAgents.has(sid) || (key !== "" && savedLabels.has(key));
+        if (!shouldLink) continue;
+        resolved.add(sid);
+        const label = node.kind === "terminal" ? (node.label ?? node.command) : (node.label ?? node.id);
         const desc = savedDescs[sid] ?? `Agente ${label}`;
         const floor = st.parallels.find(
-          (f) => f.nodes.some((n) => n.kind === "terminal" && n.session_id === sid),
+          (f) => f.nodes.some((n) => isMcpCapable(n) && sidOf(n) === sid),
         )?.name;
         mcpRegisterAgent(label, sid, desc, floor).catch(console.warn);
-        console.debug(`[MCP] re-registrado: ${label}`);
+        console.debug(`[MCP] re-registrado por ${savedAgents.has(sid) ? "sid" : "label"}: ${label}`);
       }
+      // Reidrata os checkboxes: garante que o sid ATUAL entra no Set (marca de volta) e
+      // poda órfãos. Só seta se o conteúdo REALMENTE mudou — senão vira render-loop (o
+      // projeto já sofreu com selector zustand instável retornando novo Set → loop que trava).
+      setMcpAgents((prev) => {
+        if (prev.size === resolved.size && [...resolved].every((s) => prev.has(s))) return prev;
+        return resolved;
+      });
     }, 2500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
