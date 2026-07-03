@@ -108,37 +108,33 @@ jobs:
         shell: bash
         run: bash scripts/build-omnifs-sidecar.sh
 
-      # ── OmniFS sidecar (F3 item 4) — DEFERIDO de propósito ────────────────────
-      # O daemon `omnifs-mcp` NÃO é bundlado aqui ainda, e por um motivo: o Tauri
-      # trata `externalBin` como OBRIGATÓRIO — se listássemos `binaries/omnifs-mcp`
-      # em tauri.conf.json sem um binário `omnifs-mcp-<triple>` presente por
-      # plataforma, o `tauri build` FALHARIA o release inteiro. A fonte do omnifs-mcp
-      # é um projeto externo (não vive neste repo), então não há como produzi-lo de
-      # forma confiável nos 3 runners (linux/win/mac) sem arriscar quebrar o build.
-      #
-      # Impacto ZERO no runtime: o resolvedor Rust (`compress::find_sidecar`, usado por
-      # `omnifs::find_omnifs_bin`) já cai pra `~/.cargo/bin/omnifs-mcp` → PATH quando o
-      # bundle não traz o sidecar. Quem tem o OmniFS instalado (`cargo install`) usa
-      # OmniFS normalmente; quem não tem simplesmente não vê a automação (degrada limpo).
-      #
-      # PARA HABILITAR o bundle no futuro (2 passos):
-      #   1) descomente o step abaixo apontando OMNIFS_SRC pro checkout do omnifs-mcp
-      #      (ou espelhe scripts/build-omnicompress.sh clonando o upstream público);
-      #   2) adicione "binaries/omnifs-mcp" ao `bundle.externalBin` de tauri.conf.json.
-      # O step precisa copiar `omnifs-mcp` p/ src-tauri/binaries/omnifs-mcp-<triple>[.exe]
-      # ANTES do tauri build — mesmo contrato do sidecar do OmniCompress acima.
-      #
-      # - name: Build OmniFS sidecar
-      #   shell: bash
-      #   env:
-      #     OMNIFS_SRC: ${{ github.workspace }}/../omnifs-mcp   # ajuste pro checkout real
-      #   run: |
-      #     TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
-      #     EXT=""; case "$TRIPLE" in *windows*) EXT=".exe" ;; esac
-      #     DEST="apps/desktop/src-tauri/binaries"
-      #     ( cd "$OMNIFS_SRC" && cargo build --release -p omnifs-mcp )
-      #     mkdir -p "$DEST"
-      #     cp "$OMNIFS_SRC/target/release/omnifs-mcp$EXT" "$DEST/omnifs-mcp-$TRIPLE$EXT"
+      # OmniFS no macOS — BEST-EFFORT à prova de quebra. O omnifs-mcp usa FUSE (macFUSE).
+      # Instala macFUSE, tenta buildar (continue-on-error), e SÓ cria o tauri.macos.conf.json
+      # — que ativa o externalBin do omnifs — SE o binário compilou. Se falhar, o .dmg sai
+      # SEM OmniFS (find_omnifs_bin degrada pro PATH); NUNCA quebra o release do macOS.
+      # (Windows fica de fora: FUSE indisponível → OmniFS via WSL; o script já pula windows.)
+      - name: Dependências do macOS (macFUSE — pro omnifs-mcp compilar)
+        if: matrix.os == 'macos-14'
+        continue-on-error: true
+        run: brew install --cask macfuse || true
+
+      - name: Build OmniFS sidecar (macOS, best-effort)
+        if: matrix.os == 'macos-14'
+        shell: bash
+        continue-on-error: true
+        run: bash scripts/build-omnifs-sidecar.sh
+
+      - name: externalBin macOS condicional (só se o omnifs compilou)
+        if: matrix.os == 'macos-14'
+        shell: bash
+        run: |
+          TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
+          if [ -f "apps/desktop/src-tauri/binaries/omnifs-mcp-$TRIPLE" ]; then
+            cp apps/desktop/src-tauri/tauri.linux.conf.json apps/desktop/src-tauri/tauri.macos.conf.json
+            echo "OmniFS bundlado no macOS ✓ (omnifs-mcp-$TRIPLE)"
+          else
+            echo "OmniFS não compilou no macOS — .dmg sai sem OmniFS (degrade pro PATH)."
+          fi
 
       - name: Build + Release (tauri-action)
         uses: tauri-apps/tauri-action@v0
