@@ -1137,4 +1137,11 @@ export const en: Record<string, string> = {
   "usage.pickProject": "Pick the project…",
   "usage.title": "Token Usage",
   "usage.tokens": "Tokens",
+
+  // OmniGraph — "Code map" (formerly "import view"): builds/shows the code graph on demand.
+  "graph.codeMap": "Code map",
+  "graph.importTip":
+    "Generates and shows this project's code map (communities, dependencies, god nodes) on the canvas — the first build takes ~1-2 min in the background.",
+  "graph.pickView": "Pick the map view (communities, calls, deps, risk)",
+  "graph.noCwd": "Open a project folder before generating the code map.",
 };

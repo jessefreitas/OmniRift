@@ -3,7 +3,7 @@
 // OmniGraph F2 + F4b + F5 — botões DISCRETOS do knowledge graph de código (canto sup. direito do
 // Canvas). Ponte de entrada própria (nada no TOOL_DEFS/Arquiteto), único ponto de montagem:
 //
-//   1. "importar visão ▾" (F5) — dropdown com as 4 VISÕES do mesmo graph.json (comunidades /
+//   1. "Mapa do código ▾" (F5) — dropdown com as 4 VISÕES do mesmo graph.json (comunidades /
 //      callgraph / deps / risco). Cada uma lê o graph.json cru (omnigraph_graph_json), roda
 //      importGraph(view) e ADICIONA ao floor ativo (pode empilhar várias visões no mesmo canvas).
 //      A última visão escolhida fica em localStorage (o clique no corpo do botão repete essa).
@@ -136,7 +136,7 @@ export function GraphImportButton() {
     if (busy) return;
     const cwd = currentCwd?.trim();
     if (!cwd) {
-      void notify(t("graph.noCwd", "Abra uma pasta de projeto antes de importar o grafo de código."), "error");
+      void notify(t("graph.noCwd", "Abra uma pasta de projeto antes de gerar o mapa do código."), "error");
       return;
     }
     // Persiste a visão escolhida (o corpo do botão passa a repetir essa).
@@ -187,7 +187,7 @@ export function GraphImportButton() {
     if (busyClean) return;
     const cwd = currentCwd?.trim();
     if (!cwd) {
-      void notify(t("graph.noCwd", "Abra uma pasta de projeto antes de importar o grafo de código."), "error");
+      void notify(t("graph.noCwd", "Abra uma pasta de projeto antes de gerar o mapa do código."), "error");
       return;
     }
     setBusyClean(true);
@@ -257,16 +257,24 @@ export function GraphImportButton() {
           <button
             onClick={() => handleImport(lastView)}
             disabled={busy}
-            title={t("graph.importTip", "Importa uma visão do knowledge graph de código (OmniGraph) como nós no canvas")}
+            title={t(
+              "graph.importTip",
+              "Gera e mostra o mapa do código deste projeto (comunidades, dependências, god nodes) no canvas — a 1ª geração leva ~1-2 min em segundo plano.",
+            )}
             className={cn(btn, "rounded-r-none")}
           >
-            {busy ? <Loader2 size={13} className="animate-spin" /> : <Network size={13} />}
-            {t("graph.importView", "importar visão")}: {viewLabel(lastView)}
+            {busy ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <span aria-hidden className="text-[13px] leading-none">🕸️</span>
+            )}
+            <span>{t("graph.codeMap", "Mapa do código")}</span>
+            <span className="text-[9px] text-textMuted opacity-70">· {viewLabel(lastView)}</span>
           </button>
           <button
             onClick={() => setMenuOpen((v) => !v)}
             disabled={busy}
-            title={t("graph.pickView", "Escolher a visão do grafo")}
+            title={t("graph.pickView", "Escolher a visão do mapa (comunidades, chamadas, deps, risco)")}
             className={cn(btn, "rounded-l-none border-l-0 px-1.5")}
           >
             <ChevronDown size={13} className={cn("transition-transform", menuOpen && "rotate-180")} />

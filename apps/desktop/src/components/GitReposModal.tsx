@@ -134,12 +134,14 @@ export function GitReposModal({ onClose }: Props) {
       const path = await gitClone(repo.cloneUrl, dest, token.trim() || undefined);
       addProject({ name: repo.name, cwd: path }); // abre como projeto (canvas isolado)
       void serenaEnsureProject(path); // Serena poliglota automático
-      // Onboarding inteligente (task #32): o projeto nasce VIVO — indexa a busca (OmniFS),
-      // constrói o mapa do código (OmniGraph) e semeia o Kanban. Best-effort e AGNÓSTICO de
-      // provider (roda sobre o cwd clonado — vale igual pra GitHub/GitLab/Forgejo). Fire-and-
-      // forget: não trava o fechar do modal; ao terminar, UM toast resume o que foi preparado
-      // e quais engines estavam ausentes. onboardProject nunca lança (cada passo é isolado).
-      void onboardProject(path, { indexOmnifs: true, buildGraph: true, seedKanban: true, name: repo.name })
+      // Onboarding inteligente (task #32): o projeto nasce VIVO — indexa a busca (OmniFS) e
+      // semeia o Kanban. O MAPA DO CÓDIGO (OmniGraph) NÃO é gerado aqui: em repos grandes
+      // (2744+ arquivos) o graphify satura a CPU e trava a máquina ao abrir o projeto. Por
+      // isso virou SOB DEMANDA — o usuário gera pelo botão "Mapa do código" no canto do canvas
+      // (o onboarding só deixa a dica no toast). Best-effort e AGNÓSTICO de provider (roda
+      // sobre o cwd clonado — vale igual pra GitHub/GitLab/Forgejo). Fire-and-forget: não trava
+      // o fechar do modal; ao terminar, UM toast resume o que foi preparado. onboardProject nunca lança.
+      void onboardProject(path, { indexOmnifs: true, buildGraph: false, seedKanban: true, name: repo.name })
         .then((r) => notify(r.summary))
         .catch(() => {});
       onClose();

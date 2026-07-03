@@ -1137,4 +1137,11 @@ export const pt: Record<string, string> = {
   "usage.pickProject": "Escolha o projeto…",
   "usage.title": "Uso de Tokens",
   "usage.tokens": "Tokens",
+
+  // OmniGraph — "Mapa do código" (ex-"importar visão"): gera/mostra o grafo do código sob demanda.
+  "graph.codeMap": "Mapa do código",
+  "graph.importTip":
+    "Gera e mostra o mapa do código deste projeto (comunidades, dependências, god nodes) no canvas — a 1ª geração leva ~1-2 min em segundo plano.",
+  "graph.pickView": "Escolher a visão do mapa (comunidades, chamadas, deps, risco)",
+  "graph.noCwd": "Abra uma pasta de projeto antes de gerar o mapa do código.",
 };

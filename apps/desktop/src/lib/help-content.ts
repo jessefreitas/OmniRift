@@ -601,7 +601,7 @@ If the disk fills up, the drive can **freeze**. The panel detects it and shows a
 O **OmniGraph** lê o seu projeto e monta um **grafo de conhecimento**: quais partes existem, como elas se chamam e onde mora o risco. É o "raio-X estrutural" que dá aos agentes (e a você) uma visão de **como o código realmente é**.
 
 ## Trazer o mapa pro canvas
-No **canto superior direito** do canvas, o botão **importar visão ▾** traz o grafo como nodes. São **4 visões** do mesmo mapa:
+No **canto superior direito** do canvas, o botão **🕸️ Mapa do código ▾** traz o grafo como nodes — **sob demanda**: no primeiro clique ele **gera** o grafo (leva ~1-2 min em segundo plano; o abrir do projeto não faz mais isso pra não travar repos grandes) e nos próximos só mostra. São **4 visões** do mesmo mapa:
 - **Comunidades** — os "bairros" do código (grupos que andam juntos).
 - **Chamadas** — quem chama quem.
 - **Dependências** — o que depende de quê.

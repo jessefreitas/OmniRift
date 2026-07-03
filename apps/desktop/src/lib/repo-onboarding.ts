@@ -176,7 +176,17 @@ export async function onboardProject(cwd: string, opts: OnboardOptions): Promise
   }
 
   if (opts.indexOmnifs) steps.push(await stepOmnifs(cwd));
-  if (opts.buildGraph) steps.push(await stepOmnigraph(cwd));
+  if (opts.buildGraph) {
+    steps.push(await stepOmnigraph(cwd));
+  } else {
+    // Mapa do código agora é SOB DEMANDA: gerá-lo no abrir travava repos grandes (CPU).
+    // Em vez de sumir com a feature, deixamos a dica de onde gerá-la (descoberta).
+    steps.push({
+      step: "omnigraph",
+      status: "skipped",
+      detail: "Mapa do código: gere quando quiser pelo botão 🕸️ no canto sup. direito do canvas",
+    });
+  }
   if (opts.seedKanban) steps.push(await stepKanban(cwd, name));
 
   const lines = steps.map((s) => `${statusMark(s.status)} ${s.detail}`);

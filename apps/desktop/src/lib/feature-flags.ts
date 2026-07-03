@@ -83,9 +83,9 @@ export const FLAGS: FlagDef[] = [
   },
   {
     key: "omnigraph-import",
-    label: "Grafo de código no canvas (OmniGraph)",
+    label: "Mapa do código (OmniGraph)",
     description:
-      "Botão \"importar visão\" que traz as comunidades do grafo de conhecimento do código pro canvas. Desligue pra ocultar o atalho na toolbar.",
+      "Botão \"Mapa do código\" (canto sup. direito do canvas) que gera sob demanda e traz o grafo de conhecimento do código — comunidades, dependências, god nodes — pro canvas. Desligue pra ocultar o atalho na toolbar.",
     default: true,
     stage: "beta",
   },
