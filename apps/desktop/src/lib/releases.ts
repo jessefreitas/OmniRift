@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.113",
+    date: "2026-07-04",
+    title: "Tutor Aprender não alucina mais: consulta a doc real (Aprender A3)",
+    highlights: [
+      "O tutor do modo Aprender consulta documentação ao vivo de libs (Context7) em vez de inventar API",
+      "Ancorado no código do teu projeto (roda no cwd) — ensino fundamentado, não chute",
+      "Se a consulta falhar, cai no modo normal sozinho (o tutor nunca quebra)",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.112",
     date: "2026-07-04",
     title: "Auto-evoluir com segurança: o ajuste de role só fica se não piorar o bench",

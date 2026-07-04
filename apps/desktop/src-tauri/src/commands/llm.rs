@@ -128,7 +128,44 @@ pub async fn llm_list_models(config: LlmConfig) -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn llm_via_cli(prompt: String, cli: Option<String>, cwd: Option<String>) -> Result<String, String> {
     let bin = cli.unwrap_or_else(|| "claude".to_string());
-    cli_run(&bin, &prompt, Duration::from_secs(180), cwd.as_deref()).await
+    cli_run(&bin, &prompt, Duration::from_secs(180), cwd.as_deref(), &[]).await
+}
+
+/// Path (idempotente) de um mcp-config SÓ com o Context7 — doc ao vivo de libs via HTTP remoto,
+/// SEM boot local nem credencial (ao contrário do Serena, cujo overhead de boot é o "Risco #1" da
+/// Fase 9). É o grounding do tutor Aprender: `claude -p --mcp-config <este>` consulta a doc real
+/// em vez de alucinar API pra um iniciante que não detectaria o erro.
+/// mcp-config só-Context7 (const testável — um typo aqui derruba o grounding silenciosamente).
+const CONTEXT7_MCP_JSON: &str =
+    r#"{"mcpServers":{"context7":{"type":"http","url":"https://mcp.context7.com/mcp"}}}"#;
+
+fn context7_config_path() -> Result<String, String> {
+    #[cfg(windows)]
+    let home = std::env::var("USERPROFILE").map_err(|_| "sem HOME".to_string())?;
+    #[cfg(not(windows))]
+    let home = std::env::var("HOME").map_err(|_| "sem HOME".to_string())?;
+    let dir = std::path::PathBuf::from(home).join(".omnirift");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("criar .omnirift: {e}"))?;
+    let path = dir.join("learn-context7-mcp.json");
+    std::fs::write(&path, CONTEXT7_MCP_JSON).map_err(|e| format!("escrever mcp-config: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Tutor Aprender ANCORADO (Fase 9 A3): roda `claude -p --mcp-config <context7>` no `cwd` do
+/// aprendiz — ganha doc ao vivo de libs pra NÃO alucinar (guardrail "ensino ancorado" da spec).
+/// Timeout maior (240s) que o `llm_via_cli` cru: a consulta ao Context7 (rede) soma latência.
+/// Degrada limpo — se o `claude`/rede falhar, o erro sobe pro caller (o front cai no modo normal).
+#[tauri::command]
+pub async fn learn_ask_grounded(prompt: String, cwd: Option<String>) -> Result<String, String> {
+    let mcp = context7_config_path()?;
+    cli_run(
+        "claude",
+        &prompt,
+        Duration::from_secs(240),
+        cwd.as_deref(),
+        &["--mcp-config", &mcp],
+    )
+    .await
 }
 
 /// Núcleo do CLI (testável sem o State do Tauri): spawna, espera com timeout e
@@ -136,10 +173,18 @@ pub async fn llm_via_cli(prompt: String, cli: Option<String>, cwd: Option<String
 /// junto do drop — sem leak de processo (mesma lição do clone_killer do pty_kill).
 /// `cwd`: diretório de trabalho do CLI (opcional) — o Aprender ancora o tutor no
 /// projeto do aprendiz; `None` = comportamento original (cwd do app).
-async fn cli_run(bin: &str, prompt: &str, timeout: Duration, cwd: Option<&str>) -> Result<String, String> {
+async fn cli_run(
+    bin: &str,
+    prompt: &str,
+    timeout: Duration,
+    cwd: Option<&str>,
+    extra_args: &[&str],
+) -> Result<String, String> {
     use std::process::Stdio;
     let mut cmd = tokio::process::Command::new(bin);
-    cmd.args(["-p", prompt])
+    // extra_args (ex.: --mcp-config <path> do tutor Aprender) ANTES do -p; o prompt é o último.
+    cmd.args(extra_args)
+        .args(["-p", prompt])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -250,6 +295,16 @@ async fn send(req: reqwest::RequestBuilder) -> Result<serde_json::Value, String>
 mod tests {
     use super::*;
 
+    #[test]
+    fn context7_mcp_json_is_valid_and_points_to_context7() {
+        // Um typo no literal derrubaria o grounding sem erro visível (cai no fallback cru).
+        let v: serde_json::Value = serde_json::from_str(CONTEXT7_MCP_JSON).unwrap();
+        assert_eq!(v["mcpServers"]["context7"]["type"], "http");
+        assert_eq!(v["mcpServers"]["context7"]["url"], "https://mcp.context7.com/mcp");
+        // Só o Context7 (sem Serena) — a promessa "sem boot local".
+        assert_eq!(v["mcpServers"].as_object().unwrap().len(), 1);
+    }
+
     #[tokio::test]
     async fn openai_parses_completion_and_usage_against_stub() {
         let app = axum::Router::new().route(
@@ -301,13 +356,13 @@ mod tests {
     async fn cli_run_captures_stdout_without_shell() {
         // `echo -p <prompt>` imprime os args → prova spawn direto (sem shell) + captura
         // do stdout, inclusive com aspas/acentos no prompt (zero quoting).
-        let out = cli_run("echo", "diga \"olá\" à equipe", Duration::from_secs(10), None).await.unwrap();
+        let out = cli_run("echo", "diga \"olá\" à equipe", Duration::from_secs(10), None, &[]).await.unwrap();
         assert!(out.contains("diga \"olá\" à equipe"), "out: {out}");
     }
 
     #[tokio::test]
     async fn cli_run_missing_binary_is_clear_error() {
-        let err = cli_run("omnirift-cli-inexistente-xyz", "x", Duration::from_secs(5), None).await.unwrap_err();
+        let err = cli_run("omnirift-cli-inexistente-xyz", "x", Duration::from_secs(5), None, &[]).await.unwrap_err();
         assert!(err.contains("não consegui rodar"), "err: {err}");
     }
 
@@ -324,7 +379,7 @@ mod tests {
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let canon = std::fs::canonicalize(&dir).unwrap();
-        let out = cli_run(script.to_str().unwrap(), "x", Duration::from_secs(10), canon.to_str()).await.unwrap();
+        let out = cli_run(script.to_str().unwrap(), "x", Duration::from_secs(10), canon.to_str(), &[]).await.unwrap();
         assert_eq!(out.trim(), canon.to_str().unwrap(), "out: {out}");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -340,7 +395,7 @@ mod tests {
         std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let err = cli_run(script.to_str().unwrap(), "x", Duration::from_millis(300), None).await.unwrap_err();
+        let err = cli_run(script.to_str().unwrap(), "x", Duration::from_millis(300), None, &[]).await.unwrap_err();
         assert!(err.contains("timeout"), "err: {err}");
         let _ = std::fs::remove_dir_all(&dir);
     }

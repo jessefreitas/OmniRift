@@ -68,13 +68,17 @@ export function checkLeak(resp: string, hintLevel: number, markers: string[]): P
   return invoke<boolean>("learn_check_leak", { resp, hintLevel, markers });
 }
 
-/** Pergunta crua ao tutor (system Socrático + conteúdo) via CLI local, no cwd do projeto. */
+/** Pergunta ao tutor (system Socrático + conteúdo) via CLI local, no cwd do projeto. Roteia pro
+ *  caminho ANCORADO (`learn_ask_grounded` = `claude -p --mcp-config <context7>`) pra consultar doc
+ *  real de libs em vez de alucinar (A3). Fallback pro `llm_via_cli` cru se o grounding falhar
+ *  (claude sem `--mcp-config` / Context7 fora) — o tutor nunca quebra por causa do grounding. */
 async function askViaCli(system: string, content: string, cwd: string | null): Promise<string> {
-  return invoke<string>("llm_via_cli", {
-    prompt: `${system}\n\n---\n\n${content}`,
-    cli: null,
-    cwd: cwd ?? null,
-  });
+  const prompt = `${system}\n\n---\n\n${content}`;
+  try {
+    return await invoke<string>("learn_ask_grounded", { prompt, cwd: cwd ?? null });
+  } catch {
+    return await invoke<string>("llm_via_cli", { prompt, cli: null, cwd: cwd ?? null });
+  }
 }
 
 /** Guarda anti-vazamento: se a resposta vazar a solução num nível baixo, devolve o
