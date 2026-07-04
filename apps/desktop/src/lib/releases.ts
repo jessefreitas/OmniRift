@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.104",
+    date: "2026-07-04",
+    title: "Sprints no Kanban + explicação do Terminal-Bench",
+    highlights: [
+      "Metodologia de Sprints: organize os cards em janelas (Todos · Backlog · sprints, o ativo com 👑)",
+      "Crie/ative sprints e mova cards pro sprint ativo direto no painel do Kanban",
+      "Terminal-Bench agora explica como funciona e o que fazer pra rodar",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.103",
     date: "2026-07-04",
     title: "Time com chefe: o Arquiteto orquestra + deletar agente suspenso",
