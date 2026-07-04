@@ -352,8 +352,12 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       const t = e.target as HTMLElement | null;
-      // Foco num campo editável ou dentro do terminal → é digitação, não deleção de nó.
-      if (t?.closest("input,textarea,select,[contenteditable=true],.xterm,.terminal")) return;
+      // Campo de texto real (renomear, inputs) → sempre digitação, nunca deleta o nó.
+      if (t?.closest("input,textarea,select,[contenteditable=true]")) return;
+      // No terminal, Backspace é digitação (apaga no shell); mas Delete (raro dentro de um
+      // terminal) deleta o nó SELECIONADO — era a queixa "del não deleta o agente", já que
+      // ao selecionar o agente o foco fica no xterm e engolia o Delete.
+      if (e.key === "Backspace" && t?.closest(".xterm,.terminal")) return;
       if (document.querySelector(".react-flow__node.selected")) {
         e.preventDefault();
         void deleteSelected();
