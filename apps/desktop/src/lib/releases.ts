@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.103",
+    date: "2026-07-04",
+    title: "Time com chefe: o Arquiteto orquestra + deletar agente suspenso",
+    highlights: [
+      "Ao montar um time no Pipeline, o Arquiteto vira o Orquestrador (👑) e comanda o resto",
+      "Botão X pra deletar o agente suspenso (💤) sem precisar acordá-lo",
+      "Painel de Novidades completo — todas as versões até agora",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.102",
     date: "2026-07-04",
     title: "Fim da tela preta + Delete apaga o agente + debug que grava tudo",
