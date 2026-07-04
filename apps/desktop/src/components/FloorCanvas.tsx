@@ -353,12 +353,16 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       const t = e.target as HTMLElement | null;
-      // Campo de texto real (renomear, inputs) → sempre digitação, nunca deleta o nó.
-      if (t?.closest("input,textarea,select,[contenteditable=true]")) return;
-      // No terminal, Backspace é digitação (apaga no shell); mas Delete (raro dentro de um
-      // terminal) deleta o nó SELECIONADO — era a queixa "del não deleta o agente", já que
-      // ao selecionar o agente o foco fica no xterm e engolia o Delete.
-      if (e.key === "Backspace" && t?.closest(".xterm,.terminal")) return;
+      // Dentro de um terminal? O xterm captura teclado num <textarea class="xterm-helper-textarea">
+      // ESCONDIDO — é onde o foco fica ao clicar no agente. Esse textarea NÃO é um campo de
+      // formulário: Delete nele deve deletar o nó (era exatamente a queixa "del não deleta o agente"
+      // — o guard de textarea abaixo interceptava o Delete antes de chegar na deleção).
+      const inTerminal = !!t?.closest(".xterm,.terminal");
+      // Campo de texto de FORMULÁRIO (renomear, inputs) → digitação, nunca deleta. Mas só quando
+      // NÃO estamos dentro de um terminal (senão o helper-textarea do xterm cairia aqui).
+      if (!inTerminal && t?.closest("input,textarea,select,[contenteditable=true]")) return;
+      // No terminal, Backspace é digitação (apaga no shell); Delete deleta o nó.
+      if (inTerminal && e.key === "Backspace") return;
       // Nó DONO do elemento focado (o terminal do agente). Clicar no terminal NÃO seleciona o nó
       // (o container do xterm faz stopPropagation → o React Flow nunca vê o clique), então antes o
       // Del não achava `.selected` e não deletava nada. Agora deletamos o nó focado + os selecionados.
