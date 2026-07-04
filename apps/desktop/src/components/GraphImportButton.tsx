@@ -21,13 +21,14 @@
 
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Network, Loader2, Sparkles, ChevronDown, Share2, Boxes, Flame, GitCompare } from "lucide-react";
+import { Network, Loader2, Sparkles, ChevronDown, Share2, Boxes, Flame, GitCompare, Eraser } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { omnigraphGraphJson, omnigraphReport } from "@/lib/pipeline-client";
 import { importGraph, VIEW_META, type GraphJson, type GraphView } from "@/lib/omnigraph-graph";
 import { topAmbiguousEdges, buildAmbiguityResolverBrief } from "@/lib/omnigraph-client";
 import { OmniGraphDiffModal } from "@/components/OmniGraphDiffModal";
+import { OmniGraphReportModal } from "@/components/OmniGraphReportModal";
 import { notify } from "@/lib/notify";
 import { useFlag } from "@/lib/feature-flags";
 import { useT } from "@/lib/i18n";
@@ -62,12 +63,14 @@ function loadLastView(): GraphView {
 export function GraphImportButton() {
   const currentCwd = useCanvasStore((s) => s.currentCwd);
   const importCommunityNodes = useCanvasStore((s) => s.importCommunityNodes);
+  const clearGraphNodes = useCanvasStore((s) => s.clearGraphNodes);
   const addSubagent = useCanvasStore((s) => s.addSubagent);
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [busyClean, setBusyClean] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const [lastView, setLastView] = useState<GraphView>(loadLastView);
   // Feature flag: o dono pode ocultar o atalho do OmniGraph na toolbar (kill-switch).
   const omnigraphEnabled = useFlag("omnigraph-import");
@@ -247,6 +250,19 @@ export function GraphImportButton() {
     }
   }
 
+  // "Limpar grafo do canvas" — remove as bolhas (kind:"community") que o "ver no canvas" despejou,
+  // sem tocar nos agentes. Resolve o "gerou e sujou o canvas".
+  function handleClearCanvas() {
+    const n = clearGraphNodes();
+    void notify(
+      n > 0
+        ? t("graph.cleared", "{n} nós do grafo removidos do canvas").replace("{n}", String(n))
+        : t("graph.nothingToClear", "Não há grafo no canvas pra limpar."),
+      "info",
+    );
+    setMenuOpen(false);
+  }
+
   const btn =
     "flex items-center gap-1.5 rounded-md border border-border bg-surface1/90 px-2.5 py-1 text-[11px] text-textMuted backdrop-blur transition-colors hover:border-brand/50 hover:text-text disabled:cursor-wait disabled:opacity-60";
 
@@ -259,11 +275,10 @@ export function GraphImportButton() {
       <div className="relative">
         <div className="flex items-stretch">
           <button
-            onClick={() => handleImport(lastView)}
-            disabled={busy}
+            onClick={() => setShowReport(true)}
             title={t(
               "graph.importTip",
-              "Gera e mostra o mapa do código deste projeto (comunidades, dependências, god nodes) no canvas — a 1ª geração leva ~1-2 min em segundo plano.",
+              "Abre o mapa de leitura deste projeto: coração do código, conexões surpresa, ciclos de import e peças soltas — a 1ª geração leva ~1-2 min.",
             )}
             className={cn(btn, "rounded-r-none")}
           >
@@ -273,19 +288,21 @@ export function GraphImportButton() {
               <span aria-hidden className="text-[13px] leading-none">🕸️</span>
             )}
             <span>{t("graph.codeMap", "Mapa do código")}</span>
-            <span className="text-[9px] text-textMuted opacity-70">· {viewLabel(lastView)}</span>
           </button>
           <button
             onClick={() => setMenuOpen((v) => !v)}
             disabled={busy}
-            title={t("graph.pickView", "Escolher a visão do mapa (comunidades, chamadas, deps, risco)")}
+            title={t("graph.pickView", "Ver o grafo no canvas / limpar / comparar")}
             className={cn(btn, "rounded-l-none border-l-0 px-1.5")}
           >
             <ChevronDown size={13} className={cn("transition-transform", menuOpen && "rotate-180")} />
           </button>
         </div>
         {menuOpen && (
-          <div className="absolute right-0 top-full z-40 mt-1 w-52 overflow-hidden rounded-md border border-border bg-surface1 shadow-xl">
+          <div className="absolute right-0 top-full z-40 mt-1 w-56 overflow-hidden rounded-md border border-border bg-surface1 shadow-xl">
+            <div className="px-2.5 pt-2 pb-1 text-[9px] font-semibold uppercase tracking-wide text-textMuted">
+              {t("graph.viewOnCanvas", "Ver no canvas")}
+            </div>
             {VIEW_ORDER.map((view) => {
               const Icon = VIEW_ICONS[view];
               return (
@@ -303,6 +320,14 @@ export function GraphImportButton() {
                 </button>
               );
             })}
+            <div className="my-1 border-t border-border" />
+            <button
+              onClick={handleClearCanvas}
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-text hover:bg-white/5"
+            >
+              <Eraser size={13} className="text-textMuted" />
+              <span className="flex-1">{t("graph.clearCanvas", "Limpar grafo do canvas")}</span>
+            </button>
           </div>
         )}
       </div>
@@ -329,6 +354,7 @@ export function GraphImportButton() {
       </button>
 
       <OmniGraphDiffModal cwd={currentCwd?.trim() ?? ""} open={showDiff} onClose={() => setShowDiff(false)} />
+      <OmniGraphReportModal cwd={currentCwd?.trim() ?? ""} open={showReport} onClose={() => setShowReport(false)} />
     </div>
   );
 }

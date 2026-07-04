@@ -105,7 +105,8 @@ use commands::acp::{
 use commands::folder_canvas::{folder_canvas_load, folder_canvas_save};
 use commands::omnigraph::{
     omnigraph_available, omnigraph_diff, omnigraph_graph_json, omnigraph_impact,
-    omnigraph_list_snapshots, omnigraph_rebuild, omnigraph_report, omnigraph_snapshot_graph,
+    omnigraph_list_snapshots, omnigraph_rebuild, omnigraph_report, omnigraph_report_full,
+    omnigraph_snapshot_graph,
 };
 use commands::pipeline::{pipeline_load, pipeline_save};
 use commands::providers::{
@@ -364,6 +365,7 @@ pub fn run() {
             pipeline_load,
             omnigraph_available,
             omnigraph_report,
+            omnigraph_report_full,
             omnigraph_graph_json,
             omnigraph_impact,
             omnigraph_rebuild,

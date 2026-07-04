@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.108",
+    date: "2026-07-04",
+    title: "Mapa do Código agora te DIZ algo (painel de leitura) + limpar o grafo do canvas",
+    highlights: [
+      "O botão 'Mapa do código' abre um PAINEL legível: coração do código (mais conectados), conexões surpresa, ciclos de import, peças soltas — em vez de só despejar bolhas sem nome",
+      "'Limpar grafo do canvas' (no menu ▾) remove as bolhas do grafo de uma vez, sem tocar nos agentes",
+      "As visões visuais (comunidades/chamadas/deps/risco) continuam em 'Ver no canvas ▾'",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.107",
     date: "2026-07-04",
     title: "Delete no agente clicado deleta de verdade",

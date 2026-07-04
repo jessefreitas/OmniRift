@@ -164,6 +164,13 @@ export async function omnigraphReport(cwd: string): Promise<string | null> {
   return invoke<string | null>("omnigraph_report", { cwd });
 }
 
+/** Como `omnigraphReport`, mas o GRAPH_REPORT.md COMPLETO (sem destilar) — pro painel do usuário
+ *  (OmniGraphReportModal), que quer as seções que o destilador corta (Import Cycles, Knowledge
+ *  Gaps, Corpus Check). `null` = sem grafo/engine; erro (build falhou) SOBE pra quem chamou. */
+export async function omnigraphReportFull(cwd: string): Promise<string | null> {
+  return invoke<string | null>("omnigraph_report_full", { cwd });
+}
+
 /** Lê o `graph.json` CRU do repo em `cwd` (OmniGraph F2 — importer do canvas). `null` =
  *  sem grafo gerado (o botão avisa). Erro (grafo grande demais / falha de IO) SOBE pra quem
  *  chamou avisar. NÃO builda — o canvas só importa um grafo que já existe. */

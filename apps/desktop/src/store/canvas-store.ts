@@ -222,6 +222,10 @@ interface CanvasState {
    *  Um único `set` (não N re-renders). Os ids já vêm únicos do `importCommunities`. Retorna
    *  quantos nós entraram (0 = nada importado). */
   importCommunityNodes: (nodes: CanvasNode[], edges: CanvasEdge[]) => number;
+  /** Remove do floor ativo TODOS os nós de grafo (kind:"community") + as arestas que os tocam.
+   *  É o "limpar grafo do canvas" — desfaz o despejo de bolhas sem mexer nos agentes. Retorna
+   *  quantos nós foram removidos (0 = não havia grafo no canvas). */
+  clearGraphNodes: () => number;
   updateFilterNode: (id: string, patch: { mode?: FilterNode["mode"]; value?: string; providerId?: string; model?: string; criterion?: string }) => void;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
@@ -883,6 +887,27 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       ),
     }));
     return nodes.length;
+  },
+
+  clearGraphNodes: () => {
+    const s = get();
+    const active = s.parallels.find((p) => p.id === s.activeParallelId);
+    if (!active) return 0;
+    const graphIds = new Set(active.nodes.filter((n) => n.kind === "community").map((n) => n.id));
+    if (graphIds.size === 0) return 0;
+    set((st) => ({
+      parallels: st.parallels.map((f) =>
+        f.id === st.activeParallelId
+          ? {
+              ...f,
+              nodes: f.nodes.filter((n) => !graphIds.has(n.id)),
+              // arestas que tocam qualquer nó de grafo saem junto (não deixa aresta órfã).
+              edges: f.edges.filter((e) => !graphIds.has(e.source) && !graphIds.has(e.target)),
+            }
+          : f,
+      ),
+    }));
+    return graphIds.size;
   },
 
   emitAgentOutput: (nodeId, text, extra) =>

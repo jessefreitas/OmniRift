@@ -172,6 +172,34 @@ pub async fn omnigraph_report(cwd: String) -> Result<Option<String>, String> {
     Ok(Some(distill_graph_report(&md, DISTILL_MAX_BYTES)))
 }
 
+/// Como `omnigraph_report`, mas devolve o GRAPH_REPORT.md **COMPLETO** (sem destilar) — pro
+/// PAINEL do usuário (`OmniGraphReportModal`), que não tem o orçamento de tokens do Arquiteto e
+/// quer as seções que o destilador corta (Import Cycles, Knowledge Gaps, Corpus Check). Mesma
+/// semântica de build/degradação do `omnigraph_report`.
+#[tauri::command]
+pub async fn omnigraph_report_full(cwd: String) -> Result<Option<String>, String> {
+    let cwd = cwd.trim().to_string();
+    if cwd.is_empty() {
+        return Ok(None);
+    }
+    let Some(launcher) = resolve_launcher() else {
+        crate::commands::debug_log::note("omnigraph", "report_full: engine INDISPONÍVEL");
+        return Ok(None);
+    };
+    let cwd_path = PathBuf::from(&cwd);
+    // Report já no disco → devolve inteiro (não paga o build).
+    if let Some(rep) = find_existing_report(&cwd_path) {
+        crate::commands::debug_log::note("omnigraph", &format!("report_full: lendo {}", rep.display()));
+        return Ok(Some(read_report(&rep)?));
+    }
+    // Sem report → builda e lê o gerado.
+    run_build(&launcher, &cwd_path).await?;
+    let rep = find_existing_report(&cwd_path).ok_or_else(|| {
+        "a engine rodou mas não gerou GRAPH_REPORT.md — repo sem código extraível?".to_string()
+    })?;
+    Ok(Some(read_report(&rep)?))
+}
+
 fn read_report(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("ler {}: {e}", path.display()))
 }
