@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.114",
+    date: "2026-07-04",
+    title: "Aprender: barra de progresso da trilha + exercício vira card no Kanban",
+    highlights: [
+      "Barra de progresso no modo Aprender — veja de relance o que já resolveu (persiste entre sessões); clique num segmento pra pular pro exercício",
+      "Ao concluir um exercício, ele vira um card 🎓 na coluna 'done' do Kanban do projeto",
+      "Tutor ancorado (A3) validado ponta a ponta: consulta doc real de libs via Context7",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.113",
     date: "2026-07-04",
     title: "Tutor Aprender não alucina mais: consulta a doc real (Aprender A3)",

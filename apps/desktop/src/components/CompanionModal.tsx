@@ -16,6 +16,7 @@ import { analyzeCanvas } from "@/lib/companion";
 import { useT } from "@/lib/i18n";
 import { askHint, askTutor, explainCheckFailure, type LearnMessage } from "@/lib/learn";
 import { LEARN_TRACKS, MAX_HINT_LEVEL } from "@/lib/learn-exercises";
+import { kanbanCardCreate } from "@/lib/kanban-client";
 import { useCanvasStore } from "@/store/canvas-store";
 
 interface Props {
@@ -39,6 +40,28 @@ function loadSavedExIdx(): number {
   const track = LEARN_TRACKS.find((tr) => tr.id === loadSavedTrackId()) ?? LEARN_TRACKS[0];
   const n = Number.parseInt(localStorage.getItem(LEARN_EX_IDX_LS) ?? "0", 10);
   return Number.isFinite(n) ? Math.min(Math.max(n, 0), track.exercises.length - 1) : 0;
+}
+
+// A2 — progresso durável: exercícios CONCLUÍDOS por trilha (persistidos → sobrevivem a reinício).
+const LEARN_COMPLETED_LS = "omnirift-learn-completed-v1";
+
+function loadCompleted(trackId: string): Set<string> {
+  try {
+    const all = JSON.parse(localStorage.getItem(LEARN_COMPLETED_LS) ?? "{}") as Record<string, string[]>;
+    return new Set(Array.isArray(all[trackId]) ? all[trackId] : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCompleted(trackId: string, ids: Set<string>): void {
+  try {
+    const all = JSON.parse(localStorage.getItem(LEARN_COMPLETED_LS) ?? "{}") as Record<string, string[]>;
+    all[trackId] = [...ids];
+    localStorage.setItem(LEARN_COMPLETED_LS, JSON.stringify(all));
+  } catch {
+    /* localStorage off */
+  }
 }
 
 export function CompanionModal({ onClose }: Props) {
@@ -66,6 +89,11 @@ export function CompanionModal({ onClose }: Props) {
   // Trilha (linguagem) + exercício atual, persistidos em localStorage.
   const [trackId, setTrackId] = useState<string>(loadSavedTrackId);
   const [exIdx, setExIdx] = useState<number>(loadSavedExIdx);
+  // A4 — exercícios já registrados como card no Kanban nesta sessão (por id), pra não duplicar.
+  const cardedRef = useRef<Set<string>>(new Set());
+  // A2 — exercícios concluídos da trilha ATUAL (durável). Recarrega ao trocar de trilha.
+  const [completed, setCompleted] = useState<Set<string>>(() => loadCompleted(trackId));
+  useEffect(() => setCompleted(loadCompleted(trackId)), [trackId]);
   const track = LEARN_TRACKS.find((tr) => tr.id === trackId) ?? LEARN_TRACKS[0];
   const ex = track.exercises[Math.min(exIdx, track.exercises.length - 1)];
   const hasNextEx = exIdx < track.exercises.length - 1;
@@ -100,6 +128,14 @@ export function CompanionModal({ onClose }: Props) {
     setExIdx(next);
     resetLearnSession();
     localStorage.setItem(LEARN_EX_IDX_LS, String(next));
+  }
+
+  /** A2 — pula pra um exercício arbitrário da trilha (clique na barra de progresso). */
+  function gotoExercise(i: number) {
+    if (i === exIdx || busy || i < 0 || i >= track.exercises.length) return;
+    setExIdx(i);
+    resetLearnSession();
+    localStorage.setItem(LEARN_EX_IDX_LS, String(i));
   }
 
   useEffect(() => {
@@ -151,6 +187,23 @@ export function CompanionModal({ onClose }: Props) {
       const r = await runCheck(cwd, ex.condition);
       if (r.exit === 0) {
         setDone(true);
+        // A2 — marca o exercício como concluído (durável entre sessões).
+        setCompleted((prev) => {
+          const next = new Set(prev).add(ex.id);
+          saveCompleted(trackId, next);
+          return next;
+        });
+        // A4 — registra a conquista no Kanban do projeto (col "done"), 1x por exercício.
+        // Best-effort: se o Kanban falhar, libera o id pra tentar de novo e não trava o verify.
+        if (!cardedRef.current.has(ex.id)) {
+          cardedRef.current.add(ex.id);
+          void kanbanCardCreate({
+            project: cwd,
+            col: "done",
+            title: `🎓 ${track.label}: ${ex.title}`,
+            body: `Exercício do modo Aprender concluído ✓ (${ex.condition}).`,
+          }).catch(() => cardedRef.current.delete(ex.id));
+        }
         push({
           role: "system",
           text: hasNextEx
@@ -273,6 +326,28 @@ export function CompanionModal({ onClose }: Props) {
               </div>
               <p className="text-[11px] text-textMuted mt-1 leading-relaxed">{ex.statement}</p>
               <p className="text-[10px] text-textMuted opacity-70 mt-1 font-mono break-all">{ex.condition}</p>
+              {/* A2 — barra de progresso da trilha: segmento por exercício (concluído / atual /
+                  futuro), clicável pra pular. Persistido → o aprendiz vê o que já resolveu. */}
+              <div className="flex items-center gap-1 mt-2">
+                {track.exercises.map((e, i) => {
+                  const isDone = completed.has(e.id);
+                  const isCur = i === exIdx;
+                  return (
+                    <button
+                      key={e.id}
+                      onClick={() => gotoExercise(i)}
+                      title={`${i + 1}. ${e.title}${isDone ? " ✓" : ""}`}
+                      aria-label={`${i + 1}. ${e.title}`}
+                      className={`h-1.5 flex-1 rounded-full transition-colors ${
+                        isDone ? "bg-emerald-500" : isCur ? "bg-brand" : "bg-border hover:bg-textMuted/40"
+                      }`}
+                    />
+                  );
+                })}
+                <span className="text-[9px] text-textMuted ml-1 tabular-nums">
+                  {completed.size}/{track.exercises.length}
+                </span>
+              </div>
             </div>
 
             {/* chat */}
