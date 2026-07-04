@@ -10,14 +10,19 @@
 // UI in-DOM (WebKitGTK sem diálogo nativo): overlay próprio, fecha no X / ESC / clique fora.
 
 import { useEffect, useState } from "react";
-import { Loader2, X, FlaskConical, Check, Copy } from "lucide-react";
+import { Loader2, X, FlaskConical, Check, Copy, ShieldCheck } from "lucide-react";
 
 import {
   evaluateTrajectory,
   applyRoleSuggestion,
+  revertRoleSuggestion,
+  getRoleBaseline,
+  setRoleBaseline,
   type TrajectoryResult,
   type TrajectoryStats,
 } from "@/lib/trajectory-eval";
+import { runBenchSuite } from "@/lib/bench-runner";
+import { scoreBench, compareBaseline } from "@/lib/terminal-bench";
 import { loadLlmConfig } from "@/lib/llm-client";
 import { loadRoles } from "@/lib/agent-roles";
 import { useAgentMetrics, percentile, errorRate } from "@/lib/agent-metrics";
@@ -26,6 +31,13 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { notify } from "@/lib/notify";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+
+/** Resultado do regression guard (o loop auto-evolutivo): manteve ou reverteu o ajuste. */
+interface GuardOutcome {
+  reverted: boolean;
+  beforeRate: number; // 0..1
+  afterRate: number; // 0..1
+}
 
 interface EvalDetail {
   nodeId: string;
@@ -52,6 +64,9 @@ export function TrajectoryEvalModal() {
   const [result, setResult] = useState<TrajectoryResult | null>(null);
   const [applied, setApplied] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Regression guard (loop auto-evolutivo): fase textual enquanto roda o bench + o veredito final.
+  const [guardPhase, setGuardPhase] = useState<string | null>(null);
+  const [guardOutcome, setGuardOutcome] = useState<GuardOutcome | null>(null);
 
   useEffect(() => {
     const onEval = (e: Event) => {
@@ -61,6 +76,8 @@ export function TrajectoryEvalModal() {
       setResult(null);
       setApplied(false);
       setCopied(false);
+      setGuardPhase(null);
+      setGuardOutcome(null);
       void run(d);
     };
     window.addEventListener("omnirift:eval-trajectory", onEval as EventListener);
@@ -132,6 +149,71 @@ export function TrajectoryEvalModal() {
         t("eval.notApplied", "Não dá pra aplicar automático (role builtin ou contrato). Copie e ajuste à mão."),
         "info",
       );
+    }
+  }
+
+  // LOOP AUTO-EVOLUTIVO (o "auto" do Evolver): mede baseline → aplica o ajuste → roda o
+  // Terminal-Bench → se o selo REGREDIU, reverte o ajuste (o role não pode piorar). Reusa o
+  // baseline salvo por role (só a 1ª vez paga a medição "antes"). Caro (roda a suíte) — é opt-in.
+  async function applyWithGuard() {
+    const sug = result?.roleSuggestion;
+    const roleKey = detail?.roleName;
+    const cwd = currentCwd?.trim();
+    const nodeId = detail?.nodeId;
+    if (!sug || sug.field !== "persona" || !roleKey || !cwd || !nodeId) {
+      void notify(t("eval.guardCantRun", "Precisa de um role do usuário + pasta de projeto pra validar no bench."), "info");
+      return;
+    }
+    setGuardOutcome(null);
+    try {
+      // 1) Baseline: usa o salvo; senão mede AGORA com a persona atual (antes do ajuste).
+      let baseline = getRoleBaseline(roleKey);
+      if (!baseline) {
+        setGuardPhase(t("eval.guardBaseline", "Medindo o baseline (antes do ajuste)…"));
+        const before = await runBenchSuite(nodeId, cwd, (p) =>
+          setGuardPhase(t("eval.guardTask", "Baseline — {t} ({i}/{n})").replace("{t}", p.taskTitle).replace("{i}", String(p.idx + 1)).replace("{n}", String(p.total))),
+        );
+        baseline = scoreBench(before);
+        setRoleBaseline(roleKey, baseline);
+      }
+      // 2) Aplica o ajuste na persona.
+      if (!applyRoleSuggestion(roleKey, sug)) {
+        setGuardPhase(null);
+        void notify(t("eval.notApplied", "Não dá pra aplicar automático (role builtin ou contrato). Copie e ajuste à mão."), "info");
+        return;
+      }
+      setApplied(true);
+      // 3) Roda a suíte com a persona NOVA.
+      setGuardPhase(t("eval.guardValidate", "Validando o ajuste no bench…"));
+      const after = await runBenchSuite(nodeId, cwd, (p) =>
+        setGuardPhase(t("eval.guardTask", "Validando — {t} ({i}/{n})").replace("{t}", p.taskTitle).replace("{i}", String(p.idx + 1)).replace("{n}", String(p.total))),
+      );
+      const afterScore = scoreBench(after);
+      // 4) Regrediu? tol 0 — qualquer queda no passRate reverte (o role não pode piorar).
+      const cmp = compareBaseline(afterScore, baseline, 0);
+      if (cmp.regressed) {
+        revertRoleSuggestion(roleKey, sug);
+        setApplied(false);
+        void notify(
+          t("eval.guardReverted", "Ajuste REVERTIDO: o bench caiu {a}%→{b}%. O role ficou como estava.")
+            .replace("{a}", String(Math.round(baseline.passRate * 100)))
+            .replace("{b}", String(Math.round(afterScore.passRate * 100))),
+          "error",
+        );
+      } else {
+        setRoleBaseline(roleKey, afterScore); // o novo vira o baseline
+        void notify(
+          t("eval.guardKept", "Ajuste MANTIDO: bench {a}%→{b}% (não regrediu).")
+            .replace("{a}", String(Math.round(baseline.passRate * 100)))
+            .replace("{b}", String(Math.round(afterScore.passRate * 100))),
+          "info",
+        );
+      }
+      setGuardOutcome({ reverted: cmp.regressed, beforeRate: baseline.passRate, afterRate: afterScore.passRate });
+    } catch (e) {
+      void notify(String(e), "error");
+    } finally {
+      setGuardPhase(null);
     }
   }
 
@@ -229,23 +311,51 @@ export function TrajectoryEvalModal() {
                   </h3>
                   <p className="mb-1 whitespace-pre-wrap text-[12px] text-text">{sug.patch}</p>
                   {sug.rationale && <p className="mb-2 text-[11px] text-textMuted">{sug.rationale}</p>}
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {sug.field === "persona" && detail.roleName && (
                       <button
                         onClick={applySuggestion}
-                        disabled={applied}
+                        disabled={applied || !!guardPhase}
                         className={cn(
-                          "flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium",
+                          "flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium disabled:opacity-50",
                           applied ? "bg-emerald-500/20 text-emerald-400" : "bg-brand text-bg hover:bg-brand-hover",
                         )}
                       >
                         {applied ? <><Check size={12} /> {t("eval.appliedBtn", "Aplicado")}</> : t("eval.apply", "Aplicar ao role “{r}”").replace("{r}", detail.roleName)}
                       </button>
                     )}
+                    {sug.field === "persona" && detail.roleName && currentCwd && (
+                      <button
+                        onClick={() => void applyWithGuard()}
+                        disabled={!!guardPhase || applied}
+                        title={t("eval.guardTip", "Aplica e valida no Terminal-Bench — se o selo cair, reverte sozinho (o role não pode piorar). Roda a suíte: leva alguns minutos.")}
+                        className="flex items-center gap-1 rounded-md border border-brand/50 bg-brand/10 px-2.5 py-1 text-[11px] font-medium text-brand hover:bg-brand/20 disabled:opacity-50"
+                      >
+                        {guardPhase ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
+                        {t("eval.applyGuard", "Aplicar + validar no bench")}
+                      </button>
+                    )}
                     <button onClick={() => void copyPatch()} className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] text-textMuted hover:text-text">
                       {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />} {t("eval.copy", "Copiar")}
                     </button>
                   </div>
+                  {/* Progresso / veredito do regression guard */}
+                  {guardPhase && (
+                    <p className="mt-2 flex items-center gap-1.5 text-[11px] text-textMuted">
+                      <Loader2 size={11} className="animate-spin" /> {guardPhase}
+                    </p>
+                  )}
+                  {guardOutcome && !guardPhase && (
+                    <p className={cn("mt-2 text-[11px]", guardOutcome.reverted ? "text-danger" : "text-emerald-400")}>
+                      {guardOutcome.reverted
+                        ? t("eval.guardRevertedShort", "↩︎ Revertido — o bench caiu ({a}% → {b}%).")
+                            .replace("{a}", String(Math.round(guardOutcome.beforeRate * 100)))
+                            .replace("{b}", String(Math.round(guardOutcome.afterRate * 100)))
+                        : t("eval.guardKeptShort", "✓ Mantido — bench {a}% → {b}% (não regrediu).")
+                            .replace("{a}", String(Math.round(guardOutcome.beforeRate * 100)))
+                            .replace("{b}", String(Math.round(guardOutcome.afterRate * 100)))}
+                    </p>
+                  )}
                 </div>
               )}
             </>

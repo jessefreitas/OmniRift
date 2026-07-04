@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.112",
+    date: "2026-07-04",
+    title: "Auto-evoluir com segurança: o ajuste de role só fica se não piorar o bench",
+    highlights: [
+      "No 🔬 Avaliar trajetória: 'Aplicar + validar no bench' aplica o ajuste do role e roda o Terminal-Bench",
+      "Se o selo do bench cair, o ajuste é REVERTIDO sozinho — o role nunca piora (regression guard fechado)",
+      "Cada role guarda seu baseline de bench; o loop conecta o Evolver ao Terminal-Bench",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.111",
     date: "2026-07-04",
     title: "Avaliar trajetória do agente (juiz de IA + ajuste de role)",

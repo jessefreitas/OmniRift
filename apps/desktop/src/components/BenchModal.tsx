@@ -11,37 +11,9 @@ import { createPortal } from "react-dom";
 import { Check, Flag, Loader2, Play, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
-import { runCheck } from "@/lib/acp-client";
 import { BENCH_SUITE, scoreBench, type BenchResult } from "@/lib/terminal-bench";
+import { runBenchSuite } from "@/lib/bench-runner";
 import { useT } from "@/lib/i18n";
-
-type GoalOutcome = { status: "done" | "fail" | "stopped" | "timeout"; iters: number };
-
-/** Dispara um Goal no agente e resolve quando ele termina (ou no teto de segurança). */
-function runGoalAndWait(
-  nodeId: string,
-  cfg: { objective: string; condition: string; maxIter: number },
-): Promise<GoalOutcome> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (r: GoalOutcome) => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener("omnirift:agent-goal-done", handler as EventListener);
-      clearTimeout(timer);
-      resolve(r);
-    };
-    const handler = (e: Event) => {
-      const d = (e as CustomEvent<{ nodeId: string; status: GoalOutcome["status"]; iters: number }>).detail;
-      if (d?.nodeId === nodeId) finish({ status: d.status, iters: d.iters });
-    };
-    window.addEventListener("omnirift:agent-goal-done", handler as EventListener);
-    // Teto de segurança: ~6 min por iteração possível. Se o agente travar, conta como falha
-    // (o bench não pode ficar preso num turno perdido).
-    const timer = setTimeout(() => finish({ status: "timeout", iters: cfg.maxIter }), cfg.maxIter * 6 * 60 * 1000);
-    window.dispatchEvent(new CustomEvent("omnirift:agent-goal-run", { detail: { nodeId, cfg } }));
-  });
-}
 
 export function BenchModal({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -67,26 +39,18 @@ export function BenchModal({ onClose }: { onClose: () => void }) {
     if (!nodeId || !cwd) return;
     setRunning(true);
     setResults([]);
+    // Runner compartilhado (bench-runner.ts): progresso via onProgress, resultados parciais
+    // via onResult (uma tarefa por vez, mesmo ritmo visual de antes).
     const acc: BenchResult[] = [];
-    for (let i = 0; i < BENCH_SUITE.length; i++) {
-      const task = BENCH_SUITE[i];
-      setCur({ idx: i, phase: "setup" });
-      await runCheck(cwd, task.setup).catch(() => {}); // prepara o estado inicial da tarefa
-      const t0 = performance.now();
-      setCur({ idx: i, phase: "solving" });
-      const outcome = await runGoalAndWait(nodeId, {
-        objective: task.prompt,
-        condition: task.condition,
-        maxIter: task.maxIter,
-      });
-      acc.push({
-        taskId: task.id,
-        passed: outcome.status === "done",
-        iters: outcome.iters,
-        durationMs: Math.round(performance.now() - t0),
-      });
-      setResults([...acc]);
-    }
+    await runBenchSuite(
+      nodeId,
+      cwd,
+      (p) => setCur({ idx: p.idx, phase: p.phase }),
+      (r) => {
+        acc.push(r);
+        setResults(acc.slice());
+      },
+    );
     setCur(null);
     setRunning(false);
   }

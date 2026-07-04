@@ -17,6 +17,7 @@
 import { llmChat, type LlmConfig } from "@/lib/llm-client";
 import { assertBudgetOk } from "@/lib/usage-client";
 import { loadRoles, saveRoles, type AgentRoleDef } from "@/lib/agent-roles";
+import type { BenchScore } from "@/lib/terminal-bench";
 
 /** Sinal objetivo da trajetória (do agent-metrics/agent-health) — vira evidência no prompt. */
 export interface TrajectoryStats {
@@ -204,6 +205,55 @@ export function applyRoleSuggestion(roleKey: string, suggestion: RoleSuggestion)
   if (cur.prompt.includes(suggestion.patch)) return false;
   const next = [...roles];
   next[idx] = { ...cur, prompt: `${cur.prompt.trim()}\n\n${suggestion.patch.trim()}` };
+  saveRoles(next);
+  return true;
+}
+
+/** Baseline do Terminal-Bench por role (o selo que o regression guard compara contra). Persistido
+ *  em localStorage por chave de role — o loop só aceita um ajuste se o novo selo não cair abaixo
+ *  deste. `null` = ainda não medido (a 1ª validação captura o baseline antes de ajustar). */
+const ROLE_BASELINE_KEY = "omnirift-role-bench-baseline-v1";
+
+function baselineStore(): Record<string, BenchScore> {
+  try {
+    return JSON.parse(localStorage.getItem(ROLE_BASELINE_KEY) ?? "{}") as Record<string, BenchScore>;
+  } catch {
+    return {};
+  }
+}
+
+export function getRoleBaseline(roleKey: string): BenchScore | null {
+  return baselineStore()[roleKey] ?? null;
+}
+
+export function setRoleBaseline(roleKey: string, score: BenchScore): void {
+  try {
+    const all = baselineStore();
+    all[roleKey] = score;
+    localStorage.setItem(ROLE_BASELINE_KEY, JSON.stringify(all));
+  } catch {
+    /* localStorage off */
+  }
+}
+
+/** Desfaz o `applyRoleSuggestion`: remove a diretriz somada à persona (o regression guard reverte
+ *  o ajuste quando o Terminal-Bench regride). Tolerante ao whitespace que o apply inseriu
+ *  (`\n\n<patch>`). Retorna true se removeu algo. */
+export function revertRoleSuggestion(roleKey: string, suggestion: RoleSuggestion): boolean {
+  const roles = loadRoles();
+  const idx = roles.findIndex((r: AgentRoleDef) => r.id === roleKey || r.name === roleKey);
+  if (idx < 0 || roles[idx].builtin) return false;
+  const cur = roles[idx];
+  const patch = suggestion.patch.trim();
+  if (!cur.prompt.includes(patch)) return false;
+  // Tira o patch e o separador (`\n\n`) que o apply inseriu; normaliza sobra de linhas em branco.
+  const stripped = cur.prompt
+    .replace(`\n\n${patch}`, "")
+    .replace(patch, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const next = [...roles];
+  next[idx] = { ...cur, prompt: stripped };
   saveRoles(next);
   return true;
 }
