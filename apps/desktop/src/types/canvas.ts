@@ -64,6 +64,8 @@ export interface BaseCanvasNode {
   parentId?: string;
   /** Comentário/anotação livre do usuário sobre este nó. */
   comment?: string;
+  /** Marca de origem (ex: "omnigraph-docs") pra ações em lote — limpar só os nós daquela origem. */
+  tag?: string;
 }
 
 export interface TerminalNode extends BaseCanvasNode {
@@ -396,6 +398,7 @@ export interface CanvasNodePatch {
   path?: string;
   filePath?: string;
   comment?: string;
+  tag?: string;
   providerConfig?: { provider: string; model: string };
   provider?: "claude" | "codex" | "hermes";
   goal?: { objective: string; condition: string; maxIter: number };

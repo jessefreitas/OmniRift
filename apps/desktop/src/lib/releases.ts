@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.110",
+    date: "2026-07-04",
+    title: "Docs no canvas: não somem mais ao abrir + botão pra ocultar",
+    highlights: [
+      "Corrige o doc .md sumindo do canvas ao clicar num link interno (o terminal do navegador navegava a página toda)",
+      "Links http dentro dos docs agora abrem no navegador externo",
+      "'Limpar docs do canvas' (menu ▾): remove a seção de documentação depois de analisar",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.109",
     date: "2026-07-04",
     title: "Mapa do Código: só código no 'coração' + explorar docs no canvas",

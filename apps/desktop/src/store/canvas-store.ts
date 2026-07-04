@@ -226,6 +226,10 @@ interface CanvasState {
    *  É o "limpar grafo do canvas" — desfaz o despejo de bolhas sem mexer nos agentes. Retorna
    *  quantos nós foram removidos (0 = não havia grafo no canvas). */
   clearGraphNodes: () => number;
+  /** Remove do floor ativo os nós marcados com `tag` (ex: a seção de docs do OmniGraph: os
+   *  PreviewNodes + o Group) + arestas órfãs. É o "ocultar docs depois de analisar". Retorna a
+   *  contagem removida. */
+  clearTaggedNodes: (tag: string) => number;
   updateFilterNode: (id: string, patch: { mode?: FilterNode["mode"]; value?: string; providerId?: string; model?: string; criterion?: string }) => void;
   removeNode: (id: string) => void;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
@@ -908,6 +912,26 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       ),
     }));
     return graphIds.size;
+  },
+
+  clearTaggedNodes: (tag) => {
+    const s = get();
+    const active = s.parallels.find((p) => p.id === s.activeParallelId);
+    if (!active) return 0;
+    const ids = new Set(active.nodes.filter((n) => n.tag === tag).map((n) => n.id));
+    if (ids.size === 0) return 0;
+    set((st) => ({
+      parallels: st.parallels.map((f) =>
+        f.id === st.activeParallelId
+          ? {
+              ...f,
+              nodes: f.nodes.filter((n) => !ids.has(n.id)),
+              edges: f.edges.filter((e) => !ids.has(e.source) && !ids.has(e.target)),
+            }
+          : f,
+      ),
+    }));
+    return ids.size;
   },
 
   emitAgentOutput: (nodeId, text, extra) =>

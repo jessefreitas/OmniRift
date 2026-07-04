@@ -1,7 +1,8 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { SafeTextarea } from "@/components/SafeInput";
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { Check, FileText, FolderOpen, Pencil, RefreshCw, Save, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
@@ -64,6 +65,18 @@ function PreviewNodeImpl({ id, data, selected }: NodeProps<PreviewRfNode>) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, [path]);
 
+  // Links dentro do markdown renderizado: NUNCA deixar o WebView seguir o href — no WebKitGTK
+  // isso NAVEGA a página inteira (o app sai do canvas → o nó/canvas "some", queixa do Jessé).
+  // Mesma pegadinha do WebLinksAddon do xterm. http(s) → navegador externo; âncora/relativo → só
+  // bloqueia (o alvo é doc do próprio projeto; abrir aqui não faria sentido no preview).
+  function onMdClick(e: ReactMouseEvent<HTMLDivElement>) {
+    const a = (e.target as HTMLElement).closest("a");
+    if (!a) return;
+    e.preventDefault();
+    const href = a.getAttribute("href") ?? "";
+    if (/^https?:\/\//i.test(href)) void openExternal(href).catch(() => {});
+  }
+
   async function pickFile() {
     const sel = await open({
       directory: false,
@@ -120,7 +133,7 @@ function PreviewNodeImpl({ id, data, selected }: NodeProps<PreviewRfNode>) {
           // HTML self-contained no iframe (sandbox sem scripts — só renderiza HTML+CSS).
           <iframe srcDoc={content} sandbox="" title={t("preview.iframeTitle", "preview")} className="w-full h-full border-0 bg-white" />
         ) : isMarkdown(path) ? (
-          <div className="md-preview px-3 py-2 text-text text-[13px]" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
+          <div className="md-preview px-3 py-2 text-text text-[13px]" onClick={onMdClick} dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
         ) : (
           <pre className="px-3 py-2 text-[11px] text-text whitespace-pre-wrap break-words font-mono">{content}</pre>
         )}

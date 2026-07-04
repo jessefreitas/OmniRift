@@ -40,6 +40,10 @@ const AMBIGUOUS_TOP_K = 8;
 /** localStorage: última visão escolhida (o clique no corpo do botão repete essa). */
 const LAST_VIEW_KEY = "omnirift-graph-view-v1";
 
+/** Marca de origem dos nós da seção "Explorar docs no canvas" (Group + PreviewNodes) — pro
+ *  "Limpar docs do canvas" achar e remover só eles. */
+const DOCS_TAG = "omnigraph-docs";
+
 /** Ícone + rótulo curto por visão (o rótulo humano fino; o técnico vem do VIEW_META). */
 const VIEW_ICONS: Record<GraphView, typeof Network> = {
   communities: Network,
@@ -68,6 +72,8 @@ export function GraphImportButton() {
   const addGroup = useCanvasStore((s) => s.addGroup);
   const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
   const updateNodeSize = useCanvasStore((s) => s.updateNodeSize);
+  const patchNode = useCanvasStore((s) => s.patchNode);
+  const clearTaggedNodes = useCanvasStore((s) => s.clearTaggedNodes);
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [busyClean, setBusyClean] = useState(false);
@@ -291,11 +297,13 @@ export function GraphImportButton() {
         position: { x: baseX - 40, y: baseY - 70 },
         label: t("graph.docsGroup", "📄 Documentação ({n})").replace("{n}", String(docs.length)),
       });
+      patchNode(grp.id, { tag: DOCS_TAG }); // pra o "limpar docs" achar tudo depois
       docs.forEach((rel, i) => {
         const c = i % cols;
         const r = Math.floor(i / cols);
         const path = rel.startsWith("/") ? rel : `${base}/${rel}`;
-        addPreviewNode({ path, position: { x: baseX + c * CW, y: baseY + r * CH } });
+        const pv = addPreviewNode({ path, position: { x: baseX + c * CW, y: baseY + r * CH } });
+        patchNode(pv.id, { tag: DOCS_TAG });
       });
       updateNodeSize(grp.id, { width: cols * CW + 40, height: rows * CH + 90 });
       void notify(
@@ -318,6 +326,18 @@ export function GraphImportButton() {
       n > 0
         ? t("graph.cleared", "{n} nós do grafo removidos do canvas").replace("{n}", String(n))
         : t("graph.nothingToClear", "Não há grafo no canvas pra limpar."),
+      "info",
+    );
+    setMenuOpen(false);
+  }
+
+  // "Limpar docs do canvas" — some com a seção de docs (Group + PreviewNodes) depois de analisar.
+  function handleClearDocs() {
+    const n = clearTaggedNodes(DOCS_TAG);
+    void notify(
+      n > 0
+        ? t("graph.docsCleared", "Seção de documentação removida do canvas ({n} nós)").replace("{n}", String(n))
+        : t("graph.noDocsToClear", "Não há seção de docs no canvas pra limpar."),
       "info",
     );
     setMenuOpen(false);
@@ -395,6 +415,13 @@ export function GraphImportButton() {
             >
               <Eraser size={13} className="text-textMuted" />
               <span className="flex-1">{t("graph.clearCanvas", "Limpar grafo do canvas")}</span>
+            </button>
+            <button
+              onClick={handleClearDocs}
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-text hover:bg-white/5"
+            >
+              <Eraser size={13} className="text-textMuted" />
+              <span className="flex-1">{t("graph.clearDocs", "Limpar docs do canvas")}</span>
             </button>
           </div>
         )}
