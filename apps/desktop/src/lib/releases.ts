@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.105",
+    date: "2026-07-04",
+    title: "Mapa do Código mais limpo (nada de pasta estranha no projeto)",
+    highlights: [
+      "A saída do Mapa do Código (OmniGraph) vai pra .omnirift/omnigraph — sua pasta fica limpa",
+      "Corrige perda de dados ao mover pastas dentro do drive dos agentes (OmniFS)",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.104",
     date: "2026-07-04",
     title: "Sprints no Kanban + explicação do Terminal-Bench",
