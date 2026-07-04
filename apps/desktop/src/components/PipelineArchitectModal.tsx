@@ -50,6 +50,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   const addEdge = useCanvasStore((s) => s.addEdge);
   const addSubagent = useCanvasStore((s) => s.addSubagent);
   const addTerminal = useCanvasStore((s) => s.addTerminal);
+  const setOrchestratorSid = useCanvasStore((s) => s.setOrchestratorSid);
   // Andamento: labels dos agentes/terminais já montados em QUALQUER floor do projeto.
   // ⚠️ O seletor devolve STRING (primitiva, estável no Object.is) — devolver array novo a
   // cada render fazia o useSyncExternalStore re-renderizar em loop e TRAVAVA o app ao abrir.
@@ -205,6 +206,9 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
     // Colunas por (floor, onda): cada floor é um canvas próprio → layout recomeça nele.
     const colByFloorWave = new Map<string, number>();
     let skippedByLimit = 0;
+    // Líder = agente da MENOR onda (o Arquiteto, que "define contratos e divide o trabalho").
+    // Ele vira o ORQUESTRADOR do time (persona de comando abaixo + coroa/dock via setOrchestratorSid).
+    const leaderRole = [...plan.agents].sort((x, y) => (x.wave ?? 1) - (y.wave ?? 1))[0]?.role.toLowerCase();
     for (const a of plan.agents) {
       const wave = a.wave ?? 1;
       const targetFloorId = floorIdFor(a.floor);
@@ -216,8 +220,21 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
       const ups = upstream(a.role);
       const downs = downstream(a.role);
       const isSource = ups.length === 0; // ponto de entrada → recebe o pontapé imediato
-      const persona =
-        `Você faz parte de um TIME montado no OmniRift. OBJETIVO DO PROJETO: ${plan.summary}\n` +
+      const isLeader = a.role.toLowerCase() === leaderRole;
+      const persona = isLeader
+        ? // 👑 ORQUESTRADOR: além da própria fatia, COMANDA o time (coroa/dock via setOrchestratorSid).
+          `Você é o ${a.role} e o ORQUESTRADOR deste time no OmniRift. OBJETIVO DO PROJETO: ${plan.summary}\n` +
+          `TIME (${plan.agents.length}): ${teamLine}.\n` +
+          `Papel duplo: (1) sua fatia — ${a.why}; (2) COMANDAR o time — divida o trabalho, acione cada agente ` +
+          `na vez dele, cobre as entregas e INTEGRE o resultado. As conexões do canvas disparam as ondas, mas ` +
+          `VOCÊ acompanha e destrava quem travar. NÃO rode dispatch/squad/multi_agent_dispatch — coordene pelo ` +
+          `canvas (Kanban + blackboard + agent_wake), que é o jeito do OmniRift.\n` +
+          `KANBAN (project="${currentCwd}"): distribua e acompanhe as fatias com kanban_list/kanban_card_move/` +
+          `kanban_card_note. BLACKBOARD: rode memory_recall/memory_remember pra alinhar o time. Agente dormindo ` +
+          `na vez dele → agent_wake.\n` +
+          `${agentsMdInstruction(a.role, anchorArch && omnigraphOk)}\n` +
+          `COMECE AGORA: leia ${repoHint}, defina os contratos/arquitetura e distribua as fatias pro time.`
+        : `Você faz parte de um TIME montado no OmniRift. OBJETIVO DO PROJETO: ${plan.summary}\n` +
         `TIME (${plan.agents.length}): ${teamLine}.\n` +
         `VOCÊ é o ${a.role}. Sua fatia: ${a.why}` +
         (a.model ? ` (modelo sugerido: ${a.model})` : "") +
@@ -309,6 +326,10 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
         addEdge(nodeId, sub.id, "subagent-link", { sourceHandle: "subagent", targetFloorId });
       });
     }
+    // 👑 Promove o líder (menor onda = Arquiteto) a ORQUESTRADOR: ganha a coroa + o dock e comanda
+    // o time (todos já entram no canal MCP abaixo). session_id do terminal = node.id (idByRole).
+    const leaderId = leaderRole ? idByRole.get(leaderRole) : undefined;
+    if (leaderId) setOrchestratorSid(leaderId);
     // Conexões: floors são canvases ISOLADOS → só liga quando os dois lados estão no mesmo
     // floor; cross-floor fica documentado no plano (chips de conexões) e é pulado aqui.
     let skippedCross = 0;
