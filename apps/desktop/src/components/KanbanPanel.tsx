@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   SquareKanban, X, Plus, Trash2, ChevronLeft, ChevronRight, Crosshair,
-  Settings2, ArrowUp, ArrowDown,
+  Settings2, ArrowUp, ArrowDown, Flag, Play,
 } from "lucide-react";
 
 import {
@@ -19,7 +19,13 @@ import {
   kanbanColumnsList,
   kanbanColumnsSave,
   onKanbanChanged,
+  sprintList,
+  sprintCreate,
+  sprintActivate,
+  sprintDelete,
+  cardSetSprint,
   type KanbanCard,
+  type KanbanSprint,
 } from "@/lib/kanban-client";
 import { useT } from "@/lib/i18n";
 
@@ -59,9 +65,13 @@ export function KanbanPanel({
   const [columns, setColumns] = useState<ColDef[]>(DEFAULT_COLS);
   const [custom, setCustom] = useState(false);
   const [editing, setEditing] = useState(false);
+  // Sprints (Fatia 1): lista + filtro atual ("all" = tudo | null = backlog do produto | id).
+  const [sprints, setSprints] = useState<KanbanSprint[]>([]);
+  const [sprintFilter, setSprintFilter] = useState<"all" | null | number>("all");
 
   const reload = useCallback(() => {
     kanbanList(project).then(setCards).catch((e) => console.warn("[kanban] list falhou:", e));
+    sprintList(project).then(setSprints).catch((e) => console.warn("[kanban] sprints falhou:", e));
     kanbanColumnsList(project)
       .then((cols) => {
         const hasCustom = cols.length >= 2;
@@ -93,6 +103,18 @@ export function KanbanPanel({
     kanbanCardMove(card.id, next).catch((e) => console.warn("[kanban] move falhou:", e));
   }, [columns]);
 
+  // Cria um sprint com nome auto ("Sprint N") — sem window.prompt (quebrado no WebKitGTK).
+  const createSprint = useCallback(() => {
+    sprintCreate({ project, name: `Sprint ${sprints.length + 1}` })
+      .catch((e) => console.warn("[kanban] sprint create falhou:", e));
+  }, [project, sprints.length]);
+
+  // Filtro dos cards pelo sprint selecionado + o sprint ativo (pro botão "mover pro sprint").
+  const visibleCards = cards.filter((c) =>
+    sprintFilter === "all" ? true : sprintFilter === null ? c.sprintId == null : c.sprintId === sprintFilter,
+  );
+  const activeSprint = sprints.find((s) => s.status === "active") ?? null;
+
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
@@ -122,6 +144,46 @@ export function KanbanPanel({
           </button>
         </div>
 
+        {/* Barra de Sprints (Fatia 1): filtra os cards por sprint + criar/ativar/excluir. */}
+        {!editing && (
+          <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border bg-surface1 px-4 py-1.5">
+            <Flag size={13} className="shrink-0 text-brand" />
+            <button
+              onClick={() => setSprintFilter("all")}
+              className={"shrink-0 rounded px-2 py-0.5 text-[11px] " + (sprintFilter === "all" ? "bg-brand/20 text-brand" : "text-textMuted hover:text-text")}
+            >{t("kanban.allCards", "Todos")}</button>
+            <button
+              onClick={() => setSprintFilter(null)}
+              className={"shrink-0 rounded px-2 py-0.5 text-[11px] " + (sprintFilter === null ? "bg-brand/20 text-brand" : "text-textMuted hover:text-text")}
+            >{t("kanban.productBacklog", "Backlog do produto")}</button>
+            {sprints.length > 0 && <span className="shrink-0 text-border">·</span>}
+            {sprints.map((s) => (
+              <div key={s.id} className="group flex shrink-0 items-center">
+                <button
+                  onClick={() => setSprintFilter(s.id)}
+                  className={"rounded px-2 py-0.5 text-[11px] " + (sprintFilter === s.id ? "bg-brand/20 text-brand" : "text-textMuted hover:text-text")}
+                  title={s.goal ?? undefined}
+                >
+                  {s.status === "active" ? "👑 " : ""}{s.name}
+                  <span className="ml-1 text-[9px] opacity-60">{cards.filter((c) => c.sprintId === s.id).length}</span>
+                </button>
+                {s.status !== "active" && (
+                  <button onClick={() => void sprintActivate(s.id)} className="rounded p-0.5 text-textMuted opacity-0 hover:text-brand group-hover:opacity-100" title={t("kanban.activateSprint", "Ativar este sprint")}>
+                    <Play size={11} />
+                  </button>
+                )}
+                <button onClick={() => void sprintDelete(s.id)} className="rounded p-0.5 text-textMuted opacity-0 hover:text-red-400 group-hover:opacity-100" title={t("kanban.deleteSprint", "Excluir sprint (os cards voltam ao backlog)")}>
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={createSprint}
+              className="shrink-0 rounded border border-dashed border-border px-2 py-0.5 text-[11px] text-textMuted hover:border-brand hover:text-brand"
+            >+ {t("kanban.newSprint", "Novo sprint")}</button>
+          </div>
+        )}
+
         {editing ? (
           <ColumnsEditor
             t={t}
@@ -138,7 +200,7 @@ export function KanbanPanel({
           className="grid flex-1 gap-2 overflow-auto p-3"
           style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0,1fr))` }}
         >
-          {cards.length === 0 && (
+          {visibleCards.length === 0 && (
             <p className="py-8 text-center text-xs text-textMuted" style={{ gridColumn: "1 / -1" }}>
               {t(
                 "kanban.empty",
@@ -147,7 +209,7 @@ export function KanbanPanel({
             </p>
           )}
           {columns.map((col, ci) => {
-            const colCards = cards.filter((c) => c.col === col.col);
+            const colCards = visibleCards.filter((c) => c.col === col.col);
             return (
               <div key={col.col} className="flex min-w-0 flex-col gap-2">
                 <div className="flex items-center justify-between px-1">
@@ -194,6 +256,24 @@ export function KanbanPanel({
                             title={t("kanban.focusNode", "Focar o nó no canvas")}
                           >
                             <Crosshair size={14} />
+                          </button>
+                        )}
+                        {activeSprint && card.sprintId !== activeSprint.id && (
+                          <button
+                            onClick={() => void cardSetSprint(card.id, activeSprint.id).catch((e) => console.warn("[kanban] set sprint:", e))}
+                            className="rounded p-0.5 text-textMuted hover:bg-white/10 hover:text-brand"
+                            title={`${t("kanban.moveToSprint", "Mover pro sprint ativo")}: ${activeSprint.name}`}
+                          >
+                            <Flag size={14} />
+                          </button>
+                        )}
+                        {card.sprintId != null && (
+                          <button
+                            onClick={() => void cardSetSprint(card.id, null).catch((e) => console.warn("[kanban] unset sprint:", e))}
+                            className="rounded p-0.5 text-brand hover:bg-white/10"
+                            title={t("kanban.removeFromSprint", "Tirar do sprint (volta pro backlog)")}
+                          >
+                            <Flag size={14} className="fill-current" />
                           </button>
                         )}
                         <button

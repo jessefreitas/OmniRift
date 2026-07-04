@@ -38,6 +38,55 @@ export interface KanbanCard {
   position: number;
   createdAt: string;
   updatedAt: string;
+  /** Sprint a que o card pertence (Fatia 1). null = product backlog. */
+  sprintId: number | null;
+}
+
+/** Sprint do Kanban (metodologia ágil, Fatia 1). status: planning|active|done. */
+export interface KanbanSprint {
+  id: number;
+  project: string;
+  name: string;
+  goal: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  status: "planning" | "active" | "done";
+  createdAt: string;
+}
+
+export function sprintList(project: string): Promise<KanbanSprint[]> {
+  return invoke("sprint_list", { project });
+}
+
+export function sprintCreate(p: {
+  project: string;
+  name: string;
+  goal?: string;
+  startsAt?: string;
+  endsAt?: string;
+}): Promise<number> {
+  return invoke("sprint_create", {
+    project: p.project,
+    name: p.name,
+    goal: p.goal ?? null,
+    startsAt: p.startsAt ?? null,
+    endsAt: p.endsAt ?? null,
+  });
+}
+
+/** Ativa um sprint (os demais 'active' do projeto viram 'done'). */
+export function sprintActivate(id: number): Promise<void> {
+  return invoke("sprint_activate", { id });
+}
+
+/** Deleta um sprint (seus cards voltam pro product backlog). */
+export function sprintDelete(id: number): Promise<void> {
+  return invoke("sprint_delete", { id });
+}
+
+/** Move um card pra um sprint (ou tira, com null). */
+export function cardSetSprint(id: number, sprintId: number | null): Promise<void> {
+  return invoke("kanban_card_set_sprint", { id, sprintId });
 }
 
 export function kanbanList(project: string): Promise<KanbanCard[]> {

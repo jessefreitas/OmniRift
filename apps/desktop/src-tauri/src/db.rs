@@ -155,6 +155,21 @@ CREATE TABLE IF NOT EXISTS kanban_columns (
     PRIMARY KEY (project, col)
 );
 
+-- Sprints do Kanban (metodologia ágil, Fatia 1): janela de tempo com META, contendo cards.
+-- Um card pertence a 0 ou 1 sprint (kanban_cards.sprint_id, NULL = product backlog). status:
+-- planning|active|done. Só UM sprint active por projeto (garantido em sprint_activate).
+CREATE TABLE IF NOT EXISTS kanban_sprints (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project    TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    goal       TEXT,
+    starts_at  TEXT,
+    ends_at    TEXT,
+    status     TEXT NOT NULL DEFAULT 'planning',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kanban_sprints_project ON kanban_sprints(project);
+
 -- Central de copia-cola (snippets do USUÁRIO): texto/código/imagem persistentes,
 -- globais (não por projeto) e SEPARADOS do blackboard dos agentes (tabela memory).
 -- kind: text|code|image. Para image, content guarda o PATH do arquivo (MVP —
@@ -359,6 +374,9 @@ fn migrate(conn: &Connection) {
     rename_column_if_legacy(conn, "agent_sessions", "floor_id", "parallel_id");
     rename_column_if_legacy(conn, "agent_sessions", "floor_name", "parallel_name");
     rename_column_if_legacy(conn, "reminders", "floor_id", "parallel_id");
+    // Sprints (Fatia 1): card → sprint. NULL = product backlog. Idempotente (falha silenciosa
+    // se a coluna já existe, mesmo padrão dos ALTER acima).
+    let _ = conn.execute("ALTER TABLE kanban_cards ADD COLUMN sprint_id INTEGER", []);
 }
 
 /// Renomeia a coluna `old`→`new` só se `old` ainda existe e `new` ainda não —
@@ -1156,6 +1174,8 @@ pub struct KanbanCardRow {
     pub position: i64,
     pub created_at: String,
     pub updated_at: String,
+    /// Sprint a que o card pertence (Fatia 1). None = product backlog.
+    pub sprint_id: Option<i64>,
 }
 
 fn map_kanban(row: &rusqlite::Row) -> rusqlite::Result<KanbanCardRow> {
@@ -1170,6 +1190,34 @@ fn map_kanban(row: &rusqlite::Row) -> rusqlite::Result<KanbanCardRow> {
         position: row.get(7)?,
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
+        sprint_id: row.get(10)?,
+    })
+}
+
+/// Sprint do Kanban (serializado camelCase pro front). Fatia 1.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KanbanSprintRow {
+    pub id: i64,
+    pub project: String,
+    pub name: String,
+    pub goal: Option<String>,
+    pub starts_at: Option<String>,
+    pub ends_at: Option<String>,
+    pub status: String,
+    pub created_at: String,
+}
+
+fn map_sprint(row: &rusqlite::Row) -> rusqlite::Result<KanbanSprintRow> {
+    Ok(KanbanSprintRow {
+        id: row.get(0)?,
+        project: row.get(1)?,
+        name: row.get(2)?,
+        goal: row.get(3)?,
+        starts_at: row.get(4)?,
+        ends_at: row.get(5)?,
+        status: row.get(6)?,
+        created_at: row.get(7)?,
     })
 }
 
@@ -1228,7 +1276,7 @@ impl Db {
     pub fn kanban_list(&self, project: &str) -> Result<Vec<KanbanCardRow>> {
         let conn = self.0.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, project, col, title, body, agent, node_id, position, created_at, updated_at
+            "SELECT id, project, col, title, body, agent, node_id, position, created_at, updated_at, sprint_id
                FROM kanban_cards WHERE project = ?1 ORDER BY position, id",
         )?;
         let rows = stmt.query_map(rusqlite::params![project], map_kanban)?;
@@ -1318,6 +1366,68 @@ impl Db {
         Ok(p)
     }
 
+    // ── Sprints (Fatia 1) ────────────────────────────────────────────────
+    pub fn sprint_list(&self, project: &str) -> Result<Vec<KanbanSprintRow>> {
+        let conn = self.0.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, project, name, goal, starts_at, ends_at, status, created_at
+               FROM kanban_sprints WHERE project = ?1 ORDER BY id DESC",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![project], map_sprint)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn sprint_create(
+        &self,
+        project: &str,
+        name: &str,
+        goal: Option<&str>,
+        starts_at: Option<&str>,
+        ends_at: Option<&str>,
+    ) -> Result<i64> {
+        let conn = self.0.lock();
+        conn.execute(
+            "INSERT INTO kanban_sprints (project, name, goal, starts_at, ends_at, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'planning', datetime('now'))",
+            rusqlite::params![project, name, goal, starts_at, ends_at],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Ativa um sprint: os demais 'active' do MESMO projeto viram 'done' (só um ativo por vez).
+    pub fn sprint_activate(&self, id: i64) -> Result<()> {
+        let conn = self.0.lock();
+        conn.execute(
+            "UPDATE kanban_sprints SET status = 'done'
+              WHERE status = 'active'
+                AND project = (SELECT project FROM kanban_sprints WHERE id = ?1)
+                AND id <> ?1",
+            rusqlite::params![id],
+        )?;
+        conn.execute(
+            "UPDATE kanban_sprints SET status = 'active' WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Deleta um sprint: os cards dele voltam pro product backlog (sprint_id = NULL).
+    pub fn sprint_delete(&self, id: i64) -> Result<()> {
+        let conn = self.0.lock();
+        conn.execute("UPDATE kanban_cards SET sprint_id = NULL WHERE sprint_id = ?1", [id])?;
+        conn.execute("DELETE FROM kanban_sprints WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Atribui (ou tira, com None) um card a um sprint.
+    pub fn card_set_sprint(&self, card_id: i64, sprint_id: Option<i64>) -> Result<()> {
+        self.0.lock().execute(
+            "UPDATE kanban_cards SET sprint_id = ?2, updated_at = datetime('now') WHERE id = ?1",
+            rusqlite::params![card_id, sprint_id],
+        )?;
+        Ok(())
+    }
+
     /// Colunas custom do projeto, ordenadas por position: (col, label, position).
     /// Vazio = projeto usa o default de 6 (ver `KANBAN_DEFAULT_COLS`).
     pub fn kanban_columns_list(&self, project: &str) -> Result<Vec<(String, String, i64)>> {
@@ -1367,6 +1477,57 @@ impl Db {
 #[tauri::command]
 pub fn kanban_query(project: String, db: tauri::State<'_, Db>) -> Result<Vec<KanbanCardRow>, String> {
     db.kanban_list(&project).map_err(|e| format!("{e:#}"))
+}
+
+// ── Sprints (Fatia 1) — comandos Tauri. Args camelCase do front (startsAt/endsAt/sprintId)
+// chegam em snake_case aqui (mapeamento padrão do Tauri v2, igual node_id↔nodeId). Cada mutação
+// emite kanban://changed pro painel recarregar. ─────────────────────────────────────────────
+#[tauri::command]
+pub fn sprint_list(project: String, db: tauri::State<'_, Db>) -> Result<Vec<KanbanSprintRow>, String> {
+    db.sprint_list(&project).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn sprint_create(
+    project: String,
+    name: String,
+    goal: Option<String>,
+    starts_at: Option<String>,
+    ends_at: Option<String>,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Db>,
+) -> Result<i64, String> {
+    let id = db
+        .sprint_create(&project, &name, goal.as_deref(), starts_at.as_deref(), ends_at.as_deref())
+        .map_err(|e| format!("{e:#}"))?;
+    let _ = app.emit("kanban://changed", ());
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn sprint_activate(id: i64, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
+    db.sprint_activate(id).map_err(|e| format!("{e:#}"))?;
+    let _ = app.emit("kanban://changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sprint_delete(id: i64, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
+    db.sprint_delete(id).map_err(|e| format!("{e:#}"))?;
+    let _ = app.emit("kanban://changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn kanban_card_set_sprint(
+    id: i64,
+    sprint_id: Option<i64>,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Db>,
+) -> Result<(), String> {
+    db.card_set_sprint(id, sprint_id).map_err(|e| format!("{e:#}"))?;
+    let _ = app.emit("kanban://changed", ());
+    Ok(())
 }
 
 #[tauri::command]
