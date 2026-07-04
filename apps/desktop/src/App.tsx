@@ -5,6 +5,8 @@ import { Sidebar } from "@/components/Sidebar";
 import { ProjectTabs } from "@/components/ProjectTabs";
 import { ResourceChip } from "@/components/ResourceChip";
 import { ResourcePanel } from "@/components/ResourcePanel";
+import { TourOverlay } from "@/components/TourOverlay";
+import { useTourWatcher } from "@/hooks/useTourWatcher";
 import { initOrchestrationBridge } from "@/lib/orchestration-client";
 import { initPersistence, flushPersistence } from "@/lib/persistence-client";
 import { initResourceStore } from "@/store/resource-store";
@@ -13,6 +15,9 @@ import { persistReviewConfig } from "@/lib/review-config-sync";
 import { acpGc } from "@/lib/acp-client";
 import { initPtyGlobalSink } from "@/lib/pty-global-sink";
 import { useCanvasStore } from "@/store/canvas-store";
+import { useTourStore } from "@/store/tour-store";
+import { getFlag } from "@/lib/feature-flags";
+import { invoke } from "@tauri-apps/api/core";
 
 export default function App() {
   useEffect(() => {
@@ -129,17 +134,36 @@ export default function App() {
     };
   }, []);
 
+  // Tour watcher: callbacks expostos pro Canvas (onMove) e Sidebar (onKanbanOpen, onWorkspaceSave).
+  const tourWatcher = useTourWatcher();
+
+  // Auto-start tour na 1ª execução (best-effort, nunca trava o app).
+  useEffect(() => {
+    if (useTourStore.getState().hasSeenTour) return;
+    if (!getFlag("productTour")) return;
+    invoke<string>("tour_ensure_sandbox")
+      .then((path) => {
+        useTourStore.getState().setSandboxPath(path);
+        useTourStore.getState().start();
+      })
+      .catch(() => {}); // falha silenciosa — o tour é best-effort
+  }, []);
+
   return (
     <div className="flex h-screen w-screen bg-bg">
-      <Sidebar />
+      <Sidebar
+        onKanbanOpen={tourWatcher.onKanbanOpen}
+        onWorkspaceSave={tourWatcher.onWorkspaceSave}
+      />
       <main className="flex-1 flex flex-col min-w-0">
         <ProjectTabs />
         <div className="flex-1 relative">
-          <Canvas />
+          <Canvas onMove={tourWatcher.onMove} />
         </div>
       </main>
       <ResourceChip />
       <ResourcePanel />
+      <TourOverlay />
     </div>
   );
 }

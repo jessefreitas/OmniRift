@@ -1476,6 +1476,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
 
   return (
     <div
+      data-tour-id="agent-terminal"
       className={cn(
         "flex h-full w-full flex-col overflow-hidden rounded-lg border bg-bg text-xs",
         selected ? "border-brand" : "border-white/10",
