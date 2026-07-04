@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.106",
+    date: "2026-07-04",
+    title: "Delete apaga o agente clicado + Mapa do Código gera de verdade",
+    highlights: [
+      "Tecla Delete apaga o agente clicado — antes o terminal engolia a tecla e nada acontecia",
+      "O Mapa do Código (OmniGraph) agora gera na 1ª vez — antes caía sempre em 'grafo vazio'",
+      "Debug nativo grava cada passo do Mapa do Código no ~/.omnirift/debug.log",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.105",
     date: "2026-07-04",
     title: "Mapa do Código mais limpo (nada de pasta estranha no projeto)",
