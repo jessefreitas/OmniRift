@@ -17,6 +17,13 @@ import { writeFileSync, rmSync } from "node:fs";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 
+// Aceita entry point como argumento (default: grab.test.ts) — permite reusar o
+// runner para outras suites puras (ex.: tour-missions.test.ts).
+const entryArg = process.argv[2];
+const entry = entryArg
+  ? resolve(root, entryArg)
+  : resolve(root, "src/lib/grab/grab.test.ts");
+
 // React shim: useGrabMode.ts importa hooks do react, mas o teste só exercita
 // grabReducer/initialGrabMachine (puros) — nenhum hook roda. Aliasamos `react`
 // pra um shim de no-ops pra não arrastar o pacote nem depender da resolução do
@@ -30,7 +37,7 @@ writeFileSync(
 );
 
 const result = await build({
-  entryPoints: [resolve(root, "src/lib/grab/grab.test.ts")],
+  entryPoints: [entry],
   bundle: true,
   write: false,
   format: "esm",

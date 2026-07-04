@@ -115,6 +115,7 @@ use commands::providers::{
 use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
 use turbo::commands::{run_check, turbo_list, turbo_start, turbo_status, turbo_stop};
 use commands::workspace::{workspace_load, workspace_save};
+use commands::tour::tour_ensure_sandbox;
 use db::{
     db_load_workspace, db_save_workspace, kanban_card_create, kanban_card_delete,
     kanban_card_move, kanban_card_update, kanban_columns_query, kanban_columns_save,
@@ -571,6 +572,7 @@ pub fn run() {
             hosts_list,
             hosts_add,
             hosts_remove,
+            tour_ensure_sandbox,
         ])
         .build(tauri::generate_context!())
         .expect("erro fatal construindo OmniRift")
