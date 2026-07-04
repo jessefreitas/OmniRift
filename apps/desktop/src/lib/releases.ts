@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.116",
+    date: "2026-07-04",
+    title: "Editor completo de subagente: papel, persona e LLM de verdade",
+    highlights: [
+      "Botão ✎ no subagente abre um editor — reescreva o papel/persona, parta de templates prontos (DBA, Security, QA…)",
+      "Modelo/LLM vira uma galeria dos teus providers da Central (fim da digitação cega), com aviso honesto do que subagente nativo aceita",
+      "Preview do arquivo .claude/agents/*.md que será gravado, antes de salvar",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.115",
     date: "2026-07-04",
     title: "Fim do terminal preto quando a GPU fica sob pressão",

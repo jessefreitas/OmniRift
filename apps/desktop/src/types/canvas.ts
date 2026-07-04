@@ -380,6 +380,7 @@ export interface CanvasNodePatch {
   size?: { width: number; height: number };
   label?: string;
   content?: string;
+  description?: string;
   color?: string;
   command?: string;
   args?: string[];

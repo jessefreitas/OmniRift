@@ -8,7 +8,7 @@
 import { memo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { UserRoundCheck, X } from "lucide-react";
+import { UserRoundCheck, Pencil, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
@@ -68,6 +68,28 @@ function SubagentNodeImpl({ data, selected }: NodeProps<SubagentRfNode>) {
         <span className="shrink-0 rounded bg-amber-500/15 px-1 py-0.5 text-[8px] uppercase tracking-wide text-amber-300">
           {t("subagent.badge", "subagente")}
         </span>
+        {/* Editor completo: papel/persona + LLM (galeria de providers) + templates. */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            window.dispatchEvent(
+              new CustomEvent("omnirift:edit-subagent", {
+                detail: {
+                  nodeId: data.id,
+                  label: data.label,
+                  description: data.description,
+                  prompt: data.prompt,
+                  model: data.model,
+                  cwd: data.cwd,
+                },
+              }),
+            );
+          }}
+          className="shrink-0 rounded p-0.5 text-text/50 hover:bg-white/10 hover:text-amber-300"
+          title={t("subagent.edit", "Editar papel, persona e LLM do subagente")}
+        >
+          <Pencil size={12} />
+        </button>
         <button
           onClick={(e) => { e.stopPropagation(); removeNode(data.id); }}
           className="shrink-0 rounded p-0.5 text-text/50 hover:bg-white/10 hover:text-text"
