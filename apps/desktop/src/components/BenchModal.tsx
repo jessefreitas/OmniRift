@@ -8,7 +8,7 @@
 
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Flag, Loader2, Play, X } from "lucide-react";
+import { Check, Flag, Loader2, Play, Plus, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { BENCH_SUITE, scoreBench, type BenchResult } from "@/lib/terminal-bench";
@@ -20,10 +20,18 @@ export function BenchModal({ onClose }: { onClose: () => void }) {
   // Seletor estável (parallels) + derivação memoizada — array inline no seletor = loop de render.
   const parallels = useCanvasStore((s) => s.parallels);
   const cwd = useCanvasStore((s) => s.currentCwd);
+  const addAgent = useCanvasStore((s) => s.addAgent);
   const agents = useMemo(
     () => parallels.flatMap((p) => p.nodes).filter((n) => n.kind === "agent"),
     [parallels],
   );
+
+  /** Cria um AgentNode (ACP estruturado — o que o bench sabe testar) e o seleciona. Herda o cwd
+   *  do projeto aberto. É o atalho pro caso "nenhum agente": monta o alvo do bench sem sair daqui. */
+  function createAgent() {
+    const node = addAgent({ label: "Agente (bench)", cwd: cwd ?? undefined });
+    setNodeId(node.id);
+  }
 
   const [nodeId, setNodeId] = useState<string>(() => agents[0]?.id ?? "");
   const [running, setRunning] = useState(false);
@@ -103,7 +111,19 @@ export function BenchModal({ onClose }: { onClose: () => void }) {
           </div>
           {!cwd && <p className="text-[11px] text-danger">{t("bench.noCwdHint", "Abra um projeto (pasta) antes — a condição roda no cwd.")}</p>}
           {agents.length === 0 && (
-            <p className="text-[11px] text-brand">{t("bench.noAgentsHint", "Monte um agente primeiro (Pipeline Architect ⚡ ou + Terminal) — o bench precisa de um agente pra testar.")}</p>
+            <div className="space-y-2 rounded-md border border-brand/40 bg-brand/5 px-3 py-2.5">
+              <p className="text-[11px] leading-relaxed text-text">
+                {t("bench.noAgentsExplain", "O bench roda cada tarefa como um 🎯 Goal — e isso exige um AGENTE estruturado, que sabe quando o turno termina pra rodar a verificação. Um TERMINAL comum (PTY) não serve aqui: ele é “cego”, só enxerga texto na tela e não avisa quando o Claude terminou.")}
+              </p>
+              <button
+                onClick={createAgent}
+                disabled={!cwd}
+                title={!cwd ? t("bench.noCwd", "sem pasta de projeto") : t("bench.createAgentTip", "Cria um agente estruturado (ACP) no canvas, pronto pro bench")}
+                className="flex items-center gap-1.5 rounded-md bg-brand px-3 py-1 text-xs text-bg hover:bg-brand-hover disabled:opacity-40"
+              >
+                <Plus size={13} /> {t("bench.createAgent", "Criar um agente pra testar")}
+              </button>
+            </div>
           )}
 
           {/* Tarefas da suíte */}

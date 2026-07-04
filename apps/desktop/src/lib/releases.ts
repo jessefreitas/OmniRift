@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.119",
+    date: "2026-07-04",
+    title: "Terminal-Bench: explica por que precisa de agente + botão pra criar um",
+    highlights: [
+      "Quando não há agente pro bench, a tela agora explica: ele precisa de um AGENTE estruturado (um terminal comum é “cego” e não serve)",
+      "Botão “Criar um agente pra testar” — monta o AgentNode certo na hora, sem sair do bench",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.118",
     date: "2026-07-04",
     title: "Modelos do subagente listam de verdade (dinâmico) + tooltip embaçado removido",
