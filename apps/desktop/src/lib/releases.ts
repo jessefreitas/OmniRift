@@ -24,6 +24,136 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.102",
+    date: "2026-07-04",
+    title: "Fim da tela preta + Delete apaga o agente + debug que grava tudo",
+    highlights: [
+      "Corrige a tela preta ao ativar/deletar um agente (era o renderer de GPU do terminal)",
+      "Tecla Delete apaga o agente selecionado; botão X no card do agente suspenso (💤)",
+      "Debug nativo: erros e travamentos vão pro ~/.omnirift/debug.log automaticamente",
+    ],
+    tag: "fix",
+  },
+  {
+    version: "0.1.101",
+    date: "2026-07-03",
+    title: "Central de Configurações (Settings + Conta)",
+    highlights: [
+      "Toda a configuração num lugar só, com abas (Conta, Geral, Privacidade e atalhos)",
+      "Aba Conta: sua licença, ID da máquina e planos num painel só",
+      "Privacidade em destaque: o OmniRift roda 100% local, zero telemetria",
+    ],
+    tag: "feature",
+  },
+  {
+    version: "0.1.100",
+    date: "2026-07-03",
+    title: "Terminal-Bench (selo do agente) + scan de credencial (Lurkr)",
+    highlights: [
+      "Roda uma suíte de tarefas num agente e mede quantas ele resolve — um número objetivo",
+      "Lurkr avisa quando uma credencial iria pro LLM no contexto (redigida, nunca crua)",
+    ],
+    tag: "feature",
+  },
+  {
+    version: "0.1.99",
+    date: "2026-07-03",
+    title: "Recitação de foco: o agente não perde o rumo em loop longo",
+    highlights: [
+      "Em tarefas longas, o agente relembra o objetivo + seu card do Kanban (técnica do Manus)",
+      "Toggle 📿 por-agente pra ligar ou desligar",
+    ],
+    tag: "feature",
+  },
+  {
+    version: "0.1.98",
+    date: "2026-07-03",
+    title: "Saúde do agente nos Insights",
+    highlights: [
+      "Cada agente ganha um status de saúde (verde/amarelo/vermelho)",
+      "Detecta erro alto, lentidão travada e gasto acima da média do time",
+    ],
+    tag: "feature",
+  },
+  {
+    version: "0.1.97",
+    date: "2026-07-03",
+    title: "App ~11 MB mais leve (editor de código enxuto)",
+    highlights: [
+      "Remove peso morto do editor — a instalação fica bem menor",
+    ],
+    tag: "infra",
+  },
+  {
+    version: "0.1.96",
+    date: "2026-07-03",
+    title: "Canvas mais fluido",
+    highlights: [
+      "Menos trabalho repetido ao monitorar os processos dos agentes",
+      "Os nós redesenham menos à toa",
+      "Autosave a cada 5 min em vez de a cada tecla digitada",
+    ],
+    tag: "fix",
+  },
+  {
+    version: "0.1.95",
+    date: "2026-07-03",
+    title: "Correção da tela preta (loop do nó de Filtro)",
+    highlights: [
+      "O nó de Filtro entrava em loop de desenho e escurecia a tela — corrigido",
+    ],
+    tag: "fix",
+  },
+  {
+    version: "0.1.94",
+    date: "2026-07-03",
+    title: "Abrir projeto não trava: agentes voltam suspensos",
+    highlights: [
+      "Ao reabrir um projeto, os agentes voltam suspensos (💤) em vez de subir todos de uma vez",
+      "Clique pra acordar só os que você vai usar — fim do travamento com muitos agentes",
+    ],
+    tag: "fix",
+  },
+  {
+    version: "0.1.93",
+    date: "2026-07-03",
+    title: "Mapa do código sob demanda + busca do drive mais rápida",
+    highlights: [
+      "O grafo do código só é gerado quando você pede — não trava a abertura do projeto",
+      "O drive dos agentes (OmniFS) reindexa só o que mudou (bem mais rápido)",
+    ],
+    tag: "fix",
+  },
+  {
+    version: "0.1.92",
+    date: "2026-07-03",
+    title: "Abrir repositório não trava mais",
+    highlights: [
+      "A varredura do código roda em prioridade baixa — não engasga a máquina",
+    ],
+    tag: "fix",
+  },
+  {
+    version: "0.1.91",
+    date: "2026-07-03",
+    title: "Nó de Filtro maior e redimensionável",
+    highlights: [
+      "O modo IA do Filtro cabia mal — agora o nó nasce maior e você pode redimensionar",
+    ],
+    tag: "fix",
+  },
+  {
+    version: "0.1.90",
+    date: "2026-07-03",
+    title: "Central de Releases + Manual + OmniGraph robusto",
+    highlights: [
+      "Este painel de Novidades + um Manual rico dentro do app",
+      "O Mapa do código (OmniGraph) aguenta repositórios grandes sem travar",
+      "Novas feature flags: checkpoint automático, busca semântica e grafo no canvas",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.89",
     date: "2026-07-03",
     title: "OmniFS mais resistente a travamentos",
