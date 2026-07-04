@@ -329,10 +329,11 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
   // a conversa capturam o keydown), então o Delete nunca chegava no canvas ("del não
   // deletava"). Handler próprio: Del/Backspace fora de campo editável → deleta os nós
   // .selected (mesma confirmação; removeNode já mata a sessão — F2 backend-owned).
-  const deleteSelected = useCallback(async () => {
+  const deleteSelected = useCallback(async (extraId?: string | null) => {
     const sel = Array.from(document.querySelectorAll<HTMLElement>(".react-flow__node.selected"));
-    const ids = sel.map((n) => n.getAttribute("data-id")).filter((x): x is string => !!x);
-    const targets = ids.map((id) => nodes.find((n) => n.id === id)).filter((n): n is CanvasNode => !!n);
+    const ids = new Set(sel.map((n) => n.getAttribute("data-id")).filter((x): x is string => !!x));
+    if (extraId) ids.add(extraId); // o nó FOCADO (ex: terminal) — clicar nele não seleciona o nó
+    const targets = [...ids].map((id) => nodes.find((n) => n.id === id)).filter((n): n is CanvasNode => !!n);
     if (targets.length === 0) return;
     const heavy = targets.filter((n) => n.kind === "terminal" || n.kind === "agent");
     if (heavy.length > 0) {
@@ -358,9 +359,13 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
       // terminal) deleta o nó SELECIONADO — era a queixa "del não deleta o agente", já que
       // ao selecionar o agente o foco fica no xterm e engolia o Delete.
       if (e.key === "Backspace" && t?.closest(".xterm,.terminal")) return;
-      if (document.querySelector(".react-flow__node.selected")) {
+      // Nó DONO do elemento focado (o terminal do agente). Clicar no terminal NÃO seleciona o nó
+      // (o container do xterm faz stopPropagation → o React Flow nunca vê o clique), então antes o
+      // Del não achava `.selected` e não deletava nada. Agora deletamos o nó focado + os selecionados.
+      const focusedId = t?.closest<HTMLElement>(".react-flow__node")?.getAttribute("data-id") ?? null;
+      if (focusedId || document.querySelector(".react-flow__node.selected")) {
         e.preventDefault();
-        void deleteSelected();
+        void deleteSelected(focusedId);
       }
     };
     window.addEventListener("keydown", onKey);

@@ -24,9 +24,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { Network, Loader2, Sparkles, ChevronDown, Share2, Boxes, Flame, GitCompare } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
-import { omnigraphGraphJson } from "@/lib/pipeline-client";
+import { omnigraphGraphJson, omnigraphReport } from "@/lib/pipeline-client";
 import { importGraph, VIEW_META, type GraphJson, type GraphView } from "@/lib/omnigraph-graph";
-import { topAmbiguousEdges, buildAmbiguityResolverBrief, omnigraphRebuild } from "@/lib/omnigraph-client";
+import { topAmbiguousEdges, buildAmbiguityResolverBrief } from "@/lib/omnigraph-client";
 import { OmniGraphDiffModal } from "@/components/OmniGraphDiffModal";
 import { notify } from "@/lib/notify";
 import { useFlag } from "@/lib/feature-flags";
@@ -97,7 +97,11 @@ export function GraphImportButton() {
       "info",
     );
     try {
-      await omnigraphRebuild(cwd);
+      // GERA o 1º grafo via omnigraph_report (roda a engine → run_build). ANTES chamava
+      // omnigraphRebuild, que é NO-OP quando o grafo ainda NÃO existe (ele só RE-builda um grafo
+      // já presente) → dead-end circular: o "gerar pela 1ª vez" nunca gerava e caía sempre em
+      // "grafo vazio". O rebuild segue no loop F4 (god nodes), só não serve pra 1ª geração.
+      await omnigraphReport(cwd);
     } catch (e) {
       const msg = String(e);
       // Timeout do build (300s) = repo grande demais, não engine quebrada.
