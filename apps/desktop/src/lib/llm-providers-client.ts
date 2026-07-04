@@ -53,3 +53,13 @@ export async function llmProviderResolve(id: string): Promise<ResolvedLlmProvide
 export async function llmProviderListModels(id: string): Promise<string[]> {
   return invoke<string[]>("provider_list_models", { id });
 }
+
+/** Catálogo CURADO do claude-ollama (~/.config/claude-ollama/models.env) — FALLBACK offline
+ *  quando a API do provider falha/vem vazia. Vazio se não houver o arquivo. Nunca lança. */
+export async function claudeOllamaModels(): Promise<string[]> {
+  try {
+    return await invoke<string[]>("claude_ollama_models");
+  } catch {
+    return [];
+  }
+}

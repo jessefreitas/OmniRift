@@ -509,7 +509,9 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
                 e.stopPropagation();
                 setEditing(true);
               }}
-              title={t("terminal.doubleClickRename", "Duplo-clique para renomear")}
+              // Sem `title` nativo: no WebKitGTK o tooltip fica escuro/embaçado e aparecia toda
+              // vez que o mouse passava pelo header (área de arraste). O cursor-text já sinaliza
+              // que dá pra editar; renomear é double-click (convenção conhecida).
             >
               {data.label ?? data.command}
             </span>

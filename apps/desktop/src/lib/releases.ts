@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.118",
+    date: "2026-07-04",
+    title: "Modelos do subagente listam de verdade (dinâmico) + tooltip embaçado removido",
+    highlights: [
+      "O picker de modelo lista o catálogo ATUAL do provider (era bug: a URL do Ollama saía sem /v1 e vinha vazia) — agora traz os modelos de verdade e sempre frescos",
+      "Fallback pro teu catálogo curado (claude-ollama) se a API falhar; como os modelos mudam/expiram, busca ao vivo a cada abertura",
+      "Removido o tooltip 'Duplo-clique para renomear' que ficava escuro/embaçado sobre o header do agente",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.117",
     date: "2026-07-04",
     title: "Subagente: escolha QUALQUER modelo do provider (catálogo completo)",

@@ -171,3 +171,38 @@ pub async fn provider_list_models(id: String) -> Result<Vec<String>, String> {
     let r = provider_resolve(id)?;
     crate::commands::acp::hermes_list_models(r.kind, r.key, Some(r.base_url)).await
 }
+
+/// Catálogo CURADO do claude-ollama (`~/.config/claude-ollama/models.env`): os valores dos
+/// `ALIAS_*` (glm-5.2, kimi-k2.7-code, deepseek-v4-pro, qwen3.5:397b…) — o que o proxy `:11439`
+/// serve DE FATO e o usuário usa. É a lista certa pro picker de modelo do subagente, porque o
+/// `/v1/models` do ollama.com vem vazio/genérico. Ordenado, únicos. Vazio se o arquivo não existe
+/// (setup sem claude-ollama). Best-effort — nunca falha.
+#[tauri::command]
+pub fn claude_ollama_models() -> Vec<String> {
+    #[cfg(windows)]
+    let home = std::env::var("USERPROFILE").ok();
+    #[cfg(not(windows))]
+    let home = std::env::var("HOME").ok();
+    let Some(home) = home else { return Vec::new() };
+    let path = PathBuf::from(home).join(".config/claude-ollama/models.env");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with('#') {
+            continue;
+        }
+        // ALIAS_<nome>=<model-id> → coletamos o model-id (o que vai no `model:`).
+        if let Some(rest) = line.strip_prefix("ALIAS_") {
+            if let Some((_, val)) = rest.split_once('=') {
+                let v = val.trim().trim_matches('"');
+                if !v.is_empty() {
+                    seen.insert(v.to_string());
+                }
+            }
+        }
+    }
+    seen.into_iter().collect()
+}

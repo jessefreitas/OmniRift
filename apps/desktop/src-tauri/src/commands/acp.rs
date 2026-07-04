@@ -37,7 +37,17 @@ pub async fn hermes_list_models(
     base_url: Option<String>,
 ) -> Result<Vec<String>, String> {
     let base = match base_url {
-        Some(url) if !url.trim().is_empty() => url.trim().to_string(),
+        Some(url) if !url.trim().is_empty() => {
+            let u = url.trim().trim_end_matches('/').to_string();
+            // Ollama Cloud OpenAI-compat vive em /v1. Se o provider foi cadastrado com a RAIZ
+            // (ex: https://ollama.com), `{base}/models` daria 404 → completa o /v1 aqui. Foi
+            // exatamente o "picker não lista os modelos": a URL saía sem /v1.
+            if provider.starts_with("ollama") && !u.ends_with("/v1") {
+                format!("{u}/v1")
+            } else {
+                u
+            }
+        }
         _ => {
             if provider.starts_with("ollama") {
                 "https://ollama.com/v1".to_string()

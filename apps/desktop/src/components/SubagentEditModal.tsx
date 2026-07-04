@@ -17,7 +17,7 @@ import { X, Save, Sparkles, Bot, Cpu, ChevronDown, ChevronRight, Loader2 } from 
 
 import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { useCanvasStore } from "@/store/canvas-store";
-import { llmProvidersList, llmProviderListModels, type LlmProvider } from "@/lib/llm-providers-client";
+import { llmProvidersList, llmProviderListModels, claudeOllamaModels, type LlmProvider } from "@/lib/llm-providers-client";
 import { BUILTIN_ROLES } from "@/lib/agent-roles";
 import { notify } from "@/lib/notify";
 import { useT } from "@/lib/i18n";
@@ -98,13 +98,16 @@ export function SubagentEditModal() {
     setOpenProvider(p.id);
     if (providerModels[p.id]) return; // já em cache
     setLoadingModels(p.id);
+    // DINÂMICO primeiro (API /v1/models — sempre o catálogo atual, atende "modelos mudam/expiram");
+    // fallback pro catálogo curado do claude-ollama (models.env) se a API vier vazia/falhar.
     void llmProviderListModels(p.id)
-      .then((ms) => {
-        // Garante que o model default do provider aparece mesmo se a API não o listar.
-        const merged = Array.from(new Set([p.model, ...ms].filter(Boolean)));
+      .catch(() => [] as string[])
+      .then(async (ms) => {
+        let list = ms;
+        if (list.length === 0) list = await claudeOllamaModels();
+        const merged = Array.from(new Set([p.model, ...list].filter(Boolean)));
         setProviderModels((prev) => ({ ...prev, [p.id]: merged.length ? merged : [p.model] }));
       })
-      .catch(() => setProviderModels((prev) => ({ ...prev, [p.id]: [p.model] })))
       .finally(() => setLoadingModels(null));
   }
 
