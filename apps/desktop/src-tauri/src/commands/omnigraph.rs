@@ -46,6 +46,9 @@ const GRAPH_JSON_NAME: &str = "graph.json";
 // leitura. Contrato da engine externa (como o `fuse` no OmniFS) — a MARCA é OmniGraph.
 const ENGINE_OUT_DIR: &str = "graphify-out"; // engine externa (binário 'graphify' de terceiro) — a MARCA é OmniGraph
 const ENGINE_DOT_DIR: &str = ".graphify"; // engine externa (binário 'graphify' de terceiro) — a MARCA é OmniGraph
+// Onde o OmniRift GUARDA a saída (marca OmniGraph): movemos o `graphify-out/` da engine pra cá
+// logo após gerar, e apagamos os dirs de terceiro — o PROJETO do usuário nunca mostra "graphify".
+const OMNIGRAPH_DIR: &str = ".omnirift/omnigraph";
 
 /// Teto do graph.json que topamos ler pro WebView (F2, importer do canvas). O grafo de
 /// entidade inteiro pode passar de centenas de MB — e a memória do projeto registra que
@@ -96,6 +99,7 @@ fn resolve_launcher() -> Option<OmniGraphLauncher> {
 /// cwd e os diretórios de saída da engine (`ENGINE_OUT_DIR`/`ENGINE_DOT_DIR`).
 fn candidate_report_paths(cwd: &Path) -> Vec<PathBuf> {
     vec![
+        cwd.join(OMNIGRAPH_DIR).join(REPORT_NAME),
         cwd.join(REPORT_NAME),
         cwd.join(ENGINE_OUT_DIR).join(REPORT_NAME),
         cwd.join(ENGINE_DOT_DIR).join(REPORT_NAME),
@@ -111,6 +115,7 @@ fn find_existing_report(cwd: &Path) -> Option<PathBuf> {
 /// nos mesmos diretórios do report.
 fn candidate_graph_json_paths(cwd: &Path) -> Vec<PathBuf> {
     vec![
+        cwd.join(OMNIGRAPH_DIR).join(GRAPH_JSON_NAME),
         cwd.join(ENGINE_OUT_DIR).join(GRAPH_JSON_NAME),
         cwd.join(GRAPH_JSON_NAME),
         cwd.join(ENGINE_DOT_DIR).join(GRAPH_JSON_NAME),
@@ -250,6 +255,7 @@ async fn run_build(launcher: &OmniGraphLauncher, cwd: &Path) -> Result<(), Strin
         .map_err(|e| format!("falha lendo o output da engine: {e}"))?;
 
     if out.status.success() {
+        reparent_engine_output(cwd); // graphify-out/ → .omnirift/omnigraph/ (marca OmniGraph)
         return Ok(());
     }
     // Falhou: o stderr costuma explicar (sem código, pacote quebrado…). Resume pro toast.
@@ -258,6 +264,31 @@ async fn run_build(launcher: &OmniGraphLauncher, cwd: &Path) -> Result<(), Strin
     let src = if stderr.trim().is_empty() { stdout } else { stderr };
     let brief: String = src.trim().chars().take(500).collect();
     Err(format!("a engine (update) falhou ({}): {brief}", out.status))
+}
+
+/// Marca OmniGraph: a engine grava em `graphify-out/` (nome de terceiro) na RAIZ do projeto do
+/// usuário — inaceitável na superfície. Move a saída pra `.omnirift/omnigraph/` (escondido, nossa
+/// marca) e apaga os dirs da engine (`graphify-out/`, `.graphify/`) — o projeto NUNCA mostra
+/// "graphify". Best-effort: se o rename falhar (ex.: cross-device), deixa como está — os candidate
+/// paths ainda acham em graphify-out (não trava a leitura).
+fn reparent_engine_output(cwd: &Path) {
+    let src = cwd.join(ENGINE_OUT_DIR);
+    if !src.is_dir() {
+        return;
+    }
+    let dst = cwd.join(OMNIGRAPH_DIR);
+    let _ = std::fs::create_dir_all(&dst);
+    // COPIA arquivo a arquivo — rename de DIRETÓRIO NÃO é confiável no FUSE do OmniFS (retorna
+    // ok mas PERDE o conteúdo; já `copy` de arquivo e `remove_dir_all` funcionam em qualquer FS,
+    // testado no mount). Só apaga a saída de terceiro DEPOIS de copiar o graph.json com sucesso —
+    // senão o move perderia o grafo e voltaria "vazio".
+    let graph_ok = std::fs::copy(src.join(GRAPH_JSON_NAME), dst.join(GRAPH_JSON_NAME)).is_ok();
+    let _ = std::fs::copy(src.join(REPORT_NAME), dst.join(REPORT_NAME));
+    let _ = std::fs::copy(src.join("graph.html"), dst.join("graph.html"));
+    if graph_ok {
+        let _ = std::fs::remove_dir_all(&src);
+        let _ = std::fs::remove_dir_all(cwd.join(ENGINE_DOT_DIR));
+    }
 }
 
 /// Destila um GRAPH_REPORT.md pra caber em `max_bytes`, mantendo SÓ as seções centrais que
