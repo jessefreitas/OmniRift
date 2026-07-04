@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.107",
+    date: "2026-07-04",
+    title: "Delete no agente clicado deleta de verdade",
+    highlights: [
+      "Delete apaga o agente que está com o cursor nele — o terminal não engole mais a tecla",
+      "(o fix anterior não pegava: o campo escondido de teclado do terminal interceptava o Delete)",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.106",
     date: "2026-07-04",
     title: "Delete apaga o agente clicado + Mapa do Código gera de verdade",
