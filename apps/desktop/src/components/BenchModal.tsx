@@ -105,6 +105,14 @@ export function BenchModal({ onClose }: { onClose: () => void }) {
             {t("bench.intro", "Roda uma suíte de tarefas-terminal verificáveis num agente e mede quantas ele resolve (exit 0) — o selo objetivo do harness. Cada tarefa vira um 🎯 Goal.")}
           </p>
 
+          {/* Como funciona (onboarding) */}
+          <div className="rounded-md border border-border bg-bg/50 px-3 py-2 text-[11px] text-textMuted space-y-1">
+            <div className="font-medium text-text">{t("bench.howTitle", "Como funciona")}</div>
+            <div>{t("bench.how1", "1. Prepara o cenário — cria um arquivo com bug numa pasta isolada (.omnirift/bench/), sem tocar o seu projeto.")}</div>
+            <div>{t("bench.how2", "2. Pede pro agente resolver — cada tarefa vira um 🎯 Goal (ele tenta até passar).")}</div>
+            <div>{t("bench.how3", "3. Verifica — roda um comando; exit 0 = resolveu. No fim mostra o selo (% resolvidas + iterações médias).")}</div>
+          </div>
+
           {/* Seletor de agente + rodar */}
           <div className="flex items-center gap-2">
             <span className="text-[11px] uppercase tracking-wider text-textMuted">{t("bench.agent", "Agente")}</span>
@@ -130,6 +138,9 @@ export function BenchModal({ onClose }: { onClose: () => void }) {
             </button>
           </div>
           {!cwd && <p className="text-[11px] text-danger">{t("bench.noCwdHint", "Abra um projeto (pasta) antes — a condição roda no cwd.")}</p>}
+          {agents.length === 0 && (
+            <p className="text-[11px] text-brand">{t("bench.noAgentsHint", "Monte um agente primeiro (Pipeline Architect ⚡ ou + Terminal) — o bench precisa de um agente pra testar.")}</p>
+          )}
 
           {/* Tarefas da suíte */}
           <div className="rounded-md border border-border overflow-hidden divide-y divide-border/40">
