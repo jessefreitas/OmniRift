@@ -39,6 +39,7 @@ use commands::code::{
 };
 use commands::dbnode::db_query;
 use commands::debug::debug_request;
+use commands::debug_log::{debug_log_mark, debug_log_path, debug_log_write};
 use commands::diagnostics::collect_diagnostics;
 use commands::metrics::metrics_snapshot;
 use commands::compress::{compressor_list, compressor_savings};
@@ -168,6 +169,9 @@ fn inherit_login_shell_path() {
 fn inherit_login_shell_path() {}
 
 pub fn run() {
+    // P0 debug: grava panics do backend em ~/.omnirift/debug.log (mesmo arquivo do
+    // frontend) — antes de qualquer coisa, pra pegar até panic no boot.
+    commands::debug_log::init_panic_hook();
     // Logging: o `tauri-plugin-log` (registrado abaixo no builder) instala o logger
     // GLOBAL `log::` e grava em ARQUIVO (app log dir → "omnirift.log") + stdout.
     // NÃO inicializamos o env_logger aqui: só pode haver UM logger global por processo
@@ -508,6 +512,9 @@ pub fn run() {
             turbo_stop,
             run_check,
             debug_request,
+            debug_log_write,
+            debug_log_path,
+            debug_log_mark,
             metrics_snapshot,
             compressor_list,
             compressor_savings,

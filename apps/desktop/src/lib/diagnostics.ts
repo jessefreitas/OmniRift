@@ -5,6 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { useCanvasStore } from "@/store/canvas-store";
+import { logToDisk } from "@/lib/debug-log";
 
 const LICENSE_WORKER_URL = "https://omnirift-license-worker.jesse-vieira-freitas.workers.dev";
 
@@ -21,6 +22,8 @@ function push(line: string) {
   if (ring.length > RING_CAPACITY) {
     ring.splice(0, ring.length - RING_CAPACITY);
   }
+  // P0: espelha em DISCO na hora — o ring só-memória some quando o WebView trava (tela preta).
+  logToDisk(line);
 }
 
 /** Engata console.error/warn + erros globais no ring buffer. Idempotente. */
@@ -42,11 +45,13 @@ export function initDiagnosticsCapture(): void {
   };
 
   window.addEventListener("error", (e) => {
-    push(`[error-event] ${e.message} @ ${e.filename}:${e.lineno}`);
+    const stack = (e.error as Error | undefined)?.stack;
+    push(`[error-event] ${e.message} @ ${e.filename}:${e.lineno}${stack ? `\n${stack}` : ""}`);
   });
 
   window.addEventListener("unhandledrejection", (e) => {
-    push(`[unhandledrejection] ${String(e.reason)}`);
+    const stack = (e.reason as Error | undefined)?.stack;
+    push(`[unhandledrejection] ${String(e.reason)}${stack ? `\n${stack}` : ""}`);
   });
 }
 

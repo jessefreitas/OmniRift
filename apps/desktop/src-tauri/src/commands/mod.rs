@@ -6,6 +6,7 @@ pub mod compress;
 pub mod clis;
 pub mod dbnode;
 pub mod debug;
+pub mod debug_log;
 pub mod diagnostics;
 pub mod editor;
 pub mod explain;

@@ -27,6 +27,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { kanbanList } from "@/lib/kanban-client";
 import { buildRecitation } from "@/lib/recitation";
 import { scanTextForSecrets } from "@/lib/capability-risk";
+import { trackRender } from "@/lib/debug-log";
 import { agentsMdInstruction, agentsMdRelPath, agentsMdSlug } from "@/lib/agent-contract";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
@@ -154,6 +155,7 @@ async function writeHistoryFile(cwd: string, path: string, content: string): Pro
 const ORCHESTRATOR_PROMPT = `Você é o ORQUESTRADOR do OmniRift: você COORDENA agentes em vez de executar tudo sozinho. Você tem ferramentas MCP do OmniRift disponíveis: terminal_list (ver os agentes ativos), terminal_spawn_on_floor (criar um agente num worktree git isolado), terminal_run e terminal_send_text (comandar um agente), terminal_wait_status (esperar um agente concluir), memory_remember e memory_recall (blackboard compartilhado), claim_acquire e claim_release (evitar conflito de edição). Ao receber uma tarefa: decomponha em subtarefas, delegue a agentes (listando os existentes ou criando novos), acompanhe a conclusão e sintetize o resultado. Prefira DELEGAR a executar você mesmo.`;
 
 function AgentNodeImpl({ data, selected }: AgentNodeProps) {
+  trackRender(`AgentNode:${data.id}`); // P0: detecta loop de render (grava o culpado em disco)
   const removeNode = useCanvasStore((s) => s.removeNode);
   const patchNode = useCanvasStore((s) => s.patchNode);
   const emitAgentOutput = useCanvasStore((s) => s.emitAgentOutput);

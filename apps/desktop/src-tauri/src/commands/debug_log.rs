@@ -1,0 +1,68 @@
+//! Debug logger PERSISTENTE (`~/.omnirift/debug.log`). O ring buffer em memória do
+//! `diagnostics.ts` some quando o WebView trava/loopa (tela preta) — aqui gravamos cada
+//! evento em DISCO na hora. O backend Rust roda em processo separado do WebView → o append
+//! sobrevive à UI congelada, então o log fica com a ÚLTIMA coisa antes do travamento.
+//! Também instala um panic hook que grava panics do backend no mesmo arquivo.
+//! Best-effort em tudo: falha de IO é engolida (logger nunca derruba o app).
+
+use std::fs::{create_dir_all, OpenOptions};
+use std::io::Write;
+use std::path::PathBuf;
+
+#[cfg(windows)]
+fn home_dir() -> Option<String> {
+    std::env::var("USERPROFILE").ok()
+}
+#[cfg(not(windows))]
+fn home_dir() -> Option<String> {
+    std::env::var("HOME").ok()
+}
+
+fn log_path() -> Option<PathBuf> {
+    Some(PathBuf::from(home_dir()?).join(".omnirift").join("debug.log"))
+}
+
+/// Appenda uma linha no debug.log (cria o dir/arquivo se preciso). Best-effort.
+fn append(line: &str) {
+    let Some(path) = log_path() else { return };
+    if let Some(dir) = path.parent() {
+        let _ = create_dir_all(dir);
+    }
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(f, "{line}");
+    }
+}
+
+/// Frontend → disco: grava uma linha (já vem com timestamp/level do JS).
+#[tauri::command]
+pub fn debug_log_write(line: String) {
+    append(&line);
+}
+
+/// Caminho do arquivo de log (pro usuário achar/abrir).
+#[tauri::command]
+pub fn debug_log_path() -> String {
+    log_path()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+/// Separador de sessão no log (chamado no boot do frontend).
+#[tauri::command]
+pub fn debug_log_mark(label: String) {
+    append(&format!("\n===== {label} ====="));
+}
+
+/// Panic hook que grava panics do BACKEND no debug.log (além do stderr). Encadeia o hook
+/// anterior pra não perder o comportamento default. Chamado 1× no setup do app.
+pub fn init_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        append(&format!("[{secs}] [RUST PANIC] {info}"));
+        prev(info);
+    }));
+}
