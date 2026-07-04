@@ -717,6 +717,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
  *  um projeto com N agentes NÃO acordar N processos de uma vez. */
 function DormantTerminalCard({ id, data, selected }: TerminalNodeProps) {
   const wakeTerminal = useCanvasStore((s) => s.wakeTerminal);
+  const removeNode = useCanvasStore((s) => s.removeNode);
   return (
     <div
       className={cn(
@@ -730,6 +731,16 @@ function DormantTerminalCard({ id, data, selected }: TerminalNodeProps) {
       <header className="node-drag-handle flex items-center gap-2 px-3 py-2 bg-surface2 border-b border-border text-textMuted cursor-grab active:cursor-grabbing select-none">
         <span className="text-sm leading-none shrink-0">💤</span>
         <span className="flex-1 truncate text-sm font-medium">{data.label ?? data.command}</span>
+        {/* Deletar o agente SUSPENSO: dormant não tem processo vivo (nunca spawnou o PTY),
+            então remove só o node — direto, sem confirmação. Faltava o X aqui. */}
+        <button
+          onClick={(e) => { e.stopPropagation(); removeNode(id); }}
+          className="p-1 rounded hover:bg-bg hover:text-danger transition-colors shrink-0"
+          aria-label="Deletar agente suspenso"
+          title="Deletar (o agente está suspenso — nada está rodando)"
+        >
+          <X size={12} />
+        </button>
       </header>
       <button
         onClick={() => wakeTerminal(id)}
