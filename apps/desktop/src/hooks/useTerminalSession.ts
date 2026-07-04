@@ -201,7 +201,23 @@ export function useTerminalSession({
     if (getFlag("terminal-webgl")) {
       try {
         const webgl = new WebglAddon();
-        webgl.onContextLoss(() => webgl.dispose());
+        // Perda de contexto GPU (pressão de GPU / driver reset — comum com VM/browsers disputando
+        // a placa): dispõe o WebGL de forma SEGURA e FORÇA o xterm a redesenhar no renderer DOM.
+        // Só `dispose()` deixava o terminal PRETO — o WebGL parava de desenhar e o DOM não assumia
+        // sozinho. Não recria o WebGL (perderia de novo); a partir daqui o terminal vive no DOM.
+        webgl.onContextLoss(() => {
+          try {
+            webgl.dispose();
+          } catch {
+            /* `_core._store._isDisposed` race durante o context loss — já foi, ignora */
+          }
+          webglRef.current = null;
+          try {
+            term.refresh(0, term.rows - 1); // redesenha tudo no DOM → sem tela preta
+          } catch {
+            /* term já descartado */
+          }
+        });
         term.loadAddon(webgl);
         webglRef.current = webgl;
       } catch (e) {

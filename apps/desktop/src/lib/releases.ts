@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.115",
+    date: "2026-07-04",
+    title: "Fim do terminal preto quando a GPU fica sob pressão",
+    highlights: [
+      "Corrige o terminal do agente ficando PRETO quando o WebKitGTK perde o contexto de GPU (VM/navegadores disputando a placa)",
+      "Ao perder o contexto WebGL, o terminal cai pro renderer normal e se redesenha sozinho — sem tela preta, sem precisar recarregar",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.114",
     date: "2026-07-04",
     title: "Aprender: barra de progresso da trilha + exercício vira card no Kanban",
