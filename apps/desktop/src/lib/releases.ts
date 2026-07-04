@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.120",
+    date: "2026-07-04",
+    title: "Menu Ferramentas organizado por categorias",
+    highlights: [
+      "As ferramentas agora em 5 categorias colapsáveis: 🎯 Orquestrar · 🤖 Agentes · 🧠 IA & Provedores · 📁 Projeto & Arquivos · ⚙️ App & Sistema",
+      "Abra só a categoria que quer (o estado fica salvo); arrastar pra reordenar continua funcionando dentro de cada grupo",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.119",
     date: "2026-07-04",
     title: "Terminal-Bench: explica por que precisa de agente + botão pra criar um",

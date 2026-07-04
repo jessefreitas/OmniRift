@@ -196,6 +196,23 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
 ];
 const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
 
+/** Categorias do menu Ferramentas — agrupam os itens por FUNÇÃO (colapsáveis, na ordem abaixo). */
+const TOOL_CATS: { id: string; emoji: string; label: string }[] = [
+  { id: "orchestrate", emoji: "🎯", label: "Orquestrar" },
+  { id: "agents", emoji: "🤖", label: "Agentes" },
+  { id: "ai", emoji: "🧠", label: "IA & Provedores" },
+  { id: "files", emoji: "📁", label: "Projeto & Arquivos" },
+  { id: "system", emoji: "⚙️", label: "App & Sistema" },
+];
+/** id da ferramenta → categoria. Sem entrada = cai em "system" (nunca some do menu). */
+const TOOL_CAT: Record<string, string> = {
+  pipeline: "orchestrate", turbo: "orchestrate", kanban: "orchestrate", routines: "orchestrate", bench: "orchestrate",
+  clis: "agents", skills: "agents", mcpservers: "agents", compressors: "agents", memory: "agents", connections: "agents",
+  "llm-providers": "ai", companion: "ai", "review-ai": "ai",
+  git: "files", omnifs: "files", snapshots: "files", history: "files", snippets: "files", reminders: "files", hooks: "files",
+  settings: "system", appearance: "system", usage: "system", mobile: "system", "feature-flags": "system", releases: "system", help: "system",
+};
+
 // Seções da sidebar — reordenáveis por drag-and-drop (ordem persistida; CSS order).
 const SECTION_DEFS: { id: string; label: string }[] = [
   { id: "project", label: "Projeto" },
@@ -1967,6 +1984,8 @@ export function Sidebar() {
       {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
       <ToolsSection
         toolDefs={TOOL_DEFS}
+        cats={TOOL_CATS}
+        toolCat={TOOL_CAT}
         tools={tools}
         isOpen={isOpen}
         sectionTitle={sectionTitle}
