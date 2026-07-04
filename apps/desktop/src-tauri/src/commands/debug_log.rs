@@ -53,6 +53,16 @@ pub fn debug_log_mark(label: String) {
     append(&format!("\n===== {label} ====="));
 }
 
+/// Anota uma linha de diagnóstico no debug.log a partir do BACKEND (subsistemas como OmniGraph
+/// que o front não vê — vão direto pro arquivo, com timestamp). Best-effort.
+pub fn note(tag: &str, msg: &str) {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    append(&format!("[{secs}] [{tag}] {msg}"));
+}
+
 /// Panic hook que grava panics do BACKEND no debug.log (além do stderr). Encadeia o hook
 /// anterior pra não perder o comportamento default. Chamado 1× no setup do app.
 pub fn init_panic_hook() {

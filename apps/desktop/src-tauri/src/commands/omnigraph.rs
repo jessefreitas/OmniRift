@@ -151,8 +151,10 @@ pub async fn omnigraph_report(cwd: String) -> Result<Option<String>, String> {
         return Ok(None);
     }
     let Some(launcher) = resolve_launcher() else {
+        crate::commands::debug_log::note("omnigraph", "engine INDISPONÍVEL (graphify/uvx não achados no PATH nem sidecar)");
         return Ok(None);
     };
+    crate::commands::debug_log::note("omnigraph", &format!("report: cwd={cwd} engine={}", launcher.cmd().0));
     let cwd_path = PathBuf::from(&cwd);
 
     // 1) Report já no disco → destila e devolve (não paga o build de novo).
@@ -190,8 +192,10 @@ pub fn omnigraph_graph_json(cwd: String) -> Result<Option<String>, String> {
     }
     let cwd_path = PathBuf::from(&cwd);
     let Some(path) = find_existing_graph_json(&cwd_path) else {
+        crate::commands::debug_log::note("omnigraph", &format!("graph_json: NENHUM graph.json nos candidate paths (cwd={cwd})"));
         return Ok(None);
     };
+    crate::commands::debug_log::note("omnigraph", &format!("graph_json: lendo {}", path.display()));
     let size = std::fs::metadata(&path)
         .map_err(|e| format!("stat {}: {e}", path.display()))?
         .len();
@@ -232,6 +236,10 @@ async fn run_build(launcher: &OmniGraphLauncher, cwd: &Path) -> Result<(), Strin
         ("nice".to_string(), prefixed)
     };
 
+    crate::commands::debug_log::note(
+        "omnigraph",
+        &format!("run: {prog} {} (cwd={})", args.join(" "), cwd.display()),
+    );
     let mut cmd = tokio::process::Command::new(&prog);
     cmd.args(&args)
         .current_dir(cwd)
@@ -254,8 +262,18 @@ async fn run_build(launcher: &OmniGraphLauncher, cwd: &Path) -> Result<(), Strin
         })?
         .map_err(|e| format!("falha lendo o output da engine: {e}"))?;
 
+    crate::commands::debug_log::note(
+        "omnigraph",
+        &format!(
+            "exit={} stderr={}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim().chars().take(300).collect::<String>()
+        ),
+    );
     if out.status.success() {
         reparent_engine_output(cwd); // graphify-out/ → .omnirift/omnigraph/ (marca OmniGraph)
+        let found = find_existing_graph_json(cwd).is_some();
+        crate::commands::debug_log::note("omnigraph", &format!("graph.json presente após build: {found}"));
         return Ok(());
     }
     // Falhou: o stderr costuma explicar (sem código, pacote quebrado…). Resume pro toast.
