@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.117",
+    date: "2026-07-04",
+    title: "Subagente: escolha QUALQUER modelo do provider (catálogo completo)",
+    highlights: [
+      "No editor de subagente, cada provider expande e lista TODOS os seus modelos — kimi-k2.7-code, glm-5.2, deepseek-v4-pro… não só o default",
+      "O modelo grava no campo model: do arquivo e é roteado pelo teu proxy (claude-ollama) — qualquer modelo do catálogo funciona no subagente",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.116",
     date: "2026-07-04",
     title: "Editor completo de subagente: papel, persona e LLM de verdade",

@@ -13,11 +13,11 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { X, Save, Sparkles, Bot, Cpu, ChevronDown, ChevronRight } from "lucide-react";
+import { X, Save, Sparkles, Bot, Cpu, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 
 import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 import { useCanvasStore } from "@/store/canvas-store";
-import { llmProvidersList, type LlmProvider } from "@/lib/llm-providers-client";
+import { llmProvidersList, llmProviderListModels, type LlmProvider } from "@/lib/llm-providers-client";
 import { BUILTIN_ROLES } from "@/lib/agent-roles";
 import { notify } from "@/lib/notify";
 import { useT } from "@/lib/i18n";
@@ -56,6 +56,10 @@ export function SubagentEditModal() {
   const [providers, setProviders] = useState<LlmProvider[]>([]);
   const [saving, setSaving] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  // Qual provider está expandido + cache dos modelos por provider (buscados sob demanda).
+  const [openProvider, setOpenProvider] = useState<string | null>(null);
+  const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
+  const [loadingModels, setLoadingModels] = useState<string | null>(null);
 
   useEffect(() => {
     const onEdit = (e: Event) => {
@@ -67,6 +71,7 @@ export function SubagentEditModal() {
       setPrompt(d.prompt ?? "");
       setModel(d.model ?? "");
       setShowPreview(false);
+      setOpenProvider(null);
       // Carrega os providers da Central (galeria de LLMs) — best-effort.
       void llmProvidersList().then(setProviders).catch(() => setProviders([]));
     };
@@ -82,6 +87,26 @@ export function SubagentEditModal() {
   }, [detail]);
 
   if (!detail) return null;
+
+  /** Abre/fecha um provider e busca TODOS os seus modelos sob demanda (cache). O proxy
+   *  claude-ollama resolve o `model:` de cada request → qualquer modelo do catálogo vale. */
+  function toggleProvider(p: LlmProvider) {
+    if (openProvider === p.id) {
+      setOpenProvider(null);
+      return;
+    }
+    setOpenProvider(p.id);
+    if (providerModels[p.id]) return; // já em cache
+    setLoadingModels(p.id);
+    void llmProviderListModels(p.id)
+      .then((ms) => {
+        // Garante que o model default do provider aparece mesmo se a API não o listar.
+        const merged = Array.from(new Set([p.model, ...ms].filter(Boolean)));
+        setProviderModels((prev) => ({ ...prev, [p.id]: merged.length ? merged : [p.model] }));
+      })
+      .catch(() => setProviderModels((prev) => ({ ...prev, [p.id]: [p.model] })))
+      .finally(() => setLoadingModels(null));
+  }
 
   /** Aplica um template de role (preenche nome + persona; não mexe no modelo). */
   function applyTemplate(roleName: string, rolePrompt: string) {
@@ -214,28 +239,52 @@ export function SubagentEditModal() {
                 </button>
               ))}
             </div>
-            {/* Providers da Central */}
+            {/* Providers da Central — cada um EXPANDE e lista TODOS os seus modelos (sob demanda). */}
             {providers.length > 0 && (
-              <>
-                <div className="mt-2.5 text-[10px] text-textMuted">
-                  {t("subedit.yourProviders", "Ou um dos teus providers (via wrapper compatível):")}
+              <div className="mt-2.5">
+                <div className="text-[10px] text-textMuted">
+                  {t("subedit.yourProviders", "Ou qualquer modelo dos teus providers (clique pra listar):")}
                 </div>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  {providers.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => setModel(p.model)}
-                      title={`${p.kind} · ${p.model}`}
-                      className={cn(
-                        "rounded-md border px-2.5 py-1 text-[11px] transition-colors",
-                        model === p.model ? "border-brand bg-brand/15 text-brand" : "border-border text-textMuted hover:text-text",
-                      )}
-                    >
-                      {p.label} <span className="opacity-60">· {p.model}</span>
-                    </button>
-                  ))}
+                <div className="mt-1 space-y-1">
+                  {providers.map((p) => {
+                    const models = providerModels[p.id] ?? [p.model];
+                    const open = openProvider === p.id;
+                    return (
+                      <div key={p.id} className="overflow-hidden rounded-md border border-border">
+                        <button
+                          onClick={() => toggleProvider(p)}
+                          className="flex w-full items-center gap-1.5 px-2 py-1 text-[11px] text-text hover:bg-white/5"
+                        >
+                          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                          <span className="font-medium">{p.label}</span>
+                          <span className="text-textMuted opacity-70">· {p.kind}</span>
+                          <span className="flex-1" />
+                          {loadingModels === p.id && <Loader2 size={11} className="animate-spin text-textMuted" />}
+                        </button>
+                        {open && (
+                          <div className="flex flex-wrap gap-1 border-t border-border bg-black/10 px-2 py-1.5">
+                            {models.map((m) => (
+                              <button
+                                key={m}
+                                onClick={() => setModel(m)}
+                                className={cn(
+                                  "rounded border px-2 py-0.5 text-[10px] transition-colors",
+                                  model === m ? "border-brand bg-brand/15 text-brand" : "border-border text-textMuted hover:text-text",
+                                )}
+                              >
+                                {m}
+                              </button>
+                            ))}
+                            {loadingModels !== p.id && models.length <= 1 && (
+                              <span className="text-[9px] text-textMuted opacity-70">{t("subedit.oneModel", "(só o modelo default deste provider)")}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              </>
+              </div>
             )}
             {/* Custom livre */}
             <div className="mt-2 flex items-center gap-2">
@@ -243,13 +292,13 @@ export function SubagentEditModal() {
               <SafeInput
                 value={isNativeModel ? "" : model}
                 onChange={(e) => setModel(e.target.value.trim())}
-                placeholder="ex: glm-5.2, kimi-k2.7…"
+                placeholder="ex: kimi-k2.7-code:cloud, glm-5.2, deepseek-v4-pro…"
                 className={cn(field, "flex-1 py-1")}
               />
             </div>
             {!isNativeModel && model && (
-              <p className="mt-1.5 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[10px] text-amber-300/90">
-                {t("subedit.nativeWarn", "⚠️ Subagente nativo do Claude Code: “{m}” só funciona se o agente-pai roda via um wrapper/proxy que mapeia esse modelo (ex: claude-glm52). Pra um LLM de outro provider de verdade, use um Agente full em vez de subagente.").replace("{m}", model)}
+              <p className="mt-1.5 rounded border border-brand/25 bg-brand/5 px-2 py-1 text-[10px] text-textMuted">
+                {t("subedit.modelNote", "“{m}” vai pro campo model: do arquivo. Rodando via proxy (claude-ollama), qualquer modelo do teu catálogo é roteado. Obs: se o teu Claude Code tiver o bug em que o model: do subagente é ignorado, ele herda o modelo do agente-pai.").replace("{m}", model)}
               </p>
             )}
           </div>
