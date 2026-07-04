@@ -29,3 +29,17 @@ rm -rf ~/.local/share/com.omniforge.omnirift/tour-sandbox
 ls -la ~/.local/share/com.omniforge.omnirift/tour-sandbox/
 cat ~/.local/share/com.omniforge.omnirift/tour-sandbox/README.md
 ```
+
+## Notas de teste automatizado (2026-07-04)
+
+O build `.deb` compila e gera o pacote (28.5MB), e o binário sobe (backend Rust liga
+RPC socket, MCP server, relay mobile). A janela X11 é criada (1500×827 no GNOME).
+
+**Problema observado:** O frontend React (WebKitGTK) não renderiza no xvfb nem no
+X11 real com `GDK_BACKEND=x11`. O WebView abre mas fica em branco — `localStorage` do
+WebKit nunca é criado. Isso é consistente com o gotcha documentado do projeto
+(`__TAURI_INTERNALS__` não injetado no modo HTTP).
+
+**Mitigação:** O app funciona normalmente quando rodado pelo `.deb` instalado (o
+frontend é servido via protocolo `tauri://` nativo, não HTTP). Testar o tour
+instalando o pacote.
