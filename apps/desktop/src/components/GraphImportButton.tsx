@@ -25,7 +25,7 @@ import { Network, Loader2, Sparkles, ChevronDown, Share2, Boxes, Flame, GitCompa
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { omnigraphGraphJson, omnigraphReport } from "@/lib/pipeline-client";
-import { importGraph, VIEW_META, type GraphJson, type GraphView } from "@/lib/omnigraph-graph";
+import { importGraph, extractDocFiles, VIEW_META, type GraphJson, type GraphView } from "@/lib/omnigraph-graph";
 import { topAmbiguousEdges, buildAmbiguityResolverBrief } from "@/lib/omnigraph-client";
 import { OmniGraphDiffModal } from "@/components/OmniGraphDiffModal";
 import { OmniGraphReportModal } from "@/components/OmniGraphReportModal";
@@ -65,6 +65,9 @@ export function GraphImportButton() {
   const importCommunityNodes = useCanvasStore((s) => s.importCommunityNodes);
   const clearGraphNodes = useCanvasStore((s) => s.clearGraphNodes);
   const addSubagent = useCanvasStore((s) => s.addSubagent);
+  const addGroup = useCanvasStore((s) => s.addGroup);
+  const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
+  const updateNodeSize = useCanvasStore((s) => s.updateNodeSize);
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [busyClean, setBusyClean] = useState(false);
@@ -250,6 +253,63 @@ export function GraphImportButton() {
     }
   }
 
+  // "Explorar docs no canvas" — os arquivos .md que o grafo conhece viram uma SEÇÃO (Group) de
+  // PreviewNodes no canvas, num grid, pro usuário abrir e ler. É o destino dos nós de doc que o
+  // painel filtra do "coração do código": não some, vira material explorável.
+  async function handleExploreDocs() {
+    if (busy) return;
+    const cwd = currentCwd?.trim();
+    if (!cwd) {
+      void notify(t("graph.noCwd", "Abra uma pasta de projeto antes de gerar o mapa do código."), "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const raw = await loadOrBuildGraph(cwd);
+      if (!raw) return;
+      let parsed: GraphJson;
+      try {
+        parsed = JSON.parse(raw) as GraphJson;
+      } catch {
+        void notify(t("graph.badJson", "graph.json inválido — regenere o grafo."), "error");
+        return;
+      }
+      const docs = extractDocFiles(parsed);
+      if (docs.length === 0) {
+        void notify(t("graph.noDocs", "O grafo não achou arquivos de documentação (.md) neste projeto."), "info");
+        return;
+      }
+      // Grid de previews (3 colunas) com um Group atrás englobando tudo (a "seção").
+      const cols = Math.min(3, docs.length);
+      const rows = Math.ceil(docs.length / cols);
+      const CW = 560;
+      const CH = 500;
+      const baseX = 140;
+      const baseY = 150;
+      const base = cwd.replace(/\/+$/, "");
+      const grp = addGroup({
+        position: { x: baseX - 40, y: baseY - 70 },
+        label: t("graph.docsGroup", "📄 Documentação ({n})").replace("{n}", String(docs.length)),
+      });
+      docs.forEach((rel, i) => {
+        const c = i % cols;
+        const r = Math.floor(i / cols);
+        const path = rel.startsWith("/") ? rel : `${base}/${rel}`;
+        addPreviewNode({ path, position: { x: baseX + c * CW, y: baseY + r * CH } });
+      });
+      updateNodeSize(grp.id, { width: cols * CW + 40, height: rows * CH + 90 });
+      void notify(
+        t("graph.docsAdded", "{n} documentos abertos no canvas pra explorar").replace("{n}", String(docs.length)),
+        "info",
+      );
+    } catch (e) {
+      void notify(String(e), "error");
+    } finally {
+      setBusy(false);
+      setMenuOpen(false);
+    }
+  }
+
   // "Limpar grafo do canvas" — remove as bolhas (kind:"community") que o "ver no canvas" despejou,
   // sem tocar nos agentes. Resolve o "gerou e sujou o canvas".
   function handleClearCanvas() {
@@ -322,6 +382,14 @@ export function GraphImportButton() {
             })}
             <div className="my-1 border-t border-border" />
             <button
+              onClick={() => void handleExploreDocs()}
+              disabled={busy}
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-text hover:bg-white/5 disabled:opacity-50"
+            >
+              <span aria-hidden className="text-[12px] leading-none">📄</span>
+              <span className="flex-1">{t("graph.exploreDocs", "Explorar docs no canvas")}</span>
+            </button>
+            <button
               onClick={handleClearCanvas}
               className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-text hover:bg-white/5"
             >
@@ -354,7 +422,15 @@ export function GraphImportButton() {
       </button>
 
       <OmniGraphDiffModal cwd={currentCwd?.trim() ?? ""} open={showDiff} onClose={() => setShowDiff(false)} />
-      <OmniGraphReportModal cwd={currentCwd?.trim() ?? ""} open={showReport} onClose={() => setShowReport(false)} />
+      <OmniGraphReportModal
+        cwd={currentCwd?.trim() ?? ""}
+        open={showReport}
+        onClose={() => setShowReport(false)}
+        onExploreDocs={() => {
+          setShowReport(false);
+          void handleExploreDocs();
+        }}
+      />
     </div>
   );
 }

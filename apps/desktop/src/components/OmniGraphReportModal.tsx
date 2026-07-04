@@ -27,9 +27,14 @@ interface Props {
   cwd: string;
   open: boolean;
   onClose: () => void;
+  /** Abre os arquivos .md do projeto como uma seção explorável no canvas (dono da ação é o
+   *  GraphImportButton, que tem os helpers de canvas). undefined = esconde o botão. */
+  onExploreDocs?: () => void;
 }
 
 interface Section {
+  /** chave semântica estável (independe do idioma do header) */
+  key: string;
   /** rótulo humano (PT) resolvido por keyword do header original */
   title: string;
   icon: typeof Sparkles;
@@ -37,6 +42,16 @@ interface Section {
   tone: string;
   /** linhas do corpo (já sem o header) */
   lines: string[];
+}
+
+/** Um item do "coração do código" é código REAL (função/arquivo de código) e não uma seção de
+ *  doc? A engine indexa `.md` junto, então "🟡 Médio (roadmap)" ou "Arquitetura — X" apareciam
+ *  como god nodes e poluíam. Código real = chamada de função `nome()` ou extensão de código. */
+function isCodeNode(s: string): boolean {
+  return (
+    /\w\(\)/.test(s) ||
+    /\.(py|ts|tsx|js|jsx|rs|go|java|rb|php|c|cpp|h|hpp|cs|kt|swift|sh)\b/i.test(s)
+  );
 }
 
 /** Números-chave pro hero, extraídos do Corpus Check + Summary. */
@@ -81,17 +96,17 @@ function parseHero(md: string): Hero {
 function classify(header: string): Omit<Section, "lines"> | null {
   const h = header.toLowerCase();
   if (h.includes("god node"))
-    return { title: "O coração do código (mais conectados)", icon: Sparkles, tone: "#f59e0b" };
+    return { key: "god", title: "O coração do código (mais conectados)", icon: Sparkles, tone: "#f59e0b" };
   if (h.includes("surprising"))
-    return { title: "Conexões que você talvez não saiba", icon: Share2, tone: "#8b5cf6" };
+    return { key: "surprising", title: "Conexões que você talvez não saiba", icon: Share2, tone: "#8b5cf6" };
   if (h.includes("import cycle"))
-    return { title: "Ciclos de import", icon: GitBranch, tone: "#22c55e" };
+    return { key: "cycles", title: "Ciclos de import", icon: GitBranch, tone: "#22c55e" };
   if (h.includes("knowledge gap"))
-    return { title: "Peças soltas (sem ligação)", icon: AlertTriangle, tone: "#eab308" };
+    return { key: "gaps", title: "Peças soltas (sem ligação)", icon: AlertTriangle, tone: "#eab308" };
   if (h.includes("suggested question"))
-    return { title: "Perguntas que o grafo responde", icon: HelpCircle, tone: "#38bdf8" };
+    return { key: "questions", title: "Perguntas que o grafo responde", icon: HelpCircle, tone: "#38bdf8" };
   if (h.includes("community hub"))
-    return { title: "Módulos do projeto", icon: Boxes, tone: "#64748b" };
+    return { key: "hubs", title: "Módulos do projeto", icon: Boxes, tone: "#64748b" };
   return null; // Corpus/Summary → hero; Communities detalhadas/Freshness → cortadas
 }
 
@@ -108,18 +123,24 @@ function parseSections(md: string): Section[] {
     }
     if (cur && line.trim()) cur.lines.push(line);
   }
-  // dedup de linhas iguais consecutivas (Community Hubs repete README várias vezes) + limpa vazias
+  // dedup de linhas iguais (Community Hubs repete README várias vezes) + limpa vazias
   for (const s of out) {
     const seen = new Set<string>();
-    s.lines = s.lines
+    let lines = s.lines
       .map(cleanLine)
-      .filter((l) => l.length > 0 && !seen.has(l) && (seen.add(l), true))
-      .slice(0, 12); // teto por card (o resto vira "+N")
+      .filter((l) => l.length > 0 && !seen.has(l) && (seen.add(l), true));
+    // "coração do código": só código REAL (a engine mistura seções de doc nos god nodes). Se
+    // filtrar tudo (projeto só-docs), mantém o original — não esconde a seção inteira.
+    if (s.key === "god") {
+      const codeOnly = lines.filter(isCodeNode);
+      if (codeOnly.length > 0) lines = codeOnly;
+    }
+    s.lines = lines.slice(0, 12); // teto por card
   }
   return out.filter((s) => s.lines.length > 0);
 }
 
-export function OmniGraphReportModal({ cwd, open, onClose }: Props) {
+export function OmniGraphReportModal({ cwd, open, onClose, onExploreDocs }: Props) {
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [md, setMd] = useState<string | null>(null);
@@ -258,10 +279,17 @@ export function OmniGraphReportModal({ cwd, open, onClose }: Props) {
           ) : null}
         </div>
 
-        <div className="border-t border-border px-4 py-2 text-[10px] text-textMuted">
-          {t(
-            "graph.reportFoot",
-            "Gerado localmente do teu código (sem custo de IA). Use “ver no canvas” pra abrir os módulos como nós.",
+        <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2">
+          <span className="text-[10px] text-textMuted">
+            {t("graph.reportFoot", "Gerado localmente do teu código (sem custo de IA).")}
+          </span>
+          {onExploreDocs && md && (
+            <button
+              onClick={onExploreDocs}
+              className="shrink-0 rounded-md border border-border px-2.5 py-1 text-[11px] text-text hover:border-brand/50 hover:bg-white/5"
+            >
+              {t("graph.exploreDocsBtn", "📄 Explorar docs no canvas")}
+            </button>
           )}
         </div>
       </div>

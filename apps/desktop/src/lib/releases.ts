@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.109",
+    date: "2026-07-04",
+    title: "Mapa do Código: só código no 'coração' + explorar docs no canvas",
+    highlights: [
+      "O 'coração do código' mostra só código real (funções) — seções de documentação não poluem mais a lista",
+      "'Explorar docs no canvas' (menu ▾ e no painel): os .md do projeto viram uma seção de nós pra abrir e ler",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.108",
     date: "2026-07-04",
     title: "Mapa do Código agora te DIZ algo (painel de leitura) + limpar o grafo do canvas",

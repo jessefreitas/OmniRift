@@ -89,6 +89,22 @@ function nodeLabel(n: GraphNodeRaw): string {
   return (n.label || n.name || n.id || "?").toString();
 }
 
+/** Arquivos de DOCUMENTAÇÃO (.md/.mdx/.txt/.rst) distintos referenciados pelo grafo
+ *  (`source_file` dos nós), ordenados por DENSIDADE (quantos nós vêm do arquivo → os docs mais
+ *  "ricos" primeiro). Pro "explorar docs no canvas": cada path vira um PreviewNode. `max` corta
+ *  a cauda (evita despejar dezenas de previews e travar o WebView). */
+export function extractDocFiles(parsed: GraphJson, max = 16): string[] {
+  const count = new Map<string, number>();
+  for (const n of parsed.nodes ?? []) {
+    const sf = typeof n.source_file === "string" ? n.source_file : "";
+    if (/\.(md|mdx|markdown|txt|rst)$/i.test(sf)) count.set(sf, (count.get(sf) ?? 0) + 1);
+  }
+  return [...count.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, max)
+    .map(([f]) => f);
+}
+
 /** True se `graphSrc` e `changed` apontam pro MESMO arquivo respeitando FRONTEIRA de path
  *  (não casa `foobar.rs` com `foo.rs`). Porte 1:1 do `path_match` do Rust
  *  (`commands/omnigraph.rs`), que espelha o `_path_match` da engine — cobre repo-relativo
