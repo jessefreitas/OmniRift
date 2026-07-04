@@ -14,6 +14,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { getFlag } from "@/lib/feature-flags";
 import { emit } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -91,6 +92,7 @@ export function useTerminalSession({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const webglRef = useRef<WebglAddon | null>(null);
   const spawnedRef = useRef(false);
   // Session recorder: último estado logado + guarda pra encerrar só uma vez.
   const lastStateRef = useRef<string | null>(null);
@@ -193,12 +195,18 @@ export function useTerminalSession({
     // com N terminais vivos no canvas. WebKitGTK varia por GPU/driver → try/catch com
     // fallback silencioso pro DOM; perda de contexto (driver reset) → dispose e o
     // xterm volta pro DOM sozinho. Precisa vir DEPOIS do term.open().
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch (e) {
-      console.warn("[terminal] WebGL indisponível — seguindo no renderer DOM:", e);
+    // Kill-switch: flag off → fica no renderer DOM (evita a race do addon-webgl no dispose,
+    // `_core._store._isDisposed`, que já derrubou o app). Guarda a ref pra dispor o WebGL
+    // ANTES do term.dispose() no cleanup (para o rAF antes do core sumir).
+    if (getFlag("terminal-webgl")) {
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => webgl.dispose());
+        term.loadAddon(webgl);
+        webglRef.current = webgl;
+      } catch (e) {
+        console.warn("[terminal] WebGL indisponível — seguindo no renderer DOM:", e);
+      }
     }
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -554,6 +562,10 @@ export function useTerminalSession({
       // projeto, gc do restore) — mesmo contrato do AgentNode (F2). O sink global
       // (pty-global-sink) assume status/exit enquanto não há view.
       unregisterTerminalView(sessionId);
+      // Dispõe o WebGL ANTES do term.dispose(): para o rAF do renderer enquanto o core ainda
+      // existe, evitando a race `_core._store._isDisposed` (o rAF acessava um core já limpo).
+      try { webglRef.current?.dispose(); } catch { /* já disposed */ }
+      webglRef.current = null;
       term.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;

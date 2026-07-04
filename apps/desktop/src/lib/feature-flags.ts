@@ -34,6 +34,14 @@ export interface FlagDef {
 // ainda em construção — liga sob demanda.
 export const FLAGS: FlagDef[] = [
   {
+    key: "terminal-webgl",
+    label: "Terminal com GPU (WebGL)",
+    description:
+      "Renderiza os terminais na GPU (WebGL2) — bem mais leve com muitos terminais no canvas. Se você ver o terminal 'travar ao renderizar' (race do addon-webgl no descarte), DESLIGUE: cai pro renderer DOM, que é mais pesado mas nunca tem esse crash.",
+    default: true,
+    stage: "stable",
+  },
+  {
     key: "capability-risk-scan",
     label: "Scan de risco (Lurkr)",
     description:

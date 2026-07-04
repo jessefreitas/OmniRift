@@ -11,6 +11,7 @@ import {
 import { Terminal as TerminalIcon, X, Maximize2, Minimize2, RefreshCw, Crown, UserRoundPlus, RotateCw } from "lucide-react";
 
 import { useTerminalSession } from "@/hooks/useTerminalSession";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useT } from "@/lib/i18n";
 import { useCanvasStore } from "@/store/canvas-store";
 import { NodeHelp } from "@/components/NodeHelp";
@@ -743,8 +744,45 @@ function DormantTerminalCard({ id, data, selected }: TerminalNodeProps) {
   );
 }
 
-/** Restaurado DORMENTE → card leve (sem sessão); senão o terminal vivo. O split garante
- *  que o `useTerminalSession` (e o spawn do PTY) só monta quando o nó NÃO está dormente. */
+/** Fallback quando o TerminalNodeBase estoura no render (ex.: race do addon-webgl no
+ *  dispose → `_core._store._isDisposed`). ISOLADO por node: o app/canvas fica de pé; só
+ *  ESTE terminal mostra o aviso. "Recarregar" remonta o boundary (novo resetKey) → o
+ *  terminal tenta de novo. A causa já foi gravada em ~/.omnirift/debug.log. */
+function TerminalCrashCard({ label, onReload }: { label: string; onReload: () => void }) {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-lg border border-danger/40 bg-bg p-4 text-center">
+      <span className="text-2xl">⚠️</span>
+      <span className="text-xs font-medium text-danger">Este terminal travou ao renderizar</span>
+      <span className="max-w-full truncate text-[10px] text-textMuted">{label}</span>
+      <span className="text-[10px] text-textMuted opacity-70">Causa gravada em ~/.omnirift/debug.log</span>
+      <button
+        onClick={onReload}
+        className="mt-1 flex items-center gap-1 rounded border border-border px-3 py-1 text-xs text-text hover:border-brand hover:text-brand"
+      >
+        <RefreshCw size={12} /> Recarregar
+      </button>
+    </div>
+  );
+}
+
+/** Restaurado DORMENTE → card leve (sem sessão); senão o terminal vivo (num ErrorBoundary
+ *  próprio pra a falha ficar contida no node, nunca derrubar o canvas). O split garante que
+ *  o `useTerminalSession` (e o spawn do PTY) só monta quando o nó NÃO está dormente. */
 export const TerminalNode = memo(function TerminalNode(props: TerminalNodeProps) {
-  return props.data.dormant ? <DormantTerminalCard {...props} /> : <TerminalNodeBase {...props} />;
+  const [resetKey, setResetKey] = useState(0);
+  if (props.data.dormant) return <DormantTerminalCard {...props} />;
+  return (
+    <ErrorBoundary
+      key={resetKey}
+      label="TerminalNode"
+      fallback={
+        <TerminalCrashCard
+          label={props.data.label ?? props.data.command}
+          onReload={() => setResetKey((k) => k + 1)}
+        />
+      }
+    >
+      <TerminalNodeBase {...props} />
+    </ErrorBoundary>
+  );
 });
