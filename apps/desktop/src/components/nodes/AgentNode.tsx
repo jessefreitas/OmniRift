@@ -19,7 +19,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Brain, Maximize2, Minimize2, Repeat, RotateCw, ScrollText, Send, Target, UserRoundPlus, X } from "lucide-react";
+import { Brain, FlaskConical, Maximize2, Minimize2, Repeat, RotateCw, ScrollText, Send, Target, UserRoundPlus, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -1265,6 +1265,30 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           aria-label={t("agent.addSubagent", "Plugar subagente")}
         >
           <UserRoundPlus size={13} />
+        </button>
+        {/* 🔬 Avaliar trajetória (Harness Evolver) — juiz LLM pontua o caminho + sugere ajuste do role */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            window.dispatchEvent(
+              new CustomEvent("omnirift:eval-trajectory", {
+                detail: {
+                  nodeId: data.id,
+                  label: data.label ?? "OmniAgent",
+                  transcript: serializeConversation(data.label ?? "OmniAgent", msgs),
+                  goal: data.goal?.objective,
+                  roleName: data.role,
+                  rolePrompt: data.persona,
+                },
+              }),
+            );
+          }}
+          disabled={msgs.length === 0}
+          className="p-0.5 rounded text-text/50 hover:bg-white/10 hover:text-brand transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+          title={t("agent.evalTrajectory", "Avaliar trajetória — juiz LLM pontua o caminho do agente e sugere ajuste do role")}
+          aria-label={t("agent.evalTrajectory", "Avaliar trajetória")}
+        >
+          <FlaskConical size={13} />
         </button>
         {/* Maximizar / restaurar */}
         <button

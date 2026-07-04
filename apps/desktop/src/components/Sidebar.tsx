@@ -75,6 +75,7 @@ import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib
 import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { EditableLabel } from "@/components/EditableLabel";
 import { UpdaterButton } from "@/components/UpdaterButton";
+import { TrajectoryEvalModal } from "@/components/TrajectoryEvalModal";
 import { PromptModal } from "@/components/PromptModal";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { omnifsStatus, type OmniFsStatus } from "@/lib/omnifs-client";
@@ -2441,6 +2442,8 @@ export function Sidebar() {
       {showMobile && <MobileDevicesModal onClose={() => setShowMobile(false)} />}
       {showFeatureFlags && <FeatureFlagsPanel onClose={() => setShowFeatureFlags(false)} />}
       {showBench && <BenchModal onClose={() => setShowBench(false)} />}
+      {/* Harness Evolver: sempre montado (leve) — abre sozinho ao receber omnirift:eval-trajectory. */}
+      <TrajectoryEvalModal />
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showReleases && <ReleaseNotesModal onClose={() => setShowReleases(false)} />}
