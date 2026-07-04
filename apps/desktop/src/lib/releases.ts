@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.111",
+    date: "2026-07-04",
+    title: "Avaliar trajetória do agente (juiz de IA + ajuste de role)",
+    highlights: [
+      "Botão 🔬 no agente: um juiz de IA pontua a trajetória (o caminho que o agente seguiu) e mostra onde ele derivou",
+      "Sugere um ajuste na persona do role pra evitar os desvios recorrentes — com botão 'Aplicar ao role'",
+      "Usa o histórico do agente + o sinal de erro/latência; nenhum custo extra além da chamada do juiz",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.110",
     date: "2026-07-04",
     title: "Docs no canvas: não somem mais ao abrir + botão pra ocultar",
