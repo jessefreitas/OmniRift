@@ -1,0 +1,68 @@
+# CI de push/PR — typecheck + testes Rust + o app tem que ABRIR limpo (smoke boot).
+# Motivação: a v0.1.120 shippou travando no boot e nada automatizado pegou (spec
+# docs/superpowers/specs/2026-07-05-smoke-boot-gate-design.md). O gate de release
+# (draft-then-publish, smoke no .deb exato) vive no release.yml — este workflow é o
+# feedback CEDO, no push, antes de existir tag.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Dependências do Linux (WebKitGTK + xvfb)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libfuse3-dev pkg-config xvfb
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Testes Rust
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      # Sidecars ANTES do tauri build — o externalBin exige os binários presentes
+      # (mesmo padrão do release.yml; num runner limpo eles não existem).
+      - name: Build OmniCompress sidecar
+        shell: bash
+        run: bash scripts/build-omnicompress.sh
+
+      - name: Build OmniFS sidecar (Linux)
+        shell: bash
+        run: bash scripts/build-omnifs-sidecar.sh
+
+      - name: Build debug (sem bundle)
+        working-directory: apps/desktop
+        run: npx tauri build --debug --no-bundle
+
+      - name: Smoke self-test (valida a lógica de detecção do gate)
+        run: bash scripts/smoke-boot.sh --self-test
+
+      - name: Smoke boot (o app abre limpo?)
+        run: bash scripts/smoke-boot.sh apps/desktop/src-tauri/target/debug/omnirift

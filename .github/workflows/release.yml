@@ -154,20 +154,63 @@ jobs:
           # VAZIO porque nenhum body era passado).
           releaseBody: "Veja os detalhes em **What's Changed** abaixo (gerado dos commits desde a versão anterior)."
           generateReleaseNotes: true
-          releaseDraft: false # AUTO-PUBLICA: re-execução do workflow NÃO re-drafta (era
-          # a causa do latest.json voltar a 404). O review acontece no PR antes da tag.
+          releaseDraft: true # DRAFT-THEN-PUBLISH: o job smoke-gate abaixo instala o .deb
+          # deste draft, exige boot limpo e SÓ ENTÃO publica (gh release edit --draft=false).
+          # Cliente/updater só enxergam release PUBLICADO → build que não abre nunca chega
+          # a ninguém. O guard no topo segue pulando re-runs de release já publicado (o
+          # caso do latest.json 404 era re-draft de release PUBLICADO — não acontece aqui).
           # Gera latest.json (feed do updater) + .sig de cada bundle e anexa ao Release.
-          # latest = release publicado → updater/downloads funcionam assim que o build sai.
           includeUpdaterJson: true
           args: --bundles ${{ matrix.bundles }}
 
-  # Espelho de releases no R2 (egress zero via CDN). Roda DEPOIS do build/release: baixa os
-  # assets do Release recém-criado e os sobe pro bucket omnirift-releases — releases/<tag>/<nome>
+  # Gate de smoke no ARTEFATO REAL: instala o .deb do draft e exige boot limpo.
+  # Verde → publica o release (updater/clientes passam a ver). Vermelho → fica DRAFT,
+  # cliente nunca recebe; um re-run/re-tag re-tenta. Spec:
+  # docs/superpowers/specs/2026-07-05-smoke-boot-gate-design.md
+  smoke-gate:
+    name: Smoke gate no artefato do release
+    needs: [guard, build]
+    if: needs.guard.outputs.published != 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4 # precisa do scripts/smoke-boot.sh
+
+      - name: Instala xvfb + runtime webkit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libwebkit2gtk-4.1-0 libappindicator3-1 librsvg2-2 fuse3
+
+      - name: Baixa o .deb do draft
+        run: |
+          gh release download "${{ github.ref_name }}" \
+            -R "${{ github.repository }}" \
+            --pattern '*_amd64.deb' \
+            --dir dist
+
+      - name: Instala o .deb (o artefato EXATO que o cliente recebe)
+        run: sudo dpkg -i dist/*_amd64.deb || sudo apt-get install -f -y
+
+      - name: Smoke no artefato real
+        run: bash scripts/smoke-boot.sh /usr/bin/omnirift
+
+      - name: Publica o release (idempotente)
+        run: |
+          gh release edit "${{ github.ref_name }}" \
+            -R "${{ github.repository }}" \
+            --draft=false
+
+  # Espelho de releases no R2 (egress zero via CDN). Roda DEPOIS do smoke-gate PUBLICAR:
+  # baixa os assets do Release e os sobe pro bucket omnirift-releases — releases/<tag>/<nome>
   # (arquivo por tag) + releases/latest/<so-key> (ponteiro estável que o /download lê).
+  # ⚠️ needs: smoke-gate é OBRIGATÓRIO — sem isso o mirror espelharia artefato de DRAFT
+  # não-smoked pro CDN (o /download serve dali; cliente receberia build não validado).
   # Só em push de tag (não workflow_dispatch). Se falhar, FALHA visível: o Release no GitHub
   # já está publicado (fonte/updater intactos), então é seguro o mirror quebrar e ser re-rodado.
   mirror:
-    needs: build
+    needs: [build, smoke-gate]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
