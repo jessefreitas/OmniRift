@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.123",
+    date: "2026-07-05",
+    title: "Agentes conectam de primeira + releases blindados",
+    highlights: [
+      "Serena e Playwright não aparecem mais como \"failed\" na primeira vez — o app pré-aquece os caches no boot",
+      "OmniCompress MCP consertado (handshake do protocolo) — as tools de compressão voltam a conectar",
+      "Cada release agora só é publicado depois de um teste automático provar que o app ABRE limpo (quem não abre, não chega em você)",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.122",
     date: "2026-07-05",
     title: "Você escolhe os MCPs dos agentes (importação voluntária do Claude global)",
