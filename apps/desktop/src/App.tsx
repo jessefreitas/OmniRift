@@ -19,6 +19,8 @@ import { useT } from "@/lib/i18n";
 
 export default function App() {
   const tr = useT();
+  // FIRE-TEST (branch descartável): o smoke gate TEM que ficar vermelho com isto.
+  throw new Error("fire-test: boot quebrado de propósito — o smoke deve detectar");
 
   // Aviso pós strict-mcp: os agentes NÃO herdam mais os mcpServers do ~/.claude.json.
   // No boot, importa os globais como DESLIGADOS (idempotente — nunca liga nem
