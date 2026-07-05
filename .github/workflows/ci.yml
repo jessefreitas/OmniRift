@@ -44,11 +44,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Testes Rust
-        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
-
-      # Sidecars ANTES do tauri build — o externalBin exige os binários presentes
-      # (mesmo padrão do release.yml; num runner limpo eles não existem).
+      # Sidecars ANTES do cargo test/tauri build — o build-script do Tauri valida os
+      # resources/externalBin já na COMPILAÇÃO (cargo test dispara o build-script), não
+      # só no bundle. Num runner limpo os binários não existem → tudo falharia.
       - name: Build OmniCompress sidecar
         shell: bash
         run: bash scripts/build-omnicompress.sh
@@ -56,6 +54,9 @@ jobs:
       - name: Build OmniFS sidecar (Linux)
         shell: bash
         run: bash scripts/build-omnifs-sidecar.sh
+
+      - name: Testes Rust
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
       - name: Build debug (sem bundle)
         working-directory: apps/desktop
