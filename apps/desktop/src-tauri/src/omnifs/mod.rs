@@ -128,24 +128,55 @@ pub fn free_space_bytes(_path: &Path) -> Option<u64> {
     None
 }
 
-/// O mount responde a um `read_dir` dentro de `timeout`? Detecta o daemon FUSE
-/// VIVO-mas-CONGELADO que `socket_alive` não pega: o socket aceita conexão mas
-/// toda syscall no mount trava/ENOTCONN. Roda o probe num thread destacado pra
-/// NÃO pendurar o app se o FUSE nunca responder (o thread órfão morre quando o
-/// mount recupera ou é desmontado no recovery).
+/// Estado de saúde de um ponto de montagem FUSE.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MountState {
+    /// `read_dir` respondeu com sucesso — o mount está vivo.
+    Responsive,
+    /// O caminho nem existe (ENOENT). O problema não é FUSE congelado:
+    /// a pasta precisa ser recriada/provisionada, não religada.
+    Missing,
+    /// O caminho existe, mas não responde (ENOTCONN, I/O ou timeout).
+    /// O daemon FUSE provavelmente está congelado; a cura é recovery
+    /// (`fusermount -uz`, remontar, etc.).
+    Stale,
+}
+
+/// Sonda um mount FUSE numa thread apartada, com timeout.
+///
+/// FUSE congelado costuma **pendurar a syscall indefinidamente**, então o probe
+/// roda em `std::thread::spawn` e o resultado chega por canal (o thread órfão
+/// morre quando o mount recupera ou é desmontado no recovery).
+///
+/// Distinguimos `ENOENT` (`Missing`) de `ENOTCONN`/timeout/`EIO` (`Stale`)
+/// porque a UI antiga tratava QUALQUER erro como "drive travado" e mandava o
+/// usuário caçar disco cheio/religar mesmo quando a pasta simplesmente não
+/// existia — a cura correta nesse caso é recriar/provisionar o mount.
 #[cfg(unix)]
-pub fn mount_responsive(mount: &Path, timeout: Duration) -> bool {
+pub fn probe_mount(mount: &Path, timeout: Duration) -> MountState {
     let m = mount.to_path_buf();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        // read_dir toca o FUSE de verdade (lookup + readdir); ENOTCONN/erro → false.
-        let _ = tx.send(std::fs::read_dir(&m).is_ok());
+        let result = match std::fs::symlink_metadata(&m) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => MountState::Missing,
+            Err(_) => MountState::Stale,
+            Ok(_) => match std::fs::read_dir(&m) {
+                Ok(_) => MountState::Responsive,
+                Err(_) => MountState::Stale,
+            },
+        };
+        let _ = tx.send(result);
     });
-    matches!(rx.recv_timeout(timeout), Ok(true))
+    rx.recv_timeout(timeout).unwrap_or(MountState::Stale)
 }
 #[cfg(not(unix))]
-pub fn mount_responsive(_mount: &Path, _timeout: Duration) -> bool {
-    false
+pub fn probe_mount(_mount: &Path, _timeout: Duration) -> MountState {
+    MountState::Stale
+}
+
+/// Wrapper de compat (gate pré-spawn usa o booleano): só Responsive é saudável.
+pub fn mount_responsive(mount: &Path, timeout: Duration) -> bool {
+    probe_mount(mount, timeout) == MountState::Responsive
 }
 
 /// Recusa uma escrita quando o disco do store está CRÍTICO (`< DISK_CRITICAL_BYTES`).
@@ -318,6 +349,11 @@ pub struct DaemonStatus {
     /// Socket VIVO mas mount NÃO responde = daemon congelado (o incidente ENOTCONN).
     /// A UI mostra "Reconectar" quando `stale` — `socket_alive` sozinho não pega isto.
     pub stale: bool,
+    /// O diretório do mount NEM EXISTE (ENOENT — pasta removida ou nunca criada
+    /// nesta máquina). É um estado DIFERENTE de `stale`: aqui não há I/O preso nem
+    /// disco cheio; a cura é RECRIAR a Pasta de Projetos, não "religar". Sem esta
+    /// distinção a UI diagnosticava ENOENT como "Drive travado (ENOTCONN)".
+    pub mount_missing: bool,
 }
 
 /// Tamanho de um arquivo em bytes (None se não existe / erro).
@@ -383,12 +419,21 @@ pub fn daemon_status() -> DaemonStatus {
     let sock_up = socket_alive(&sock);
     let store_free_bytes = cfg.as_ref().and_then(|c| free_space_bytes(Path::new(&c.store)));
     let low_disk = store_free_bytes.map(|b| b < DISK_LOW_BYTES).unwrap_or(false);
-    let (mount_responsive_v, stale) = match (cfg.as_ref(), sock_up) {
-        (Some(c), true) => {
-            let ok = mount_responsive(Path::new(&c.mount), MOUNT_PROBE_TIMEOUT);
-            (Some(ok), !ok)
-        }
-        _ => (None, false),
+    // ENOENT ≠ ENOTCONN: o probe tri-estado (com timeout, thread apartada) separa
+    // "pasta nem existe" (Missing → UI manda RECRIAR) de "daemon congelado"
+    // (Stale → UI manda religar). Antes qualquer erro virava "Drive travado".
+    let (mount_responsive_v, stale, mount_missing) = match (cfg.as_ref(), sock_up) {
+        (Some(c), true) => match probe_mount(Path::new(&c.mount), MOUNT_PROBE_TIMEOUT) {
+            MountState::Responsive => (Some(true), false, false),
+            MountState::Missing => (Some(false), false, true),
+            MountState::Stale => (Some(false), true, false),
+        },
+        (Some(c), false) => (
+            None,
+            false,
+            probe_mount(Path::new(&c.mount), MOUNT_PROBE_TIMEOUT) == MountState::Missing,
+        ),
+        _ => (None, false, false),
     };
     DaemonStatus {
         bin_found: bin.is_some(),
@@ -405,6 +450,7 @@ pub fn daemon_status() -> DaemonStatus {
         low_disk,
         mount_responsive: mount_responsive_v,
         stale,
+        mount_missing,
     }
 }
 

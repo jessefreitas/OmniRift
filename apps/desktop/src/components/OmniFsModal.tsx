@@ -262,6 +262,26 @@ export function OmniFsModal({ onClose }: Props) {
             </div>
           )}
 
+          {/* Mount NEM EXISTE (ENOENT — pasta removida/nunca criada): estado diferente
+              do congelado. Antes isto aparecia como "Drive travado / disco cheio" e
+              mandava o usuário caçar a causa errada. A cura é RECRIAR (botão abaixo). */}
+          {status?.mountMissing && !status?.stale && (
+            <div className="rounded-md border border-yellow-400/40 bg-yellow-400/10 px-3 py-2 text-[11px] text-yellow-200 flex items-start gap-2">
+              <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-medium">
+                  {t("omnifs.missingTitle", "Pasta de Projetos não existe no disco")}
+                </div>
+                <div className="opacity-80 mt-0.5 leading-snug">
+                  {t(
+                    "omnifs.missingBody",
+                    "O caminho configurado foi removido (ou nunca foi criado nesta máquina) — não é travamento nem disco cheio. Use o botão “Religar daemon / recriar Pasta de Projetos” abaixo para recriá-la.",
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Disco baixo (< 1 GB livre no store): avisa ANTES de encher e congelar
               o FUSE. Não bloqueia — abaixo de 256 MB o snapshot é recusado no backend. */}
           {status?.lowDisk && !status?.stale && (

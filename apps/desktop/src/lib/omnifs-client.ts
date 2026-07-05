@@ -30,6 +30,9 @@ export interface OmniFsStatus {
   /** Socket vivo MAS mount não responde = daemon congelado (o incidente ENOTCONN).
    *  Quando true, a UI mostra "Reconectar" — socketAlive sozinho não pega isso. */
   stale: boolean;
+  /** O diretório do mount NEM EXISTE (ENOENT — removido/nunca criado). Estado
+   *  DIFERENTE de stale: a cura é RECRIAR a Pasta de Projetos, não religar. */
+  mountMissing: boolean;
 }
 
 /** Item da timeline de snapshots (omnifs_log + ledger local). */
