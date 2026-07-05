@@ -66,7 +66,7 @@ export function McpAgentsSection({
       <div className="flex items-center justify-between px-2 mb-1.5 gap-2">
         {sectionTitle("mcp", tr("section.mcp"))}
         <div className="flex items-center gap-2 shrink-0">
-          <Tooltip label={tr("sidebar.proactiveReactTip", "Reagir na hora: quando a equipe muda, o orquestrador DISPARA um turno sozinho (gasta token). Desligado = ele fica ciente de graça e usa no próximo passo.")} side="bottom">
+          <Tooltip wide label={tr("sidebar.proactiveReactTip", "Reagir na hora: quando a equipe muda, o orquestrador DISPARA um turno sozinho (gasta token). Desligado = ele fica ciente de graça e usa no próximo passo.")} side="bottom">
             <label className="flex items-center gap-1 text-[10px] text-textMuted cursor-pointer">
               <input
                 type="checkbox"
@@ -77,7 +77,7 @@ export function McpAgentsSection({
               ⚡{tr("sidebar.proactiveReact", "reagir")}
             </label>
           </Tooltip>
-          <Tooltip label={tr("sidebar.maxAgentsTip", "Teto de agentes simultâneos do Orquestrador (ele pergunta antes de abrir; o resto roda em ondas)")} side="bottom">
+          <Tooltip wide label={tr("sidebar.maxAgentsTip", "Teto de agentes simultâneos do Orquestrador (ele pergunta antes de abrir; o resto roda em ondas)")} side="bottom">
             <label className="flex items-center gap-1 text-[10px] text-textMuted">
               {tr("sidebar.max", "máx")}
               <input

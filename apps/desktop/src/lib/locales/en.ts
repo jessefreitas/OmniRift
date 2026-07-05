@@ -1144,23 +1144,4 @@ export const en: Record<string, string> = {
     "Generates and shows this project's code map (communities, dependencies, god nodes) on the canvas — the first build takes ~1-2 min in the background.",
   "graph.pickView": "Pick the map view (communities, calls, deps, risk)",
   "graph.noCwd": "Open a project folder before generating the code map.",
-
-  // Guided onboarding tour
-  "tour.next": "Next",
-  "tour.skip": "Skip tour",
-  "tour.waiting": "Waiting for you to do this...",
-  "tour.mission.open-project.title": "Open a project",
-  "tour.mission.open-project.desc": "You already have a project open! The canvas on the left is the Sidebar. Use it to open folders, create agents and save your workspace.",
-  "tour.mission.create-agent.title": "Create an agent",
-  "tour.mission.create-agent.desc": 'Click "New agent" in the Sidebar to add an AI assistant to the canvas.',
-  "tour.mission.send-message.title": "Send a message to the agent",
-  "tour.mission.send-message.desc": "Type in the agent's terminal and wait for it to respond.",
-  "tour.mission.move-canvas.title": "Move the canvas",
-  "tour.mission.move-canvas.desc": "Drag the empty background or use the mouse scroll to zoom. Explore the infinite canvas.",
-  "tour.mission.save-workspace.title": "Save the workspace",
-  "tour.mission.save-workspace.desc": "Click Save in the Sidebar to persist your canvas.",
-  "tour.mission.connect-agents.title": "Connect agents",
-  "tour.mission.connect-agents.desc": "Drag from one agent to another to create a connection. One agent's output becomes the other's input.",
-  "tour.mission.see-kanban.title": "View the Kanban",
-  "tour.mission.see-kanban.desc": "Open the Kanban panel in the Sidebar to see your project's cards.",
 };

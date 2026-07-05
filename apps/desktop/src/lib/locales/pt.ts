@@ -1144,23 +1144,4 @@ export const pt: Record<string, string> = {
     "Gera e mostra o mapa do código deste projeto (comunidades, dependências, god nodes) no canvas — a 1ª geração leva ~1-2 min em segundo plano.",
   "graph.pickView": "Escolher a visão do mapa (comunidades, chamadas, deps, risco)",
   "graph.noCwd": "Abra uma pasta de projeto antes de gerar o mapa do código.",
-
-  // Tour guiado de onboarding
-  "tour.next": "Próximo",
-  "tour.skip": "Pular tour",
-  "tour.waiting": "Aguardando você fazer isso...",
-  "tour.mission.open-project.title": "Abrir um projeto",
-  "tour.mission.open-project.desc": "Você já tem um projeto aberto! O canvas à esquerda é a Sidebar. Nela você abre pastas, cria agentes e salva seu workspace.",
-  "tour.mission.create-agent.title": "Criar um agente",
-  "tour.mission.create-agent.desc": 'Clique em "Novo agente" na Sidebar para adicionar um assistente de IA ao canvas.',
-  "tour.mission.send-message.title": "Mandar mensagem pro agente",
-  "tour.mission.send-message.desc": "Digite no terminal do agente que você criou e espere ele responder.",
-  "tour.mission.move-canvas.title": "Mover o canvas",
-  "tour.mission.move-canvas.desc": "Arraste o fundo vazio ou use o scroll do mouse para dar zoom. Explore o canvas infinito.",
-  "tour.mission.save-workspace.title": "Salvar o workspace",
-  "tour.mission.save-workspace.desc": "Clique em Salvar na Sidebar para persistir seu canvas.",
-  "tour.mission.connect-agents.title": "Conectar agentes",
-  "tour.mission.connect-agents.desc": "Arraste de um agente até outro para criar uma conexão. A saída de um vira entrada do outro.",
-  "tour.mission.see-kanban.title": "Ver o Kanban",
-  "tour.mission.see-kanban.desc": "Abra o painel Kanban na Sidebar para ver os cards do seu projeto.",
 };

@@ -82,14 +82,6 @@ export const FLAGS: FlagDef[] = [
     stage: "beta",
   },
   {
-    key: "productTour",
-    label: "Tour guiado de onboarding",
-    description:
-      "Tour interativo para novos usuários aprenderem o OmniRift na prática (7 missões auto-verificadas). Kill-switch instantâneo sem release.",
-    default: true,
-    stage: "stable",
-  },
-  {
     key: "remote-4g-relay",
     label: "Acesso remoto 4G (relay)",
     description:

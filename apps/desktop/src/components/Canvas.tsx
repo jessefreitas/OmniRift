@@ -23,11 +23,7 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { useQuickJump } from "@/hooks/useQuickJump";
 import { useRoutines } from "@/hooks/useRoutines";
 
-interface CanvasProps {
-  onMove?: () => void;
-}
-
-export function Canvas({ onMove }: CanvasProps) {
+export function Canvas() {
   const parallels = useCanvasStore((s) => s.parallels);
   const activeParallelId = useCanvasStore((s) => s.activeParallelId);
   const activeProjectId = useCanvasStore((s) => s.activeProjectId);
@@ -48,7 +44,7 @@ export function Canvas({ onMove }: CanvasProps) {
             }}
           >
             {/* active = virtualização SÓ no floor visível (ver header do arquivo). */}
-            <FloorCanvas floorId={f.id} active={visible} onMove={onMove} />
+            <FloorCanvas floorId={f.id} active={visible} />
           </div>
         );
       })}

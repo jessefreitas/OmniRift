@@ -15,7 +15,7 @@ use std::process::Command;
 use crate::proc_ext::NoWindow;
 
 /// Roda `git` num cwd e devolve stdout (trimmed). Erro carrega o stderr.
-pub fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
+fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
     let out = Command::new("git")
         .current_dir(cwd)
         .args(args)

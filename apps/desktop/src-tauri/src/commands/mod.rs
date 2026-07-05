@@ -39,6 +39,5 @@ pub mod serena;
 pub mod skills;
 pub mod skill_wiring;
 pub mod spec;
-pub mod tour;
 pub mod usage;
 pub mod workspace;

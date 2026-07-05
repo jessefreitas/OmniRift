@@ -114,7 +114,7 @@ function miniMapNodeColor(n: Node): string {
   return MINIMAP_COLORS[n.type ?? ""] ?? "rgb(120, 120, 130)";
 }
 
-export function FloorCanvas({ floorId, active, onMove }: { floorId: string; active: boolean; onMove?: () => void }) {
+export function FloorCanvas({ floorId, active }: { floorId: string; active: boolean }) {
   useConnectionRouting(); // roteia saída de agente → entrada do nó conectado + anima a edge
   const floor = useCanvasStore((s) => s.parallels.find((f) => f.id === floorId));
   const updateNodePosition = useCanvasStore((s) => s.updateNodePosition);
@@ -377,8 +377,7 @@ export function FloorCanvas({ floorId, active, onMove }: { floorId: string; acti
   }, [active, deleteSelected]);
 
   return (
-    <div data-tour-id="canvas" className="absolute inset-0">
-      <ReactFlow
+    <ReactFlow
       nodes={rfNodes}
       edges={rfEdges}
       nodeTypes={nodeTypes}
@@ -389,7 +388,6 @@ export function FloorCanvas({ floorId, active, onMove }: { floorId: string; acti
       onConnectStart={onConnectStart}
       onConnectEnd={onConnectEnd}
       onNodeDragStop={onNodeDragStop}
-      onMove={onMove}
       onInit={(inst) => registerFloorInstance(floorId, inst)}
       // F3 backend-owned sessions: virtualização — nó fora do viewport DESMONTA (não é
       // só display:none/LOD). Seguro pois nada de sessão vive no mount: AgentNode
@@ -463,6 +461,5 @@ export function FloorCanvas({ floorId, active, onMove }: { floorId: string; acti
           document.body,
         )}
     </ReactFlow>
-    </div>
   );
 }

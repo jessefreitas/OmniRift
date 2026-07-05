@@ -38,7 +38,11 @@ export function Tooltip({ label, side = "right", children, className, wide }: To
           "bg-surface2 px-2 py-1 text-[11px] leading-snug text-text shadow-lg",
           "opacity-0 scale-95 transition-all duration-100",
           "group-hover/tt:opacity-100 group-hover/tt:scale-100",
-          wide ? "w-56 whitespace-normal text-left" : "whitespace-nowrap",
+          // Default agora QUEBRA LINHA com largura máxima (antes era whitespace-nowrap,
+          // que cortava toda tooltip longa na borda da sidebar). Rótulo curto continua
+          // numa linha só (max-w não força largura); só o texto longo passa a envolver.
+          // `wide` segue como variante ancorada à direita p/ textos de instrução.
+          wide ? "w-56 whitespace-normal text-left" : "max-w-[15rem] whitespace-normal text-left",
           pos,
         )}
       >

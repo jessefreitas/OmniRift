@@ -163,7 +163,9 @@ pub async fn learn_ask_grounded(prompt: String, cwd: Option<String>) -> Result<S
         &prompt,
         Duration::from_secs(240),
         cwd.as_deref(),
-        &["--mcp-config", &mcp],
+        // --strict-mcp-config: SÓ o Context7 deste arquivo, sem mesclar a frota MCP
+        // global do ~/.claude.json (que estouraria o contexto do `claude -p`).
+        &["--mcp-config", &mcp, "--strict-mcp-config"],
     )
     .await
 }

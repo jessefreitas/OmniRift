@@ -167,7 +167,6 @@ import type { AgentRole } from "@/types/pty";
 const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[] = [
   { id: "settings", icon: Settings, label: "Configurações", desc: "Conta, licença, idioma, privacidade e atalhos pra todos os painéis de config num lugar só" },
   { id: "help", icon: BookOpen, label: "Ajuda / Manual", desc: "Manual do OmniRift — como usar tudo (tópicos + busca)" },
-  { id: "tour-redo", icon: BookOpen, label: "Refazer tour guiado", desc: "Reabre o tour interativo de onboarding do OmniRift" },
   { id: "appearance", icon: Palette, label: "Aparência", desc: "Cores, fontes e temas do app (claro/escuro + personalizado)" },
   { id: "clis", icon: Download, label: "CLIs de IA", desc: "Instalar e gerenciar CLIs de agentes (Claude Code, Codex, Gemini, Aider, …)" },
   { id: "review-ai", icon: ScanSearch, label: "Code Review IA", desc: "LLM (BYOK) + Política de GO/NO-GO num painel só (abas)" },
@@ -177,7 +176,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "llm-providers", icon: KeyRound, label: "Central de API", desc: "Chaves de API dos providers de LLM — cadastra 1x, usa no Hermes, OmniPartner e review" },
   { id: "snippets", icon: ClipboardList, label: "Central de copia-cola", desc: "Snippets persistentes (texto, código, imagem) — cola da área de transferência, copia ou arrasta pra qualquer nó" },
   { id: "pipeline", icon: Network, label: "Arquiteto de Pipeline", desc: "Descreve o projeto → um LLM monta o time (agentes, subagentes, conexões, paralelos, ondas) + grava e monta no canvas" },
-  { id: "kanban", icon: SquareKanban, label: "Kanban do projeto", desc: "Acompanhamento visual: backlog / em andamento / review / concluído — os agentes movem os cards via tools kanban_*", dataTourId: "kanban-toggle" },
+  { id: "kanban", icon: SquareKanban, label: "Kanban do projeto", desc: "Acompanhamento visual: backlog / em andamento / review / concluído — os agentes movem os cards via tools kanban_*" },
   { id: "mobile", icon: Smartphone, label: "Dispositivos móveis", desc: "Parear o celular (QR), listar pareados, revogar e conceder controle (steering)" },
   { id: "feature-flags", icon: Flag, label: "Feature flags", desc: "Liga/desliga recursos localmente — rollout gradual, kill-switch e gating de beta (persiste por máquina)" },
   { id: "bench", icon: Trophy, label: "Terminal-Bench", desc: "Roda uma suíte de tarefas-terminal verificáveis num agente e mede quantas ele resolve (selo objetivo + regression guard)" },
@@ -211,7 +210,7 @@ const TOOL_CAT: Record<string, string> = {
   clis: "agents", skills: "agents", mcpservers: "agents", compressors: "agents", memory: "agents", connections: "agents",
   "llm-providers": "ai", companion: "ai", "review-ai": "ai",
   git: "files", omnifs: "files", snapshots: "files", history: "files", snippets: "files", reminders: "files", hooks: "files",
-  settings: "system", appearance: "system", usage: "system", mobile: "system", "feature-flags": "system", releases: "system", help: "system", "tour-redo": "system",
+  settings: "system", appearance: "system", usage: "system", mobile: "system", "feature-flags": "system", releases: "system", help: "system",
 };
 
 // Seções da sidebar — reordenáveis por drag-and-drop (ordem persistida; CSS order).
@@ -387,15 +386,7 @@ function stableKeyOf(n: McpCapableNode): string {
 // que inclui o token de auth por-boot do MCP server. NÃO hardcode a URL aqui — sem o
 // token o `/mcp add` daria 401 desde o hardening do control plane.
 
-import { useTourStore } from "@/store/tour-store";
-import { invoke } from "@tauri-apps/api/core";
-
-interface SidebarProps {
-  onKanbanOpen?: () => void;
-  onWorkspaceSave?: () => void;
-}
-
-export function Sidebar({ onKanbanOpen, onWorkspaceSave }: SidebarProps) {
+export function Sidebar() {
   const addTerminal = useCanvasStore((s) => s.addTerminal);
   const addAgent = useCanvasStore((s) => s.addAgent);
   const tr = useT();
@@ -605,24 +596,13 @@ export function Sidebar({ onKanbanOpen, onWorkspaceSave }: SidebarProps) {
     history: () => setShowHistory(true),
     routines: () => setShowRoutines(true),
     help: () => setShowHelp(true),
-    "tour-redo": () => {
-      invoke<string>("tour_ensure_sandbox")
-        .then((path) => {
-          useTourStore.getState().setSandboxPath(path);
-          useTourStore.getState().start();
-        })
-        .catch(() => {});
-    },
     releases: () => setShowReleases(true),
     mcpservers: () => setShowMcpServers(true),
     omnifs: () => setShowOmniFs(true),
     clis: () => setShowClis(true),
     compressors: () => setShowCompressors(true),
     skills: () => setShowSkillsCenter(true),
-    kanban: () => {
-      setShowKanban(true);
-      onKanbanOpen?.();
-    },
+    kanban: () => setShowKanban(true),
     snippets: () => setShowSnippets(true),
     snapshots: () => setShowSnapshots(true),
     hooks: () => setShowHooks(true),
@@ -635,7 +615,6 @@ export function Sidebar({ onKanbanOpen, onWorkspaceSave }: SidebarProps) {
       switch ((e as CustomEvent<string>).detail) {
         case "routines": setShowRoutines(true); break;
         case "help": setShowHelp(true); break;
-        case "tour-redo": break; // disparado via runTool, não via evento
         case "releases": setShowReleases(true); break;
         case "mcpservers": setShowMcpServers(true); break;
         case "omnifs": setShowOmniFs(true); break;
@@ -797,7 +776,7 @@ export function Sidebar({ onKanbanOpen, onWorkspaceSave }: SidebarProps) {
   const toggleSection = (key: string) =>
     setClosedSections((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) { next.delete(key); } else { next.add(key); }
+      next.has(key) ? next.delete(key) : next.add(key);
       try { localStorage.setItem("omnirift-sidebar-closed", JSON.stringify([...next])); } catch { /* ignore */ }
       return next;
     });
@@ -1114,7 +1093,9 @@ export function Sidebar({ onKanbanOpen, onWorkspaceSave }: SidebarProps) {
       const settingsPath = await settingsFor(preset.label);
       return [
         ...(preset.args ?? []),
-        ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath] : []),
+        // --strict-mcp-config: só o perfil MCP curado do OmniRift, sem mesclar o
+        // ~/.claude.json global (evita o agente nascer com contexto estourado).
+        ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath, "--strict-mcp-config"] : []),
         ...(settingsPath ? ["--settings", settingsPath] : []),
       ];
     }
@@ -1327,7 +1308,8 @@ export function Sidebar({ onKanbanOpen, onWorkspaceSave }: SidebarProps) {
         "--append-system-prompt", ORCHESTRATOR_CONTRACT,
         "--dangerously-skip-permissions",
         "--disallowed-tools", ...DENY_DESTRUCTIVE,
-        ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath] : []),
+        // --strict-mcp-config: só o perfil MCP curado do OmniRift, sem o global.
+        ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath, "--strict-mcp-config"] : []),
         ...(settingsConfigPath ? ["--settings", settingsConfigPath] : []),
       ];
       addTerminal({ command: cli.command, args, role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
@@ -1723,7 +1705,6 @@ export function Sidebar({ onKanbanOpen, onWorkspaceSave }: SidebarProps) {
     const ws = getWorkspaceSnapshot();
     const name = nameRef.current?.value.trim() || ws.name;
     await saveWorkspace({ ...ws, name });
-    onWorkspaceSave?.();
   }
 
   async function handleLoad() {
@@ -1776,7 +1757,6 @@ export function Sidebar({ onKanbanOpen, onWorkspaceSave }: SidebarProps) {
 
   return (
     <aside
-      data-tour-id="sidebar"
       className={cn(
         "relative flex flex-col shrink-0 border-r border-border bg-surface1",
         "text-text",
@@ -2032,7 +2012,6 @@ export function Sidebar({ onKanbanOpen, onWorkspaceSave }: SidebarProps) {
         />
         <div className="flex gap-1">
           <button
-            data-tour-id="save-workspace"
             onClick={handleSave}
             title={tr("sidebar.saveWorkspace", "Salvar workspace")}
             className={cn(
@@ -2129,7 +2108,6 @@ export function Sidebar({ onKanbanOpen, onWorkspaceSave }: SidebarProps) {
       </div>
 
       <section
-        data-tour-id="new-agent"
         style={secStyle("agents")}
         className="px-2 py-3 space-y-1 shrink-0"
       >

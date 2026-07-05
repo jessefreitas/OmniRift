@@ -184,7 +184,11 @@ export function workerClaudeArgs(
     "--append-system-prompt", system,
     "--dangerously-skip-permissions",
     "--disallowed-tools", ...DENY_DESTRUCTIVE,
-    ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath] : []),
+    // --strict-mcp-config: usa SÓ o perfil MCP curado do OmniRift (este arquivo),
+    // ignorando o ~/.claude.json global. Sem isto o Claude MESCLA a frota global
+    // (omnichat/omniforge_ativus, ~300 tools de Chatwoot) e o agente nasce com o
+    // contexto estourado (350k > 200k). O usuário escolhe os servers no painel MCP Agents.
+    ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath, "--strict-mcp-config"] : []),
     ...(settingsPath ? ["--settings", settingsPath] : []),
   ];
 }
