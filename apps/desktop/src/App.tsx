@@ -16,8 +16,13 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { mcpServersImportGlobal } from "@/lib/mcp-servers-client";
 import { notify } from "@/lib/notify";
 import { useT } from "@/lib/i18n";
+import { useOrchestrationWatchdog } from "@/hooks/useOrchestrationWatchdog";
 
 export default function App() {
+  // Watchdog da orquestração: cobra o líder quando o time trava esperando as
+  // fatias e aciona o reviewer na entrega do contrato (flag orchestration-watchdog).
+  useOrchestrationWatchdog();
+
   const tr = useT();
 
   // Aviso pós strict-mcp: os agentes NÃO herdam mais os mcpServers do ~/.claude.json.

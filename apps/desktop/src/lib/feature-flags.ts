@@ -82,6 +82,14 @@ export const FLAGS: FlagDef[] = [
     stage: "beta",
   },
   {
+    key: "orchestration-watchdog",
+    label: "Watchdog da orquestração",
+    description:
+      "Vigia o time do canvas: se o Arquiteto não entrega as fatias e a equipe fica ociosa, cobra o líder automaticamente (2 níveis) e depois avisa você. Também aciona o Code Reviewer quando o contrato é entregue. Desligue pra times 100% manuais.",
+    default: true,
+    stage: "beta",
+  },
+  {
     key: "remote-4g-relay",
     label: "Acesso remoto 4G (relay)",
     description:
