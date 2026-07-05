@@ -13,8 +13,30 @@ import { persistReviewConfig } from "@/lib/review-config-sync";
 import { acpGc } from "@/lib/acp-client";
 import { initPtyGlobalSink } from "@/lib/pty-global-sink";
 import { useCanvasStore } from "@/store/canvas-store";
+import { mcpServersImportGlobal } from "@/lib/mcp-servers-client";
+import { notify } from "@/lib/notify";
+import { useT } from "@/lib/i18n";
 
 export default function App() {
+  const tr = useT();
+
+  // Aviso pós strict-mcp: os agentes NÃO herdam mais os mcpServers do ~/.claude.json.
+  // No boot, importa os globais como DESLIGADOS (idempotente — nunca liga nem
+  // sobrescreve) e avisa UMA vez: nas execuções seguintes importa 0 → sem toast.
+  useEffect(() => {
+    mcpServersImportGlobal()
+      .then((n) => {
+        if (n > 0) {
+          void notify(
+            tr("mcpServers.globalImportNotice1", "Os agentes não herdam mais os MCPs globais do Claude. ")
+              + n
+              + tr("mcpServers.globalImportNotice2", " server(s) foram adicionados DESLIGADOS em Ferramentas → MCP Servers — ligue só o que quiser."),
+          );
+        }
+      })
+      .catch(() => {}); // best-effort — aviso nunca trava o boot
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let disposed = false;

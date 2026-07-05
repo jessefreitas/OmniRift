@@ -24,6 +24,28 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.122",
+    date: "2026-07-05",
+    title: "Você escolhe os MCPs dos agentes (importação voluntária do Claude global)",
+    highlights: [
+      "Novo botão em MCP Servers: “Importar do Claude global” — traz os MCPs do seu ~/.claude.json DESLIGADOS, e você liga só o que quiser",
+      "No primeiro boot o app importa e avisa sozinho (uma vez) — nada some em silêncio",
+      "Complementa a v0.1.121: agente enxuto por padrão + controle total do que cada agente recebe",
+    ],
+    tag: "feature",
+  },
+  {
+    version: "0.1.121",
+    date: "2026-07-05",
+    title: "Agentes nascem leves (fim do contexto estourado) + tour removido",
+    highlights: [
+      "Agentes não herdam mais TODOS os MCPs globais do Claude — antes nasciam com a janela de contexto estourada (~350k tokens) e travavam antes de trabalhar",
+      "Tour de onboarding removido: causava travamento na abertura do app (será refeito com calma)",
+      "Tooltips longas agora quebram linha em vez de serem cortadas na borda",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.120",
     date: "2026-07-04",
     title: "Menu Ferramentas organizado por categorias",
