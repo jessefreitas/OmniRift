@@ -14,6 +14,7 @@ import {
   mcpServerUpsert,
   mcpServerRemove,
   mcpServerSetEnabled,
+  mcpServersImportGlobal,
   specSummary,
   MCP_PRESETS,
   type McpServerEntry,
@@ -71,6 +72,19 @@ export function McpServersModal({ onClose }: Props) {
   async function toggle(s: McpServerEntry) {
     try { await mcpServerSetEnabled(s.name, !s.enabled); await load(); } catch (e) { setErr(String(e)); }
   }
+  // Importa os MCPs do Claude global como DESLIGADOS (o spawn usa --strict-mcp-config
+  // e não herda mais o ~/.claude.json — aqui o usuário reativa o que quiser).
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  async function importGlobal() {
+    setErr(null);
+    try {
+      const n = await mcpServersImportGlobal();
+      setImportMsg(n > 0
+        ? t("mcpServers.importedN", "Importados (desligados): ") + n
+        : t("mcpServers.importedNone", "Nada novo pra importar."));
+      await load();
+    } catch (e) { setErr(String(e)); }
+  }
   async function remove(name: string) {
     try { await mcpServerRemove(name); await load(); } catch (e) { setErr(String(e)); }
   }
@@ -93,6 +107,18 @@ export function McpServersModal({ onClose }: Props) {
           <p className="text-[11px] text-textMuted">
             {t("mcpServers.introBefore", "Todo agente Claude já nasce com")} <b>{t("mcpServers.defaults", DEFAULTS)}</b>. {t("mcpServers.introAfter", "Aqui você adiciona MCPs extras — ligados ou desligados por servidor.")} <span className="opacity-70">{t("mcpServers.introNote", "Quanto mais MCP, mais processos por agente e mais tools pro modelo: mantenha enxuto.")}</span>
           </p>
+
+          {/* Import do Claude global: o spawn não herda mais o ~/.claude.json (strict). */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => void importGlobal()}
+              className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] border border-border text-textMuted hover:text-brand hover:border-brand/50 transition-colors"
+              title={t("mcpServers.importGlobalTip", "Lê os mcpServers do ~/.claude.json e ~/.claude/settings.json e adiciona aqui DESLIGADOS — você liga só o que quiser (os agentes não herdam mais o global automaticamente)")}
+            >
+              <Plus size={12} /> {t("mcpServers.importGlobal", "Importar do Claude global")}
+            </button>
+            {importMsg && <span className="text-[11px] text-textMuted">{importMsg}</span>}
+          </div>
 
           {/* Lista */}
           {servers.length === 0 ? (

@@ -71,7 +71,8 @@ use commands::routines::{
     routines_delete, routines_list, routines_record_run, routines_runs, routines_upsert,
 };
 use commands::mcp_servers::{
-    mcp_server_remove, mcp_server_set_enabled, mcp_server_upsert, mcp_servers_list,
+    mcp_server_remove, mcp_server_set_enabled, mcp_server_upsert, mcp_servers_import_global,
+    mcp_servers_list,
 };
 use commands::scheduler::{scheduler_install, scheduler_list, scheduler_uninstall};
 use commands::serena::serena_ensure_project;
@@ -547,6 +548,7 @@ pub fn run() {
             mcp_server_upsert,
             mcp_server_remove,
             mcp_server_set_enabled,
+            mcp_servers_import_global,
             memory_providers_list,
             memory_connect,
             memory_test,

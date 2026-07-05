@@ -84,6 +84,64 @@ pub fn mcp_server_set_enabled(db: State<'_, Db>, name: String, enabled: bool) ->
     db.mcp_set_enabled(&name, enabled).map_err(|e| e.to_string())
 }
 
+#[cfg(unix)]
+fn home_dir() -> Option<String> {
+    std::env::var("HOME").ok()
+}
+#[cfg(windows)]
+fn home_dir() -> Option<String> {
+    std::env::var("USERPROFILE").ok()
+}
+
+/// Lê o campo `mcpServers` de um arquivo de config do Claude. Arquivo ausente ou
+/// JSON inválido = lista vazia (fail-soft — import nunca quebra por config alheia).
+fn load_claude_mcp_servers(path: &std::path::Path) -> Vec<(String, serde_json::Value)> {
+    let Ok(content) = std::fs::read_to_string(path) else { return Vec::new() };
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(&content) else { return Vec::new() };
+    match root.get("mcpServers") {
+        Some(serde_json::Value::Object(m)) => m.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Importa MCP servers das configs GLOBAIS do Claude (`~/.claude.json` e
+/// `~/.claude/settings.json`) como entradas DESLIGADAS, pro usuário reativar
+/// voluntariamente pelo painel. Contexto: o spawn agora usa `--strict-mcp-config`
+/// e não herda mais o global — sem isto, servers que o usuário usava sumiriam em
+/// silêncio. Idempotente: nunca sobrescreve entrada existente nem mexe em enabled;
+/// nomes do perfil builtin são reservados. Retorna quantos foram importados.
+#[tauri::command]
+pub fn mcp_servers_import_global(db: State<'_, Db>) -> Result<u32, String> {
+    use std::collections::HashSet;
+    let Some(home) = home_dir() else { return Ok(0) };
+
+    let mut existing: HashSet<String> = match db.mcp_list() {
+        Ok(rows) => rows.into_iter().map(|r| r.name).collect(),
+        Err(_) => HashSet::new(),
+    };
+    for reserved in ["serena", "context7", "playwright", "omnicompress", "omnifs", "omnirift-agents"] {
+        existing.insert(reserved.to_string());
+    }
+
+    let claude_json = std::path::PathBuf::from(&home).join(".claude.json");
+    let settings_json = std::path::PathBuf::from(&home).join(".claude").join("settings.json");
+
+    let mut imported: u32 = 0;
+    for (name, spec) in load_claude_mcp_servers(&claude_json)
+        .into_iter()
+        .chain(load_claude_mcp_servers(&settings_json))
+    {
+        if existing.contains(&name) || !spec.is_object() {
+            continue;
+        }
+        db.mcp_upsert(&name, &obfuscate(&spec.to_string()), false)
+            .map_err(|e| e.to_string())?;
+        existing.insert(name);
+        imported += 1;
+    }
+    Ok(imported)
+}
+
 /// Mescla os MCP servers HABILITADOS no mapa `servers` (chamado por agent_mcp_config).
 pub fn merge_enabled_into(db: &Db, servers: &mut serde_json::Map<String, serde_json::Value>) {
     if let Ok(rows) = db.mcp_list() {
@@ -111,5 +169,28 @@ mod tests {
         let e = obfuscate(s);
         assert_ne!(e, s);
         assert_eq!(deobfuscate(&e).as_deref(), Some(s));
+    }
+
+    #[test]
+    fn load_claude_mcp_servers_parses_and_fails_soft() {
+        let dir = std::env::temp_dir().join(format!("omnirift-mcp-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // config válida com 2 servers
+        let ok = dir.join("ok.json");
+        std::fs::write(&ok, r#"{"mcpServers":{"a":{"command":"npx"},"b":{"type":"http","url":"http://x"}}}"#).unwrap();
+        let got = load_claude_mcp_servers(&ok);
+        assert_eq!(got.len(), 2);
+        assert!(got.iter().any(|(n, s)| n == "a" && s["command"] == "npx"));
+        // sem mcpServers → vazio
+        let none = dir.join("none.json");
+        std::fs::write(&none, r#"{"model":"opus"}"#).unwrap();
+        assert!(load_claude_mcp_servers(&none).is_empty());
+        // JSON inválido → vazio (fail-soft)
+        let bad = dir.join("bad.json");
+        std::fs::write(&bad, "{ nope").unwrap();
+        assert!(load_claude_mcp_servers(&bad).is_empty());
+        // arquivo ausente → vazio
+        assert!(load_claude_mcp_servers(&dir.join("missing.json")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

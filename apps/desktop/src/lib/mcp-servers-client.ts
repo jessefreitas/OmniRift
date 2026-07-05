@@ -28,6 +28,11 @@ export async function mcpServerRemove(name: string): Promise<void> {
 export async function mcpServerSetEnabled(name: string, enabled: boolean): Promise<void> {
   return invoke("mcp_server_set_enabled", { name, enabled });
 }
+/** Importa os mcpServers do Claude global (~/.claude.json + settings.json) como
+ *  entradas DESLIGADAS — o usuário reativa o que quiser. Retorna qtde importada. */
+export async function mcpServersImportGlobal(): Promise<number> {
+  return invoke<number>("mcp_servers_import_global");
+}
 
 /** Resumo legível do spec (pra mostrar na lista). */
 export function specSummary(spec: Record<string, unknown>): string {
