@@ -373,7 +373,7 @@ fn read_loop(
 /// como o `gemini` (instalado via nvm) dão "No viable candidates found in PATH". Rodamos
 /// `bash -lc` uma vez e cacheamos. `None` se não der (sem bash / Windows) → comportamento
 /// atual intocado. Análogo ao fix do `TERM`: o app GUI não traz o ambiente do shell.
-fn login_shell_path() -> Option<&'static str> {
+pub(crate) fn login_shell_path() -> Option<&'static str> {
     use std::sync::OnceLock;
     static LOGIN_PATH: OnceLock<Option<String>> = OnceLock::new();
     LOGIN_PATH

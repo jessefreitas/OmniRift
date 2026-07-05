@@ -303,6 +303,11 @@ pub fn run() {
                     }
                 }
             });
+
+            // Pre-warm dos caches uvx/npx dos MCP dos agentes (serena/playwright):
+            // cold-start estoura o timeout de startup MCP → "✗ failed" na 1ª vez.
+            // Background, sequencial, best-effort — nunca atrasa nem quebra o boot.
+            crate::mcp::prewarm::spawn_prewarm();
             Ok(())
         })
         .manage(pty_manager)
