@@ -291,7 +291,7 @@ const FAQS: Faq[] = [
   },
   {
     q: "E se os agentes travarem ou se perderem?",
-    a: "O OmniRift foi feito pra não travar em silêncio. Um watchdog vigia a orquestração e cobra o líder sozinho se o time fica ocioso — e te avisa se ainda assim empacar. A recitação relembra o objetivo pros agentes não desviarem, e cada ação vira um checkpoint automático que você desfaz com um clique.",
+    a: "O OmniRift foi feito pra não travar em silêncio — e pra aprender. Cada agente captura os próprios erros→correções: se o mesmo erro voltar, ele já recebe o fix que funcionou antes (sem repetir a cilada). Um watchdog vigia a orquestração e cobra o líder sozinho se o time fica ocioso, te avisando se ainda assim empacar. A recitação mantém os agentes no rumo, e cada ação vira um checkpoint automático que você desfaz com um clique.",
   },
   {
     q: "Funciona no Windows e no Linux?",
@@ -647,11 +647,11 @@ export function Landing() {
                 marginBottom: 18,
               }}
             >
-              FEITO PRA NÃO TRAVAR
+              APRENDE COM OS ERROS · FEITO PRA NÃO TRAVAR
             </div>
-            <h3 style={{ fontSize: 27, fontWeight: 600, letterSpacing: "-.8px", margin: "0 0 12px", lineHeight: 1.15 }}>Se o time empaca, o app age sozinho.</h3>
-            <p style={{ color: MUTED, fontSize: 16, lineHeight: 1.6, margin: 0, maxWidth: 460, textWrap: "pretty" }}>
-              O watchdog vigia a orquestração: se o líder some ou os agentes ficam ociosos, ele cobra sozinho — e, se ainda assim travar, avisa <b style={{ color: "#F3F3F4" }}>você</b>. Somado à recitação (relembra o objetivo pra ninguém se perder) e aos checkpoints automáticos, é menos madrugada perdida caçando onde parou.
+            <h3 style={{ fontSize: 27, fontWeight: 600, letterSpacing: "-.8px", margin: "0 0 12px", lineHeight: 1.15 }}>Seus agentes não tropeçam duas vezes na mesma pedra.</h3>
+            <p style={{ color: MUTED, fontSize: 16, lineHeight: 1.6, margin: 0, maxWidth: 470, textWrap: "pretty" }}>
+              Todo agente captura os próprios erros: quando um comando falha e depois passa, a solução fica guardada — e se o mesmo tropeço volta, ele já recebe o fix conhecido pra não repetir a cilada (distinguindo palpite de correção confirmada). E se o time empaca, o watchdog cobra o líder sozinho e avisa <b style={{ color: "#F3F3F4" }}>você</b>. Local, privado, sem instalar nada — menos madrugada perdida.
             </p>
           </div>
         </div>
