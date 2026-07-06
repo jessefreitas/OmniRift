@@ -25,6 +25,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::code::chunk::{chunk_code, ChunkKind, ChunkLang, ChunkOpts};
 use crate::proc_ext::NoWindow;
 
 /// O build re-extrai o repo inteiro (AST) + clustering; em repo grande — e no 1º `uvx`,
@@ -1207,9 +1208,130 @@ pub fn omnigraph_diff(
     Ok(compute_diff(&ga, &gb))
 }
 
+// ── Fase 2 do chunker: corpo do símbolo sob demanda ──────────────────────────────────
+// Ao clicar num símbolo (god node / top membro) de uma comunidade do OmniGraph, o front
+// chama `graph_node_body(source_file, symbol)`; o backend chunka SÓ aquele arquivo na hora
+// (lazy) e devolve o corpo do símbolo. Puro-leitura, sem estado do grafo. Nunca paniqueia.
+
+/// Corpo de um símbolo (função/classe/método) devolvido ao clicar num nó do OmniGraph.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SymbolBody {
+    pub symbol: String,
+    pub kind: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub text: String,
+}
+
+/// Rótulo textual do `ChunkKind` (o front só exibe).
+fn kind_label(k: ChunkKind) -> &'static str {
+    match k {
+        ChunkKind::Function => "Function",
+        ChunkKind::Class => "Class",
+        ChunkKind::Method => "Method",
+        ChunkKind::Block => "Block",
+        ChunkKind::Fallback => "Fallback",
+    }
+}
+
+/// Último segmento de um nome possivelmente qualificado (`mod::alpha` → `alpha`, `a.b` → `b`).
+fn last_segment(sym: &str) -> &str {
+    sym.rsplit(|c| c == ':' || c == '.' || c == '/')
+        .find(|s| !s.is_empty())
+        .unwrap_or(sym)
+}
+
+/// NÚCLEO PURO (sem I/O): dado o fonte já lido + a linguagem, casa o `symbol` a um chunk.
+/// Ordem: (a) símbolo exato → (b) qualificado (ends_with OU último segmento) → (c) contains.
+pub fn find_symbol_body(source: &str, lang: ChunkLang, symbol: &str) -> Option<SymbolBody> {
+    let chunks = chunk_code(source, lang, &ChunkOpts::default());
+    let mk = |c: &crate::code::chunk::Chunk, sym: &str| SymbolBody {
+        symbol: sym.to_string(),
+        kind: kind_label(c.kind).to_string(),
+        start_line: c.start_line,
+        end_line: c.end_line,
+        text: c.text.clone(),
+    };
+    // (a) exato
+    if let Some(c) = chunks.iter().find(|c| c.symbol.as_deref() == Some(symbol)) {
+        return Some(mk(c, c.symbol.as_deref().unwrap()));
+    }
+    // (b) qualificado: o symbol do grafo pode vir como `mod::alpha`
+    let tail = last_segment(symbol);
+    if let Some(c) = chunks.iter().find(|c| {
+        c.symbol
+            .as_deref()
+            .map(|cs| symbol.ends_with(cs) || cs == tail)
+            .unwrap_or(false)
+    }) {
+        return Some(mk(c, c.symbol.as_deref().unwrap()));
+    }
+    // (c) último recurso: o texto contém o símbolo
+    if let Some(c) = chunks.iter().find(|c| c.text.contains(symbol)) {
+        let sym = c.symbol.clone().unwrap_or_else(|| symbol.to_string());
+        return Some(mk(c, &sym));
+    }
+    None
+}
+
+/// Corpo do símbolo `symbol` no arquivo `source_file`, chunkado sob demanda.
+/// Puro-leitura, sem estado do grafo: o front passa o `source_file` + `label` que já tem.
+/// Nunca paniqueia — `None` cobre lang não suportada, arquivo ausente e símbolo não localizado.
+#[tauri::command]
+pub fn graph_node_body(source_file: String, symbol: String) -> Option<SymbolBody> {
+    let lang = ChunkLang::from_path(std::path::Path::new(&source_file))?;
+    let source = std::fs::read_to_string(&source_file).ok()?;
+    find_symbol_body(&source, lang, &symbol)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Fase 2: corpo do símbolo sob demanda ──────────────────────────────
+    const FIXTURE_RS: &str = "fn alpha() {\n    let a = 1;\n}\n\nfn beta() {\n    let b = 2;\n}\n";
+
+    #[test]
+    fn symbol_body_exact_match() {
+        let body = find_symbol_body(FIXTURE_RS, ChunkLang::Rust, "alpha").unwrap();
+        assert_eq!(body.symbol, "alpha");
+        assert!(body.text.contains("alpha"));
+        assert!(body.start_line >= 1);
+        assert!(body.end_line >= body.start_line);
+    }
+
+    #[test]
+    fn symbol_body_qualified_name_matches_last_segment() {
+        let body = find_symbol_body(FIXTURE_RS, ChunkLang::Rust, "modx::alpha").unwrap();
+        assert_eq!(body.symbol, "alpha");
+    }
+
+    #[test]
+    fn symbol_body_unknown_symbol_is_none() {
+        assert!(find_symbol_body(FIXTURE_RS, ChunkLang::Rust, "zzz").is_none());
+    }
+
+    #[test]
+    fn graph_node_body_reads_real_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("m.rs");
+        std::fs::write(&file, FIXTURE_RS).unwrap();
+        let body =
+            graph_node_body(file.to_string_lossy().into_owned(), "alpha".into()).unwrap();
+        assert_eq!(body.symbol, "alpha");
+        assert!(body.text.contains("alpha"));
+    }
+
+    #[test]
+    fn graph_node_body_unsupported_lang_is_none() {
+        assert!(graph_node_body("/tmp/whatever.bin".into(), "a".into()).is_none());
+    }
+
+    #[test]
+    fn graph_node_body_missing_file_is_none() {
+        assert!(graph_node_body("/nao/existe/aqui.rs".into(), "a".into()).is_none());
+    }
 
     /// Report realista (mesmas seções do relatório real da engine): distila mantendo as centrais e
     /// cortando as periféricas.
