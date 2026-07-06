@@ -221,6 +221,30 @@ const FEATURES: Feature[] = [
   },
   {
     num: "06",
+    title: "Aprenda programando (Tutor)",
+    desc: "Um tutor socrático que te ensina a programar e a entender o código do projeto — ancorado na doc REAL das libs (não inventa API) e no seu repositório. Exercícios com autocorreção que viram cards no Kanban. Do “como isso funciona?” ao “consegui sozinho”.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M3 8l10-4 10 4-10 4-10-4z" />
+        <path d="M7 10v5c0 1.4 6 3 6 3s6-1.6 6-3v-5" />
+      </svg>
+    ),
+  },
+  {
+    num: "07",
+    title: "Mapa vivo do código (OmniGraph)",
+    desc: "Um grafo estrutural do seu projeto — comunidades, acoplamentos e os hubs que exigem cuidado ao tocar. Os agentes nascem ancorados nele (sabem ONDE mexem) e você navega a arquitetura de relance, em vez de caçar arquivo por arquivo.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <circle cx="6" cy="7" r="2.5" />
+        <circle cx="19" cy="6" r="2.5" />
+        <circle cx="13" cy="18" r="2.5" />
+        <path d="M8 8.4l4 8M17 8l-3.4 8.4M8.3 6.8h8.3" />
+      </svg>
+    ),
+  },
+  {
+    num: "08",
     title: "Checkpoint invisível",
     desc: "Cada ação de agente vira um ponto de restauração automático. Errou? Volta o nó pro estado anterior com um clique — sem git, sem medo. Um versionador que trabalha nos bastidores enquanto você e os agentes tocam o projeto.",
     icon: (
@@ -232,7 +256,7 @@ const FEATURES: Feature[] = [
     ),
   },
   {
-    num: "07",
+    num: "09",
     title: "Comande do celular",
     desc: "Saiu da frente do PC e um agente pediu permissão? Aprove ou negue pelo celular, mova cards do Kanban e veja a frota inteira — de qualquer lugar, via 4G. O canvas segue rodando em casa; você só pilota.",
     icon: (
@@ -243,7 +267,7 @@ const FEATURES: Feature[] = [
     ),
   },
   {
-    num: "08",
+    num: "10",
     title: "Kanban que os agentes tocam",
     desc: "Um quadro de tarefas que os próprios agentes movem: puxam do backlog, marcam em progresso e entregam. Você acompanha o trabalho fluindo em tempo real — sem ficar perguntando “e aí, terminou?”.",
     icon: (
@@ -255,7 +279,7 @@ const FEATURES: Feature[] = [
     ),
   },
   {
-    num: "09",
+    num: "11",
     title: "Open-source, no seu sistema",
     desc: "Roda em Linux e Windows (Tauri 2 + Rust), código aberto e 100% offline: sem login, sem analytics, sem nuvem. Config e notas ficam em arquivos de texto no seu disco, abríveis em qualquer editor.",
     icon: (
