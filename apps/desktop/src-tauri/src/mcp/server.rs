@@ -467,6 +467,11 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
             wrap_tool_text(&state, tool, text)
         }
 
+        "code_chunks" => {
+            let text = crate::mcp::tools::code_chunks_dispatch(args);
+            wrap_tool_text(&state, tool, text)
+        }
+
         // Qualquer outro nome de tool: verifica se é um agente registrado
         tool_name => {
             let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("");
