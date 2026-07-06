@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.127",
+    date: "2026-07-06",
+    title: "Subagente: escolha o modelo do wrapper na lista (não digite)",
+    highlights: [
+      "No dropdown de modelo do subagente, além de herda/haiku/sonnet/opus agora aparecem os seus modelos via wrapper (claude-ollama: glm-5.2, kimi-k2.7…) — prontos pra clicar, sem digitar no “personalizado”",
+      "Organizado em dois grupos: “Claude nativo” e “via wrapper (claude-ollama)”. Digitar manual continua como último recurso",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.126",
     date: "2026-07-06",
     title: "Nó de Filtro por IA: escolha o modelo numa lista",
