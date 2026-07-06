@@ -14,7 +14,7 @@ import { Handle, NodeResizer, Position, type Node, type NodeProps } from "@xyflo
 import { Filter, Sparkles, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
-import { llmProvidersList, llmProviderResolve, type LlmProvider as CentralProvider } from "@/lib/llm-providers-client";
+import { llmProvidersList, llmProviderResolve, llmProviderListModels, claudeOllamaModels, type LlmProvider as CentralProvider } from "@/lib/llm-providers-client";
 import { llmChat, type LlmConfig, type LlmProvider } from "@/lib/llm-client";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -47,6 +47,8 @@ function FilterNodeImpl({ data, selected }: NodeProps<FilterRfNode>) {
   // estado, sem brigar com o DOM em runtime. Novos filtros já nascem 300×250 + NodeResizer.
 
   const [providers, setProviders] = useState<CentralProvider[]>([]);
+  const [models, setModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
   const [evalStatus, setEvalStatus] = useState<"idle" | "evaluating" | "pass" | "block">("idle");
   const evaluatedSeqRef = useRef(-1);
 
@@ -54,6 +56,22 @@ function FilterNodeImpl({ data, selected }: NodeProps<FilterRfNode>) {
   useEffect(() => {
     llmProvidersList().then(setProviders).catch(() => setProviders([]));
   }, []);
+
+  // Ao escolher um provider, lista os modelos DELE (dinâmico via /v1/models; fallback
+  // no catálogo curado do claude-ollama) — mesmo padrão do editor de subagente. Cancela
+  // se o provider mudar no meio (evita setar a lista do provider anterior).
+  useEffect(() => {
+    const id = data.providerId;
+    if (data.mode !== "ai" || !id) { setModels([]); return; }
+    let alive = true;
+    setLoadingModels(true);
+    void llmProviderListModels(id)
+      .catch(() => [] as string[])
+      .then(async (ms) => (ms.length ? ms : await claudeOllamaModels().catch(() => [])))
+      .then((list) => { if (alive) setModels(list); })
+      .finally(() => { if (alive) setLoadingModels(false); });
+    return () => { alive = false; };
+  }, [data.mode, data.providerId]);
 
   // Modo IA: chegou um payload retido → resolve o provider da Central, pergunta ao LLM se casa
   // o critério (PASS/BLOCK) e re-emite se aprovar. seq evita reavaliar o mesmo payload.
@@ -161,12 +179,26 @@ function FilterNodeImpl({ data, selected }: NodeProps<FilterRfNode>) {
               <option value="">{t("filter.aiPickProvider", "— provider (Central de API) —")}</option>
               {providers.map((p) => (<option key={p.id} value={p.id}>{p.label}{p.hasKey ? " 🔑" : ""}</option>))}
             </select>
-            <input
-              value={data.model ?? ""}
-              onChange={(e) => updateFilterNode(data.id, { model: e.target.value })}
-              placeholder={t("filter.aiModel", "modelo (ex: kimi-k2.7-code) — vazio = default")}
-              className="rounded bg-black/20 px-1.5 py-1 font-mono text-[10px] text-text outline-none placeholder:text-textMuted"
-            />
+            {/* modelo: dropdown dinâmico do provider escolhido; fallback pra digitar se
+                nenhum provider ou nenhum modelo listado (API offline/sem chave). */}
+            {data.providerId && (models.length > 0 || loadingModels) ? (
+              <select
+                value={data.model ?? ""}
+                onChange={(e) => updateFilterNode(data.id, { model: e.target.value })}
+                className={cn(sel, "font-mono text-[10px]")}
+                disabled={loadingModels}
+              >
+                <option value="">{loadingModels ? t("filter.aiLoadingModels", "carregando modelos…") : t("filter.aiModelDefault", "modelo padrão do provider")}</option>
+                {models.map((m) => (<option key={m} value={m}>{m}</option>))}
+              </select>
+            ) : (
+              <input
+                value={data.model ?? ""}
+                onChange={(e) => updateFilterNode(data.id, { model: e.target.value })}
+                placeholder={t("filter.aiModel", "modelo (ex: kimi-k2.7-code) — vazio = default")}
+                className="rounded bg-black/20 px-1.5 py-1 font-mono text-[10px] text-text outline-none placeholder:text-textMuted"
+              />
+            )}
             <textarea
               value={data.criterion ?? ""}
               onChange={(e) => updateFilterNode(data.id, { criterion: e.target.value })}
