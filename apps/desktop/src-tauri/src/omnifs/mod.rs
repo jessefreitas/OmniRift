@@ -522,8 +522,9 @@ pub fn ensure_daemon(store: &Path, mount: &Path, sock: &Path) -> Result<(), Stri
         );
     }
     // Mount órfão na tabela (daemon morreu sem desmontar) → solta antes de re-subir.
+    // (unmount_lazy recusa sozinho se for drive externo servido — dupla trava.)
     if mounts::fuse_mount_present(mount) {
-        unmount_lazy(mount);
+        unmount_lazy(store, mount);
     }
 
     {
@@ -754,12 +755,46 @@ pub fn rollback_full(commit: &str) -> Result<String, String> {
 
 // ── Recovery de mount stale/congelado ───────────────────────────────────────
 
+/// A app pode desmontar este mount? SIM só se: (a) o mount NÃO está responsivo
+/// (stale/órfão/inexistente — nada vivo servindo, é limpeza do nosso próprio
+/// lixo), OU (b) está responsivo mas é o NOSSO daemon que serve (filho gerenciado
+/// vivo, ou o socket DEDICADO do store responde). Um drive RESPONSIVO servido por
+/// daemon EXTERNO (ex.: OmniDrive do usuário no socket global) → NÃO desmonta.
+/// Incidente 2026-07-06: um "Reconectar" com a config apontando pro OmniDrive
+/// desmontou o drive pessoal do usuário. Isto impede de vez.
+#[cfg(unix)]
+fn safe_to_unmount(store: &Path, mount: &Path) -> bool {
+    if probe_mount(mount, MOUNT_PROBE_TIMEOUT) != MountState::Responsive {
+        return true; // stale/órfão/inexistente — nada vivo servindo.
+    }
+    // Responsivo: só é nosso se temos filho gerenciado vivo…
+    {
+        let mut g = managed_lock();
+        if let Some(child) = g.as_mut() {
+            if child.try_wait().map(|st| st.is_none()).unwrap_or(false) {
+                return true;
+            }
+        }
+    }
+    // …ou se o socket DEDICADO do store responde (nosso daemon isolado).
+    socket_alive(&mounts::store_socket_path(store))
+}
+
 /// Desmonta um mount FUSE de forma tolerante: `fusermount -u -z` (lazy: destaca já
 /// e limpa quando os handles fecham) — fuse3 primeiro, fuse2 depois; no macOS cai
 /// pro `umount -f`. Best-effort: se nada existir, o ensure_daemon seguinte reporta.
+/// RECUSA (só loga) se o mount for de um daemon EXTERNO — nunca toca drive alheio.
 #[cfg(unix)]
-fn unmount_lazy(mount: &Path) {
+fn unmount_lazy(store: &Path, mount: &Path) {
     use crate::proc_ext::NoWindow;
+    if !safe_to_unmount(store, mount) {
+        log::warn!(
+            "omnifs: RECUSANDO desmontar {} — responsivo e servido por daemon externo \
+             (não é nosso). Um drive do usuário não é tocado.",
+            mount.display()
+        );
+        return;
+    }
     use std::process::Command;
     for bin in ["fusermount3", "fusermount"] {
         let ok = Command::new(bin)
@@ -793,7 +828,9 @@ pub fn recover_stale_mount() -> Result<DaemonStatus, String> {
     let sock = socket_path();
 
     // 1) desmonta o FUSE stale (lazy — não trava mesmo com handles presos).
-    unmount_lazy(&mount);
+    //    Guard: se for um drive EXTERNO responsivo (não nosso), unmount_lazy recusa
+    //    — o "Reconectar" nunca mais desmonta o drive pessoal do usuário.
+    unmount_lazy(&store, &mount);
 
     // 2) mata o daemon gerenciado congelado (só o que NÓS subimos; daemon do
     //    usuário fica intocado — o unmount lazy acima já soltou o mount dele).
