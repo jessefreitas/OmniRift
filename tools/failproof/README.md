@@ -24,7 +24,23 @@ Base de dados: `~/.claude/failbase/failbase.db`
 | | | `userprompt_correction_detector.py` | UserPromptSubmit: correção humana registra |  |
 | | | `stop_evidence_gate.py` | Stop: bloqueia sucesso sem execução verde |  |
 | | | `sessionstart_known_failures.py` | SessionStart: injeta top-10 erros do projeto |  |
-| **3. Watchdog** | `watchdog.py` | Vigia sessões unattended, escala strike 1→2→3 | cron a cada 5 min ou systemd timer |
+| **3. Watchdog** | `watchdog.py` | Vigia sessões unattended, escala strike 1→2→3 + sync OmniMemory | cron a cada 5 min ou systemd timer |
+
+## Confiança — observado × validado
+
+Nem todo fix aprendido tem o mesmo peso. failproof distingue dois níveis, e a
+distinção guia **como** o fix é injetado no contexto:
+
+| Nível | Origem | `fix_validated` | Como é injetado |
+|-------|--------|-----------------|-----------------|
+| **observado** | heurística temporal (falha→sucesso na mesma família de comando) | `0` | *"possível fix observado num caso semelhante (NÃO confirmado) — avalie antes de aplicar"* |
+| **validado** | sinal forte: correção humana (`human-feedback`) ou CI verde (`ci`) | `1` | *"fix confirmado antes — confirme que se aplica ao seu caso"* |
+
+Correlação temporal **não é prova**: dois `git ...` seguidos (um falha, outro passa)
+não garantem que o segundo corrigiu o primeiro. Por isso a captura automática grava
+como **observado**, nunca como verdade — evitando empurrar o agente pro caminho errado
+com voz de autoridade. O ranking (`search`, `top_for_project`) dá peso ao validado:
+com o mesmo "calor", um fix validado sobe acima de um observado.
 
 ## CLI
 
@@ -117,7 +133,7 @@ Detectados em runtime pelo prefixo `FAILPROOF_*`. Ausência nunca quebra a base.
 | **notify** | `FAILPROOF_NTFY_URL` (e.g., `https://ntfy.sh/mychannel`) | Envia notificações POST JSON de watchdog strikes |
 | | `FAILPROOF_TELEGRAM_TOKEN` + `FAILPROOF_TELEGRAM_CHAT` | Envia mensagens Telegram de watchdog |
 | | Nenhuma | Fallback: grava alertas em `~/.claude/failbase/alerts/` (arquivo puro) |
-| **sync-omnimemory** | `FAILPROOF_SYNC_CMD` (e.g., `python3 ~/sync.py`) | Espelha failbase → cluster OmniMemory a cada N minutos |
+| **sync-omnimemory** | `FAILPROOF_SYNC_CMD` | Empurra falhas novas (`synced=0`) → OmniMemory. Disparado pelo **watchdog** (a cada 5 min). Sem a env: **no-op = base 100% local e privada** |
 
 Exemplos de env:
 
@@ -128,9 +144,27 @@ export FAILPROOF_NTFY_URL="https://ntfy.sh/meu-failproof-channel"
 # notificação Telegram
 export FAILPROOF_TELEGRAM_TOKEN="123:ABC"
 export FAILPROOF_TELEGRAM_CHAT="-9876543210"
+```
 
-# sync com script customizado
-export FAILPROOF_SYNC_CMD="python3 ~/.claude/failbase/sync_omnimemory.py"
+### Privacidade — cliente vs. equipe
+
+O `FAILPROOF_SYNC_CMD` recebe no **stdin** um JSONL das falhas com `synced=0`; se o
+comando sair `0`, elas são marcadas `synced=1`. O default (env ausente) é **não
+sincronizar nada** — a base fica local. Isso separa os dois públicos sem código extra:
+
+- **Cliente / máquina externa:** não configure a env. A base de erros é privada,
+  fica só no `~/.claude/failbase` da máquina. Nada sai.
+- **Dev da empresa:** configure a env para alimentar o cérebro compartilhado
+  (OmniMemory) — o erro que um dev resolveu vira contexto pra todos. A distinção
+  observado/validado viaja junto (o JSONL carrega `fix_validated`), então o cérebro
+  não trata palpite como verdade.
+
+```bash
+# Dev da empresa — sync p/ OmniMemory (padrão file-based do CLAUDE.md).
+# O ingest do outro lado insere as rows na tabela de memórias, preservando fix_validated.
+export FAILPROOF_SYNC_CMD='ssh omnimemory-01 "sudo docker run -i --rm --network core-net \
+  -v /tmp/failproof_ingest.py:/tmp/ingest.py python:3.11-alpine \
+  sh -c \"pip install psycopg2-binary -q 2>/dev/null && python3 /tmp/ingest.py\""'
 ```
 
 ## Testes
@@ -140,7 +174,7 @@ cd tools/failproof
 python3 -m pytest tests/ -v
 ```
 
-Cobertura: 67 testes cobrem failbase, CLI, hooks, watchdog, CI, plugins, falha-aberto invariante, instalação e fumaça.
+Cobertura: 72 testes cobrem failbase, CLI, hooks, watchdog, CI, plugins, falha-aberto invariante, instalação, modelo de confiança (observado/validado + framing), sync OmniMemory e fumaça.
 
 ## Desinstalar
 

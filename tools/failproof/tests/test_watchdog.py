@@ -75,3 +75,25 @@ def test_strike3_grava_na_failbase(monkeypatch, tmp_path):
     m.handle(entry, strike=3, executor=m.Executor(dry_run=False, notify_fn=lambda msg: None))
     fb = failbase.FailBase()
     assert fb.stats()["by_source"].get("watchdog") == 1
+
+
+def test_flush_to_brain_noop_sem_env(monkeypatch, tmp_path):
+    # sem FAILPROOF_SYNC_CMD (default cliente/dev) → não sincroniza nada = privado.
+    monkeypatch.delenv("FAILPROOF_SYNC_CMD", raising=False)
+    m = _mod(monkeypatch, tmp_path)
+    import failbase
+    failbase.FailBase().add(symptom="erro local", command="x")
+    assert m.flush_to_brain() == 0
+
+
+def test_flush_to_brain_sincroniza_e_marca_synced(monkeypatch, tmp_path):
+    # com FAILPROOF_SYNC_CMD (dev da empresa) → empurra falhas novas e marca synced=1.
+    monkeypatch.setenv("FAILPROOF_SYNC_CMD", "cat >/dev/null")  # consome stdin, exit 0
+    m = _mod(monkeypatch, tmp_path)
+    import failbase
+    fb = failbase.FailBase()
+    fb.add(symptom="erro pra sincronizar", command="y")
+    assert m.flush_to_brain() == 1
+    row = fb.db.execute("SELECT synced FROM failures WHERE symptom LIKE 'erro pra sincronizar%'").fetchone()
+    assert row[0] == 1
+    assert m.flush_to_brain() == 0  # nada novo na 2ª passada

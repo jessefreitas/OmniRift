@@ -162,9 +162,22 @@ def _save_state(state):
         json.dump(state, f)
 
 
+def flush_to_brain():
+    """Sync opcional das falhas novas → OmniMemory. Opt-in (FAILPROOF_SYNC_CMD),
+    fail-open. Sem a env: no-op. É aqui que a base local vira cérebro compartilhado
+    da equipe — o watchdog roda periódico, então empurra em batch sem custo de sessão."""
+    try:
+        sys.path.insert(0, os.path.join(_REPO, "plugins"))
+        import sync_omnimemory
+        return sync_omnimemory.sync()
+    except Exception:
+        return 0
+
+
 def main():
     watch_dir = os.path.join(failbase.failbase_home(), "watch")
     if not os.path.isdir(watch_dir):
+        flush_to_brain()  # sincroniza mesmo sem sessões vigiadas
         return 0
     state = _load_state()
     now = time.time()
@@ -182,6 +195,7 @@ def main():
         except Exception:
             continue  # uma sessão quebrada nunca derruba o watchdog
     _save_state(state)
+    flush_to_brain()  # empurra falhas novas (synced=0) pro OmniMemory se configurado
     return 0
 
 
