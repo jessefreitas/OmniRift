@@ -34,6 +34,14 @@ export interface FlagDef {
 // ainda em construção — liga sob demanda.
 export const FLAGS: FlagDef[] = [
   {
+    key: "failproof-agents",
+    label: "Agentes aprendem com erros (failproof)",
+    description:
+      "Cada agente que você monta captura os próprios erros→correções e recebe de volta o fix conhecido quando o mesmo tropeço reaparece (distingue palpite de correção confirmada). Roda local e privado. Kill-switch: o captor roda um pequeno processo a cada comando de terminal do agente — desligue se notar lentidão.",
+    default: true,
+    stage: "beta",
+  },
+  {
     key: "terminal-webgl",
     label: "Terminal com GPU (WebGL)",
     description:

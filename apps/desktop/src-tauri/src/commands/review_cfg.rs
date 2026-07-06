@@ -122,7 +122,11 @@ fn status_hook_cmd(label: &str, state: &str) -> String {
 ///     encerramento em NO-GO. Somado ao status `done` no MESMO array de Stop.
 /// `label` = label do agente no registry (resolve p/ session_id no POST). Devolve o caminho.
 #[tauri::command]
-pub fn agent_settings_config(app: tauri::AppHandle, label: String) -> Option<String> {
+pub fn agent_settings_config(
+    app: tauri::AppHandle,
+    label: String,
+    failproof: Option<bool>,
+) -> Option<String> {
     let script = ensure_review_script(&app).ok()?;
     let cfg = config_path(&app).ok()?;
     // command roda via shell (sem `args`) → cita os caminhos por segurança.
@@ -163,8 +167,12 @@ pub fn agent_settings_config(app: tauri::AppHandle, label: String) -> Option<Str
     // cliente que baixa o app já ganha agentes que aprendem com os próprios erros.
     // Falha-aberto: se não der pra escrever os scripts, o agente ainda nasce com os
     // hooks de review/status (não bloqueia o spawn).
-    if let Ok(fp) = ensure_failproof_scripts(&app) {
-        inject_failproof_hooks(&mut settings, &fp);
+    // Gated pela flag "failproof-agents" (default on). Kill-switch: o PostToolUse roda
+    // um subprocess python a cada Bash — desligável no painel de flags.
+    if failproof.unwrap_or(true) {
+        if let Ok(fp) = ensure_failproof_scripts(&app) {
+            inject_failproof_hooks(&mut settings, &fp);
+        }
     }
 
     let dir = app.path().app_data_dir().ok()?;
