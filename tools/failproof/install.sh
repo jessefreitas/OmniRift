@@ -64,8 +64,12 @@ OnUnitActiveSec=5min
 [Install]
 WantedBy=timers.target
 EOF
-  systemctl --user daemon-reload && systemctl --user enable --now failproof-watchdog.timer || true
-  echo "watchdog: systemd user timer ativo"
+  if systemctl --user daemon-reload && systemctl --user enable --now failproof-watchdog.timer; then
+    echo "watchdog: systemd user timer ativo"
+  else
+    echo "watchdog: systemd falhou ao ativar o timer — adicione ao cron:"
+    echo "  */5 * * * * python3 $FB/watchdog.py"
+  fi
 else
   echo "watchdog: systemd indisponível — adicione ao cron:"
   echo "  */5 * * * * python3 $FB/watchdog.py"

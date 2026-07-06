@@ -28,38 +28,32 @@ Base de dados: `~/.claude/failbase/failbase.db`
 
 ## CLI
 
+A CLI é o script `failbase.py` instalado em `~/.claude/failbase/` — invoque com `python3` (o instalador não cria wrapper no PATH).
+
 ### add — Registrar erro + fix
 
 ```bash
 # sintaxe
-failbase add --symptom "descrição do erro" \
-             --fix "como corrigir" \
-             --source {session|human-feedback|ci|watchdog} \
-             --project <nome-projeto> \
-             --validated
+python3 ~/.claude/failbase/failbase.py add \
+  --symptom "descrição do erro" \
+  --fix "como corrigir" \
+  --source {session|human-feedback|ci|watchdog} \
+  --project <nome-projeto> \
+  --command "<comando que falhou>" \
+  --validated
 
-# exemplos
-failbase add --symptom "pytest: 1 failed, import error" \
-             --fix "pip install package-name" \
-             --source human-feedback \
-             --project omnirift \
-             --validated
-
-failbase add --symptom "psycopg2 connection refused host pg" \
-             --fix "usar service name core-net na rede overlay" \
-             --source session \
-             --project omnirift
+# exemplo
+python3 ~/.claude/failbase/failbase.py add \
+  --symptom "psycopg2 connection refused host pg" \
+  --fix "usar service name core-net na rede overlay" \
+  --source human-feedback --project omnirift --validated
 ```
 
 ### search — Busca por FTS5
 
 ```bash
-# sintaxe
-failbase search "<termo>" [--limit N]
-
-# exemplos
-failbase search "connection refused"
-failbase search "docker network not found" --limit 10
+python3 ~/.claude/failbase/failbase.py search "connection refused"
+python3 ~/.claude/failbase/failbase.py search "docker network not found" --limit 10
 ```
 
 Output: JSON array de matches ordenados por relevância.
@@ -67,21 +61,26 @@ Output: JSON array de matches ordenados por relevância.
 ### stats — Status da base
 
 ```bash
-failbase stats
+python3 ~/.claude/failbase/failbase.py stats
 ```
 
 Output: `{"total": N, "validated": N, "by_source": {"session": N, "ci": N, ...}}`
 
 ## CI — Captura red→green
 
-Rodar após testes/build em pipelines:
+Dois subcomandos, chamados em pontos distintos do pipeline. `red` registra o job que falhou; `green` fecha o par quando o mesmo job (mesmo `--branch`) volta a passar, gravando o diff da correção como fix validado.
 
 ```bash
-# Captura resultado e registra se passou verde
-failbase-ci --command "pytest tests/" --project myproject
+# quando o job falhou:
+python3 ~/.claude/failbase/failbase_ci.py red \
+  --job pytest --branch "$BRANCH" --log out.log --project omnirift
+
+# quando o mesmo job passou depois:
+python3 ~/.claude/failbase/failbase_ci.py green \
+  --job pytest --branch "$BRANCH" --diff fix.diff --project omnirift
 ```
 
-Se `exit_code=0` no final e houve falhas antes → registra como fix validado. Detalhes: `failbase_ci.py`.
+`green` sem um `red` pendente para o par `job+branch` é no-op. Detalhes: `failbase_ci.py`.
 
 ## Watchdog — Sessions Unattended
 

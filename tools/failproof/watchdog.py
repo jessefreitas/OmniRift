@@ -119,8 +119,11 @@ class Executor:
     def failbase_add(self, postmortem, session_id):
         self.actions.append(("failbase_add", session_id))
         if not self.dry_run:
+            # project="" torna o postmortem global (WHERE project IN (?, '')),
+            # visível ao SessionStart de qualquer projeto — o watchdog não tem
+            # cwd/projeto; o session_id fica registrado no texto do postmortem.
             failbase.FailBase().add(symptom=postmortem, source="watchdog",
-                                    project=session_id, command="watchdog")
+                                    project="", command="watchdog")
 
 
 def handle(entry, strike, executor):
