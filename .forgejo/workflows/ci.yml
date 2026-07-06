@@ -110,11 +110,15 @@ jobs:
           find . -name '*.tsbuildinfo' -delete 2>/dev/null || true
           npx tsc -b --force
 
-      # Tipos próprios devem ser .ts, não .d.ts: com skipLibCheck o TS alarga nomes
-      # não-resolvidos em .d.ts pra `any` silenciosamente (ref P2 #13). Único .d.ts
-      # permitido é o vite-env.d.ts (padrão do Vite). Demais → quebra (mova p/ .ts).
+      # Tipos NOSSOS devem ser .ts, não .d.ts: com skipLibCheck o TS alarga nomes
+      # não-resolvidos em .d.ts pra `any` silenciosamente (ref P2 #13). Exceções são
+      # shims AMBIENT de pacote externo (idioma correto = .d.ts), na allowlist abaixo:
+      #   - vite-env.d.ts   → padrão do Vite
+      #   - monaco-esm.d.ts → declare module dos caminhos ESM profundos do monaco (o
+      #     pacote não publica tipos deles; necessário pro tree-shake em monaco-setup)
+      # Qualquer OUTRO .d.ts → quebra (mova a definição pra .ts).
       - name: sem .d.ts próprio
         run: |
-          found=$(find apps/desktop/src packages -name '*.d.ts' 2>/dev/null | grep -v 'vite-env.d.ts' || true)
+          found=$(find apps/desktop/src packages -name '*.d.ts' 2>/dev/null | grep -vE 'vite-env\.d\.ts|monaco-esm\.d\.ts' || true)
           if [ -n "$found" ]; then echo "❌ .d.ts próprio proibido (use .ts):"; echo "$found"; exit 1; fi
           echo "✓ sem .d.ts próprio"
