@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.125",
+    date: "2026-07-06",
+    title: "Seus agentes aprendem com os próprios erros",
+    highlights: [
+      "Novo: todo agente que você monta já vem com o failproof — quando um comando falha e depois passa, a solução fica guardada; se o mesmo erro voltar, o agente recebe o fix conhecido pra não repetir a cilada",
+      "No começo de cada sessão, os erros já conhecidos do projeto entram no contexto do agente — ele não tropeça duas vezes na mesma pedra",
+      "Distingue palpite (observado) de correção confirmada — nunca empurra suposição como verdade. Roda local e privado, sem instalar nada",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.124",
     date: "2026-07-06",
     title: "Time nunca mais trava em silêncio + OmniFS fala a verdade",
