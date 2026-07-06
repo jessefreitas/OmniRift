@@ -120,3 +120,46 @@ class FailBase:
         by_source = dict(self.db.execute(
             "SELECT source, COUNT(*) FROM failures GROUP BY source").fetchall())
         return {"total": total, "validated": validated, "by_source": by_source}
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="failbase", description="failproof — base erro→correção")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pa = sub.add_parser("add")
+    pa.add_argument("--symptom", required=True)
+    pa.add_argument("--fix", default="")
+    pa.add_argument("--root-cause", default="")
+    pa.add_argument("--source", default="session",
+                    choices=["session", "human-feedback", "ci", "watchdog"])
+    pa.add_argument("--project", default="")
+    pa.add_argument("--error-class", default="")
+    pa.add_argument("--command", default="")
+    pa.add_argument("--validated", action="store_true")
+
+    ps = sub.add_parser("search")
+    ps.add_argument("query")
+    ps.add_argument("--limit", type=int, default=5)
+
+    sub.add_parser("stats")
+    sub.add_parser("export")
+
+    args = p.parse_args(argv)
+    fb = FailBase()
+    if args.cmd == "add":
+        fid = fb.add(symptom=args.symptom, fix=args.fix, root_cause=args.root_cause,
+                     source=args.source, project=args.project, error_class=args.error_class,
+                     command=args.command, fix_validated=args.validated)
+        print(json.dumps({"id": fid}))
+    elif args.cmd == "search":
+        print(json.dumps(fb.search(args.query, args.limit), ensure_ascii=False))
+    elif args.cmd == "stats":
+        print(json.dumps(fb.stats(), ensure_ascii=False))
+    elif args.cmd == "export":
+        for row in fb.db.execute("SELECT * FROM failures ORDER BY id"):
+            print(json.dumps(dict(row), ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
