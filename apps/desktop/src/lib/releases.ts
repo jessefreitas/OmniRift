@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.124",
+    date: "2026-07-06",
+    title: "Time nunca mais trava em silêncio + OmniFS fala a verdade",
+    highlights: [
+      "Watchdog da orquestração: se o Arquiteto não entrega as fatias e o time fica ocioso, o app cobra o líder sozinho (2 níveis) e depois avisa VOCÊ — e o Code Reviewer é acionado assim que o contrato sai",
+      "Painel OmniFS honesto: distingue \"pasta não montada\" de \"drive travado\" (fim do falso ENOTCONN/disco cheio) e o botão de recriar funciona mesmo com daemon OmniFS próprio na máquina",
+      "Pasta de Projetos ganha socket dedicado — nunca mais disputa com o seu daemon OmniDrive",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.123",
     date: "2026-07-05",
     title: "Agentes conectam de primeira + releases blindados",

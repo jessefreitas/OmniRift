@@ -270,12 +270,12 @@ export function OmniFsModal({ onClose }: Props) {
               <AlertTriangle size={13} className="shrink-0 mt-0.5" />
               <div className="flex-1">
                 <div className="font-medium">
-                  {t("omnifs.missingTitle", "Pasta de Projetos não existe no disco")}
+                  {t("omnifs.missingTitle", "Pasta de Projetos não está montada")}
                 </div>
                 <div className="opacity-80 mt-0.5 leading-snug">
                   {t(
                     "omnifs.missingBody",
-                    "O caminho configurado foi removido (ou nunca foi criado nesta máquina) — não é travamento nem disco cheio. Use o botão “Religar daemon / recriar Pasta de Projetos” abaixo para recriá-la.",
+                    "O caminho configurado não existe no disco ou não está montado como drive OmniFS — não é travamento nem disco cheio. Use o botão “Religar daemon / recriar Pasta de Projetos” abaixo para (re)montá-la.",
                   )}
                 </div>
               </div>
