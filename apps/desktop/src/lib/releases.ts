@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.126",
+    date: "2026-07-06",
+    title: "Nó de Filtro por IA: escolha o modelo numa lista",
+    highlights: [
+      "No nó Filtro (modo \"por IA — modelo decide\"), ao escolher um provider agora aparece a LISTA de modelos dele — chega de digitar o nome do modelo na mão",
+      "A lista vem do catálogo ATUAL do provider (busca ao vivo); se a API não responder, cai no catálogo curado — e sempre dá pra digitar manualmente como último recurso",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.125",
     date: "2026-07-06",
     title: "Seus agentes aprendem com os próprios erros",
