@@ -74,3 +74,4 @@ bin/endorctl
 
 # logs de gate de tools locais (sessões de agente) — nunca commitar
 tools/**/.gate.log
+tools/failproof/.gate.log
