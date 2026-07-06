@@ -96,3 +96,27 @@ class FailBase:
     def lookup(self, signature):
         r = self.db.execute("SELECT * FROM failures WHERE signature=?", (signature,)).fetchone()
         return dict(r) if r else None
+
+    def search(self, query, limit=5):
+        safe = re.sub(r"[^\w\s]", " ", query).strip()
+        if not safe:
+            return []
+        rows = self.db.execute(
+            "SELECT f.* FROM failures_fts t JOIN failures f ON f.id = t.failure_id"
+            " WHERE failures_fts MATCH ? ORDER BY rank LIMIT ?", (safe, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def top_for_project(self, project, limit=10):
+        rows = self.db.execute(
+            "SELECT *, hits / (1.0 + julianday('now') - julianday(last_seen_at)) AS score"
+            " FROM failures WHERE project IN (?, '')"
+            " ORDER BY score DESC, last_seen_at DESC LIMIT ?", (project, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def stats(self):
+        total = self.db.execute("SELECT COUNT(*) FROM failures").fetchone()[0]
+        validated = self.db.execute(
+            "SELECT COUNT(*) FROM failures WHERE fix_validated=1").fetchone()[0]
+        by_source = dict(self.db.execute(
+            "SELECT source, COUNT(*) FROM failures GROUP BY source").fetchall())
+        return {"total": total, "validated": validated, "by_source": by_source}
