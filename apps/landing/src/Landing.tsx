@@ -221,6 +221,41 @@ const FEATURES: Feature[] = [
   },
   {
     num: "06",
+    title: "Checkpoint invisível",
+    desc: "Cada ação de agente vira um ponto de restauração automático. Errou? Volta o nó pro estado anterior com um clique — sem git, sem medo. Um versionador que trabalha nos bastidores enquanto você e os agentes tocam o projeto.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M13 3.5a9.5 9.5 0 1 1-8.7 5.6" />
+        <path d="M4 3.5v5h5" />
+        <path d="M13 8v5l3.5 2" />
+      </svg>
+    ),
+  },
+  {
+    num: "07",
+    title: "Comande do celular",
+    desc: "Saiu da frente do PC e um agente pediu permissão? Aprove ou negue pelo celular, mova cards do Kanban e veja a frota inteira — de qualquer lugar, via 4G. O canvas segue rodando em casa; você só pilota.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <rect x="7" y="2.5" width="12" height="21" rx="2.5" />
+        <path d="M11 20h4" />
+      </svg>
+    ),
+  },
+  {
+    num: "08",
+    title: "Kanban que os agentes tocam",
+    desc: "Um quadro de tarefas que os próprios agentes movem: puxam do backlog, marcam em progresso e entregam. Você acompanha o trabalho fluindo em tempo real — sem ficar perguntando “e aí, terminou?”.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <rect x="3" y="4" width="5.5" height="18" rx="1.5" />
+        <rect x="10.5" y="4" width="5.5" height="12" rx="1.5" />
+        <rect x="18" y="4" width="5" height="8" rx="1.5" />
+      </svg>
+    ),
+  },
+  {
+    num: "09",
     title: "Open-source, no seu sistema",
     desc: "Roda em Linux e Windows (Tauri 2 + Rust), código aberto e 100% offline: sem login, sem analytics, sem nuvem. Config e notas ficam em arquivos de texto no seu disco, abríveis em qualquer editor.",
     icon: (
@@ -253,6 +288,10 @@ const FAQS: Faq[] = [
   {
     q: "O que são os Paralelos?",
     a: "Worktrees git de verdade: cada paralelo tem branch, working tree e terminal próprios, com hooks de setup, run e teardown. Toque várias frentes ao mesmo tempo — sem stash, sem trocar de branch.",
+  },
+  {
+    q: "E se os agentes travarem ou se perderem?",
+    a: "O OmniRift foi feito pra não travar em silêncio. Um watchdog vigia a orquestração e cobra o líder sozinho se o time fica ocioso — e te avisa se ainda assim empacar. A recitação relembra o objetivo pros agentes não desviarem, e cada ação vira um checkpoint automático que você desfaz com um clique.",
   },
   {
     q: "Funciona no Windows e no Linux?",
@@ -571,6 +610,50 @@ export function Landing() {
               <p style={{ color: MUTED, fontSize: 14.5, lineHeight: 1.55, margin: 0 }}>{f.desc}</p>
             </div>
           ))}
+        </div>
+
+        {/* Confiabilidade highlight */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 32,
+            alignItems: "center",
+            justifyContent: "space-between",
+            border: "1px solid rgba(255,255,255,.09)",
+            borderRadius: 20,
+            padding: 40,
+            background: "linear-gradient(180deg, rgba(20,20,23,.6), rgba(12,12,15,.6))",
+            marginTop: 24,
+          }}
+        >
+          <div style={{ flexShrink: 0, order: 0 }}>
+            <svg width="220" height="170" viewBox="0 0 220 170" fill="none" aria-hidden="true">
+              <path d="M110 26l40 14v34c0 30-20 50-40 60-20-10-40-30-40-60V40l40-14z" fill="color-mix(in oklab,var(--ac) 12%,#141417)" stroke="var(--ac)" strokeWidth="1.6" />
+              <path d="M92 88l13 13 24-27" stroke="var(--ac)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+          </div>
+          <div style={{ flex: 1, minWidth: 280 }}>
+            <div
+              style={{
+                display: "inline-block",
+                fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 11,
+                letterSpacing: "1.5px",
+                color: "var(--ac)",
+                border: "1px solid color-mix(in oklab,var(--ac) 35%,transparent)",
+                borderRadius: 6,
+                padding: "4px 9px",
+                marginBottom: 18,
+              }}
+            >
+              FEITO PRA NÃO TRAVAR
+            </div>
+            <h3 style={{ fontSize: 27, fontWeight: 600, letterSpacing: "-.8px", margin: "0 0 12px", lineHeight: 1.15 }}>Se o time empaca, o app age sozinho.</h3>
+            <p style={{ color: MUTED, fontSize: 16, lineHeight: 1.6, margin: 0, maxWidth: 460, textWrap: "pretty" }}>
+              O watchdog vigia a orquestração: se o líder some ou os agentes ficam ociosos, ele cobra sozinho — e, se ainda assim travar, avisa <b style={{ color: "#F3F3F4" }}>você</b>. Somado à recitação (relembra o objetivo pra ninguém se perder) e aos checkpoints automáticos, é menos madrugada perdida caçando onde parou.
+            </p>
+          </div>
         </div>
       </section>
 
