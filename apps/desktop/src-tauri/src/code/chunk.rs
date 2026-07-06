@@ -263,7 +263,7 @@ impl Chunker for BoundaryChunker {
 
 /// Constrói um Chunk a partir de um nó-fronteira. Símbolo: campo `name` do nó, ou o
 /// primeiro descendente nomeado cujo kind contém identifier/name/constant.
-fn make_chunk(node: &tree_sitter::Node, source: &str, lang: ChunkLang) -> Chunk {
+fn make_chunk(node: &tree_sitter::Node, source: &str, _lang: ChunkLang) -> Chunk {
     let symbol = node
         .child_by_field_name("name")
         .and_then(|n| n.utf8_text(source.as_bytes()).ok())
