@@ -280,6 +280,73 @@ const FEATURES: Feature[] = [
   },
   {
     num: "11",
+    title: "Cérebro de memória plugável",
+    desc: "Plugue os agentes num cérebro de memória compartilhado (OmniMemory, Obsidian…) — o que um agente aprende fica pro time e pra próxima sessão. Ligue todos ao canal de uma vez. A memória local já vem por padrão, zero config.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <ellipse cx="13" cy="6" rx="9" ry="3.2" />
+        <path d="M4 6v6c0 1.8 4 3.2 9 3.2s9-1.4 9-3.2V6" />
+        <path d="M4 12v6c0 1.8 4 3.2 9 3.2s9-1.4 9-3.2v-6" />
+      </svg>
+    ),
+  },
+  {
+    num: "12",
+    title: "Revisão de código por IA",
+    desc: "Todo agente passa por um gate de review antes de encerrar: enquanto reprovar (segurança, bugs, testes), ele NÃO finaliza — corrige sozinho. GO/NO-GO com o LLM que você trouxer (BYOK).",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M12 3l8 3v5c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6l8-3z" />
+        <path d="M8.5 11.5l2.5 2.5 4.5-5" />
+      </svg>
+    ),
+  },
+  {
+    num: "13",
+    title: "Escudo de credenciais",
+    desc: "Antes de mandar contexto pro LLM, avisa se há segredo crítico (token, chave privada) indo junto — redigido, nunca cru. O que é seu não vaza pro modelo.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M12 3l8 3v5c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6l8-3z" />
+        <path d="M12 9.5v3M12 15.5h.01" />
+      </svg>
+    ),
+  },
+  {
+    num: "14",
+    title: "Saúde do projeto ao vivo",
+    desc: "Um painel que lê seu projeto ao vivo — complexidade, hotspots e o que precisa de atenção. Saiba onde o código dói ANTES de mandar o agente mexer.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M3 13h4l2.5-6 4 12 2.5-6H21" />
+      </svg>
+    ),
+  },
+  {
+    num: "15",
+    title: "Rotinas agendadas",
+    desc: "Agende tarefas que rodam sozinhas — o agente acorda, faz e reporta. Do lembrete de rotina ao job noturno, sem você precisar estar na frente.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <circle cx="13" cy="13" r="9.5" />
+        <path d="M13 8v5.5l4 2" />
+      </svg>
+    ),
+  },
+  {
+    num: "16",
+    title: "Rode até passar (Goal + Loop)",
+    desc: "Dê um objetivo com condição de saída e o agente repete até passar de verdade (exit 0) — ou rode em loop por timer. Autonomia com freio: você define quando “pronto” é pronto.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <circle cx="13" cy="13" r="9.5" />
+        <circle cx="13" cy="13" r="5" />
+        <circle cx="13" cy="13" r="1.4" fill="var(--ac)" stroke="none" />
+      </svg>
+    ),
+  },
+  {
+    num: "17",
     title: "Open-source, no seu sistema",
     desc: "Roda em Linux e Windows (Tauri 2 + Rust), código aberto e 100% offline: sem login, sem analytics, sem nuvem. Config e notas ficam em arquivos de texto no seu disco, abríveis em qualquer editor.",
     icon: (
