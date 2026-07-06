@@ -419,4 +419,27 @@ mod tests {
         assert!(!out.is_empty());
         assert_eq!(&src[out[0].byte_range.0..out[0].byte_range.1], out[0].text);
     }
+
+    #[test]
+    fn each_language_chunks_a_function() {
+        let cases: &[(ChunkLang, &str, &str)] = &[
+            (ChunkLang::Rust,       "fn alpha() {}\n", "alpha"),
+            (ChunkLang::TypeScript, "function alpha() {}\n", "alpha"),
+            (ChunkLang::Tsx,        "function alpha() { return null; }\n", "alpha"),
+            (ChunkLang::Python,     "def alpha():\n    pass\n", "alpha"),
+            (ChunkLang::Go,         "package p\nfunc alpha() {}\n", "alpha"),
+            (ChunkLang::Java,       "class C { void alpha() {} }\n", "alpha"),
+            (ChunkLang::C,          "int alpha() { return 0; }\n", "alpha"),
+            (ChunkLang::Cpp,        "int alpha() { return 0; }\n", "alpha"),
+            (ChunkLang::CSharp,     "class C { void alpha() {} }\n", "alpha"),
+            (ChunkLang::Ruby,       "def alpha\nend\n", "alpha"),
+            (ChunkLang::Php,        "<?php function alpha() {}\n", "alpha"),
+        ];
+        for (lang, src, want) in cases {
+            let out = chunk_code(src, *lang, &ChunkOpts::default());
+            assert!(!out.is_empty(), "{:?}: vazio", lang);
+            let has = out.iter().any(|c| c.symbol.as_deref() == Some(*want) || c.text.contains(want));
+            assert!(has, "{:?}: não achou símbolo `{}` em {:?}", lang, want, out);
+        }
+    }
 }
