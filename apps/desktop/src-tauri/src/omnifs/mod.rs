@@ -29,6 +29,21 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub mod mounts;
+
+/// Socket EFETIVO da Pasta de Projetos: o DEDICADO do store se estiver vivo
+/// (daemon nosso, isolado), senão o global (compat: daemon gerenciado antigo ou
+/// daemon externo do usuário que sirva o mesmo drive). Nunca assume que "socket
+/// global vivo" = "nosso drive servido" — essa era a identidade trocada.
+pub fn pasta_sock(store: &Path) -> PathBuf {
+    let dedicated = mounts::store_socket_path(store);
+    if socket_alive(&dedicated) {
+        dedicated
+    } else {
+        socket_path()
+    }
+}
+
 /// Timeout de leitura das chamadas de tool (indexar/snapshot podem demorar).
 const CALL_READ_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -222,10 +237,15 @@ fn parse_tool_text(line: &str) -> Result<String, String> {
         .ok_or_else(|| "omnifs: resposta sem content[0].text".to_string())
 }
 
-/// Chama uma tool MCP do daemon no socket default. Bloqueante (use spawn_blocking
-/// em comandos async). Usado pela UI (snapshot agora) e pela F3 (auto-snapshot).
+/// Chama uma tool MCP do daemon da PASTA (socket dedicado-se-vivo, senão global).
+/// Bloqueante (use spawn_blocking em comandos async). Usado pela UI (snapshot
+/// agora) e pela F3 (auto-snapshot).
 pub fn call(tool: &str, args: Value) -> Result<String, String> {
-    call_at(&socket_path(), tool, args)
+    let sock = match read_config() {
+        Some(c) => pasta_sock(Path::new(&c.store)),
+        None => socket_path(),
+    };
+    call_at(&sock, tool, args)
 }
 
 /// [`call`] contra um socket explícito (testável com daemon fake).
@@ -416,24 +436,33 @@ pub fn daemon_status() -> DaemonStatus {
     // Guard de disco + probe de mount. O probe só roda com socket vivo (senão o
     // daemon já está morto e o guard pré-spawn cobre) e paga o timeout SÓ quando
     // o FUSE está congelado — no caminho saudável o read_dir volta em ms.
+    // Socket EFETIVO da Pasta (dedicado-se-vivo, senão global) — nunca confundir
+    // "socket global vivo" (pode ser daemon externo de OUTRO drive) com "servido".
+    let sock = match cfg.as_ref() {
+        Some(c) => pasta_sock(Path::new(&c.store)),
+        None => sock,
+    };
     let sock_up = socket_alive(&sock);
     let store_free_bytes = cfg.as_ref().and_then(|c| free_space_bytes(Path::new(&c.store)));
     let low_disk = store_free_bytes.map(|b| b < DISK_LOW_BYTES).unwrap_or(false);
-    // ENOENT ≠ ENOTCONN: o probe tri-estado (com timeout, thread apartada) separa
-    // "pasta nem existe" (Missing → UI manda RECRIAR) de "daemon congelado"
-    // (Stale → UI manda religar). Antes qualquer erro virava "Drive travado".
-    let (mount_responsive_v, stale, mount_missing) = match (cfg.as_ref(), sock_up) {
-        (Some(c), true) => match probe_mount(Path::new(&c.mount), MOUNT_PROBE_TIMEOUT) {
-            MountState::Responsive => (Some(true), false, false),
-            MountState::Missing => (Some(false), false, true),
-            MountState::Stale => (Some(false), true, false),
-        },
-        (Some(c), false) => (
-            None,
-            false,
-            probe_mount(Path::new(&c.mount), MOUNT_PROBE_TIMEOUT) == MountState::Missing,
-        ),
-        _ => (None, false, false),
+    // Verdade em camadas: dir ausente = Missing (recriar); dir presente SEM entrada
+    // FUSE na tabela do kernel = NÃO MONTADA (recriar religa — antes isto passava
+    // por "responsivo" e o drive virava pasta comum sem versionamento); FUSE
+    // presente = probe tri-estado (Responsive/Stale — ENOENT≠ENOTCONN).
+    let (mount_responsive_v, stale, mount_missing) = match cfg.as_ref() {
+        Some(c) => {
+            let mp = Path::new(&c.mount);
+            match probe_mount(mp, MOUNT_PROBE_TIMEOUT) {
+                MountState::Missing => (Some(false), false, true),
+                MountState::Responsive if mounts::fuse_mount_present(mp) => {
+                    (Some(true), false, false)
+                }
+                // dir comum responde mas NÃO é o FUSE → não montada.
+                MountState::Responsive => (Some(false), false, true),
+                MountState::Stale => (Some(false), true, false),
+            }
+        }
+        None => (None, false, false),
     };
     DaemonStatus {
         bin_found: bin.is_some(),
@@ -467,8 +496,34 @@ pub fn ensure_daemon(store: &Path, mount: &Path, sock: &Path) -> Result<(), Stri
     use std::process::{Command, Stdio};
     use std::time::Instant;
 
-    if socket_alive(sock) {
+    // Servido DE VERDADE = o mount está na tabela do kernel E o socket responde.
+    // "socket vivo" sozinho era a identidade trocada: um daemon EXTERNO do usuário
+    // (servindo OUTRO drive) no mesmo socket fazia provision/recover declararem
+    // sucesso sem nada montado.
+    if mounts::fuse_mount_present(mount) && socket_alive(sock) {
         return Ok(());
+    }
+    if socket_alive(sock) {
+        // Socket ocupado mas o NOSSO mount não está montado → daemon alheio.
+        // Muda pro socket DEDICADO do store (uma vez — sem recursão infinita).
+        let dedicated = mounts::store_socket_path(store);
+        if sock != dedicated {
+            log::info!(
+                "omnifs: socket {} ocupado por daemon de OUTRO drive — usando dedicado {}",
+                sock.display(),
+                dedicated.display()
+            );
+            return ensure_daemon(store, mount, &dedicated);
+        }
+        return Err(
+            "o socket dedicado da Pasta responde mas o mount não está montado — \
+             daemon em estado inconsistente; veja ~/.omnirift/omnifs-daemon.log"
+                .into(),
+        );
+    }
+    // Mount órfão na tabela (daemon morreu sem desmontar) → solta antes de re-subir.
+    if mounts::fuse_mount_present(mount) {
+        unmount_lazy(mount);
     }
 
     {
@@ -785,7 +840,7 @@ pub fn preflight_cwd_guard(cwd: Option<&str>) -> Result<(), String> {
     if !cwd_inside_mount(cwd, &cfg.mount) {
         return Ok(());
     }
-    if !socket_alive(&socket_path()) {
+    if !socket_alive(&pasta_sock(Path::new(&cfg.store))) {
         return Err(format!(
             "OmniFS: a pasta {cwd} está no drive OmniFS ({mount}), mas o daemon não está no ar — \
              os arquivos ficariam inacessíveis (ENOTCONN). Abra Ferramentas → \"OmniFS — Pasta de \
@@ -820,7 +875,7 @@ pub fn is_managed_cwd(cwd: &str) -> bool {
         return false;
     }
     let Some(cfg) = read_config() else { return false };
-    cwd_inside_mount(cwd, &cfg.mount) && socket_alive(&socket_path())
+    cwd_inside_mount(cwd, &cfg.mount) && socket_alive(&pasta_sock(Path::new(&cfg.store)))
 }
 
 // ── Evict de tool-output DENTRO do mount (F3 item 3) ────────────────────────
@@ -851,7 +906,12 @@ fn evict_dir_decision(cfg: Option<&OmniFsConfig>, daemon_up: bool, app_data: &Pa
 /// Chamado pelo `maybe_evict` (mcp/server.rs) com o `app_data_dir` como fallback.
 /// Só resolve pro mount quando o daemon está no ar (write num FUSE morto = ENOTCONN).
 pub fn evict_dir(app_data: &Path) -> PathBuf {
-    evict_dir_decision(read_config().as_ref(), socket_alive(&socket_path()), app_data)
+    let cfg = read_config();
+    let alive = match cfg.as_ref() {
+        Some(c) => socket_alive(&pasta_sock(Path::new(&c.store))),
+        None => socket_alive(&socket_path()),
+    };
+    evict_dir_decision(cfg.as_ref(), alive, app_data)
 }
 
 // ── Testes ──────────────────────────────────────────────────────────────────

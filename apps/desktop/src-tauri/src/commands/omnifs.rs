@@ -131,7 +131,11 @@ pub async fn omnifs_search(query: String) -> Result<Vec<SearchHit>, String> {
         return Ok(Vec::new());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        if !crate::omnifs::socket_alive(&crate::omnifs::socket_path()) {
+        let sock = match crate::omnifs::read_config() {
+            Some(c) => crate::omnifs::pasta_sock(std::path::Path::new(&c.store)),
+            None => crate::omnifs::socket_path(),
+        };
+        if !crate::omnifs::socket_alive(&sock) {
             return Err("OmniFS: provisione a Pasta de Projetos OmniFS (Ferramentas → \
                         \"OmniFS — Pasta de agentes\") — o daemon precisa estar no ar \
                         pra busca semântica."

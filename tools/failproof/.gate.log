@@ -1,0 +1,35 @@
+/home/skycracker/.local/lib/python3.12/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.3.3, pluggy-1.6.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/skycracker/Downloads/OmniRift/tools/failproof
+plugins: anyio-4.13.0, asyncio-0.24.0, cov-7.1.0, respx-0.23.1
+asyncio: mode=Mode.STRICT, default_loop_scope=None
+collecting ... collected 21 items
+
+tests/test_cli.py::test_cli_add_e_search PASSED                          [  4%]
+tests/test_cli.py::test_cli_stats PASSED                                 [  9%]
+tests/test_cli.py::test_cli_export PASSED                                [ 14%]
+tests/test_failbase.py::test_normalize_signature_ignora_paths_numeros_e_hashes PASSED [ 19%]
+tests/test_failbase.py::test_normalize_signature_muda_com_comando_diferente PASSED [ 23%]
+tests/test_failbase.py::test_add_e_lookup PASSED                         [ 28%]
+tests/test_failbase.py::test_add_duplicado_incrementa_hits_e_preserva_fix PASSED [ 33%]
+tests/test_failbase.py::test_symptom_truncado_em_2kb PASSED              [ 38%]
+tests/test_failbase.py::test_lookup_inexistente_retorna_none PASSED      [ 42%]
+tests/test_failbase.py::test_search_fts_encontra_por_texto PASSED        [ 47%]
+tests/test_failbase.py::test_search_sanitiza_query_com_pontuacao PASSED  [ 52%]
+tests/test_failbase.py::test_top_for_project_prioriza_hits_e_inclui_globais PASSED [ 57%]
+tests/test_failbase.py::test_stats PASSED                                [ 61%]
+tests/test_hook_correction.py::test_detecta_correcoes PASSED             [ 66%]
+tests/test_hook_correction.py::test_ignora_prompts_normais PASSED        [ 71%]
+tests/test_hook_correction.py::test_build_instruction_menciona_failbase PASSED [ 76%]
+tests/test_hook_posttool.py::test_detect_failure PASSED                  [ 80%]
+tests/test_hook_posttool.py::test_par_falha_fix_e_gravado_validado PASSED [ 85%]
+tests/test_hook_posttool.py::test_falha_conhecida_devolve_fix_no_contexto PASSED [ 90%]
+tests/test_hook_posttool.py::test_falha_sem_fix_conhecido_nao_injeta PASSED [ 95%]
+tests/test_hook_posttool.py::test_sucesso_sem_falha_pendente_e_noop PASSED [100%]
+
+============================== 21 passed in 0.22s ==============================
