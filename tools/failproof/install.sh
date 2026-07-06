@@ -6,6 +6,8 @@ CLAUDE="$HOME/.claude"
 FB="$CLAUDE/failbase"
 
 mkdir -p "$FB" "$CLAUDE/hooks" "$FB/watch" "$FB/alerts" "$FB/postmortems"
+# dirs guardam comandos/output/relaunch_cmd/postmortem → só o dono lê (idempotente)
+chmod 700 "$FB" "$FB/watch" "$FB/alerts" "$FB/postmortems" 2>/dev/null || true
 
 # núcleo + watchdog + ci + plugins vivem em ~/.claude/failbase
 cp "$SRC/failbase.py" "$SRC/watchdog.py" "$SRC/failbase_ci.py" "$FB/"

@@ -59,8 +59,12 @@ CREATE VIRTUAL TABLE IF NOT EXISTS failures_fts
 class FailBase:
     def __init__(self, db_path=None):
         self.db_path = db_path or default_db_path()
-        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
+        os.makedirs(os.path.dirname(self.db_path) or ".", mode=0o700, exist_ok=True)
         self.db = sqlite3.connect(self.db_path, timeout=2)
+        # WAL: leitor não bloqueia escritor (várias sessões/agentes na mesma base).
+        # busy_timeout: espera o lock em vez de estourar "database is locked".
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute("PRAGMA busy_timeout=3000")
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
 
@@ -101,14 +105,18 @@ class FailBase:
         safe = re.sub(r"[^\w\s]", " ", query).strip()
         if not safe:
             return []
+        # relevância FTS primeiro; entre empates, fix validado ganha do observado.
         rows = self.db.execute(
             "SELECT f.* FROM failures_fts t JOIN failures f ON f.id = t.failure_id"
-            " WHERE failures_fts MATCH ? ORDER BY rank LIMIT ?", (safe, limit)).fetchall()
+            " WHERE failures_fts MATCH ? ORDER BY rank, f.fix_validated DESC LIMIT ?",
+            (safe, limit)).fetchall()
         return [dict(r) for r in rows]
 
     def top_for_project(self, project, limit=10):
+        # score = calor (hits/recência) com bônus por confiança do fix validado.
         rows = self.db.execute(
-            "SELECT *, hits / (1.0 + julianday('now') - julianday(last_seen_at)) AS score"
+            "SELECT *, (hits + fix_validated * 3.0)"
+            " / (1.0 + julianday('now') - julianday(last_seen_at)) AS score"
             " FROM failures WHERE project IN (?, '')"
             " ORDER BY score DESC, last_seen_at DESC LIMIT ?", (project, limit)).fetchall()
         return [dict(r) for r in rows]

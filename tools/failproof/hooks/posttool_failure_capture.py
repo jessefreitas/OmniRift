@@ -33,7 +33,7 @@ def detect_failure(tool_response):
 
 def _buffer_path(session_id):
     d = os.path.join(failbase.failbase_home(), "session_buffer")
-    os.makedirs(d, exist_ok=True)
+    os.makedirs(d, mode=0o700, exist_ok=True)  # buffer guarda comandos → só o dono lê
     return os.path.join(d, "{}.jsonl".format(session_id))
 
 
@@ -68,16 +68,26 @@ def process(payload):
 
     if failed:
         known = fb.lookup(sig)
-        if known and known["fix_validated"] and known["fix"]:
+        if known and known["fix"]:
             fb.add(symptom=output, signature=sig, command=command, project=project)
-            context = ("💡 Failbase: erro conhecido (visto {}x). Fix que funcionou antes:\n{}"
-                       .format(known["hits"] + 1, known["fix"]))
+            hits = known["hits"] + 1
+            if known["fix_validated"]:
+                # sinal forte (confirmado por humano/CI) — ainda assim peça confirmação.
+                context = ("💡 Failbase: erro conhecido (visto {}x). Fix confirmado antes "
+                           "— confirme que se aplica ao seu caso:\n{}").format(hits, known["fix"])
+            else:
+                # candidato observado por heurística — trate como pista, não como verdade.
+                context = ("💡 Failbase: erro parecido já visto ({}x). Possível fix observado "
+                           "num caso semelhante (NÃO confirmado) — avalie antes de aplicar:\n{}"
+                           ).format(hits, known["fix"])
     else:
         resolved_any = False
         for e in reversed(entries[-_PAIR_WINDOW:]):
             if e.get("failed") and not e.get("resolved") and _same_family(e["command"], command):
+                # correlação temporal ≠ prova. Guarda como OBSERVADO (fix_validated=False);
+                # só human-feedback/CI promovem a validado.
                 fb.add(symptom=e["output"], fix=command, command=e["command"],
-                       source="session", project=project, fix_validated=True)
+                       source="session", project=project, fix_validated=False)
                 e["resolved"] = True
                 resolved_any = True
                 break

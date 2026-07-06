@@ -78,3 +78,17 @@ def test_stats(fb):
     assert s["total"] == 2
     assert s["validated"] == 1
     assert s["by_source"] == {"session": 1, "ci": 1}
+
+
+def test_wal_habilitado(fb):
+    # WAL: leitor não bloqueia escritor (várias sessões na mesma base).
+    mode = fb.db.execute("PRAGMA journal_mode").fetchone()[0]
+    assert mode.lower() == "wal"
+
+
+def test_top_for_project_valida_ganha_de_observado_com_mesmo_calor(fb):
+    # mesmo calor (1 hit cada), mas o fix validado deve subir acima do observado.
+    fb.add(symptom="erro observado", command="a", project="omnirift", fix="talvez", fix_validated=False)
+    fb.add(symptom="erro validado", command="b", project="omnirift", fix="certo", fix_validated=True)
+    top = fb.top_for_project("omnirift", limit=10)
+    assert top[0]["symptom"] == "erro validado"

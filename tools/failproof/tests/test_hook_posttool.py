@@ -27,19 +27,21 @@ def test_detect_failure(monkeypatch, tmp_path):
     assert m.detect_failure({"stdout": "all good"}) is False
 
 
-def test_par_falha_fix_e_gravado_validado(monkeypatch, tmp_path):
+def test_par_falha_fix_e_gravado_observado_nao_validado(monkeypatch, tmp_path):
+    # correlação temporal (falha→sucesso na mesma família) é OBSERVAÇÃO, não prova:
+    # o fix é guardado como candidato (fix_validated=0), nunca como confirmado.
     m = _mod(monkeypatch, tmp_path)
     import failbase
     m.process(_payload("pytest tests/", "1 failed: ImportError foo", 1))
     m.process(_payload("pytest tests/", "5 passed", 0))
     fb = failbase.FailBase()
     row = fb.search("ImportError")[0]
-    assert row["fix_validated"] == 1
-    assert "pytest tests/" in row["fix"]
+    assert row["fix_validated"] == 0            # observado, não validado
+    assert "pytest tests/" in row["fix"]        # mas o candidato foi guardado
     assert row["project"] == "proj"
 
 
-def test_falha_conhecida_devolve_fix_no_contexto(monkeypatch, tmp_path):
+def test_fix_validado_injeta_com_framing_confirmado(monkeypatch, tmp_path):
     m = _mod(monkeypatch, tmp_path)
     import failbase
     fb = failbase.FailBase()
@@ -47,6 +49,21 @@ def test_falha_conhecida_devolve_fix_no_contexto(monkeypatch, tmp_path):
            fix_validated=True)
     ctx = m.process(_payload("pytest tests/", "1 failed: ImportError foo", 1))
     assert ctx is not None and "pip install foo" in ctx
+    assert "confirmado" in ctx.lower()          # sinal forte → framing firme
+    assert "não confirmado" not in ctx.lower()
+
+
+def test_fix_observado_injeta_como_pista_nao_confirmada(monkeypatch, tmp_path):
+    # fix observado (fix_validated=0) TAMBÉM é surfaceado, mas como pista a confirmar —
+    # nunca como verdade. Regressão do concern #1 (autoridade indevida).
+    m = _mod(monkeypatch, tmp_path)
+    import failbase
+    fb = failbase.FailBase()
+    fb.add(symptom="1 failed: ImportError foo", fix="pip install foo", command="pytest",
+           fix_validated=False)
+    ctx = m.process(_payload("pytest tests/", "1 failed: ImportError foo", 1))
+    assert ctx is not None and "pip install foo" in ctx
+    assert "não confirmado" in ctx.lower()      # observado → framing de pista
 
 
 def test_falha_sem_fix_conhecido_nao_injeta(monkeypatch, tmp_path):

@@ -23,8 +23,10 @@ def build_context(project):
     lines = ["[failproof] Erros já conhecidos neste projeto — não repita:"]
     for r in rows:
         item = "- ({}x) {}".format(r["hits"], r["symptom"][:150].replace("\n", " "))
-        if r["fix_validated"] and r["fix"]:
-            item += " → FIX: {}".format(r["fix"][:150].replace("\n", " "))
+        if r["fix"]:
+            # tag de confiança: confirmado (humano/CI) vs observado (heurística).
+            tag = "FIX confirmado" if r["fix_validated"] else "fix observado (não confirmado)"
+            item += " → {}: {}".format(tag, r["fix"][:150].replace("\n", " "))
         if len("\n".join(lines + [item])) > MAX_CHARS:
             break
         lines.append(item)

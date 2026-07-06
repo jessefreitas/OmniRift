@@ -130,7 +130,7 @@ def handle(entry, strike, executor):
     sid = entry["session_id"]
     pm = build_postmortem(entry["transcript_path"], sid)
     pm_dir = os.path.join(failbase.failbase_home(), "postmortems")
-    os.makedirs(pm_dir, exist_ok=True)
+    os.makedirs(pm_dir, mode=0o700, exist_ok=True)  # postmortem/relaunch_cmd → só o dono lê
     pm_path = os.path.join(pm_dir, "{}.txt".format(sid))
     with open(pm_path, "w") as f:
         f.write(pm)
