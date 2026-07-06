@@ -397,7 +397,10 @@ mod tests {
         std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let err = cli_run(script.to_str().unwrap(), "x", Duration::from_millis(300), None, &[]).await.unwrap_err();
+        // 2s (não 300ms): margem robusta contra carga/runner lento — o child precisa
+        // iniciar antes do timeout disparar, senão o teste flaka na suíte cheia (era a
+        // causa do rust vermelho intermitente no runner do Forgejo). 2s << 30s do sleep.
+        let err = cli_run(script.to_str().unwrap(), "x", Duration::from_millis(2000), None, &[]).await.unwrap_err();
         assert!(err.contains("timeout"), "err: {err}");
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -1,5 +1,11 @@
 # OmniRift — Pendências e Roadmap
 
+> 🔴 **ESTE DOC ESTÁ DEFASADO (snapshot de 2026-07-02, na v0.1.72).** Hoje (07-06) o
+> publicado é a **v0.1.125**. Muita coisa listada abaixo como "falta" JÁ FOI ENTREGUE
+> (Fase 9 completa, Bloco E, failproof no app, etc.). **Fonte de verdade = `docs/STATUS.md`**
+> (auditado contra o código). Auditorias baseadas neste arquivo geram alarme falso —
+> confira no STATUS.md ou no `git log`/`releases.ts` antes de "corrigir" qualquer item.
+
 > Snapshot do que **falta** no OmniRift. Atualizado em 2026-07-02 (v0.1.77 em preparo; v0.1.72 é o último PUBLICADO pros clientes).
 > Organizado por prioridade. O design de cada item está na memória do projeto (`~/.claude/projects/.../memory/`).
 
