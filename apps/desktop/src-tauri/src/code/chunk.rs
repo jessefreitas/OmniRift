@@ -202,9 +202,152 @@ pub fn chunk_code(source: &str, lang: ChunkLang, opts: &ChunkOpts) -> Vec<Chunk>
 pub struct BoundaryChunker;
 
 impl Chunker for BoundaryChunker {
-    fn chunk(&self, _source: &str, _lang: ChunkLang, _opts: &ChunkOpts) -> Vec<Chunk> {
-        Vec::new() // preenchido na Task 3
+    fn chunk(&self, source: &str, lang: ChunkLang, opts: &ChunkOpts) -> Vec<Chunk> {
+        let mut parser = tree_sitter::Parser::new();
+        if parser.set_language(&lang.language()).is_err() {
+            return fallback_chunks(source);
+        }
+        let tree = match parser.parse(source, None) {
+            Some(t) => t,
+            None => return fallback_chunks(source),
+        };
+
+        // Coleta em ORDEM DE FONTE os nós-fronteira de topo. SPLIT: um chunk grande demais
+        // cujo nó tem filhos-fronteira é quebrado recursivamente (impl/class → métodos).
+        fn collect(node: &tree_sitter::Node, source: &str, lang: ChunkLang, max_tokens: usize, out: &mut Vec<Chunk>) {
+            let boundary = lang.boundary_kinds();
+            for i in 0..node.named_child_count() {
+                let Some(child) = node.named_child(i) else { continue };
+                if boundary.contains(&child.kind()) {
+                    let c = make_chunk(&child, source, lang);
+                    if c.text.len() / 4 > max_tokens && child.named_child_count() > 0 {
+                        collect(&child, source, lang, max_tokens, out);
+                    } else {
+                        out.push(c);
+                    }
+                } else {
+                    collect(&child, source, lang, max_tokens, out);
+                }
+            }
+        }
+
+        let mut collected = Vec::new();
+        collect(&tree.root_node(), source, lang, opts.max_tokens, &mut collected);
+        if collected.is_empty() {
+            return fallback_chunks(source);
+        }
+
+        // MERGE forward: enquanto o último chunk é menor que min_tokens, funde o próximo
+        // (estende o range pra cobrir o gap; text = source[range] mantém a invariante).
+        let mut merged: Vec<Chunk> = Vec::new();
+        for chunk in collected {
+            if let Some(last) = merged.last_mut() {
+                let last_small = last.text.len() / 4 < opts.min_tokens;
+                let combined_est = chunk.byte_range.1.saturating_sub(last.byte_range.0) / 4;
+                let forward = chunk.byte_range.0 >= last.byte_range.1;
+                if last_small && forward && combined_est <= opts.target_tokens {
+                    last.byte_range = (last.byte_range.0, chunk.byte_range.1);
+                    last.text = source[last.byte_range.0..chunk.byte_range.1].to_string();
+                    last.end_line = chunk.end_line;
+                    if last.symbol.is_none() {
+                        last.symbol = chunk.symbol;
+                    }
+                    continue;
+                }
+            }
+            merged.push(chunk);
+        }
+        if merged.is_empty() { fallback_chunks(source) } else { merged }
     }
+}
+
+/// Constrói um Chunk a partir de um nó-fronteira. Símbolo: campo `name` do nó, ou o
+/// primeiro descendente nomeado cujo kind contém identifier/name/constant.
+fn make_chunk(node: &tree_sitter::Node, source: &str, lang: ChunkLang) -> Chunk {
+    let symbol = node
+        .child_by_field_name("name")
+        .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            let mut queue = std::collections::VecDeque::new();
+            for i in 0..node.named_child_count() {
+                if let Some(c) = node.named_child(i) {
+                    queue.push_back(c);
+                }
+            }
+            while let Some(cur) = queue.pop_front() {
+                let k = cur.kind();
+                if k.contains("identifier") || k.contains("name") || k.contains("constant") {
+                    if let Ok(t) = cur.utf8_text(source.as_bytes()) {
+                        return Some(t.to_string());
+                    }
+                }
+                for i in 0..cur.named_child_count() {
+                    if let Some(c) = cur.named_child(i) {
+                        queue.push_back(c);
+                    }
+                }
+            }
+            None
+        });
+
+    let (start_byte, end_byte) = (node.start_byte(), node.end_byte());
+    Chunk {
+        symbol,
+        kind: ChunkLang::kind_of(node.kind()),
+        start_line: node.start_position().row + 1,
+        end_line: node.end_position().row + 1,
+        byte_range: (start_byte, end_byte),
+        text: source[start_byte..end_byte].to_string(),
+    }
+}
+
+/// Fallback genérico (sem AST): divide por blocos separados por linha em branco; blocos
+/// > ~2000 bytes quebram em janelas em char boundary. `source[byte_range] == text` sempre.
+/// Nunca vazio pra source não-vazio.
+fn fallback_chunks(source: &str) -> Vec<Chunk> {
+    if source.is_empty() {
+        return Vec::new();
+    }
+    let line_at = |byte: usize| source[..byte].bytes().filter(|&b| b == b'\n').count() + 1;
+    let mut chunks = Vec::new();
+    let mut offset = 0usize;
+    for block in source.split("\n\n") {
+        let block_len = block.len();
+        if !block.trim().is_empty() {
+            // janelas de ~2000 bytes respeitando char boundary
+            let mut start = offset;
+            let block_end = offset + block_len;
+            while start < block_end {
+                let mut end = std::cmp::min(start + 2000, block_end);
+                while end < block_end && !source.is_char_boundary(end) {
+                    end += 1;
+                }
+                chunks.push(Chunk {
+                    symbol: None,
+                    kind: ChunkKind::Fallback,
+                    start_line: line_at(start),
+                    end_line: line_at(end.saturating_sub(1).max(start)),
+                    byte_range: (start, end),
+                    text: source[start..end].to_string(),
+                });
+                start = end;
+            }
+        }
+        offset += block_len + 2; // +2 = o "\n\n" removido pelo split
+    }
+    if chunks.is_empty() {
+        // só whitespace → 1 chunk cobrindo tudo
+        chunks.push(Chunk {
+            symbol: None,
+            kind: ChunkKind::Fallback,
+            start_line: 1,
+            end_line: line_at(source.len().saturating_sub(1)),
+            byte_range: (0, source.len()),
+            text: source.to_string(),
+        });
+    }
+    chunks
 }
 
 #[cfg(test)]
@@ -232,5 +375,48 @@ mod tests {
             assert!(!l.boundary_kinds().is_empty(), "sem node-types p/ {:?}", l);
             let _ = l.language(); // não deve panicar (grammar carrega + ABI ok)
         }
+    }
+
+    const RUST_SRC: &str = "use std::fmt;\n\nfn small_a() -> i32 { 1 }\n\nfn small_b() -> i32 { 2 }\n\nstruct Big;\nimpl Big {\n    fn method_one(&self) { println!(\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"); }\n    fn method_two(&self) { println!(\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"); }\n}\n";
+
+    #[test]
+    fn chunks_functions_with_symbols() {
+        let out = chunk_code(RUST_SRC, ChunkLang::Rust, &ChunkOpts::default());
+        assert!(!out.is_empty());
+        let names: Vec<_> = out.iter().filter_map(|c| c.symbol.as_deref()).collect();
+        assert!(names.iter().any(|n| n.contains("small_a")), "symbols: {:?}", names);
+        // invariante: o text de cada chunk casa a fatia de bytes do fonte
+        for c in &out {
+            assert_eq!(&RUST_SRC[c.byte_range.0..c.byte_range.1], c.text, "byte_range != text em {:?}", c);
+            assert!(c.start_line >= 1 && c.end_line >= c.start_line, "linhas inválidas em {:?}", c);
+        }
+    }
+
+    #[test]
+    fn oversized_class_splits_into_methods() {
+        // impl gigante deve ser QUEBRADA nos seus métodos (não ficar 1 chunk só).
+        // (No Rust, métodos são `function_item` dentro do `impl_item` — o SPLIT recursivo
+        // os separa; o kind fica Function porque Rust não distingue method no node-type.)
+        let opts = ChunkOpts { target_tokens: 20, max_tokens: 30, min_tokens: 1 };
+        let out = chunk_code(RUST_SRC, ChunkLang::Rust, &opts);
+        let split = out.iter().filter(|c| {
+            matches!(c.symbol.as_deref(), Some("method_one") | Some("method_two"))
+        }).count();
+        assert!(split >= 2, "esperava a impl fatiada nos métodos, got {:?}", out);
+    }
+
+    #[test]
+    fn invalid_source_falls_back_never_empty() {
+        let junk = ")))this is not valid code((( \n @@@@ \n";
+        let out = chunk_code(junk, ChunkLang::Rust, &ChunkOpts::default());
+        assert!(!out.is_empty());
+    }
+
+    #[test]
+    fn unknown_content_via_fallback_covers_source() {
+        let src = "linha 1\n\nlinha 3\nlinha 4\n";
+        let out = fallback_chunks(src);
+        assert!(!out.is_empty());
+        assert_eq!(&src[out[0].byte_range.0..out[0].byte_range.1], out[0].text);
     }
 }
