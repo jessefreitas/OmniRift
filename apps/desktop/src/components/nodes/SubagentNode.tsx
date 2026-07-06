@@ -5,12 +5,13 @@
 // subagent_write). É PRIVADO do pai — só aquele Claude o invoca (Task tool); NÃO entra no
 // time MCP. É uma DEFINIÇÃO (arquivo), não um processo vivo: nó leve, sem PTY/ACP.
 
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { UserRoundCheck, Pencil, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { claudeOllamaModels } from "@/lib/llm-providers-client";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import type { SubagentNode as SubagentNodeData } from "@/types/canvas";
@@ -29,6 +30,15 @@ function SubagentNodeImpl({ data, selected }: NodeProps<SubagentRfNode>) {
   // opera um modelo fora de haiku/sonnet/opus — o frontmatter `model:` aceita qualquer string.
   const [customEditing, setCustomEditing] = useState(false);
   const [customDraft, setCustomDraft] = useState("");
+  // Catálogo curado do claude-ollama (models.env): os wrappers/proxies que o usuário já
+  // configurou (glm-5.2, kimi-k2.7…). Entram no dropdown como "via wrapper" pra não ter
+  // que digitar no "personalizado". Vazio se não houver claude-ollama (só nativos).
+  const [wrapperModels, setWrapperModels] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void claudeOllamaModels().catch(() => []).then((ms) => { if (alive) setWrapperModels(ms); });
+    return () => { alive = false; };
+  }, []);
 
   // Troca o modelo do subagente: persiste no nó + RE-ESCREVE o .claude/agents/<slug>.md com o
   // novo `model:` (ex: haiku pra tarefa barata). "" = remove o campo → herda o modelo do pai.
@@ -152,11 +162,19 @@ function SubagentNodeImpl({ data, selected }: NodeProps<SubagentRfNode>) {
               className="flex-1 rounded bg-black/20 px-1 py-0.5 text-[10px] text-text outline-none"
               title={t("subagent.modelTip", "Modelo do subagente (frontmatter). Vazio = herda o do pai; personalizado aceita QUALQUER modelo (wrappers/proxies como claude-glm52).")}
             >
-              {SUB_MODELS.map((m) => (
-                <option key={m || "inherit"} value={m}>{m || t("subagent.modelInherit", "herda do pai")}</option>
-              ))}
-              {/* Valor atual fora da lista (wrapper/proxy) → aparece selecionável */}
-              {data.model && !SUB_MODELS.includes(data.model) && (
+              <optgroup label={t("subagent.modelNativeGroup", "Claude nativo")}>
+                {SUB_MODELS.map((m) => (
+                  <option key={m || "inherit"} value={m}>{m || t("subagent.modelInherit", "herda do pai")}</option>
+                ))}
+              </optgroup>
+              {/* Wrappers/proxies do claude-ollama já configurados — sem digitar no personalizado. */}
+              {wrapperModels.length > 0 && (
+                <optgroup label={t("subagent.modelWrapperGroup", "via wrapper (claude-ollama)")}>
+                  {wrapperModels.map((m) => (<option key={m} value={m}>{m}</option>))}
+                </optgroup>
+              )}
+              {/* Valor atual fora de ambas as listas → aparece selecionável pra não sumir. */}
+              {data.model && !SUB_MODELS.includes(data.model) && !wrapperModels.includes(data.model) && (
                 <option value={data.model}>{data.model}</option>
               )}
               <option value="__custom">{t("subagent.modelCustom", "personalizado…")}</option>
