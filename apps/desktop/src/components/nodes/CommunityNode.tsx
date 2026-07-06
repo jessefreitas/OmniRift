@@ -17,6 +17,8 @@ import { Network, ChevronDown, ChevronRight, Flame, FileCode, X } from "lucide-r
 import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { useFlag } from "@/lib/feature-flags";
+import { SymbolBodyModal } from "@/components/SymbolBodyModal";
 import type { CommunityNode as CommunityNodeData } from "@/types/canvas";
 
 type CommunityRfNode = Node<CommunityNodeData & Record<string, unknown>, "community">;
@@ -28,6 +30,15 @@ function CommunityNodeImpl({ data, selected }: NodeProps<CommunityRfNode>) {
 
   const color = data.color ?? "#a78bfa";
   const godCount = data.godNodes?.length ?? 0;
+
+  // OmniGraph F2: clicar num símbolo (god/top) abre o corpo daquela função/classe (sob demanda).
+  const symbolBodyEnabled = useFlag("omnigraph-symbol-body");
+  const symbolFiles = data.symbolFiles ?? {};
+  const [openSymbol, setOpenSymbol] = useState<{ symbol: string; sourceFile: string } | null>(null);
+  function openBody(symbol: string) {
+    const sourceFile = symbolFiles[symbol];
+    if (sourceFile) setOpenSymbol({ symbol, sourceFile });
+  }
 
   // GRAFO INTEGRADO (#30): a comunidade ACENDE quando um agente edita um arquivo dela. O store
   // guarda um contador transiente por nó (communityActivity — seletor primitivo, zustand-v5 safe);
@@ -45,6 +56,7 @@ function CommunityNodeImpl({ data, selected }: NodeProps<CommunityRfNode>) {
   }, [activitySeq]);
 
   return (
+    <>
     <div
       className={cn(
         "flex h-full w-full flex-col overflow-hidden rounded-lg border bg-bg text-xs",
@@ -109,11 +121,24 @@ function CommunityNodeImpl({ data, selected }: NodeProps<CommunityRfNode>) {
                 <Flame size={10} /> {t("community.godNodesTitle", "god nodes")}
               </div>
               <div className="flex flex-wrap gap-1">
-                {data.godNodes.map((g, i) => (
-                  <span key={`${g}-${i}`} className="truncate rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] text-amber-200" title={g}>
-                    {g}
-                  </span>
-                ))}
+                {data.godNodes.map((g, i) => {
+                  const clickable = symbolBodyEnabled && !!symbolFiles[g];
+                  return (
+                    <button
+                      key={`${g}-${i}`}
+                      onClick={(e) => { e.stopPropagation(); if (clickable) openBody(g); }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      disabled={!clickable}
+                      className={cn(
+                        "truncate rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] text-amber-200",
+                        clickable ? "cursor-pointer hover:bg-amber-500/30" : "cursor-default",
+                      )}
+                      title={clickable ? t("community.viewBody", "Ver o código deste símbolo") : g}
+                    >
+                      {g}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -121,11 +146,22 @@ function CommunityNodeImpl({ data, selected }: NodeProps<CommunityRfNode>) {
             {t("community.topMembers", "top membros")}
           </div>
           <ul className="space-y-0.5">
-            {data.topMembers.map((m, i) => (
-              <li key={`${m}-${i}`} className="truncate font-mono text-[10px] text-text/70" title={m}>
-                {m}
-              </li>
-            ))}
+            {data.topMembers.map((m, i) => {
+              const clickable = symbolBodyEnabled && !!symbolFiles[m];
+              return (
+                <li
+                  key={`${m}-${i}`}
+                  onClick={(e) => { if (clickable) { e.stopPropagation(); openBody(m); } }}
+                  className={cn(
+                    "truncate font-mono text-[10px] text-text/70",
+                    clickable && "cursor-pointer hover:text-brand",
+                  )}
+                  title={clickable ? t("community.viewBody", "Ver o código deste símbolo") : m}
+                >
+                  {m}
+                </li>
+              );
+            })}
           </ul>
           {data.memberCount > data.topMembers.length && (
             <div className="mt-1 text-[9px] italic text-text/40">
@@ -138,6 +174,14 @@ function CommunityNodeImpl({ data, selected }: NodeProps<CommunityRfNode>) {
         </div>
       )}
     </div>
+    {openSymbol && (
+      <SymbolBodyModal
+        sourceFile={openSymbol.sourceFile}
+        symbol={openSymbol.symbol}
+        onClose={() => setOpenSymbol(null)}
+      />
+    )}
+    </>
   );
 }
 

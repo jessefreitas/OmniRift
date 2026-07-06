@@ -177,3 +177,18 @@ export async function omnigraphReportFull(cwd: string): Promise<string | null> {
 export async function omnigraphGraphJson(cwd: string): Promise<string | null> {
   return invoke<string | null>("omnigraph_graph_json", { cwd });
 }
+
+/** Corpo de um símbolo devolvido por `graph_node_body` (camelCase — serde rename_all). */
+export interface SymbolBody {
+  symbol: string;
+  kind: string;
+  startLine: number;
+  endLine: number;
+  text: string;
+}
+
+/** OmniGraph F2 — corpo do símbolo `symbol` em `sourceFile`, chunkado sob demanda. `null` = corpo
+ *  indisponível (lang não suportada, arquivo ausente, símbolo não localizado). Nunca lança. */
+export async function graphNodeBody(sourceFile: string, symbol: string): Promise<SymbolBody | null> {
+  return (await invoke<SymbolBody | null>("graph_node_body", { sourceFile, symbol })) ?? null;
+}
