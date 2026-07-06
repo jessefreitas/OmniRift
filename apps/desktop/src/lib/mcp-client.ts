@@ -4,6 +4,7 @@
 // Registra/remove agentes e retorna a URL do servidor local.
 
 import { invoke } from "@tauri-apps/api/core";
+import { getFlag } from "./feature-flags";
 
 /** Registra um terminal como agente disponível para o Orquestrador.
  *  `floor` = nome do floor onde o agente vive (topologia cross-floor). */
@@ -75,7 +76,11 @@ export async function mcpInventory(): Promise<McpInventoryItem[]> {
  * resolvido p/ session_id no POST do hook. Null se indisponível.
  */
 export async function agentSettingsConfig(label: string): Promise<string | null> {
-  return invoke<string | null>("agent_settings_config", { label });
+  // failproof-agents (flag, default on): injeta os hooks de aprendizado no agente.
+  return invoke<string | null>("agent_settings_config", {
+    label,
+    failproof: getFlag("failproof-agents"),
+  });
 }
 
 /** Envia o estado dos floors ao espelho do backend (para workspace_list). */
