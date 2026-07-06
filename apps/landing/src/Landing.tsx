@@ -221,6 +221,132 @@ const FEATURES: Feature[] = [
   },
   {
     num: "06",
+    title: "Aprenda programando (Tutor)",
+    desc: "Um tutor socrático que te ensina a programar e a entender o código do projeto — ancorado na doc REAL das libs (não inventa API) e no seu repositório. Exercícios com autocorreção que viram cards no Kanban. Do “como isso funciona?” ao “consegui sozinho”.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M3 8l10-4 10 4-10 4-10-4z" />
+        <path d="M7 10v5c0 1.4 6 3 6 3s6-1.6 6-3v-5" />
+      </svg>
+    ),
+  },
+  {
+    num: "07",
+    title: "Mapa vivo do código (OmniGraph)",
+    desc: "Um grafo estrutural do seu projeto — comunidades, acoplamentos e os hubs que exigem cuidado ao tocar. Os agentes nascem ancorados nele (sabem ONDE mexem) e você navega a arquitetura de relance, em vez de caçar arquivo por arquivo.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <circle cx="6" cy="7" r="2.5" />
+        <circle cx="19" cy="6" r="2.5" />
+        <circle cx="13" cy="18" r="2.5" />
+        <path d="M8 8.4l4 8M17 8l-3.4 8.4M8.3 6.8h8.3" />
+      </svg>
+    ),
+  },
+  {
+    num: "08",
+    title: "Checkpoint invisível",
+    desc: "Cada ação de agente vira um ponto de restauração automático. Errou? Volta o nó pro estado anterior com um clique — sem git, sem medo. Um versionador que trabalha nos bastidores enquanto você e os agentes tocam o projeto.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M13 3.5a9.5 9.5 0 1 1-8.7 5.6" />
+        <path d="M4 3.5v5h5" />
+        <path d="M13 8v5l3.5 2" />
+      </svg>
+    ),
+  },
+  {
+    num: "09",
+    title: "Comande do celular",
+    desc: "Saiu da frente do PC e um agente pediu permissão? Aprove ou negue pelo celular, mova cards do Kanban e veja a frota inteira — de qualquer lugar, via 4G. O canvas segue rodando em casa; você só pilota.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <rect x="7" y="2.5" width="12" height="21" rx="2.5" />
+        <path d="M11 20h4" />
+      </svg>
+    ),
+  },
+  {
+    num: "10",
+    title: "Kanban que os agentes tocam",
+    desc: "Um quadro de tarefas que os próprios agentes movem: puxam do backlog, marcam em progresso e entregam. Você acompanha o trabalho fluindo em tempo real — sem ficar perguntando “e aí, terminou?”.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <rect x="3" y="4" width="5.5" height="18" rx="1.5" />
+        <rect x="10.5" y="4" width="5.5" height="12" rx="1.5" />
+        <rect x="18" y="4" width="5" height="8" rx="1.5" />
+      </svg>
+    ),
+  },
+  {
+    num: "11",
+    title: "Cérebro de memória plugável",
+    desc: "Plugue os agentes num cérebro de memória compartilhado (OmniMemory, Obsidian…) — o que um agente aprende fica pro time e pra próxima sessão. Ligue todos ao canal de uma vez. A memória local já vem por padrão, zero config.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <ellipse cx="13" cy="6" rx="9" ry="3.2" />
+        <path d="M4 6v6c0 1.8 4 3.2 9 3.2s9-1.4 9-3.2V6" />
+        <path d="M4 12v6c0 1.8 4 3.2 9 3.2s9-1.4 9-3.2v-6" />
+      </svg>
+    ),
+  },
+  {
+    num: "12",
+    title: "Revisão de código por IA",
+    desc: "Todo agente passa por um gate de review antes de encerrar: enquanto reprovar (segurança, bugs, testes), ele NÃO finaliza — corrige sozinho. GO/NO-GO com o LLM que você trouxer (BYOK).",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M12 3l8 3v5c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6l8-3z" />
+        <path d="M8.5 11.5l2.5 2.5 4.5-5" />
+      </svg>
+    ),
+  },
+  {
+    num: "13",
+    title: "Escudo de credenciais",
+    desc: "Antes de mandar contexto pro LLM, avisa se há segredo crítico (token, chave privada) indo junto — redigido, nunca cru. O que é seu não vaza pro modelo.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M12 3l8 3v5c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6l8-3z" />
+        <path d="M12 9.5v3M12 15.5h.01" />
+      </svg>
+    ),
+  },
+  {
+    num: "14",
+    title: "Saúde do projeto ao vivo",
+    desc: "Um painel que lê seu projeto ao vivo — complexidade, hotspots e o que precisa de atenção. Saiba onde o código dói ANTES de mandar o agente mexer.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M3 13h4l2.5-6 4 12 2.5-6H21" />
+      </svg>
+    ),
+  },
+  {
+    num: "15",
+    title: "Rotinas agendadas",
+    desc: "Agende tarefas que rodam sozinhas — o agente acorda, faz e reporta. Do lembrete de rotina ao job noturno, sem você precisar estar na frente.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <circle cx="13" cy="13" r="9.5" />
+        <path d="M13 8v5.5l4 2" />
+      </svg>
+    ),
+  },
+  {
+    num: "16",
+    title: "Rode até passar (Goal + Loop)",
+    desc: "Dê um objetivo com condição de saída e o agente repete até passar de verdade (exit 0) — ou rode em loop por timer. Autonomia com freio: você define quando “pronto” é pronto.",
+    icon: (
+      <svg {...ICON_PROPS}>
+        <circle cx="13" cy="13" r="9.5" />
+        <circle cx="13" cy="13" r="5" />
+        <circle cx="13" cy="13" r="1.4" fill="var(--ac)" stroke="none" />
+      </svg>
+    ),
+  },
+  {
+    num: "17",
     title: "Open-source, no seu sistema",
     desc: "Roda em Linux e Windows (Tauri 2 + Rust), código aberto e 100% offline: sem login, sem analytics, sem nuvem. Config e notas ficam em arquivos de texto no seu disco, abríveis em qualquer editor.",
     icon: (
@@ -253,6 +379,10 @@ const FAQS: Faq[] = [
   {
     q: "O que são os Paralelos?",
     a: "Worktrees git de verdade: cada paralelo tem branch, working tree e terminal próprios, com hooks de setup, run e teardown. Toque várias frentes ao mesmo tempo — sem stash, sem trocar de branch.",
+  },
+  {
+    q: "E se os agentes travarem ou se perderem?",
+    a: "O OmniRift foi feito pra não travar em silêncio — e pra aprender. Cada agente captura os próprios erros→correções: se o mesmo erro voltar, ele já recebe o fix que funcionou antes (sem repetir a cilada). Um watchdog vigia a orquestração e cobra o líder sozinho se o time fica ocioso, te avisando se ainda assim empacar. A recitação mantém os agentes no rumo, e cada ação vira um checkpoint automático que você desfaz com um clique.",
   },
   {
     q: "Funciona no Windows e no Linux?",
@@ -571,6 +701,50 @@ export function Landing() {
               <p style={{ color: MUTED, fontSize: 14.5, lineHeight: 1.55, margin: 0 }}>{f.desc}</p>
             </div>
           ))}
+        </div>
+
+        {/* Confiabilidade highlight */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 32,
+            alignItems: "center",
+            justifyContent: "space-between",
+            border: "1px solid rgba(255,255,255,.09)",
+            borderRadius: 20,
+            padding: 40,
+            background: "linear-gradient(180deg, rgba(20,20,23,.6), rgba(12,12,15,.6))",
+            marginTop: 24,
+          }}
+        >
+          <div style={{ flexShrink: 0, order: 0 }}>
+            <svg width="220" height="170" viewBox="0 0 220 170" fill="none" aria-hidden="true">
+              <path d="M110 26l40 14v34c0 30-20 50-40 60-20-10-40-30-40-60V40l40-14z" fill="color-mix(in oklab,var(--ac) 12%,#141417)" stroke="var(--ac)" strokeWidth="1.6" />
+              <path d="M92 88l13 13 24-27" stroke="var(--ac)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+          </div>
+          <div style={{ flex: 1, minWidth: 280 }}>
+            <div
+              style={{
+                display: "inline-block",
+                fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 11,
+                letterSpacing: "1.5px",
+                color: "var(--ac)",
+                border: "1px solid color-mix(in oklab,var(--ac) 35%,transparent)",
+                borderRadius: 6,
+                padding: "4px 9px",
+                marginBottom: 18,
+              }}
+            >
+              APRENDE COM OS ERROS · FEITO PRA NÃO TRAVAR
+            </div>
+            <h3 style={{ fontSize: 27, fontWeight: 600, letterSpacing: "-.8px", margin: "0 0 12px", lineHeight: 1.15 }}>Seus agentes não tropeçam duas vezes na mesma pedra.</h3>
+            <p style={{ color: MUTED, fontSize: 16, lineHeight: 1.6, margin: 0, maxWidth: 470, textWrap: "pretty" }}>
+              Todo agente captura os próprios erros: quando um comando falha e depois passa, a solução fica guardada — e se o mesmo tropeço volta, ele já recebe o fix conhecido pra não repetir a cilada (distinguindo palpite de correção confirmada). E se o time empaca, o watchdog cobra o líder sozinho e avisa <b style={{ color: "#F3F3F4" }}>você</b>. Local, privado, sem instalar nada — menos madrugada perdida.
+            </p>
+          </div>
         </div>
       </section>
 
