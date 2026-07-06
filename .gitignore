@@ -71,3 +71,6 @@ ref/
 
 # ferramenta de scan externa (não versionar — 319MB)
 bin/endorctl
+
+# logs de gate de tools locais (sessões de agente) — nunca commitar
+tools/**/.gate.log
