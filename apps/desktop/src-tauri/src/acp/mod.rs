@@ -38,6 +38,24 @@ fn adapter_cmd(provider: &str) -> (&'static str, Vec<&'static str>) {
     }
 }
 
+/// `npx` resolve no PATH? O bridge de orquestração (server `omnirift-agents`) sobe via
+/// `npx -y mcp-remote <url>` dentro do adapter ACP. App GUI no Linux pode nascer sem o
+/// PATH de login completo (Node via nvm/volta fica fora do PATH do systemd/launcher) —
+/// aí o `npx` não resolve, o bridge falha e o agente sobe SEM as tools terminal_*/claim_*/
+/// memory_*/workspace_*. Antes isso era 100% silencioso (o contrato do agente jura ter
+/// essas tools, mas a superfície real não as tem — exatamente o sintoma do Hermes toolless).
+/// Checado no spawn pra transformar a falha muda em aviso visível (`acp://mcp-warning`).
+fn npx_available() -> bool {
+    let finder = if cfg!(windows) { "where" } else { "which" };
+    std::process::Command::new(finder)
+        .arg("npx")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Config BYOK do Hermes vinda do `HermesWizard` (front): provider de inferência + modelo + key.
 /// `base_url` só p/ endpoint custom (local). A key chega no spawn e é persistida no keychain;
 /// nos re-spawns o front manda `key` vazia e o backend a resolve do keychain.
@@ -467,6 +485,22 @@ impl AcpManager {
             "args": ["-y", "mcp-remote", mcp_url],
             "env": []
         }]);
+        // Pre-flight: sem `npx` o bridge acima NÃO conecta e o agente sobe sem as tools de
+        // orquestração — falha antes 100% silenciosa. Emite aviso VISÍVEL (o front mostra no
+        // corpo do agente). Best-effort: só avisa, não bloqueia — o agente ainda roda com as
+        // tools nativas do adapter. Emitido aqui (fora do async move) enquanto `app`/`id` vivem.
+        if !npx_available() {
+            let _ = app.emit("acp://mcp-warning", GenericEvent {
+                session_id: id.clone(),
+                seq: 0,
+                data: json!({
+                    "reason": "npx-missing",
+                    "message": "MCP de orquestração indisponível: `npx` não foi encontrado no PATH. \
+O agente sobe SEM as tools terminal_*/claim_*/memory_*/workspace_* (não conseguirá comandar a equipe). \
+Instale Node/npm ou garanta que `npx` esteja no PATH do app."
+                }),
+            });
+        }
         tauri::async_runtime::spawn(async move {
             let init = json!({
                 "jsonrpc": "2.0", "id": 1, "method": "initialize",

@@ -262,3 +262,17 @@ export function listenAcpModelRejected(
     (p) => handler(p.data, p.seq),
   );
 }
+
+/** O bridge MCP de orquestração (`omnirift-agents` via `npx mcp-remote`) não pôde subir —
+ *  `data.message` explica (ex.: `npx` fora do PATH). Sem isso o agente subia sem as tools
+ *  de orquestração (terminal/claim/memory) e ninguém sabia por quê (Hermes toolless). */
+export function listenAcpMcpWarning(
+  sessionId: string,
+  handler: (message: string, reason: string, seq?: number) => void,
+): Promise<UnlistenFn> {
+  return onSession<BasePayload & { data: { message?: string; reason?: string } }>(
+    "acp://mcp-warning",
+    sessionId,
+    (p) => handler(p.data?.message ?? "MCP de orquestração indisponível", p.data?.reason ?? "unknown", p.seq),
+  );
+}
