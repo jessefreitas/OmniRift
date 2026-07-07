@@ -8,6 +8,7 @@ pub mod health;
 // Contrato Socrático do OmniPartner Aprender (Fase 9, A1): system-prompt canônico
 // + garantia anti-vazamento TESTÁVEL (a solução não sai antes do nível máximo).
 pub mod learn;
+pub mod llm_router;
 pub mod mcp;
 pub mod memory;
 pub mod metrics;
