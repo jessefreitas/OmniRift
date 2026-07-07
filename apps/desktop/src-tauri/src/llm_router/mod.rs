@@ -62,6 +62,27 @@ pub struct RoutingTable {
     pub classes: HashMap<String, Vec<Target>>,
     #[serde(default)]
     pub default_strategy: Strategy,
+    #[serde(default)]
+    pub providers: HashMap<String, ProviderInfo>,
+}
+
+/// Protocolo que o upstream fala (define qual rota serve qual provider).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Protocol {
+    #[default]
+    Openai,
+    Anthropic,
+}
+
+/// Info de upstream de um provider: URL base + protocolo.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderInfo {
+    /// Ex.: "https://api.anthropic.com" (sem barra final; o handler acrescenta o path).
+    pub base_url: String,
+    #[serde(default)]
+    pub protocol: Protocol,
 }
 
 #[cfg(test)]
@@ -77,5 +98,14 @@ mod tests {
     #[test]
     fn strategy_defaults_to_explicit() {
         assert_eq!(Strategy::default(), Strategy::Explicit);
+    }
+
+    #[test]
+    fn parses_providers_map() {
+        let j = r#"{"classes":{"code":[{"providerId":"groq","model":"m","keyRef":"k"}]},
+          "providers":{"groq":{"baseUrl":"https://api.groq.com","protocol":"openai"}}}"#;
+        let t: RoutingTable = serde_json::from_str(j).unwrap();
+        assert_eq!(t.providers["groq"].base_url, "https://api.groq.com");
+        assert_eq!(t.providers["groq"].protocol, Protocol::Openai);
     }
 }
