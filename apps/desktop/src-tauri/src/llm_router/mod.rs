@@ -6,7 +6,11 @@ pub mod engine;
 pub mod forward;
 pub mod health;
 pub mod keys;
+pub mod server;
 pub mod table;
+
+/// Porta loopback do OmniSwitch (fixa, como o MCP em 7844).
+pub const ROUTER_PORT: u16 = 7845;
 
 use std::collections::HashMap;
 
