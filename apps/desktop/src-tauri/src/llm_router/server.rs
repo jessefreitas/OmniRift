@@ -60,9 +60,16 @@ pub fn build_router(state: RouterState) -> Router {
         .with_state(state)
 }
 
-// Stub até a Task 5 (mesma assinatura da versão final).
-async fn messages_handler(State(_s): State<RouterState>) -> axum::http::StatusCode {
-    axum::http::StatusCode::NOT_IMPLEMENTED
+async fn messages_handler(
+    State(s): State<RouterState>,
+    Query(q): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: bytes::Bytes,
+) -> Response {
+    if !check_token(&headers, &q, &s.token) {
+        return err_json(401, "token inválido");
+    }
+    route_and_forward(&s, &headers, Protocol::Anthropic, "/v1/messages", body).await
 }
 
 /// Resolve a classe do request: header `x-omniswitch-class` OU a 1ª classe com alvo de
@@ -273,5 +280,20 @@ mod tests {
         let addr = serve(build_router(oai_state(&a, &a))).await;
         let r = reqwest::Client::new().post(format!("http://{addr}/v1/chat/completions")).body("{}").send().await.unwrap();
         assert_eq!(r.status().as_u16(), 401);
+    }
+
+    #[tokio::test]
+    async fn messages_forwards_when_provider_is_anthropic() {
+        if !crate::memory::secret_store::set("credential.llm.__sw_an__", "kan") { return; }
+        let up = mock_upstream("/v1/messages", 200).await;
+        let j = format!(r#"{{"classes":{{"claude":[{{"providerId":"an","model":"c","keyRef":"credential.llm.__sw_an__"}}]}},
+          "providers":{{"an":{{"baseUrl":"{up}","protocol":"anthropic"}}}}}}"#);
+        let st = RouterState { table: Arc::new(Mutex::new(table::parse(&j).unwrap())),
+            health: Arc::new(Mutex::new(KeyHealth::new(60_000))), rr: Arc::new(AtomicUsize::new(0)),
+            client: reqwest::Client::new(), token: Arc::new("tk".to_string()), max_attempts: 3 };
+        let addr = serve(build_router(st)).await;
+        let r = reqwest::Client::new().post(format!("http://{addr}/v1/messages?token=tk")).body("{}").send().await.unwrap();
+        assert_eq!(r.status().as_u16(), 200);
+        crate::memory::secret_store::delete("credential.llm.__sw_an__");
     }
 }
