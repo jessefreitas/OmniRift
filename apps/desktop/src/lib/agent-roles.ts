@@ -5,7 +5,7 @@
 // os seus. Persiste em localStorage (seed = BUILTIN_ROLES no primeiro uso).
 
 import type { AgentRole } from "@/types/pty";
-import { ORCHESTRATOR_CONTRACT } from "@/lib/agent-contract";
+import { ORCHESTRATOR_CONTRACT, DEV_CONTRACT, workerClaudeArgs } from "@/lib/agent-contract";
 
 export interface AgentRoleDef {
   id: string;
@@ -69,6 +69,50 @@ export const ROLE_CLIS: RoleCli[] = [
   { id: "antigravity", label: "Antigravity (agy)", command: "agy", role: "antigravity" },
   { id: "shell", label: "Shell (terminal puro)", command: detectShell(), role: "shell" },
 ];
+
+/** Recupera a persona CRUA (sem o contrato) dos args de um agente claude já spawnado.
+ *  Os args de um claude carregam a persona embutida em `--append-system-prompt`, com o
+ *  DEV_CONTRACT (worker) ou ORCHESTRATOR_CONTRACT (orquestrador) PREFIXADO. Ao trocar o
+ *  CLI/LLM do nó precisamos da persona pura pra remontar os args do CLI destino — este
+ *  helper a extrai tirando o prefixo do contrato. Sem `--append-system-prompt` (CLI sem
+ *  flag) → "" (o nó não guarda a persona crua nesse caso; melhor esforço). Puro/testável. */
+export function extractPersona(args?: string[]): string {
+  if (!args) return "";
+  const i = args.indexOf("--append-system-prompt");
+  if (i < 0 || i + 1 >= args.length) return "";
+  const sys = args[i + 1] ?? "";
+  for (const contract of [DEV_CONTRACT, ORCHESTRATOR_CONTRACT]) {
+    if (sys.startsWith(contract)) return sys.slice(contract.length).replace(/^\n+/, "");
+  }
+  return sys;
+}
+
+/** Remonta `command`/`args`/`role` pra trocar o CLI/LLM de um nó existente, REUSANDO a
+ *  mesma lógica de montagem do spawn (workerClaudeArgs p/ claude; flag p/ CLIs com
+ *  systemPromptFlag; 1ª-mensagem p/ CLIs sem flag). Não spawna nada — só descreve o alvo.
+ *  `firstMessage` (definido só p/ CLIs sem flag) = persona a injetar quando o terminal
+ *  ficar ready (o claude/flag já recebe a persona nos args). Puro/testável. */
+export function buildCliSwitch(opts: {
+  cli: RoleCli;
+  persona: string;
+  mcpConfigPath?: string | null;
+  settingsPath?: string | null;
+}): { command: string; args: string[]; role: AgentRole; firstMessage?: string } {
+  const { cli, persona, mcpConfigPath, settingsPath } = opts;
+  if (cli.role === "claude-code") {
+    return {
+      command: cli.command,
+      args: workerClaudeArgs(mcpConfigPath, persona, settingsPath),
+      role: cli.role,
+    };
+  }
+  if (cli.systemPromptFlag) {
+    return { command: cli.command, args: [cli.systemPromptFlag, persona], role: cli.role };
+  }
+  // CLI sem flag de system-prompt (codex/opencode/antigravity/shell): persona vai como
+  // 1ª mensagem quando o terminal fica ready (mesma convenção do spawnRole).
+  return { command: cli.command, args: [], role: cli.role, firstMessage: persona };
+}
 
 export const BUILTIN_ROLES: AgentRoleDef[] = [
   {

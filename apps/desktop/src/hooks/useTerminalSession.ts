@@ -58,10 +58,11 @@ interface UseTerminalSessionReturn {
   /** Escreve uma linha de AVISO local no xterm (NÃO vai pro PTY) — ex.: colar
    *  cancelado por exceder o teto de payload do IPC. */
   writeNotice: (msg: string) => void;
-  /** Mata o PTY atual e re-spawna com a mesma config, sem recriar o xterm.js. */
-  /** Re-spawna o PTY. `extraArgs` (ex: `["--continue"]`) são acrescentados aos args do
-   *  comando no respawn — usado pra recarregar subagentes do claude MANTENDO a conversa. */
-  reconnect: (extraArgs?: string[]) => Promise<void>;
+  /** Mata o PTY atual e re-spawna, sem recriar o xterm.js. `extraArgs` (ex: `["--continue"]`)
+   *  são acrescentados aos args no respawn (recarregar subagentes MANTENDO a conversa).
+   *  `configOverride` re-spawna com command/args/env NOVOS (troca de CLI/LLM, item 3) — sem
+   *  ele usa a config do render (reload comum, intocado). */
+  reconnect: (extraArgs?: string[], configOverride?: PtySpawnConfig) => Promise<void>;
   /**
    * Liga (foreground) / desliga (background) a escrita ao vivo no xterm (ref P0 #2).
    * O `TerminalNode` chama com o `inViewport`/visibilidade. Em background a saída é
@@ -609,10 +610,14 @@ export function useTerminalSession({
     terminalRef.current?.write(`\r\n\x1b[33m${msg}\x1b[0m\r\n`);
   }, []);
 
-  const reconnect = useCallback(async (extraArgs?: string[]) => {
+  const reconnect = useCallback(async (extraArgs?: string[], configOverride?: PtySpawnConfig) => {
     const term = terminalRef.current;
     const fitAddon = fitAddonRef.current;
     if (!term) return;
+    // configOverride: troca de CLI/LLM (item 3) re-spawna com command/args NOVOS. Aditivo —
+    // sem override usa o `config` do render (comportamento original do reload intocado). O
+    // override evita a corrida com o re-render do patchNode: spawnamos já com a config certa.
+    const eff = configOverride ?? config;
 
     setReady(false);
     setError(null);
@@ -643,8 +648,8 @@ export function useTerminalSession({
     try {
       fitAddon?.fit();
       const { cols, rows } = term;
-      const respawnArgs = extraArgs?.length ? [...(config.args ?? []), ...extraArgs] : config.args;
-      const spawnOnce = () => ptySpawn(sessionId, { ...config, args: respawnArgs, cols, rows });
+      const respawnArgs = extraArgs?.length ? [...(eff.args ?? []), ...extraArgs] : eff.args;
+      const spawnOnce = () => ptySpawn(sessionId, { ...eff, args: respawnArgs, cols, rows });
       try {
         await spawnOnce();
       } catch (e) {
