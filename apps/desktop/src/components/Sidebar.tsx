@@ -694,14 +694,15 @@ export function Sidebar() {
       }
 
       const label = `${det.finding ? "fix" : "debug"}: ${det.target.split("/").pop()}`;
-      void settingsFor(label).then((settingsConfigPath) =>
-        addTerminal({
-          command: "claude",
-          args: [...workerClaudeArgs(mcpConfigPath, dbg?.prompt, settingsConfigPath), task],
-          role: "claude-code",
-          label,
-          compressor: loadDefaultCompressor(),
-        }),
+      void Promise.all([settingsFor(label), agentMcpConfig().catch(() => null)]).then(
+        ([settingsConfigPath, freshMcpPath]) =>
+          addTerminal({
+            command: "claude",
+            args: [...workerClaudeArgs(freshMcpPath ?? mcpConfigPath, dbg?.prompt, settingsConfigPath), task],
+            role: "claude-code",
+            label,
+            compressor: loadDefaultCompressor(),
+          }),
       );
     };
     window.addEventListener("omnirift:health-spawn-agent", h);
@@ -724,14 +725,15 @@ export function Sidebar() {
         `Use este contexto pra a próxima tarefa (ajustar estilo, criar componente equivalente, ` +
         `escrever um seletor de teste, etc.):\n\n${det.markdown}`;
       const label = `grab: ${(det.url ?? "portal").replace(/^https?:\/\//, "").split("/")[0]}`;
-      void settingsFor(label).then((settingsConfigPath) =>
-        addTerminal({
-          command: "claude",
-          args: [...workerClaudeArgs(mcpConfigPath, dbg?.prompt, settingsConfigPath), task],
-          role: "claude-code",
-          label,
-          compressor: loadDefaultCompressor(),
-        }),
+      void Promise.all([settingsFor(label), agentMcpConfig().catch(() => null)]).then(
+        ([settingsConfigPath, freshMcpPath]) =>
+          addTerminal({
+            command: "claude",
+            args: [...workerClaudeArgs(freshMcpPath ?? mcpConfigPath, dbg?.prompt, settingsConfigPath), task],
+            role: "claude-code",
+            label,
+            compressor: loadDefaultCompressor(),
+          }),
       );
     };
     window.addEventListener("omnirift:portal-grab", h);
@@ -1091,11 +1093,15 @@ export function Sidebar() {
   async function argsWithMcp(preset: AgentPreset): Promise<string[] | undefined> {
     if (preset.role === "claude-code") {
       const settingsPath = await settingsFor(preset.label);
+      // Busca o agent-mcp.json FRESCO a cada spawn — mcpConfigPath (resolvido 1x no
+      // mount da Sidebar) fica stale assim que o usuário liga/desliga um MCP custom
+      // ou troca o provider de memória; só serve como fallback se a chamada falhar.
+      const freshMcpPath = (await agentMcpConfig().catch(() => null)) ?? mcpConfigPath;
       return [
         ...(preset.args ?? []),
         // --strict-mcp-config: só o perfil MCP curado do OmniRift, sem mesclar o
         // ~/.claude.json global (evita o agente nascer com contexto estourado).
-        ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath, "--strict-mcp-config"] : []),
+        ...(freshMcpPath ? ["--mcp-config", freshMcpPath, "--strict-mcp-config"] : []),
         ...(settingsPath ? ["--settings", settingsPath] : []),
       ];
     }
@@ -1304,12 +1310,14 @@ export function Sidebar() {
     const cli = ROLE_CLIS.find((c) => c.id === cliId) ?? ROLE_CLIS[0];
     if (cli.role === "claude-code") {
       const settingsConfigPath = await settingsFor("Orquestrador");
+      // Fresco a cada spawn — ver comentário em argsWithMcp sobre o cache stale.
+      const freshMcpPath = (await agentMcpConfig().catch(() => null)) ?? mcpConfigPath;
       const args = [
         "--append-system-prompt", ORCHESTRATOR_CONTRACT,
         "--dangerously-skip-permissions",
         "--disallowed-tools", ...DENY_DESTRUCTIVE,
         // --strict-mcp-config: só o perfil MCP curado do OmniRift, sem o global.
-        ...(mcpConfigPath ? ["--mcp-config", mcpConfigPath, "--strict-mcp-config"] : []),
+        ...(freshMcpPath ? ["--mcp-config", freshMcpPath, "--strict-mcp-config"] : []),
         ...(settingsConfigPath ? ["--settings", settingsConfigPath] : []),
       ];
       addTerminal({ command: cli.command, args, role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
@@ -1365,7 +1373,7 @@ export function Sidebar() {
     const roleMcpPath =
       r.mcpServers !== undefined
         ? ((await agentMcpConfig(r.mcpServers).catch(() => null)) ?? mcpConfigPath)
-        : mcpConfigPath;
+        : ((await agentMcpConfig().catch(() => null)) ?? mcpConfigPath);
 
     if (cli.systemPromptFlag) {
       const baseArgs =
