@@ -324,23 +324,35 @@ pub fn run() {
         // sem thread/IO no construtor: app.manage disto no boot nunca panica.
         // O estado de cada run vive em disco (`.omnirift/turbo/`, a fonte da verdade).
         .manage(std::sync::Arc::new(crate::turbo::TurboCancels::new()) as crate::turbo::TurboState)
-        .plugin(
+        .plugin({
+            // mut só é exercido em debug (targets.push do Stdout abaixo) — release não
+            // muta, dispara unused_mut sem o allow.
+            #[allow(unused_mut)]
+            let mut targets = vec![
+                // Arquivo no app log dir do SO → "omnirift.log" (resolvido por
+                // app.path().app_log_dir() — mesmo path lido pelo collect_diagnostics).
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                    file_name: Some("omnirift".into()),
+                }),
+            ];
+            // Stdout SÓ em dev: o app instalado (.deb, launcher gráfico) roda sem console
+            // anexado — quando o stdout herdado (pipe/tty) morre, a escrita falha com EPIPE
+            // e o fern (usado pelo tauri-plugin-log) tenta reportar o erro TAMBÉM via stderr;
+            // se stderr também estiver quebrado, ele dá panic!() como último recurso e derruba
+            // o processo (visto em produção: "[RUST PANIC] ... Pipe quebrado (os error 32)"
+            // bem no meio de um log::info! de "MCP: agente registrado"). Arquivo comum
+            // (LogDir) nunca sofre EPIPE — só pipes/sockets/ttys sofrem — então tirar o
+            // Stdout do build de produção elimina esse modo de crash por completo.
+            #[cfg(debug_assertions)]
+            targets.push(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout));
             tauri_plugin_log::Builder::new()
-                .targets([
-                    // Arquivo no app log dir do SO → "omnirift.log" (resolvido por
-                    // app.path().app_log_dir() — mesmo path lido pelo collect_diagnostics).
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
-                        file_name: Some("omnirift".into()),
-                    }),
-                    // Também stdout (dev/terminal).
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
-                ])
+                .targets(targets)
                 .level(log::LevelFilter::Info)
                 // Rotação razoável: mantém só o log atual até ~5 MB, depois rotaciona.
                 .max_file_size(5 * 1024 * 1024)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
-                .build(),
-        )
+                .build()
+        })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
