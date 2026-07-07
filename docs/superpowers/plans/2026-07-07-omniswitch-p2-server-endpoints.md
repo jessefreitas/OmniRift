@@ -648,3 +648,7 @@ git commit -m "feat(omniswitch): boot do server no setup() + load_state de ~/.om
 
 ⚠️ **Honestidade (observado×validado):** os testes de forward/fallback (Task 4–5) são **skip-safe** sem keychain — em ambiente sem Secret Service ficam **observados** (compilam + lógica dos puros do Plano 1 validada), não **validados** ponta-a-ponta. `rejects_without_token`/`healthz`/`token_check` sempre rodam. Validação real (agente batendo no router) é manual no app rodando.
 - **Fora do Plano 2 (Plano 3):** env `ANTHROPIC_BASE_URL`/`OPENAI_BASE_URL` no spawn dos agentes, feature flag, UI da Central de Providers, relógio monotônico no cooldown (v1 `now_ms=0`), `/v1/models` + `count_tokens`.
+
+## Emenda pós-implementação (auditoria)
+
+Os testes de integração deste plano faziam round-trip no keychain REAL do SO (`secret_store::set`→`keys::resolve`), o que flakava sob `cargo test` paralelo (contenção do Secret Service → `resolve` devolve `None` → 502). **Fix aplicado:** `RouterState` ganhou `resolve_key: Arc<dyn Fn(&str)->Option<String>+Send+Sync>` (prod = `keys::resolve`; testes = double determinístico). `route_and_forward` usa `(s.resolve_key)(...)`. Os testes de forward/fallback deixaram de ser skip-safe → agora **determinísticos e sempre rodando**. Suíte paralela: 589/0 (2×). Deviations do subagente aceitos: `bytes="1"` + reqwest `"stream"` no Cargo.toml (necessários pro `forward_once`/`bytes_stream`). Pré-existente NÃO resolvido aqui: flake ocasional de `commands::llm::tests::cli_run_timeout_kills_child_and_errors` (`/tmp` exec race, fora do módulo).

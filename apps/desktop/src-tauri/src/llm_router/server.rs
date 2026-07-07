@@ -24,6 +24,10 @@ pub struct RouterState {
     pub token: Arc<String>,
     /// Teto de alvos tentados por request (fallback). Default 3.
     pub max_attempts: usize,
+    /// Resolve keyRef → valor da chave. Prod = keychain (`keys::resolve`); testes injetam
+    /// um double determinístico. Injetado pra desacoplar o router do keychain REAL do SO
+    /// (Secret Service), que flaka sob `cargo test` paralelo — mesma armadilha do keys.rs.
+    pub resolve_key: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
 }
 
 /// Igualdade em tempo ~constante (espelha o ct_eq do MCP server).
@@ -118,7 +122,7 @@ async fn route_and_forward(s: &RouterState, headers: &HeaderMap, want: Protocol,
             last_err = format!("provider '{}' sem entrada em providers", target.provider_id);
             continue;
         };
-        let Some(key) = crate::llm_router::keys::resolve(&target.key_ref) else {
+        let Some(key) = (s.resolve_key)(&target.key_ref) else {
             last_err = format!("keyRef '{}' não encontrado no keychain", target.key_ref);
             continue;
         };
@@ -191,6 +195,7 @@ pub fn load_state(token: String) -> RouterState {
         client: reqwest::Client::new(),
         token: Arc::new(token),
         max_attempts: 3,
+        resolve_key: Arc::new(|k| crate::llm_router::keys::resolve(k)),
     }
 }
 
@@ -226,6 +231,7 @@ mod tests {
             client: reqwest::Client::new(),
             token: Arc::new("secret-token".to_string()),
             max_attempts: 3,
+            resolve_key: Arc::new(|_| Some("test-key".to_string())),
         }
     }
 
@@ -276,7 +282,8 @@ mod tests {
                         "b":{{"baseUrl":"{base_b}","protocol":"openai"}}}}}}"#);
         RouterState { table: Arc::new(Mutex::new(table::parse(&j).unwrap())),
             health: Arc::new(Mutex::new(KeyHealth::new(60_000))), rr: Arc::new(AtomicUsize::new(0)),
-            client: reqwest::Client::new(), token: Arc::new("tk".to_string()), max_attempts: 3 }
+            client: reqwest::Client::new(), token: Arc::new("tk".to_string()), max_attempts: 3,
+            resolve_key: Arc::new(|_| Some("k".to_string())) }
     }
 
     async fn serve(app: Router) -> String {
@@ -288,28 +295,20 @@ mod tests {
 
     #[tokio::test]
     async fn forwards_200_from_first_target() {
-        if !crate::memory::secret_store::set("credential.llm.__sw_a__", "ka") { return; } // sem keychain → skip
-        crate::memory::secret_store::set("credential.llm.__sw_b__", "kb");
         let a = mock_upstream("/v1/chat/completions", 200).await;
         let b = mock_upstream("/v1/chat/completions", 200).await;
         let addr = serve(build_router(oai_state(&a, &b))).await;
         let r = reqwest::Client::new().post(format!("http://{addr}/v1/chat/completions?token=tk")).body("{}").send().await.unwrap();
         assert_eq!(r.status().as_u16(), 200);
-        crate::memory::secret_store::delete("credential.llm.__sw_a__");
-        crate::memory::secret_store::delete("credential.llm.__sw_b__");
     }
 
     #[tokio::test]
     async fn falls_back_to_second_target_on_429() {
-        if !crate::memory::secret_store::set("credential.llm.__sw_a__", "ka") { return; }
-        crate::memory::secret_store::set("credential.llm.__sw_b__", "kb");
         let a = mock_upstream("/v1/chat/completions", 429).await; // 1º alvo 429
         let b = mock_upstream("/v1/chat/completions", 200).await; // 2º alvo 200
         let addr = serve(build_router(oai_state(&a, &b))).await;
         let r = reqwest::Client::new().post(format!("http://{addr}/v1/chat/completions?token=tk")).body("{}").send().await.unwrap();
         assert_eq!(r.status().as_u16(), 200); // caiu no 2º
-        crate::memory::secret_store::delete("credential.llm.__sw_a__");
-        crate::memory::secret_store::delete("credential.llm.__sw_b__");
     }
 
     #[tokio::test]
@@ -322,16 +321,15 @@ mod tests {
 
     #[tokio::test]
     async fn messages_forwards_when_provider_is_anthropic() {
-        if !crate::memory::secret_store::set("credential.llm.__sw_an__", "kan") { return; }
         let up = mock_upstream("/v1/messages", 200).await;
         let j = format!(r#"{{"classes":{{"claude":[{{"providerId":"an","model":"c","keyRef":"credential.llm.__sw_an__"}}]}},
           "providers":{{"an":{{"baseUrl":"{up}","protocol":"anthropic"}}}}}}"#);
         let st = RouterState { table: Arc::new(Mutex::new(table::parse(&j).unwrap())),
             health: Arc::new(Mutex::new(KeyHealth::new(60_000))), rr: Arc::new(AtomicUsize::new(0)),
-            client: reqwest::Client::new(), token: Arc::new("tk".to_string()), max_attempts: 3 };
+            client: reqwest::Client::new(), token: Arc::new("tk".to_string()), max_attempts: 3,
+            resolve_key: Arc::new(|_| Some("k".to_string())) };
         let addr = serve(build_router(st)).await;
         let r = reqwest::Client::new().post(format!("http://{addr}/v1/messages?token=tk")).body("{}").send().await.unwrap();
         assert_eq!(r.status().as_u16(), 200);
-        crate::memory::secret_store::delete("credential.llm.__sw_an__");
     }
 }
