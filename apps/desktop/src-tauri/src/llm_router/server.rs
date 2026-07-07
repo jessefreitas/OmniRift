@@ -174,6 +174,44 @@ async fn chat_handler(
     route_and_forward(&s, &headers, Protocol::Openai, "/v1/chat/completions", body).await
 }
 
+/// Carrega a tabela de `~/.omnirift/llm_router.json` (ou vazia se ausente) e devolve o state.
+pub fn load_state(token: String) -> RouterState {
+    let table = std::fs::read_to_string(config_path())
+        .ok()
+        .and_then(|s| crate::llm_router::table::parse(&s).ok())
+        .unwrap_or_else(|| RoutingTable {
+            classes: Default::default(),
+            default_strategy: Default::default(),
+            providers: Default::default(),
+        });
+    RouterState {
+        table: Arc::new(Mutex::new(table)),
+        health: Arc::new(Mutex::new(KeyHealth::new(60_000))),
+        rr: Arc::new(AtomicUsize::new(0)),
+        client: reqwest::Client::new(),
+        token: Arc::new(token),
+        max_attempts: 3,
+    }
+}
+
+fn config_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    std::path::PathBuf::from(home).join(".omnirift").join("llm_router.json")
+}
+
+/// Sobe o server no runtime tokio (loopback:ROUTER_PORT). Fail-soft: bind falha só loga.
+pub async fn boot(state: RouterState) {
+    let app = build_router(state);
+    let addr = format!("127.0.0.1:{}", crate::llm_router::ROUTER_PORT);
+    match tokio::net::TcpListener::bind(&addr).await {
+        Ok(listener) => {
+            log::info!("OmniSwitch server: http://{addr}");
+            let _ = axum::serve(listener, app).await;
+        }
+        Err(e) => log::warn!("OmniSwitch: bind {addr} falhou ({e}) — roteador desligado nesta sessão"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

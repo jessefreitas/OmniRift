@@ -305,6 +305,15 @@ pub fn run() {
                 }
             });
 
+            // OmniSwitch: roteador de chave LLM (loopback ROUTER_PORT). State gerenciado
+            // pros comandos de config (Plano 3). Token próprio por boot.
+            let sw_token = crate::rpc::metadata::generate_token();
+            let sw_state = crate::llm_router::server::load_state(sw_token);
+            app.manage(sw_state.clone());
+            tauri::async_runtime::spawn(async move {
+                crate::llm_router::server::boot(sw_state).await;
+            });
+
             // Pre-warm dos caches uvx/npx dos MCP dos agentes (serena/playwright):
             // cold-start estoura o timeout de startup MCP → "✗ failed" na 1ª vez.
             // Background, sequencial, best-effort — nunca atrasa nem quebra o boot.
