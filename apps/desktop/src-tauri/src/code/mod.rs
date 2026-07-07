@@ -6,6 +6,7 @@
 //! seguintes — cada `pub mod` é adicionado quando o arquivo é criado, pra não
 //! quebrar o build com módulo inexistente.
 
+pub mod chunk;
 pub mod file_io;
 pub mod metrics;
 

@@ -23,6 +23,8 @@ import { ptyWrite } from "@/lib/pty-client";
 import { copyText, pasteText, readClipboardPng, savePastePng, MAX_PASTE_BYTES, utf8ByteLength } from "@/lib/clipboard";
 import { compressorSavings, isCompressorEnabled, type SavingsReport } from "@/lib/compress-client";
 import { CLI_CATALOG } from "@/lib/clis-client";
+import { agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
+import { ROLE_CLIS, extractPersona, buildCliSwitch } from "@/lib/agent-roles";
 import { cn } from "@/lib/cn";
 import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
 
@@ -63,6 +65,7 @@ function formatAge(ms: number): string {
 function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const t = useT();
   const removeNode = useCanvasStore((s) => s.removeNode);
+  const patchNode = useCanvasStore((s) => s.patchNode);
   const renameNode = useCanvasStore((s) => s.renameNode);
   const openConnectMenu = useCanvasStore((s) => s.openConnectMenu);
   const addToClipboard = useCanvasStore((s) => s.addToClipboard);
@@ -148,6 +151,85 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
     window.addEventListener("omnirift:agent-wake", onWake);
     return () => window.removeEventListener("omnirift:agent-wake", onWake);
   }, [data.session_id, reconnect]);
+
+  // Reload troca o CLI/LLM efetivo por reconstrução (mesmo binário, mas o PID e a
+  // config MCP são refeitos do zero) — então antes de re-spawnar refrescamos o
+  // agent-mcp.json em disco (o path já embutido em data.args é estável/determinístico;
+  // regravar o CONTEÚDO no mesmo path evita que o agente volte com a MESMA foto velha
+  // de MCP servers que tinha na hora em que nasceu). Best-effort: falha no refresh não
+  // deve bloquear o reload — o agente sobe com o que já estava no disco.
+  const reloadWithFreshMcp = useCallback(
+    async (extraArgs?: string[]) => {
+      if (data.role === "claude-code") {
+        await agentMcpConfig().catch(() => null);
+      }
+      await reconnect(extraArgs);
+    },
+    [data.role, reconnect],
+  );
+
+  // Item 3 — TROCA de CLI/LLM de um agente existente (inclusive morto). Remonta command/
+  // args/role pro CLI destino REUSANDO buildCliSwitch (mesma lógica do spawnRole), persiste
+  // no nó (patchNode) e re-spawna com a config nova via override (sem corrida de re-render).
+  // A persona é recuperada dos args atuais (extractPersona); pra CLIs sem flag de
+  // system-prompt ela vai como 1ª mensagem quando o terminal fica ready.
+  const switchCli = useCallback(
+    async (cliId: string) => {
+      const cli = ROLE_CLIS.find((c) => c.id === cliId);
+      if (!cli) return;
+      // No-op: já é este CLI/role → não re-spawna à toa (evita matar um agente vivo sem motivo).
+      if (cli.command === data.command && cli.role === data.role) return;
+      const persona = extractPersona(data.args);
+      const [mcpPath, settingsPath] = await Promise.all([
+        cli.role === "claude-code" ? agentMcpConfig().catch(() => null) : Promise.resolve(null),
+        cli.role === "claude-code"
+          ? agentSettingsConfig(data.label ?? cli.label).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      const built = buildCliSwitch({ cli, persona, mcpConfigPath: mcpPath, settingsPath });
+      patchNode(data.id, { command: built.command, args: built.args, role: built.role });
+      await reconnect(undefined, {
+        command: built.command,
+        args: built.args,
+        cwd: data.cwd,
+        env: data.env,
+        execution_host: data.executionHost,
+      });
+      // CLI sem flag → persona como 1ª mensagem quando ready (grace 1.5s, guarda 120s).
+      const first = built.firstMessage;
+      if (first) {
+        const sid = data.session_id;
+        let ready = false;
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          unsub();
+          clearTimeout(graceT);
+          clearTimeout(killT);
+          void ptyWrite(sid, first)
+            .then(() => setTimeout(() => void ptyWrite(sid, "\r").catch(() => {}), 200))
+            .catch(() => {});
+        };
+        const unsub = useCanvasStore.subscribe((s) => {
+          const st = s.terminalStatuses[sid];
+          if (ready && (st === "idle" || st === "done")) finish();
+        });
+        const graceT = setTimeout(() => {
+          ready = true;
+          const st = useCanvasStore.getState().terminalStatuses[sid];
+          if (st === "idle" || st === "done") finish();
+        }, 1500);
+        const killT = setTimeout(() => {
+          if (!done) {
+            done = true;
+            unsub();
+          }
+        }, 120000);
+      }
+    },
+    [data.id, data.args, data.label, data.cwd, data.env, data.executionHost, data.session_id, reconnect, patchNode],
+  );
 
   // Tempo de sessão: re-render leve a cada 30s só pra atualizar o "há Xmin".
   useEffect(() => {
@@ -562,13 +644,39 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             </span>
           )}
 
+          {/* Trocar CLI/LLM (item 3): re-spawna este agente como OUTRO motor mantendo a
+              persona. Resolve o "processo morreu e não dá pra voltar noutro LLM": escolha o
+              CLI e ele sobe de novo com o mesmo papel. Morto = borda verde (chama atenção). */}
+          <select
+            value={ROLE_CLIS.find((c) => c.command === data.command)?.id ?? ""}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              e.stopPropagation();
+              const v = e.target.value;
+              if (v) void switchCli(v);
+            }}
+            className={cn(
+              "text-[9px] rounded bg-bg border px-0.5 py-0.5 focus:outline-none cursor-pointer max-w-[76px] shrink-0",
+              termStatus === "dead" ? "border-green-500/50 text-green-400" : "border-border text-text/50 hover:text-brand",
+            )}
+            title={t("terminal.switchCli", "Trocar o CLI/LLM deste agente (mantém a persona; re-spawna)")}
+            aria-label={t("terminal.switchCli", "Trocar o CLI/LLM deste agente")}
+          >
+            {ROLE_CLIS.find((c) => c.command === data.command) === undefined && (
+              <option value="">{data.command}</option>
+            )}
+            {ROLE_CLIS.map((c) => (
+              <option key={c.id} value={c.id}>{c.label}</option>
+            ))}
+          </select>
+
           {/* Reload SEMPRE visível: re-spawna o CLI com o MESMO command/args/env — a persona
               do role vive nos args (--append-system-prompt), então o papel sobrevive por
               construção. Morto = verde chamativo; vivo = discreto (mata e sobe de novo). */}
           <button
             onClick={(e) => {
               e.stopPropagation();
-              reconnect();
+              void reloadWithFreshMcp();
             }}
             className={cn(
               "p-1 rounded hover:bg-bg transition-colors",
@@ -585,7 +693,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
               DEPOIS, e retoma a conversa de onde estava. */}
           {data.role === "claude-code" && mySubagentLabels && (
             <button
-              onClick={(e) => { e.stopPropagation(); void reconnect(["--continue"]); }}
+              onClick={(e) => { e.stopPropagation(); void reloadWithFreshMcp(["--continue"]); }}
               className="p-1 rounded hover:bg-bg hover:text-amber-300 transition-colors"
               title={t("terminal.reloadSubagents", "Recarregar subagentes ({list}) mantendo a conversa (claude --continue: relê .claude/agents e retoma a sessão)").replace("{list}", mySubagentLabels)}
               aria-label={t("terminal.reloadSubagentsShort", "Recarregar subagentes")}

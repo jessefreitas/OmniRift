@@ -137,6 +137,14 @@ export const FLAGS: FlagDef[] = [
     default: true,
     stage: "beta",
   },
+  {
+    key: "omnigraph-symbol-body",
+    label: "Corpo do símbolo no OmniGraph",
+    description:
+      "Clicar num símbolo (god node / top membro) de uma comunidade do grafo abre o CÓDIGO daquela função/classe num painel read-only, fatiado sob demanda. Desligue pra deixar os símbolos como texto puro.",
+    default: true,
+    stage: "stable",
+  },
 ];
 
 const FLAGS_BY_KEY: Record<string, FlagDef> = Object.fromEntries(FLAGS.map((f) => [f.key, f]));

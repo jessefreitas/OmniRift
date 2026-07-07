@@ -11,7 +11,7 @@ default-members = ["."]
 
 [package]
 name = "omnirift"
-version = "0.1.127"
+version = "0.1.128"
 description = "OmniRift - canvas infinito para orquestrar agentes de IA, terminais e notas"
 authors = ["OmniForge <contato@omniforge.com.br>"]
 license = "MIT"
@@ -92,6 +92,14 @@ tree-sitter = "0.25"
 tree-sitter-rust = "0.24"
 tree-sitter-typescript = "0.23"
 tree-sitter-python = "0.23"
+# +7 grammars pro chunker AST (code/chunk.rs). Versões alinhadas ao runtime 0.25.
+tree-sitter-go = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-ruby = "0.23"
+tree-sitter-php = "0.23"
 notify = "8"
 notify-debouncer-mini = "0.6"
 # Painel "Saúde do Projeto" (Fase A) — caminhada de diretório respeitando `.gitignore`

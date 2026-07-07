@@ -345,6 +345,10 @@ export interface CommunityNode extends BaseCanvasNode {
    * undefined/[] = sem info de arquivo (nada acende — degrada limpo).
    */
   sourceFiles?: string[];
+  /** Mapa símbolo→arquivo-fonte SÓ pros símbolos visíveis (god nodes ∪ top membros). É o elo
+   *  que a Fase 2 usa: clicar num símbolo → graph_node_body(symbolFiles[symbol], symbol) mostra
+   *  o corpo. undefined = nenhum símbolo mostrado tem source_file (degrada limpo → não clicável). */
+  symbolFiles?: Record<string, string>;
   createdAt?: number;
 }
 

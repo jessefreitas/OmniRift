@@ -167,11 +167,14 @@ export function importCommunities(
   // node id → comunidade + label; degree por nó (do conjunto de arestas, não-direcionado).
   const nodeCommunity = new Map<string, string>();
   const nodeLabelMap = new Map<string, string>();
+  // id → source_file (Fase 2): o elo por-símbolo que `symbolFiles` usa pra o corpo sob demanda.
+  const nodeFileMap = new Map<string, string>();
   const buckets = new Map<string, Bucket>();
 
   for (const n of rawNodes) {
     if (!n || typeof n.id !== "string") continue;
     nodeLabelMap.set(n.id, nodeLabel(n));
+    if (typeof n.source_file === "string" && n.source_file) nodeFileMap.set(n.id, n.source_file);
     const key = communityKey(n);
     if (!key) continue;
     nodeCommunity.set(n.id, key);
@@ -255,6 +258,15 @@ export function importCommunities(
     const god = byDegree.slice(0, GOD_NODES_PER_COMMUNITY).map((id) => nodeLabelMap.get(id) ?? id);
     const top = byDegree.slice(0, TOP_MEMBERS).map((id) => nodeLabelMap.get(id) ?? id);
 
+    // symbolFiles: label→source_file só pros símbolos MOSTRADOS (top já contém os god). Cap = TOP_MEMBERS.
+    const symbolFiles: Record<string, string> = {};
+    for (const mid of byDegree.slice(0, TOP_MEMBERS)) {
+      const file = nodeFileMap.get(mid);
+      if (!file) continue;
+      const lbl = nodeLabelMap.get(mid) ?? mid;
+      if (!(lbl in symbolFiles)) symbolFiles[lbl] = file;
+    }
+
     // Sem sinal de direção (tudo na onda 1) → grid puro por índice; senão usa a onda do DAG.
     const w = distinctWaves > 1 ? (wave.get(b.key) ?? 1) : Math.floor(idx / MAX_ROWS_PER_WAVE) + 1;
     let col = colByWave.get(w) ?? 0;
@@ -276,6 +288,7 @@ export function importCommunities(
       // Guarda os paths reais (não só a contagem) — communityForPath casa o arquivo editado
       // pelo agente contra estes pra ligar a edge "works-on" e acender a comunidade (#30).
       sourceFiles: b.files.size ? [...b.files] : undefined,
+      symbolFiles: Object.keys(symbolFiles).length ? symbolFiles : undefined,
       godNodes: god,
       topMembers: top,
       color: PALETTE[idx % PALETTE.length],

@@ -90,6 +90,12 @@ fn last_lines(screen: &str, n: usize) -> String {
 /// Schemas das tools de orquestração (concatenados no tools/list do server).
 pub fn terminal_tool_defs() -> Vec<Value> {
     vec![
+        json!({ "name": "code_chunks",
+            "description": "Fatia um arquivo de código por função/classe/método (AST). Retorna os pedaços com símbolo, linhas e texto — em vez de ler o arquivo cru inteiro. Suporta Rust, TS/TSX, Python, Go, Java, C, C++, C#, Ruby, PHP.",
+            "inputSchema": { "type": "object", "properties": {
+                "path": { "type": "string", "description": "Caminho do arquivo de código" },
+                "target_tokens": { "type": "number", "description": "Tamanho-alvo aprox. do chunk (default 1000)" }
+            }, "required": ["path"] } }),
         json!({ "name": "terminal_list",
             "description": "Lista os terminais-agente do canvas com seu estado (idle/working/blocked/done/dead).",
             "inputSchema": { "type": "object", "properties": {} } }),
@@ -1149,6 +1155,42 @@ enum ToolRun {
     Failed(String),   // timeout ou erro de execução (NEUTRAL)
 }
 
+/// code_chunks — fatia um arquivo de código por AST (função/classe/método) e devolve os
+/// pedaços em JSON, pra o agente receber o arquivo já em unidades semânticas em vez de
+/// ler o arquivo cru. Falha limpo (string de erro) se path ausente/linguagem não suportada.
+pub fn code_chunks_dispatch(args: Value) -> String {
+    use crate::code::chunk::{chunk_code, ChunkLang, ChunkOpts};
+    let path = arg_str(&args, "path");
+    if path.is_empty() {
+        return "❌ 'path' é obrigatório".into();
+    }
+    let p = std::path::Path::new(&path);
+    let Some(lang) = ChunkLang::from_path(p) else {
+        return format!("❌ linguagem não suportada: {path}");
+    };
+    let source = match std::fs::read_to_string(p) {
+        Ok(s) => s,
+        Err(e) => return format!("❌ não consegui ler {path}: {e}"),
+    };
+    let mut opts = ChunkOpts::default();
+    if let Some(t) = args.get("target_tokens").and_then(|v| v.as_u64()) {
+        opts.target_tokens = t as usize;
+    }
+    let chunks: Vec<_> = chunk_code(&source, lang, &opts)
+        .into_iter()
+        .map(|c| {
+            json!({
+                "symbol": c.symbol,
+                "kind": format!("{:?}", c.kind),
+                "start_line": c.start_line,
+                "end_line": c.end_line,
+                "text": c.text,
+            })
+        })
+        .collect();
+    serde_json::to_string(&json!({ "chunks": chunks })).unwrap_or_else(|_| "{}".into())
+}
+
 /// Candidatos de binário: nome no PATH (o app já herda o PATH do shell de login,
 /// que inclui ~/.local/bin) + fallbacks absolutos conhecidos, pra degradar limpo
 /// mesmo quando o PATH não foi propagado.
@@ -2060,5 +2102,28 @@ mod tests {
         assert!(out.contains("[CRITICAL/security]"));
         assert!(out.contains("[WARNING/security]"));
         assert!(out.contains("(pulado: semgrep: ferramenta ausente)"));
+    }
+
+    #[test]
+    fn code_chunks_tool_returns_chunks_for_a_file() {
+        let dir = std::env::temp_dir().join(format!("omnirift-chunktool-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("sample.rs");
+        std::fs::write(&file, "fn alpha() {}\nfn beta() {}\n").unwrap();
+
+        let args = serde_json::json!({ "path": file.to_str().unwrap() });
+        let out = super::code_chunks_dispatch(args);
+        let v: serde_json::Value = serde_json::from_str(&out).expect("JSON válido");
+        let arr = v.get("chunks").and_then(|c| c.as_array()).expect("chunks[]");
+        assert!(!arr.is_empty(), "sem chunks: {out}");
+        let joined = out.as_str();
+        assert!(joined.contains("alpha") && joined.contains("beta"), "faltou símbolo: {out}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn code_chunks_tool_errors_clean_on_missing_path() {
+        let out = super::code_chunks_dispatch(serde_json::json!({}));
+        assert!(out.contains("path"), "erro deve mencionar path: {out}");
     }
 }
