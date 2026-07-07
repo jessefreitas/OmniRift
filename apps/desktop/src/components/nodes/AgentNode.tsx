@@ -53,6 +53,7 @@ import {
   listenAcpAuthRequired,
   listenAcpAuthFailed,
   listenAcpModelRejected,
+  listenAcpMcpWarning,
   type AcpAuthMethod,
   type AcpAttachSnapshot,
 } from "@/lib/acp-client";
@@ -842,6 +843,11 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           pushSys(
             `⚠️ ${t("agent.modelRejected", "o adapter recusou a troca de modelo")}${fallback ? ` — ${t("agent.modelStayed", "segue em")} ${fallback}` : ""}: ${typeof err === "string" ? err : JSON.stringify(err)}`,
           );
+        })),
+        // Bridge MCP de orquestração não subiu (ex.: `npx` fora do PATH) → o agente sobe sem
+        // terminal_*/claim_*/memory_*. Antes era falha muda; agora vira aviso no corpo do agente.
+        listenAcpMcpWarning(id, (message, _reason, seq) => gated(seq, () => {
+          pushSys(`⚠️ ${message}`);
         })),
       ]);
       if (!alive) {
