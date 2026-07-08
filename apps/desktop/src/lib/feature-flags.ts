@@ -145,6 +145,14 @@ export const FLAGS: FlagDef[] = [
     default: true,
     stage: "stable",
   },
+  {
+    key: "omniswitch",
+    label: "OmniSwitch (roteador de chave LLM)",
+    description:
+      "Aponta os agentes pro roteador interno de chave (fallback + rotação): as BASE_URL do agente vão pro router local e o token do router vira a 'API key' dele. Experimental — kill-switch: mantenha desligado até validar ponta-a-ponta. Com a flag OFF o spawn é idêntico ao atual.",
+    default: false,
+    stage: "experimental",
+  },
 ];
 
 const FLAGS_BY_KEY: Record<string, FlagDef> = Object.fromEntries(FLAGS.map((f) => [f.key, f]));
