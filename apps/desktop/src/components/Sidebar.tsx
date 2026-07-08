@@ -69,6 +69,7 @@ import { specListFiles, specArchive, specUnarchive, isDeadSpec, pathsOverlap, ty
 import { writeFile } from "@/lib/preview-client";
 import { agentDocsStatus, agentDocsSync, discoverRoles, type AgentDocsStatus } from "@/lib/agent-docs-client";
 import { loadRoles, saveRoles, ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
+import { buildRoleSpawn } from "@/lib/agent-spawn";
 import { loadGlobalSkills } from "@/lib/global-skills";
 import { type SkillWiring } from "@/lib/agent-skills";
 import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
@@ -80,8 +81,6 @@ import { SubagentEditModal } from "@/components/SubagentEditModal";
 import { PromptModal } from "@/components/PromptModal";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { omnifsStatus, type OmniFsStatus } from "@/lib/omnifs-client";
-import { getFlag } from "@/lib/feature-flags";
-import { omniswitchEnv } from "@/lib/omniswitch-client";
 import { useLicenseStore } from "@/store/license-store";
 import { openFeedback } from "@/lib/feedback";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -1356,67 +1355,14 @@ export function Sidebar() {
   // extras → addTerminal idêntico ao comportamento pré-skills (garantia de no-op).
   async function spawnRole(r: AgentRoleDef, skillIdsOverride?: string[]) {
     const cli = ROLE_CLIS.find((c) => c.id === (r.cli ?? "claude")) ?? ROLE_CLIS[0];
-    // União das skills GLOBAIS (todo agente recebe) com as do role/override. ids
-    // vazio (sem global + sem role) → mantém a invariante no-skills (spawn idêntico).
-    const ids = [...new Set([...loadGlobalSkills(), ...(skillIdsOverride ?? r.skills ?? [])])];
 
-    // Wiring só quando há IDs; vazio → null (sem tocar em args/env).
-    let wiring: SkillWiring | null = null;
-    if (ids.length > 0) {
-      try {
-        wiring = await invoke<SkillWiring | null>("agent_skills_config", { cli: cli.id, skillIds: ids });
-      } catch (e) {
-        console.warn("[skills] agent_skills_config falhou (segue sem skills):", e);
-      }
-    }
-
-    const pluginArgs = wiring?.kind === "pluginDir" ? ["--plugin-dir", wiring.dir] : [];
-    const skillEnv: Array<[string, string]> =
-      wiring?.kind === "codexHome" ? [["CODEX_HOME", wiring.home]] : [];
-    const indexText = wiring?.kind === "indexPrompt" ? wiring.text : "";
-
-    // OmniSwitch: com a flag ON e CLI de LLM (não shell), aponta as BASE_URL do agente
-    // pro router e usa o token do router como key. Flag OFF → swEnv=[] → env idêntico ao
-    // atual (invariante de não-regressão). Falha ao montar → [] (fail-soft, sem router).
-    const swEnv: Array<[string, string]> =
-      getFlag("omniswitch") && cli.role !== "shell" ? await omniswitchEnv().catch(() => []) : [];
-    const combinedEnv = [...skillEnv, ...swEnv];
-
-    // MCP por-role: role com curadoria (r.mcpServers definido) → gera um agent-mcp
-    // FILTRADO (budget de contexto, resolve o 200k); undefined → global de sempre.
-    const roleMcpPath =
-      r.mcpServers !== undefined
-        ? ((await agentMcpConfig(r.mcpServers).catch(() => null)) ?? mcpConfigPath)
-        : ((await agentMcpConfig().catch(() => null)) ?? mcpConfigPath);
-
-    if (cli.systemPromptFlag) {
-      const baseArgs =
-        cli.role === "claude-code"
-          ? workerClaudeArgs(roleMcpPath, r.prompt, await settingsFor(r.name))
-          : [cli.systemPromptFlag, r.prompt];
-      addTerminal({
-        command: cli.command,
-        args: [...baseArgs, ...pluginArgs],
-        role: cli.role,
-        label: r.name,
-        compressor: r.compressor ?? loadDefaultCompressor(),
-        env: combinedEnv.length > 0 ? combinedEnv : undefined,
-      });
-      return;
-    }
-    const node = addTerminal({
-      command: cli.command,
-      role: cli.role,
-      label: r.name,
-      compressor: r.compressor ?? loadDefaultCompressor(),
-      env: combinedEnv.length > 0 ? combinedEnv : undefined,
-    });
-    if (!node) return;
-    const sendLine = (text: string, delay: number) => {
+    // Injeção de 1ª mensagem (persona/skills) quando o terminal fica ready. sendLine =
+    // escreve texto + Enter após `delay`; injectWhenReady = espera ficar idle/done.
+    const sendLine = (sid: string, text: string, delay: number) => {
       if (!text.trim()) return;
       setTimeout(() => {
-        invoke("pty_write", { sessionId: node.session_id, data: text }).catch(console.warn);
-        setTimeout(() => invoke("pty_write", { sessionId: node.session_id, data: "\r" }).catch(console.warn), 200);
+        invoke("pty_write", { sessionId: sid, data: text }).catch(console.warn);
+        setTimeout(() => invoke("pty_write", { sessionId: sid, data: "\r" }).catch(console.warn), 200);
       }, delay);
     };
     const injectWhenReady = (sid: string, text: string) => {
@@ -1425,7 +1371,7 @@ export function Sidebar() {
       const finish = () => {
         if (done) return;
         done = true; unsub(); clearTimeout(graceT); clearTimeout(killT);
-        sendLine(text, 150);
+        sendLine(sid, text, 150);
       };
       const unsub = useCanvasStore.subscribe((s) => {
         const st = s.terminalStatuses[sid];
@@ -1439,19 +1385,66 @@ export function Sidebar() {
       const killT = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
     };
     const shellQuote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
+
+    // SHELL: terminal puro com tratamento especial de startupCmd. NÃO delegado ao
+    // buildRoleSpawn (que devolve shell sem persona) — a persona vai via startupCmd
+    // (`claude --append-system-prompt ...`) ou como 1ª mensagem. Comportamento intocado.
     if (cli.role === "shell") {
+      const ids = [...new Set([...loadGlobalSkills(), ...(skillIdsOverride ?? r.skills ?? [])])];
+      let wiring: SkillWiring | null = null;
+      if (ids.length > 0) {
+        try {
+          wiring = await invoke<SkillWiring | null>("agent_skills_config", { cli: cli.id, skillIds: ids });
+        } catch (e) {
+          console.warn("[skills] agent_skills_config falhou (segue sem skills):", e);
+        }
+      }
+      const skillEnv: Array<[string, string]> = wiring?.kind === "codexHome" ? [["CODEX_HOME", wiring.home]] : [];
+      const indexText = wiring?.kind === "indexPrompt" ? wiring.text : "";
+      const node = addTerminal({
+        command: cli.command,
+        role: cli.role,
+        label: r.name,
+        compressor: r.compressor ?? loadDefaultCompressor(),
+        env: skillEnv.length > 0 ? skillEnv : undefined,
+      });
+      if (!node) return;
       const startup = (r.startupCmd ?? "").trim();
       const persona = (indexText ? `${r.prompt}\n\n${indexText}` : r.prompt).trim();
       if (persona && /\bclaude\b/i.test(startup) && !r.selfSystemPrompt) {
-        sendLine(`${startup} --append-system-prompt ${shellQuote(persona)}`, 400);
+        sendLine(node.session_id, `${startup} --append-system-prompt ${shellQuote(persona)}`, 400);
       } else {
-        sendLine(startup, 400);
+        sendLine(node.session_id, startup, 400);
         if (startup && persona) injectWhenReady(node.session_id, persona);
       }
-    } else {
-      const firstMsg = indexText ? `${r.prompt}\n\n${indexText}` : r.prompt;
-      sendLine(firstMsg, 1800);
+      return;
     }
+
+    // NÃO-SHELL: montagem COMPLETA via helper compartilhado (mesma do "virar agente" no
+    // TerminalNode). Invariante: mesmos args/env/compressor/1ª-mensagem do código antigo.
+    const built = await buildRoleSpawn(r, skillIdsOverride, mcpConfigPath);
+    if (built.args !== undefined) {
+      // CLI com system-prompt embutido nos args (claude/flag): sem 1ª mensagem.
+      addTerminal({
+        command: built.command,
+        args: built.args,
+        role: built.role,
+        label: r.name,
+        compressor: built.compressor,
+        env: built.env,
+      });
+      return;
+    }
+    // CLI sem flag de system-prompt: persona (+ skills) como 1ª mensagem quando ready.
+    const node = addTerminal({
+      command: built.command,
+      role: built.role,
+      label: r.name,
+      compressor: built.compressor,
+      env: built.env,
+    });
+    if (!node) return;
+    if (built.firstMessage) sendLine(node.session_id, built.firstMessage, 1800);
   }
 
   // Infere o tipo de CLI (pro wiring de skills) pelo comando de um CLI personalizado.
