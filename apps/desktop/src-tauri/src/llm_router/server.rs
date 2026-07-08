@@ -42,13 +42,23 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-/// Token do header `x-omniswitch-token` OU query `?token=`, comparado em tempo ~constante.
+/// Autoriza o request contra o token do router. Aceita o token em QUALQUER um destes,
+/// nesta ordem: header `x-omniswitch-token`, query `?token=`, header `x-api-key`
+/// (clientes Anthropic) ou `Authorization: Bearer <tok>` (clientes OpenAI). Isso permite
+/// o agente usar o token do router como sua "API key" (padrão de gateway) — o router
+/// valida e SÓ ENTÃO injeta a chave real do provider no forward.
 pub fn check_token(headers: &HeaderMap, query: &HashMap<String, String>, expected: &str) -> bool {
+    let bearer = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer ").map(str::to_string));
     let provided = headers
         .get("x-omniswitch-token")
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
-        .or_else(|| query.get("token").cloned());
+        .or_else(|| query.get("token").cloned())
+        .or_else(|| headers.get("x-api-key").and_then(|v| v.to_str().ok()).map(str::to_string))
+        .or(bearer);
     matches!(provided, Some(tok) if ct_eq(tok.as_bytes(), expected.as_bytes()))
 }
 
@@ -253,6 +263,20 @@ mod tests {
         assert!(check_token(&HeaderMap::new(), &q, "secret"));
         q.insert("token".to_string(), "wrong".to_string());
         assert!(!check_token(&HeaderMap::new(), &q, "secret"));
+    }
+
+    #[test]
+    fn token_check_accepts_x_api_key_and_bearer() {
+        let q = HashMap::new();
+        let mut h = HeaderMap::new();
+        h.insert("x-api-key", "secret".parse().unwrap());
+        assert!(check_token(&h, &q, "secret"));
+        let mut h2 = HeaderMap::new();
+        h2.insert("authorization", "Bearer secret".parse().unwrap());
+        assert!(check_token(&h2, &q, "secret"));
+        let mut h3 = HeaderMap::new();
+        h3.insert("x-api-key", "wrong".parse().unwrap());
+        assert!(!check_token(&h3, &q, "secret"));
     }
 
     use std::sync::atomic::{AtomicUsize as AU, Ordering};
