@@ -52,6 +52,7 @@ use commands::git_secret::{git_token_delete, git_token_get, git_token_set};
 use commands::gitremote::{git_clone, git_list_repos};
 use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
+use commands::omniswitch::{omniswitch_url, omniswitch_config_get, omniswitch_config_set, omniswitch_health};
 use health::ai::{health_analyze_file, health_db_report_get, health_report_get, health_reports_list};
 use health::backup::{health_backup, health_backup_list, health_backup_restore};
 use health::db::{db_scan_repo, health_analyze_db};
@@ -601,6 +602,10 @@ pub fn run() {
             hosts_list,
             hosts_add,
             hosts_remove,
+            omniswitch_url,
+            omniswitch_config_get,
+            omniswitch_config_set,
+            omniswitch_health,
         ])
         .build(tauri::generate_context!())
         .expect("erro fatal construindo OmniRift")

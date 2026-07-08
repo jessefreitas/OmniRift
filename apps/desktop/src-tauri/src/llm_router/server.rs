@@ -209,7 +209,7 @@ pub fn load_state(token: String) -> RouterState {
     }
 }
 
-fn config_path() -> std::path::PathBuf {
+pub fn config_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
     std::path::PathBuf::from(home).join(".omnirift").join("llm_router.json")
 }

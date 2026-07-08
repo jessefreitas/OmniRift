@@ -26,6 +26,7 @@ pub mod mcp;
 pub mod mcp_servers;
 pub mod memory;
 pub mod omnifs;
+pub mod omniswitch;
 pub mod metrics;
 pub mod pipeline;
 pub mod providers;
