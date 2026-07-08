@@ -80,6 +80,8 @@ import { SubagentEditModal } from "@/components/SubagentEditModal";
 import { PromptModal } from "@/components/PromptModal";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { omnifsStatus, type OmniFsStatus } from "@/lib/omnifs-client";
+import { getFlag } from "@/lib/feature-flags";
+import { omniswitchEnv } from "@/lib/omniswitch-client";
 import { useLicenseStore } from "@/store/license-store";
 import { openFeedback } from "@/lib/feedback";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -1368,6 +1370,13 @@ export function Sidebar() {
       wiring?.kind === "codexHome" ? [["CODEX_HOME", wiring.home]] : [];
     const indexText = wiring?.kind === "indexPrompt" ? wiring.text : "";
 
+    // OmniSwitch: com a flag ON e CLI de LLM (não shell), aponta as BASE_URL do agente
+    // pro router e usa o token do router como key. Flag OFF → swEnv=[] → env idêntico ao
+    // atual (invariante de não-regressão). Falha ao montar → [] (fail-soft, sem router).
+    const swEnv: Array<[string, string]> =
+      getFlag("omniswitch") && cli.role !== "shell" ? await omniswitchEnv().catch(() => []) : [];
+    const combinedEnv = [...skillEnv, ...swEnv];
+
     // MCP por-role: role com curadoria (r.mcpServers definido) → gera um agent-mcp
     // FILTRADO (budget de contexto, resolve o 200k); undefined → global de sempre.
     const roleMcpPath =
@@ -1386,7 +1395,7 @@ export function Sidebar() {
         role: cli.role,
         label: r.name,
         compressor: r.compressor ?? loadDefaultCompressor(),
-        env: skillEnv.length > 0 ? skillEnv : undefined,
+        env: combinedEnv.length > 0 ? combinedEnv : undefined,
       });
       return;
     }
@@ -1395,7 +1404,7 @@ export function Sidebar() {
       role: cli.role,
       label: r.name,
       compressor: r.compressor ?? loadDefaultCompressor(),
-      env: skillEnv.length > 0 ? skillEnv : undefined,
+      env: combinedEnv.length > 0 ? combinedEnv : undefined,
     });
     if (!node) return;
     const sendLine = (text: string, delay: number) => {
