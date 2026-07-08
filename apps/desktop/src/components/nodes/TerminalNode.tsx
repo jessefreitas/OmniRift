@@ -22,9 +22,10 @@ import { useProcInfo } from "@/hooks/useProcInfo";
 import { ptyWrite } from "@/lib/pty-client";
 import { copyText, pasteText, readClipboardPng, savePastePng, MAX_PASTE_BYTES, utf8ByteLength } from "@/lib/clipboard";
 import { compressorSavings, isCompressorEnabled, type SavingsReport } from "@/lib/compress-client";
-import { CLI_CATALOG } from "@/lib/clis-client";
+import { CLI_CATALOG, clisList, type CliInfo } from "@/lib/clis-client";
 import { agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
-import { ROLE_CLIS, extractPersona, buildCliSwitch } from "@/lib/agent-roles";
+import { ROLE_CLIS, extractPersona, buildCliSwitch, loadRoles, type AgentRoleDef } from "@/lib/agent-roles";
+import { buildRoleSpawn } from "@/lib/agent-spawn";
 import { cn } from "@/lib/cn";
 import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
 
@@ -106,6 +107,12 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   // Identidade do CLI (emoji + nome do catálogo) pro header + tick do tempo de sessão.
   const meta = cliMeta(data.command);
   const [, setAgeTick] = useState(0);
+  // CLIs instalados (catálogo do backend) — pro dropdown marcar "⚠ " + disabled os CLIs
+  // base que não estão no PATH. Set de ids instalados; vazio até o backend responder.
+  const [installedClis, setInstalledClis] = useState<Set<string>>(new Set());
+  // Roles do usuário pro grupo "Virar agente" do dropdown. Carregado 1x + refrescado ao
+  // abrir o select (onMouseDown) — evita reler o localStorage a cada re-render do nó.
+  const [roleOptions, setRoleOptions] = useState<AgentRoleDef[]>(() => loadRoles());
 
   const inputRef = useRef<HTMLInputElement>(null);
   const homeSlotRef = useRef<HTMLDivElement | null>(null);
@@ -230,6 +237,72 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
     },
     [data.id, data.args, data.label, data.cwd, data.env, data.executionHost, data.session_id, reconnect, patchNode],
   );
+
+  // "Virar agente" (OmniSwitch): re-sobe este nó como um ROLE COMPLETO (persona + CLI/LLM
+  // + skills + MCP + compressor + env), não só o CLI cru. REUSA buildRoleSpawn (mesma
+  // montagem do spawnRole) → persiste no nó (patchNode) e re-spawna via override. Persona
+  // vai nos args (claude/flag) ou como 1ª mensagem (CLI sem flag), igual ao switchCli.
+  const switchToRole = useCallback(
+    async (roleId: string) => {
+      const role = loadRoles().find((r) => r.id === roleId);
+      if (!role) return;
+      const built = await buildRoleSpawn(role);
+      patchNode(data.id, { command: built.command, args: built.args, role: built.role });
+      await reconnect(undefined, {
+        command: built.command,
+        args: built.args,
+        cwd: data.cwd,
+        env: built.env ?? data.env,
+        execution_host: data.executionHost,
+      });
+      const first = built.firstMessage;
+      if (first) {
+        const sid = data.session_id;
+        let ready = false;
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          unsub();
+          clearTimeout(graceT);
+          clearTimeout(killT);
+          void ptyWrite(sid, first)
+            .then(() => setTimeout(() => void ptyWrite(sid, "\r").catch(() => {}), 200))
+            .catch(() => {});
+        };
+        const unsub = useCanvasStore.subscribe((s) => {
+          const st = s.terminalStatuses[sid];
+          if (ready && (st === "idle" || st === "done")) finish();
+        });
+        const graceT = setTimeout(() => {
+          ready = true;
+          const st = useCanvasStore.getState().terminalStatuses[sid];
+          if (st === "idle" || st === "done") finish();
+        }, 1500);
+        const killT = setTimeout(() => {
+          if (!done) {
+            done = true;
+            unsub();
+          }
+        }, 120000);
+      }
+    },
+    [data.id, data.cwd, data.env, data.executionHost, data.session_id, reconnect, patchNode],
+  );
+
+  // Catálogo de CLIs instalados → o dropdown marca "⚠ " + disabled os CLIs base fora do
+  // PATH. Best-effort: falha → set vazio (todos ficam sem marca, comportamento neutro).
+  useEffect(() => {
+    let alive = true;
+    clisList()
+      .then((list) => {
+        if (alive) setInstalledClis(new Set(list.filter((c: CliInfo) => c.installed).map((c) => c.id)));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Tempo de sessão: re-render leve a cada 30s só pra atualizar o "há Xmin".
   useEffect(() => {
@@ -648,26 +721,56 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
               persona. Resolve o "processo morreu e não dá pra voltar noutro LLM": escolha o
               CLI e ele sobe de novo com o mesmo papel. Morto = borda verde (chama atenção). */}
           <select
-            value={ROLE_CLIS.find((c) => c.command === data.command)?.id ?? ""}
+            value={(() => {
+              const c = ROLE_CLIS.find((x) => x.command === data.command);
+              return c ? `cli:${c.id}` : "";
+            })()}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              setRoleOptions(loadRoles()); // refresca roles recém-criados ao abrir
+            }}
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => {
               e.stopPropagation();
               const v = e.target.value;
-              if (v) void switchCli(v);
+              if (v.startsWith("role:")) void switchToRole(v.slice(5));
+              else if (v.startsWith("cli:")) void switchCli(v.slice(4));
             }}
             className={cn(
               "text-[9px] rounded bg-bg border px-0.5 py-0.5 focus:outline-none cursor-pointer max-w-[76px] shrink-0",
               termStatus === "dead" ? "border-green-500/50 text-green-400" : "border-border text-text/50 hover:text-brand",
             )}
-            title={t("terminal.switchCli", "Trocar o CLI/LLM deste agente (mantém a persona; re-spawna)")}
-            aria-label={t("terminal.switchCli", "Trocar o CLI/LLM deste agente")}
+            title={t("terminal.switchCliRole", "Virar um agente (role completo) ou trocar o CLI/LLM base deste nó (re-spawna)")}
+            aria-label={t("terminal.switchCliRole", "Virar agente ou trocar o CLI/LLM")}
           >
             {ROLE_CLIS.find((c) => c.command === data.command) === undefined && (
               <option value="">{data.command}</option>
             )}
-            {ROLE_CLIS.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
-            ))}
+            <optgroup label={t("terminal.becomeAgent", "Virar agente")}>
+              {roleOptions.map((role) => {
+                const rc = ROLE_CLIS.find((c) => c.id === (role.cli ?? "claude"));
+                return (
+                  <option key={role.id} value={`role:${role.id}`}>
+                    {role.name}{rc ? ` · ${rc.label}` : ""}
+                  </option>
+                );
+              })}
+            </optgroup>
+            <optgroup label={t("terminal.baseCli", "CLI base")}>
+              {ROLE_CLIS.map((c) => {
+                // ⚠ + disabled: CLI do catálogo fora do PATH (shell não está no catálogo →
+                // nunca marcado). Antes do backend responder (set vazio) nada é marcado.
+                const warn =
+                  installedClis.size > 0 &&
+                  CLI_CATALOG.some((x) => x.id === c.id) &&
+                  !installedClis.has(c.id);
+                return (
+                  <option key={c.id} value={`cli:${c.id}`} disabled={warn}>
+                    {warn ? "⚠ " : ""}{c.label}
+                  </option>
+                );
+              })}
+            </optgroup>
           </select>
 
           {/* Reload SEMPRE visível: re-spawna o CLI com o MESMO command/args/env — a persona
