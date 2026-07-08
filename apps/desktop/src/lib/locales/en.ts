@@ -920,6 +920,7 @@ export const en: Record<string, string> = {
   "sidebar.customCli": "Custom CLI",
   "sidebar.deleteParallel": "Delete parallel",
   "sidebar.deleteRole": "Delete role",
+  "sidebar.cloneRole": "Clone role — duplicates all config and opens in editor",
   "sidebar.dirtyWarnMid": " edits in the editor. Saving/snapshotting the canvas does ",
   "sidebar.dirtyWarnNot": "not",
   "sidebar.dirtyWarnPost": " write those files — save with Ctrl/Cmd+S in the CodeNode before closing, or they will be lost.",

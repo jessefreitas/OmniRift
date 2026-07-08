@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { Crown, UserCog, Plus, Pencil, Settings, ScanSearch, X, FileUp, Download } from "lucide-react";
+import { Crown, UserCog, Plus, Pencil, Settings, ScanSearch, X, FileUp, Download, Copy } from "lucide-react";
 import { nanoid } from "nanoid";
 
 import { Tooltip } from "@/components/Tooltip";
@@ -21,6 +21,9 @@ interface RolesSectionProps {
   setLaunchPickerRole: (r: AgentRoleDef | null) => void;
   spawnRole: (r: AgentRoleDef, skillIdsOverride?: string[]) => Promise<void>;
   deleteRole: (id: string) => void;
+  /** Clona um role: duplica TODA a config (prompt, cli, skills, mcpServers, compressor,
+   *  selfSystemPrompt, startupCmd) com novo id, builtin=false, master=false. Abre no editor. */
+  cloneRole: (r: AgentRoleDef) => void;
   /** Adiciona um role já montado à biblioteca (persiste via Sidebar). */
   addRole: (r: AgentRoleDef) => void;
   secStyle: (id: string) => { order: number };
@@ -47,6 +50,7 @@ export function RolesSection({
   setLaunchPickerRole,
   spawnRole,
   deleteRole,
+  cloneRole,
   addRole,
   secStyle,
 }: RolesSectionProps) {
@@ -198,6 +202,14 @@ export function RolesSection({
                   className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-text transition-all"
                 >
                   <Pencil size={10} />
+                </button>
+              </Tooltip>
+              <Tooltip label={tr("sidebar.cloneRole", "Clonar role — duplica toda a config e abre no editor")} side="top" className="shrink-0">
+                <button
+                  onClick={() => cloneRole(r)}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-brand transition-all"
+                >
+                  <Copy size={10} />
                 </button>
               </Tooltip>
               {!r.builtin && (

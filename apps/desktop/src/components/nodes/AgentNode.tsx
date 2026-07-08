@@ -19,7 +19,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Brain, FlaskConical, Maximize2, Minimize2, Repeat, RotateCw, ScrollText, Send, Target, UserRoundPlus, X } from "lucide-react";
+import { Brain, Copy, FlaskConical, Maximize2, Minimize2, Repeat, RotateCw, ScrollText, Send, Target, UserRoundPlus, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -157,6 +157,7 @@ const ORCHESTRATOR_PROMPT = `Você é o ORQUESTRADOR do OmniRift: você COORDENA
 function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   trackRender(`AgentNode:${data.id}`); // P0: detecta loop de render (grava o culpado em disco)
   const removeNode = useCanvasStore((s) => s.removeNode);
+  const duplicateAgentNode = useCanvasStore((s) => s.duplicateAgentNode);
   const patchNode = useCanvasStore((s) => s.patchNode);
   const emitAgentOutput = useCanvasStore((s) => s.emitAgentOutput);
   const nodeInput = useCanvasStore((s) => s.nodeInputs[data.id]);
@@ -1298,6 +1299,14 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           aria-label={isFullscreen ? t("agent.restore", "Restaurar") : t("agent.fullscreen", "Tela cheia")}
         >
           {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); duplicateAgentNode(data.id); }}
+          className="p-0.5 rounded text-text/50 hover:bg-white/10 hover:text-brand transition-colors"
+          title={t("agent.duplicate", "Clonar agente — duplica toda a config (persona, goal, loop, provider) num novo nó")}
+          aria-label={t("agent.duplicate", "Clonar agente")}
+        >
+          <Copy size={13} />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); removeNode(data.id); }}

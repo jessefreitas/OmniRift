@@ -1663,6 +1663,25 @@ export function Sidebar() {
     });
   }
 
+  // Clona um role: copia TODA a config (prompt, cli, skills, mcpServers, compressor,
+  // selfSystemPrompt, startupCmd, sourcePath, format) num novo role com novo id,
+  // builtin=false, master=false. Já abre no editor pra o usuário ajustar nome/prompt.
+  function cloneRole(r: AgentRoleDef) {
+    const clone: AgentRoleDef = {
+      ...r,
+      id: nanoid(),
+      name: `${r.name} (cópia)`,
+      builtin: false,
+      master: false,
+    };
+    setRoles((prev) => {
+      const next = [...prev, clone];
+      saveRoles(next);
+      return next;
+    });
+    setEditingRole(clone);
+  }
+
   // Adiciona um role já montado (ex.: importado de arquivo) à biblioteca.
   function addRole(role: AgentRoleDef) {
     setRoles((prev) => {
@@ -2281,6 +2300,7 @@ export function Sidebar() {
         setLaunchPickerRole={setLaunchPickerRole}
         spawnRole={spawnRole}
         deleteRole={deleteRole}
+        cloneRole={cloneRole}
         addRole={addRole}
         secStyle={secStyle}
       />

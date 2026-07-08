@@ -232,6 +232,10 @@ interface CanvasState {
   clearTaggedNodes: (tag: string) => number;
   updateFilterNode: (id: string, patch: { mode?: FilterNode["mode"]; value?: string; providerId?: string; model?: string; criterion?: string }) => void;
   removeNode: (id: string) => void;
+  /** Clona um AgentNode: copia TODA a config (persona, goal, loop, recite, provider,
+   *  providerConfig, cwd, size) num novo nó com novo id + posição offset. NÃO copia
+   *  `acpSessionId` (sessão ACP é de um processo vivo — o clone attacha/spawna próprio). */
+  duplicateAgentNode: (id: string) => AgentNode | null;
   /** Põe/tira um node de dentro de um GroupNode (filho move junto com o grupo). */
   reparentNode: (nodeId: string, parentId: string | null) => void;
   renameNode: (id: string, label: string) => void;
@@ -1039,6 +1043,34 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
         return { ...f, nodes, edges: f.edges.filter((e) => e.source !== id && e.target !== id) };
       }),
     }));
+  },
+
+  duplicateAgentNode: (id) => {
+    // Busca o nó em TODOS os paralelos (pode estar em floor de fundo).
+    let cloned: AgentNode | null = null;
+    set((s) => {
+      const floor = s.parallels.find((f) => f.nodes.some((n) => n.id === id));
+      const orig = floor?.nodes.find((n): n is AgentNode => n.id === id && n.kind === "agent");
+      if (!orig || !floor) return s;
+      const newId = nanoid();
+      cloned = {
+        ...orig,
+        id: newId,
+        // Sessão ACP é de um processo vivo — o clone spawna/attacha a própria.
+        acpSessionId: undefined,
+        // Posição offset pra não nascer em cima do original.
+        position: { x: orig.position.x + 48, y: orig.position.y + 48 },
+        // Label dedup pra não colidir no registry ACP.
+        label: dedupeNodeLabel(s, orig.label ?? "OmniAgent"),
+        createdAt: Date.now(),
+      };
+      return {
+        parallels: s.parallels.map((f) =>
+          f.id === floor.id ? { ...f, nodes: [...f.nodes, cloned as AgentNode] } : f,
+        ),
+      };
+    });
+    return cloned;
   },
 
   reparentNode: (nodeId, parentId) =>
