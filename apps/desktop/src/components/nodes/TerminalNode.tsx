@@ -255,9 +255,18 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
         env: built.env ?? data.env,
         execution_host: data.executionHost,
       });
-      const first = built.firstMessage;
-      if (first) {
-        const sid = data.session_id;
+      // Injeção pós-spawn (mesma do spawnRole). sendLine = escreve + Enter após delay;
+      // injectWhenReady = espera o terminal ficar idle/done pra então enviar.
+      const sid = data.session_id;
+      const sendLine = (text: string, delay: number) => {
+        if (!text.trim()) return;
+        setTimeout(() => {
+          void ptyWrite(sid, text).catch(() => {});
+          setTimeout(() => void ptyWrite(sid, "\r").catch(() => {}), 200);
+        }, delay);
+      };
+      const injectWhenReady = (text: string) => {
+        if (!text.trim()) return;
         let ready = false;
         let done = false;
         const finish = () => {
@@ -266,9 +275,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
           unsub();
           clearTimeout(graceT);
           clearTimeout(killT);
-          void ptyWrite(sid, first)
-            .then(() => setTimeout(() => void ptyWrite(sid, "\r").catch(() => {}), 200))
-            .catch(() => {});
+          sendLine(text, 150);
         };
         const unsub = useCanvasStore.subscribe((s) => {
           const st = s.terminalStatuses[sid];
@@ -285,6 +292,23 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             unsub();
           }
         }, 120000);
+      };
+      // SHELL: roda o COMANDO AO ABRIR do role (ex: claude-glm52) e injeta a persona —
+      // wrapper claude → nativa via --append-system-prompt; senão como 1ª mensagem. Sem
+      // isto o shell subia pelado (sem o wrapper/persona) e morria código 1. (Mesma
+      // lógica do branch shell do spawnRole.)
+      if (built.role === "shell") {
+        const startup = (role.startupCmd ?? "").trim();
+        const persona = role.prompt.trim();
+        const shellQuote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
+        if (persona && /\bclaude\b/i.test(startup) && !role.selfSystemPrompt) {
+          sendLine(`${startup} --append-system-prompt ${shellQuote(persona)}`, 400);
+        } else {
+          sendLine(startup, 400);
+          if (startup && persona) injectWhenReady(persona);
+        }
+      } else if (built.firstMessage) {
+        injectWhenReady(built.firstMessage);
       }
     },
     [data.id, data.cwd, data.env, data.executionHost, data.session_id, reconnect, patchNode],
