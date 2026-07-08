@@ -1339,6 +1339,22 @@ export function Sidebar() {
   // skillIdsOverride: override por-instância (SkillLaunchPicker); não persiste.
   // Invariante no-skills: ids vazio → sem invoke agent_skills_config, sem args/env
   // extras → addTerminal idêntico ao comportamento pré-skills (garantia de no-op).
+
+  // Auto-registra um terminal recém-criado via spawnRole como MCP agent no backend
+  // (agent_registry) → o Orquestrador o vê no terminal_list sem precisar marcar checkbox.
+  // Tolerante: se o registro falha (MCP server caiu), só loga — o agente funciona normal.
+  function autoRegisterMcp(sessionId: string, label: string, prompt: string) {
+    const description = prompt.slice(0, 120) || `Agente ${label} disponível para tarefas.`;
+    mcpRegisterAgent(label, sessionId, description, undefined).catch(console.warn);
+    setMcpAgents((prev) => {
+      const next = new Set([...prev, sessionId]);
+      // Briefing assíncrono pro Orquestrador saber que entrou agente novo.
+      // Usa `next` (com o novo sid) e `terminals` atual do closure.
+      sendTeamBriefing(next, { [sessionId]: description }, orchestratorSid, terminals);
+      return next;
+    });
+  }
+
   async function spawnRole(r: AgentRoleDef, skillIdsOverride?: string[]) {
     const cli = ROLE_CLIS.find((c) => c.id === (r.cli ?? "claude")) ?? ROLE_CLIS[0];
     // União das skills GLOBAIS (todo agente recebe) com as do role/override. ids
@@ -1372,7 +1388,7 @@ export function Sidebar() {
         cli.role === "claude-code"
           ? workerClaudeArgs(roleMcpPath, r.prompt, await settingsFor(r.name))
           : [cli.systemPromptFlag, r.prompt];
-      addTerminal({
+      const node = addTerminal({
         command: cli.command,
         args: [...baseArgs, ...pluginArgs],
         role: cli.role,
@@ -1380,6 +1396,9 @@ export function Sidebar() {
         compressor: r.compressor ?? loadDefaultCompressor(),
         env: skillEnv.length > 0 ? skillEnv : undefined,
       });
+      // Auto-registra como MCP agent → o Orquestrador vê este agente no terminal_list
+      // imediatamente (sem precisar marcar o checkbox manualmente na sidebar).
+      if (node) autoRegisterMcp(node.session_id, r.name, r.prompt);
       return;
     }
     const node = addTerminal({
@@ -1390,6 +1409,8 @@ export function Sidebar() {
       env: skillEnv.length > 0 ? skillEnv : undefined,
     });
     if (!node) return;
+    // Auto-registra como MCP agent (mesmo motivo do ramo acima).
+    autoRegisterMcp(node.session_id, r.name, r.prompt);
     const sendLine = (text: string, delay: number) => {
       if (!text.trim()) return;
       setTimeout(() => {

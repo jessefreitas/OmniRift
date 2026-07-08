@@ -15,6 +15,7 @@ pub async fn acp_spawn(
     cwd: Option<String>,
     resume_session_id: Option<String>,
     provider_config: Option<ProviderConfig>,
+    disallowed_tools: Option<Vec<String>>,
     manager: State<'_, Arc<AcpManager>>,
     app: AppHandle,
 ) -> Result<SessionId, String> {
@@ -24,7 +25,7 @@ pub async fn acp_spawn(
     crate::omnifs::preflight_cwd_guard(cwd.as_deref())?;
     // Clona o Arc pra não segurar o State através do await.
     let mgr = manager.inner().clone();
-    mgr.spawn(id, provider, cwd, resume_session_id, provider_config, app).await.map_err(|e| format!("{e:#}"))
+    mgr.spawn(id, provider, cwd, resume_session_id, provider_config, disallowed_tools, app).await.map_err(|e| format!("{e:#}"))
 }
 
 /// Lista os modelos de um provider OpenAI-compat (GET {base}/models). Usado pelo HermesWizard

@@ -22,7 +22,7 @@ export interface HermesSpawnConfig {
  *  `providerConfig`: só p/ Hermes (BYOK) → o backend injeta HERMES_INFERENCE_* + <PROV>_API_KEY. */
 export async function acpSpawn(
   id: string,
-  opts: { provider?: string; cwd?: string; resumeSessionId?: string; providerConfig?: HermesSpawnConfig } = {},
+  opts: { provider?: string; cwd?: string; resumeSessionId?: string; providerConfig?: HermesSpawnConfig; disallowedTools?: string[] } = {},
 ): Promise<string> {
   return invoke<string>("acp_spawn", {
     id,
@@ -30,6 +30,7 @@ export async function acpSpawn(
     cwd: opts.cwd,
     resumeSessionId: opts.resumeSessionId,
     providerConfig: opts.providerConfig,
+    disallowedTools: opts.disallowedTools,
   });
 }
 
