@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.130",
+    date: "2026-07-07",
+    title: "OmniSwitch — roteador de chave LLM interno (experimental, desligado por padrão)",
+    highlights: [
+      "Novo (experimental): um roteador interno de chave LLM — aponta seus agentes pra um endpoint único que escolhe provider/modelo, faz fallback automático e rotaciona chaves quando bate rate-limit",
+      "Vem DESLIGADO por padrão (flag \"omniswitch\"): ligue no painel de flags e configure a tabela de roteamento no menu Ferramentas → 🧠 IA & Provedores",
+      "Serve Claude (Anthropic) e OpenAI-compat no mesmo endpoint; as chaves ficam no keychain (a tabela guarda só a referência)",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.129",
     date: "2026-07-07",
     title: "Estabilidade: fim de travamentos + trocar o LLM de um agente",

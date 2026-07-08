@@ -80,6 +80,8 @@ import { SubagentEditModal } from "@/components/SubagentEditModal";
 import { PromptModal } from "@/components/PromptModal";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { omnifsStatus, type OmniFsStatus } from "@/lib/omnifs-client";
+import { getFlag } from "@/lib/feature-flags";
+import { omniswitchEnv } from "@/lib/omniswitch-client";
 import { useLicenseStore } from "@/store/license-store";
 import { openFeedback } from "@/lib/feedback";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -125,6 +127,7 @@ const SettingsModal = lazy(() => import("@/components/SettingsModal").then((m) =
 const HelpModal = lazy(() => import("@/components/HelpModal").then((m) => ({ default: m.HelpModal })));
 const ReleaseNotesModal = lazy(() => import("@/components/ReleaseNotesModal").then((m) => ({ default: m.ReleaseNotesModal })));
 const McpServersModal = lazy(() => import("@/components/McpServersModal").then((m) => ({ default: m.McpServersModal })));
+const OmniSwitchModal = lazy(() => import("@/components/OmniSwitchModal").then((m) => ({ default: m.OmniSwitchModal })));
 const OmniFsModal = lazy(() => import("@/components/OmniFsModal").then((m) => ({ default: m.OmniFsModal })));
 const ClisModal = lazy(() => import("@/components/ClisModal").then((m) => ({ default: m.ClisModal })));
 const CompressorsModal = lazy(() => import("@/components/CompressorsModal").then((m) => ({ default: m.CompressorsModal })));
@@ -174,6 +177,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "skills", icon: Sparkles, label: "Skills dos agentes", desc: "Selecionar skills globais (todo agente recebe) e por agente (cada role escolhe as suas)" },
   { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
   { id: "llm-providers", icon: KeyRound, label: "Central de API", desc: "Chaves de API dos providers de LLM — cadastra 1x, usa no Hermes, OmniPartner e review" },
+  { id: "omniswitch", icon: KeyRound, label: "OmniSwitch (roteador de chave)", desc: "Roteador interno de chave LLM: tabela de classes → alvos com fallback + rotação, e saúde por chave. Liga a flag omniswitch pra apontar os agentes pra cá" },
   { id: "snippets", icon: ClipboardList, label: "Central de copia-cola", desc: "Snippets persistentes (texto, código, imagem) — cola da área de transferência, copia ou arrasta pra qualquer nó" },
   { id: "pipeline", icon: Network, label: "Arquiteto de Pipeline", desc: "Descreve o projeto → um LLM monta o time (agentes, subagentes, conexões, paralelos, ondas) + grava e monta no canvas" },
   { id: "kanban", icon: SquareKanban, label: "Kanban do projeto", desc: "Acompanhamento visual: backlog / em andamento / review / concluído — os agentes movem os cards via tools kanban_*" },
@@ -208,7 +212,7 @@ const TOOL_CATS: { id: string; emoji: string; label: string }[] = [
 const TOOL_CAT: Record<string, string> = {
   pipeline: "orchestrate", turbo: "orchestrate", kanban: "orchestrate", routines: "orchestrate", bench: "orchestrate",
   clis: "agents", skills: "agents", mcpservers: "agents", compressors: "agents", memory: "agents", connections: "agents",
-  "llm-providers": "ai", companion: "ai", "review-ai": "ai",
+  "llm-providers": "ai", companion: "ai", "review-ai": "ai", omniswitch: "ai",
   git: "files", omnifs: "files", snapshots: "files", history: "files", snippets: "files", reminders: "files", hooks: "files",
   settings: "system", appearance: "system", usage: "system", mobile: "system", "feature-flags": "system", releases: "system", help: "system",
 };
@@ -481,6 +485,7 @@ export function Sidebar() {
   const [showHelp, setShowHelp] = useState(false);
   const [showReleases, setShowReleases] = useState(false);
   const [showMcpServers, setShowMcpServers] = useState(false);
+  const [showOmniSwitch, setShowOmniSwitch] = useState(false);
   const [showOmniFs, setShowOmniFs] = useState(false);
   const [showClis, setShowClis] = useState(false);
   const [showCompressors, setShowCompressors] = useState(false);
@@ -598,6 +603,7 @@ export function Sidebar() {
     help: () => setShowHelp(true),
     releases: () => setShowReleases(true),
     mcpservers: () => setShowMcpServers(true),
+    omniswitch: () => setShowOmniSwitch(true),
     omnifs: () => setShowOmniFs(true),
     clis: () => setShowClis(true),
     compressors: () => setShowCompressors(true),
@@ -617,6 +623,7 @@ export function Sidebar() {
         case "help": setShowHelp(true); break;
         case "releases": setShowReleases(true); break;
         case "mcpservers": setShowMcpServers(true); break;
+        case "omniswitch": setShowOmniSwitch(true); break;
         case "omnifs": setShowOmniFs(true); break;
         case "clis": setShowClis(true); break;
         case "compressors": setShowCompressors(true); break;
@@ -1368,6 +1375,13 @@ export function Sidebar() {
       wiring?.kind === "codexHome" ? [["CODEX_HOME", wiring.home]] : [];
     const indexText = wiring?.kind === "indexPrompt" ? wiring.text : "";
 
+    // OmniSwitch: com a flag ON e CLI de LLM (não shell), aponta as BASE_URL do agente
+    // pro router e usa o token do router como key. Flag OFF → swEnv=[] → env idêntico ao
+    // atual (invariante de não-regressão). Falha ao montar → [] (fail-soft, sem router).
+    const swEnv: Array<[string, string]> =
+      getFlag("omniswitch") && cli.role !== "shell" ? await omniswitchEnv().catch(() => []) : [];
+    const combinedEnv = [...skillEnv, ...swEnv];
+
     // MCP por-role: role com curadoria (r.mcpServers definido) → gera um agent-mcp
     // FILTRADO (budget de contexto, resolve o 200k); undefined → global de sempre.
     const roleMcpPath =
@@ -1386,7 +1400,7 @@ export function Sidebar() {
         role: cli.role,
         label: r.name,
         compressor: r.compressor ?? loadDefaultCompressor(),
-        env: skillEnv.length > 0 ? skillEnv : undefined,
+        env: combinedEnv.length > 0 ? combinedEnv : undefined,
       });
       return;
     }
@@ -1395,7 +1409,7 @@ export function Sidebar() {
       role: cli.role,
       label: r.name,
       compressor: r.compressor ?? loadDefaultCompressor(),
-      env: skillEnv.length > 0 ? skillEnv : undefined,
+      env: combinedEnv.length > 0 ? combinedEnv : undefined,
     });
     if (!node) return;
     const sendLine = (text: string, delay: number) => {
@@ -2481,6 +2495,7 @@ export function Sidebar() {
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showReleases && <ReleaseNotesModal onClose={() => setShowReleases(false)} />}
       {showMcpServers && <McpServersModal onClose={() => setShowMcpServers(false)} />}
+      {showOmniSwitch && <OmniSwitchModal onClose={() => setShowOmniSwitch(false)} />}
       {showOmniFs && <OmniFsModal onClose={() => setShowOmniFs(false)} />}
       {showClis && <ClisModal onClose={() => setShowClis(false)} />}
       {showCompressors && <CompressorsModal onClose={() => setShowCompressors(false)} />}

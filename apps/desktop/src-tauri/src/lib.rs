@@ -8,6 +8,7 @@ pub mod health;
 // Contrato Socrático do OmniPartner Aprender (Fase 9, A1): system-prompt canônico
 // + garantia anti-vazamento TESTÁVEL (a solução não sai antes do nível máximo).
 pub mod learn;
+pub mod llm_router;
 pub mod mcp;
 pub mod memory;
 pub mod metrics;
@@ -51,6 +52,7 @@ use commands::git_secret::{git_token_delete, git_token_get, git_token_set};
 use commands::gitremote::{git_clone, git_list_repos};
 use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
+use commands::omniswitch::{omniswitch_url, omniswitch_config_get, omniswitch_config_set, omniswitch_health};
 use health::ai::{health_analyze_file, health_db_report_get, health_report_get, health_reports_list};
 use health::backup::{health_backup, health_backup_list, health_backup_restore};
 use health::db::{db_scan_repo, health_analyze_db};
@@ -302,6 +304,15 @@ pub fn run() {
                         log::error!("Falha ao iniciar MCP server na porta {MCP_PORT}: {e}");
                     }
                 }
+            });
+
+            // OmniSwitch: roteador de chave LLM (loopback ROUTER_PORT). State gerenciado
+            // pros comandos de config (Plano 3). Token próprio por boot.
+            let sw_token = crate::rpc::metadata::generate_token();
+            let sw_state = crate::llm_router::server::load_state(sw_token);
+            app.manage(sw_state.clone());
+            tauri::async_runtime::spawn(async move {
+                crate::llm_router::server::boot(sw_state).await;
             });
 
             // Pre-warm dos caches uvx/npx dos MCP dos agentes (serena/playwright):
@@ -591,6 +602,10 @@ pub fn run() {
             hosts_list,
             hosts_add,
             hosts_remove,
+            omniswitch_url,
+            omniswitch_config_get,
+            omniswitch_config_set,
+            omniswitch_health,
         ])
         .build(tauri::generate_context!())
         .expect("erro fatal construindo OmniRift")
