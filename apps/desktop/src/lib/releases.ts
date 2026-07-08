@@ -24,6 +24,28 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.129",
+    date: "2026-07-07",
+    title: "Estabilidade: fim de travamentos + trocar o LLM de um agente",
+    highlights: [
+      "O app não trava/cai mais por um erro interno de log — um travamento que aparecia \"do nada\" foi eliminado na raiz",
+      "Agora dá pra TROCAR o CLI/LLM de um agente já criado (inclusive um que morreu): um seletor no cabeçalho re-sobe o agente noutro motor mantendo o papel",
+      "Quando um agente externo (Hermes) não consegue conectar as ferramentas de orquestração, aparece um aviso claro no agente — antes ele subia \"mudo\", sem as ferramentas, e ninguém sabia por quê",
+      "Ligar/desligar um MCP passa a valer na hora para novos agentes e no reload (antes ficava preso numa configuração antiga)",
+    ],
+    tag: "fix",
+  },
+  {
+    version: "0.1.128",
+    date: "2026-07-06",
+    title: "Mapa do código: corpo do símbolo sob demanda + fatiador por símbolo",
+    highlights: [
+      "No OmniGraph, clicar num símbolo (função/classe) mostra o corpo dele sob demanda — sem carregar o arquivo inteiro de uma vez",
+      "Novo fatiador de código por símbolo (AST, 10 linguagens): o agente recebe o arquivo já dividido em pedaços que fazem sentido, via a ferramenta code_chunks",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.127",
     date: "2026-07-06",
     title: "Subagente: escolha o modelo do wrapper na lista (não digite)",
