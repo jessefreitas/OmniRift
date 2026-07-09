@@ -115,7 +115,6 @@ const SnapshotsModal = lazy(() => import("@/components/SnapshotsModal").then((m)
 const RoutinesModal = lazy(() => import("@/components/RoutinesModal").then((m) => ({ default: m.RoutinesModal })));
 const RemindersModal = lazy(() => import("@/components/RemindersModal").then((m) => ({ default: m.RemindersModal })));
 const CompanionModal = lazy(() => import("@/components/CompanionModal").then((m) => ({ default: m.CompanionModal })));
-const ConductorBar = lazy(() => import("@/components/ConductorBar").then((m) => ({ default: m.ConductorBar })));
 const OrchestratorStream = lazy(() => import("@/components/OrchestratorStream").then((m) => ({ default: m.OrchestratorStream })));
 const AppearanceModal = lazy(() => import("@/components/AppearanceModal").then((m) => ({ default: m.AppearanceModal })));
 const UsageModal = lazy(() => import("@/components/UsageModal").then((m) => ({ default: m.UsageModal })));
@@ -2571,7 +2570,6 @@ export function Sidebar() {
       {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} cwd={currentCwd} />}
       {showReminders && <RemindersModal onClose={() => setShowReminders(false)} />}
       {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
-      <ConductorBar />
       {showOrchestratorStream && <OrchestratorStream onClose={() => setShowOrchestratorStream(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
       {showLlmProviders && <ProvidersCentralModal onClose={() => setShowLlmProviders(false)} />}

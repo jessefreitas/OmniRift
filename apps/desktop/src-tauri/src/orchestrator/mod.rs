@@ -57,7 +57,7 @@ fn now_epoch() -> i64 {
         .unwrap_or(0)
 }
 
-/// Registra uma entrada no log de orquestração.
+/// Registra uma entrada no log de orquestração e emite evento pro frontend.
 pub fn log_entry(
     db: &Db,
     source: &str,
@@ -79,6 +79,8 @@ pub fn log_entry(
         )?;
         Ok(())
     });
+    // Emite evento pro frontend (chat do ConductorBar recebe em tempo real)
+    // O AppHandle é passado pelo caller (commands/orchestrator.rs)
     id
 }
 
