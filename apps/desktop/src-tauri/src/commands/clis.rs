@@ -225,10 +225,20 @@ async fn dispatch_install(
             if pkg.is_empty() {
                 return Err(format!("npm: pacote de '{id}' não mapeado."));
             }
+            // Instala num prefixo user-writável (~/.omnirift/tools) em vez de global (/usr),
+            // que é root e daria EACCES sem sudo. No Windows o `-g` já vai pra %APPDATA%
+            // (user-writável) — mantém o comportamento nativo lá.
             if cfg!(target_os = "windows") {
                 run_capture(TokioCommand::new("cmd").args(["/C", "npm", "install", "-g", pkg])).await
             } else {
-                run_capture(TokioCommand::new("npm").args(["install", "-g", pkg])).await
+                let mut c = TokioCommand::new("npm");
+                c.args(["install", "-g"]);
+                if let Some(prefix) = tools_prefix() {
+                    ensure_dir(&prefix);
+                    c.arg("--prefix").arg(&prefix);
+                }
+                c.arg(pkg);
+                run_capture(&mut c).await
             }
         }
         "pipx" => {
@@ -236,10 +246,26 @@ async fn dispatch_install(
             if pkg.is_empty() {
                 return Err(format!("pipx: pacote de '{id}' não mapeado."));
             }
-            run_capture(TokioCommand::new("pipx").args(["install", pkg])).await
+            let mut c = TokioCommand::new("pipx");
+            c.args(["install", pkg]);
+            // pipx honra PIPX_HOME/PIPX_BIN_DIR — aponta pro tools/bin do OmniRift.
+            if let Some(prefix) = tools_prefix() {
+                ensure_dir(&prefix.join("bin"));
+                c.env("PIPX_HOME", prefix.join("pipx"));
+                c.env("PIPX_BIN_DIR", prefix.join("bin"));
+            }
+            run_capture(&mut c).await
         }
         "cargo" => {
-            run_capture(TokioCommand::new("cargo").args(["install", binary])).await
+            let mut c = TokioCommand::new("cargo");
+            c.args(["install"]);
+            // `--root <prefix>` → binário em <prefix>/bin (mesmo tools/bin dos demais).
+            if let Some(prefix) = tools_prefix() {
+                ensure_dir(&prefix);
+                c.arg("--root").arg(&prefix);
+            }
+            c.arg(binary);
+            run_capture(&mut c).await
         }
         "brew" => {
             run_capture(TokioCommand::new("brew").args(["install", binary])).await
@@ -281,10 +307,18 @@ async fn dispatch_uninstall(id: &str, installer: &str, binary: &str) -> Result<S
             if pkg.is_empty() {
                 return Err(format!("npm: pacote de '{id}' não mapeado."));
             }
+            // Mesmo prefixo do install (~/.omnirift/tools) — senão o uninstall procura em
+            // /usr e não acha o que instalamos no dir do usuário.
             if cfg!(target_os = "windows") {
                 run_capture(TokioCommand::new("cmd").args(["/C", "npm", "uninstall", "-g", pkg])).await
             } else {
-                run_capture(TokioCommand::new("npm").args(["uninstall", "-g", pkg])).await
+                let mut c = TokioCommand::new("npm");
+                c.args(["uninstall", "-g"]);
+                if let Some(prefix) = tools_prefix() {
+                    c.arg("--prefix").arg(&prefix);
+                }
+                c.arg(pkg);
+                run_capture(&mut c).await
             }
         }
         "pipx" => {
@@ -292,10 +326,22 @@ async fn dispatch_uninstall(id: &str, installer: &str, binary: &str) -> Result<S
             if pkg.is_empty() {
                 return Err(format!("pipx: pacote de '{id}' não mapeado."));
             }
-            run_capture(TokioCommand::new("pipx").args(["uninstall", pkg])).await
+            let mut c = TokioCommand::new("pipx");
+            c.args(["uninstall", pkg]);
+            if let Some(prefix) = tools_prefix() {
+                c.env("PIPX_HOME", prefix.join("pipx"));
+                c.env("PIPX_BIN_DIR", prefix.join("bin"));
+            }
+            run_capture(&mut c).await
         }
         "cargo" => {
-            run_capture(TokioCommand::new("cargo").args(["uninstall", binary])).await
+            let mut c = TokioCommand::new("cargo");
+            c.args(["uninstall"]);
+            if let Some(prefix) = tools_prefix() {
+                c.arg("--root").arg(&prefix);
+            }
+            c.arg(binary);
+            run_capture(&mut c).await
         }
         "brew" => {
             run_capture(TokioCommand::new("brew").args(["uninstall", binary])).await
@@ -341,28 +387,77 @@ fn emit_progress(app: &tauri::AppHandle, id: &str, stage: &str, message: String,
 }
 
 /// `which <binary>` (Unix) ou `where <binary>` (Windows). True se no PATH.
-fn is_binary_on_path(binary: &str) -> bool {
+// ── Diretório user-writável de CLIs (evita EACCES do `npm -g` em /usr = root) ──────
+
+/// `~/.omnirift/tools` — prefixo onde npm/pipx/cargo instalam CLIs SEM sudo.
+/// None se `$HOME`/`%USERPROFILE%` não estiver setado (fallback = global de antes).
+pub(crate) fn tools_prefix() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(std::path::PathBuf::from(home).join(".omnirift").join("tools"))
+}
+
+/// `~/.omnirift/tools/bin` — onde os binários instalados aparecem (npm/cargo/pipx).
+pub(crate) fn tools_bin() -> Option<std::path::PathBuf> {
+    tools_prefix().map(|p| p.join("bin"))
+}
+
+/// Cria o diretório (idempotente; erro é ignorado — o install reporta se falhar).
+fn ensure_dir(p: &std::path::Path) {
+    let _ = std::fs::create_dir_all(p);
+}
+
+/// Resolve um binário: 1º no `tools/bin` do OmniRift, senão via `which`/`where` no PATH.
+/// Devolve o caminho completo pra rodar mesmo quando `tools/bin` não está no PATH do app.
+fn resolve_binary(binary: &str) -> Option<std::path::PathBuf> {
+    if let Some(bin) = tools_bin() {
+        let direct = bin.join(binary);
+        if direct.exists() {
+            return Some(direct);
+        }
+        if cfg!(target_os = "windows") {
+            for ext in ["exe", "cmd", "bat"] {
+                let p = bin.join(format!("{binary}.{ext}"));
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+        }
+    }
     let mut cmd = if cfg!(target_os = "windows") {
         StdCommand::new("where")
     } else {
         StdCommand::new("which")
     };
     cmd.arg(binary);
-    cmd.no_window()
-        .output()
-        .map(|o| o.status.success() && !o.stdout.is_empty())
-        .unwrap_or(false)
+    let out = cmd.no_window().output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
+fn is_binary_on_path(binary: &str) -> bool {
+    resolve_binary(binary).is_some()
 }
 
 /// `<binary> --version` (Windows via `cmd /C`). Primeira linha não-vazia, trimmed.
 fn detect_version(binary: &str) -> Option<String> {
+    // Usa o caminho resolvido (tools/bin ou PATH) — assim acha a versão mesmo quando o
+    // binário está no tools/bin do OmniRift, que não está no PATH do processo do app.
+    let resolved = resolve_binary(binary).map(|p| p.to_string_lossy().to_string());
+    let target = resolved.as_deref().unwrap_or(binary);
     let out = if cfg!(target_os = "windows") {
         StdCommand::new("cmd")
-            .args(["/C", binary, "--version"])
+            .args(["/C", target, "--version"])
             .no_window()
             .output()
     } else {
-        StdCommand::new(binary).arg("--version").no_window().output()
+        StdCommand::new(target).arg("--version").no_window().output()
     };
     match out {
         Ok(o) if o.status.success() => {

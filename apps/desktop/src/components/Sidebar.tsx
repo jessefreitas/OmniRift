@@ -251,9 +251,12 @@ interface AgentPreset {
 }
 
 // Instaladores oficiais dos CLIs (rodados num terminal ao clicar "instalar").
+// npm -g num prefixo user-writável (~/.omnirift/tools) — NÃO em /usr (root → EACCES).
+// O tools/bin entra no PATH dos agentes (src-tauri/pty/session.rs), então o CLI é achado
+// ao spawnar. Mesmo dir do fluxo Rust cli_install (clis.rs::tools_prefix).
 const INSTALL = {
-  claude: "npm install -g @anthropic-ai/claude-code",
-  codex: "npm install -g @openai/codex",
+  claude: 'npm install -g --prefix "$HOME/.omnirift/tools" @anthropic-ai/claude-code',
+  codex: 'npm install -g --prefix "$HOME/.omnirift/tools" @openai/codex',
   opencode: "curl -fsSL https://opencode.ai/install | bash",
   antigravity: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
 };
