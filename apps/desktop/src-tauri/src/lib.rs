@@ -21,6 +21,9 @@ pub mod pty;
 // Redator de segredos — aplicado no caminho OUTBOUND (gateway OmniMemory + /diag),
 // nunca no blackboard local. Módulo puro (regex compiladas lazy via OnceLock):
 // boot-safe, sem IO no load. Ver redactor.rs para a fronteira local vs sai-da-máquina.
+// Módulo Conductor — barramento de despacho do Modo Conductor (orchestrator/).
+// Reusa ACP + PTY + MCP. Estende orchestration_send existente com tools novas.
+pub mod orchestrator;
 pub mod redactor;
 // Registro RPC central (ref #8) — substrato CLI/mobile: socket local + token por
 // sessão + 3 métodos (status / agents.list / pty.snapshot). Subido no setup() via
@@ -118,6 +121,9 @@ use commands::providers::{
 use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
 use turbo::commands::{run_check, turbo_list, turbo_start, turbo_status, turbo_stop};
 use commands::workspace::{workspace_load, workspace_save};
+use commands::orchestrator::{
+    orchestrator_dispatch_task, orchestrator_log, orchestrator_stream_load,
+};
 use db::{
     db_load_workspace, db_save_workspace, kanban_card_create, kanban_card_delete,
     kanban_card_move, kanban_card_update, kanban_columns_query, kanban_columns_save,
@@ -606,6 +612,9 @@ pub fn run() {
             omniswitch_config_get,
             omniswitch_config_set,
             omniswitch_health,
+            orchestrator_dispatch_task,
+            orchestrator_log,
+            orchestrator_stream_load,
         ])
         .build(tauri::generate_context!())
         .expect("erro fatal construindo OmniRift")

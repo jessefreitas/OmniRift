@@ -262,6 +262,10 @@ interface CanvasState {
   // orquestrador designado (global) — dock onipresente + sidebar
   orchestratorSid: string | null;
   setOrchestratorSid: (sid: string | null) => void;
+  // Modo Conductor — barra de orquestração por texto (feature flag, default OFF).
+  // Quando ON: barra fixa embaixo do canvas + stream lateral. Não afeta fluxo normal.
+  conductorMode: boolean;
+  setConductorMode: (on: boolean) => void;
 
   // persistência
   getWorkspaceSnapshot: () => WorkspaceFileV3;
@@ -387,6 +391,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   terminalStatuses: {},
   orchestratorSid:
     (typeof localStorage !== "undefined" && localStorage.getItem("omnirift-mcp-orch")) || null,
+  conductorMode: false,
 
   // ---- project management (canvas isolado por projeto; floors flat) ----
   addProject: ({ name, cwd = null } = {}) => {
@@ -1205,6 +1210,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     } catch { /* localStorage indisponível */ }
     set({ orchestratorSid: sid });
   },
+
+  setConductorMode: (on) => set({ conductorMode: on }),
 
   // ---- persistência ----
   getWorkspaceSnapshot: () => {

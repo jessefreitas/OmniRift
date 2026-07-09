@@ -114,6 +114,8 @@ const SnapshotsModal = lazy(() => import("@/components/SnapshotsModal").then((m)
 const RoutinesModal = lazy(() => import("@/components/RoutinesModal").then((m) => ({ default: m.RoutinesModal })));
 const RemindersModal = lazy(() => import("@/components/RemindersModal").then((m) => ({ default: m.RemindersModal })));
 const CompanionModal = lazy(() => import("@/components/CompanionModal").then((m) => ({ default: m.CompanionModal })));
+const ConductorBar = lazy(() => import("@/components/ConductorBar").then((m) => ({ default: m.ConductorBar })));
+const OrchestratorStream = lazy(() => import("@/components/OrchestratorStream").then((m) => ({ default: m.OrchestratorStream })));
 const AppearanceModal = lazy(() => import("@/components/AppearanceModal").then((m) => ({ default: m.AppearanceModal })));
 const UsageModal = lazy(() => import("@/components/UsageModal").then((m) => ({ default: m.UsageModal })));
 const ConnectionsModal = lazy(() => import("@/components/ConnectionsModal").then((m) => ({ default: m.ConnectionsModal })));
@@ -448,6 +450,8 @@ export function Sidebar() {
   // Orquestrador agora vive no store (compartilhado com o dock onipresente).
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
   const setOrchestratorSid = useCanvasStore((s) => s.setOrchestratorSid);
+  const conductorMode = useCanvasStore((s) => s.conductorMode);
+  const setConductorMode = useCanvasStore((s) => s.setConductorMode);
   // Sinal de auto-conexão A→B (FloorCanvas onConnect agente→terminal pede marcar o terminal).
   const requestMcpMark = useCanvasStore((s) => s.requestMcpMark);
   const clearRequestMcpMark = useCanvasStore((s) => s.clearRequestMcpMark);
@@ -548,6 +552,7 @@ export function Sidebar() {
   const [showGitRepos, setShowGitRepos] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
   const [showCompanion, setShowCompanion] = useState(false);
+  const [showOrchestratorStream, setShowOrchestratorStream] = useState(false);
   const [showSectionOrder, setShowSectionOrder] = useState(false);
   const [cow, setCow] = useState<CowInfo | null>(null);
   // Chip de custo no rodapé: custo estimado de HOJE (CLI + nativo). Refaz o scan
@@ -2562,6 +2567,8 @@ export function Sidebar() {
       {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} cwd={currentCwd} />}
       {showReminders && <RemindersModal onClose={() => setShowReminders(false)} />}
       {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
+      <ConductorBar />
+      {showOrchestratorStream && <OrchestratorStream onClose={() => setShowOrchestratorStream(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
       {showLlmProviders && <ProvidersCentralModal onClose={() => setShowLlmProviders(false)} />}
       {showPipeline && <PipelineArchitectModal onClose={() => setShowPipeline(false)} />}

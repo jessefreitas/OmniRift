@@ -254,6 +254,49 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "group": { "type": "string", "description": "Endereço do grupo: @all | @idle | @worktree:<floor> | @<role-ou-label>." },
                 "message": { "type": "string", "description": "Texto a injetar (seguido de Enter) em cada agente do grupo." } },
                 "required": ["group", "message"] } }),
+        // ── Conductor Mode tools (orchestrator_*) ──────────────────
+        json!({ "name": "orchestrator_status",
+            "description": "Lista o estado de todos os agentes no canvas (idle/working/blocked/done). \
+                Use ANTES de despachar pra saber quem está disponível.",
+            "inputSchema": { "type": "object", "properties": {} } }),
+        json!({ "name": "orchestrator_dispatch",
+            "description": "Despacha uma tarefa para outro agente no canvas. Blocking = espera o resultado. \
+                Async = retorna imediatamente. Use quando você precisa de outro agente pra continuar seu trabalho. \
+                Target: @nome | @role:x | @all | @idle | @worktree:floor.",
+            "inputSchema": { "type": "object", "properties": {
+                "target": { "type": "string", "description": "@nome | @role:x | @all | @idle | @worktree:floor" },
+                "task": { "type": "string", "description": "a tarefa em linguagem natural" },
+                "context": { "type": "string", "description": "contexto adicional (diff, logs, etc.)" },
+                "priority": { "type": "string", "enum": ["blocking", "async"], "default": "blocking" } },
+                "required": ["target", "task"] } }),
+        json!({ "name": "orchestrator_spawn_agent",
+            "description": "Cria um novo agente no canvas. Use quando nenhum agente existente tem a capacidade necessária. \
+                O agente nasce no floor especificado, com o CLI e role dados.",
+            "inputSchema": { "type": "object", "properties": {
+                "name": { "type": "string", "description": "nome do agente no canvas" },
+                "cli": { "type": "string", "enum": ["claude", "codex", "hermes", "shell"], "description": "qual CLI o agente usa" },
+                "model": { "type": "string", "description": "modelo (null = default do CLI)" },
+                "floor": { "type": "string", "description": "active | new:<branch> | <floor-id>", "default": "active" },
+                "role": { "type": "string", "description": "role/persona do agente" },
+                "systemPrompt": { "type": "string", "description": "persona do agente (null pra shell)" },
+                "startupCmd": { "type": "string", "description": "comando de abertura (ex: 'claude-ollama')" },
+                "mcpTools": { "type": "array", "items": { "type": "string" }, "description": "tools MCP que o agente tem acesso" } },
+                "required": ["name", "cli"] } }),
+        json!({ "name": "orchestrator_handoff",
+            "description": "Passa o trabalho atual para outro agente com contexto. Use quando você terminou sua parte \
+                e o próximo agente precisa continuar.",
+            "inputSchema": { "type": "object", "properties": {
+                "target": { "type": "string", "description": "@nome do agente que recebe o handoff" },
+                "context": { "type": "string", "description": "o que foi feito + o que falta" },
+                "artifacts": { "type": "array", "items": { "type": "string" }, "description": "arquivos alterados" } },
+                "required": ["target", "context"] } }),
+        json!({ "name": "orchestrator_query",
+            "description": "Pergunta algo a outro agente sem despachar tarefa. Use pra obter informação \
+                (ex: '@frontend qual endpoint você usa pra login?').",
+            "inputSchema": { "type": "object", "properties": {
+                "target": { "type": "string", "description": "@nome do agente a perguntar" },
+                "question": { "type": "string", "description": "a pergunta" } },
+                "required": ["target", "question"] } }),
     ]
 }
 
@@ -1017,6 +1060,144 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                 s.push_str(&format!("\n⚠️ falhou em {}: {}", failed.len(), failed.join(", ")));
             }
             s
+        }
+        "orchestrator_status" => {
+            let agents = agent_snapshot(state);
+            if agents.is_empty() {
+                return "Nenhum agente ativo no canvas.".into();
+            }
+            let lines: Vec<String> = agents
+                .iter()
+                .map(|a| {
+                    let st = match a.state {
+                        crate::pty::AgentState::Idle => "idle",
+                        crate::pty::AgentState::Working => "working",
+                        crate::pty::AgentState::Blocked => "blocked",
+                        crate::pty::AgentState::Done => "done",
+                        crate::pty::AgentState::Dead => "dead",
+                    };
+                    format!("- @{} [{}] floor: {}", a.label, st, a.floor.as_deref().unwrap_or("ativo"))
+                })
+                .collect();
+            format!("Agentes no canvas:\n{}", lines.join("\n"))
+        }
+        "orchestrator_dispatch" => {
+            let target = arg_str(&args, "target");
+            let task = arg_str(&args, "task");
+            let context = arg_str(&args, "context");
+            let priority = if arg_str(&args, "priority") == "async" { "async" } else { "blocking" };
+            if target.is_empty() || task.is_empty() {
+                return "❌ 'target' e 'task' são obrigatórios".into();
+            }
+            let agents = agent_snapshot(state);
+            let resolved = crate::mcp::resolve_group(&target, &agents);
+            if resolved.is_empty() {
+                let available: Vec<String> = agents.iter()
+                    .map(|a| format!("@{} ({})", a.label, match a.state {
+                        crate::pty::AgentState::Idle => "idle",
+                        crate::pty::AgentState::Working => "working",
+                        crate::pty::AgentState::Blocked => "blocked",
+                        crate::pty::AgentState::Done => "done",
+                        crate::pty::AgentState::Dead => "dead",
+                    }))
+                    .collect();
+                return format!(
+                    "❌ Nenhum agente casou '{target}'. Disponíveis: {}",
+                    available.join(", ")
+                );
+            }
+            let labels: Vec<String> = resolved.iter()
+                .filter_map(|sid| agents.iter().find(|a| &a.session_id == sid).map(|a| a.label.clone()))
+                .collect();
+            let full_task = if !context.is_empty() {
+                format!("{task}\n\n[Contexto: {context}]")
+            } else {
+                task.clone()
+            };
+            for sid in &resolved {
+                let _ = state.pty_manager.write(sid, full_task.as_bytes());
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let _ = state.pty_manager.write(sid, b"\r");
+            }
+            if priority == "async" {
+                format!("✅ despachado (async) pra {} agente(s): {}", labels.len(), labels.join(", "))
+            } else {
+                format!("✅ despachado (blocking) pra {} agente(s): {}. Resultado aparecerá na stream quando terminarem.", labels.len(), labels.join(", "))
+            }
+        }
+        "orchestrator_query" => {
+            let target = arg_str(&args, "target");
+            let question = arg_str(&args, "question");
+            if target.is_empty() || question.is_empty() {
+                return "❌ 'target' e 'question' são obrigatórios".into();
+            }
+            let agents = agent_snapshot(state);
+            let resolved = crate::mcp::resolve_group(&target, &agents);
+            if resolved.is_empty() {
+                return format!("❌ Nenhum agente casou '{target}'");
+            }
+            let query_text = format!("[PERGUNTA de outro agente]: {question}");
+            for sid in &resolved {
+                let _ = state.pty_manager.write(sid, query_text.as_bytes());
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let _ = state.pty_manager.write(sid, b"\r");
+            }
+            let label = resolved.iter()
+                .filter_map(|sid| agents.iter().find(|a| &a.session_id == sid).map(|a| a.label.clone()))
+                .next()
+                .unwrap_or_default();
+            format!("Pergunta enviada pra @{}. A resposta aparecerá no terminal dele (e na stream).", label)
+        }
+        "orchestrator_handoff" => {
+            let target = arg_str(&args, "target");
+            let context = arg_str(&args, "context");
+            let artifacts = args.get("artifacts")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
+                .unwrap_or_default();
+            if target.is_empty() || context.is_empty() {
+                return "❌ 'target' e 'context' são obrigatórios".into();
+            }
+            let agents = agent_snapshot(state);
+            let resolved = crate::mcp::resolve_group(&target, &agents);
+            if resolved.is_empty() {
+                return format!("❌ Nenhum agente casou '{target}'");
+            }
+            let handoff_text = format!(
+                "[HANDOFF de outro agente]: {context}\n{}\nPor favor, continue o trabalho.",
+                if artifacts.is_empty() { String::new() } else { format!("Arquivos: {}", artifacts.join(", ")) }
+            );
+            for sid in &resolved {
+                let _ = state.pty_manager.write(sid, handoff_text.as_bytes());
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let _ = state.pty_manager.write(sid, b"\r");
+            }
+            let label = resolved.iter()
+                .filter_map(|sid| agents.iter().find(|a| &a.session_id == sid).map(|a| a.label.clone()))
+                .next()
+                .unwrap_or_default();
+            format!("✅ Handoff enviado pra @{} — contexto + {} artefato(s).", label, artifacts.len())
+        }
+        "orchestrator_spawn_agent" => {
+            let name = arg_str(&args, "name");
+            let cli = arg_str(&args, "cli");
+            let floor = arg_str(&args, "floor");
+            let floor_label = if floor.is_empty() { "ativo".to_string() } else { floor.clone() };
+            let floor_emit = if floor.is_empty() { "active".to_string() } else { floor };
+            let role = arg_str(&args, "role");
+            let system_prompt = arg_str(&args, "systemPrompt");
+            if name.is_empty() || cli.is_empty() {
+                return "❌ 'name' e 'cli' são obrigatórios".into();
+            }
+            // Emite evento pro frontend criar o nó no canvas
+            let _ = state.app.emit("orchestrator://spawn-agent", json!({
+                "name": name,
+                "cli": cli,
+                "floor": floor_emit,
+                "role": role,
+                "systemPrompt": system_prompt,
+            }));
+            format!("✅ Solicitada criação do agente '{}' (CLI: {}, floor: {}). O nó aparecerá no canvas.", name, cli, floor_label)
         }
         other => format!("❌ tool de orquestração desconhecida: {other}"),
     }
