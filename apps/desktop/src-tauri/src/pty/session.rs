@@ -508,11 +508,47 @@ fn fail_safe_program(err: &str) -> (String, Vec<String>) {
 
 #[cfg(not(windows))]
 fn build_program(command: &str, args: &[String]) -> CommandBuilder {
-    let mut cmd = CommandBuilder::new(command);
-    for arg in args {
-        cmd.arg(arg);
+    // Wrapper de shell (FUNÇÃO/alias def no .bashrc — ex.: `claude-ollama`/`claude-glm52`,
+    // que rodam `command claude --model <glm> …`) NÃO é binário no PATH → o exec direto do
+    // portable-pty falha com "No viable candidates found". Se `command` não resolve como
+    // binário, roda via `bash -lic "<linha shell-quotada>"`: `-l`+`-i` sourceiam
+    // .bash_profile→.bashrc (onde o wrapper vive; `-i` é OBRIGATÓRIO — o .bashrc bail em
+    // shell não-interativo `[[ $- != *i* ]] && return`). Binário resolvível → exec direto
+    // (comportamento original intocado; zero regressão pra claude/codex/gemini/bash/…).
+    if command_is_binary(command) {
+        let mut cmd = CommandBuilder::new(command);
+        for arg in args {
+            cmd.arg(arg);
+        }
+        return cmd;
     }
+    let mut line = host::shell_quote_single(command);
+    for arg in args {
+        line.push(' ');
+        line.push_str(&host::shell_quote_single(arg));
+    }
+    let mut cmd = CommandBuilder::new("bash");
+    cmd.arg("-lic");
+    cmd.arg(&line);
     cmd
+}
+
+/// `command` resolve como binário executável? Com `/` = path explícito → confia (exec direto,
+/// comportamento original). Sem `/` → procura no PATH via `which`; achou = binário. Não achou =
+/// wrapper-função (não está no PATH) → false → embrulha em bash. `which` ausente no sistema →
+/// assume binário (não regride o caminho comum).
+#[cfg(not(windows))]
+fn command_is_binary(command: &str) -> bool {
+    if command.contains('/') {
+        return true;
+    }
+    std::process::Command::new("which")
+        .arg(command)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(true)
 }
 
 #[cfg(windows)]
@@ -744,13 +780,41 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn local_host_is_unchanged_baseline() {
-        // host=None e host="local" → idêntico (command + args crus, sem ssh).
+        // host=None e host="local" → idêntico (command + args crus, sem ssh). Usa `sh`
+        // (binário garantido no PATH em qualquer runner) — o teste é sobre host-wrapping,
+        // não sobre a detecção de binário (essa tem testes próprios abaixo).
         for h in [None, Some("local")] {
-            let argv = argv_of(&super::build_command(&cfg_host("claude", &["--foo"], h, None)));
-            assert_eq!(argv[0], "claude", "host={h:?} argv={argv:?}");
+            let argv = argv_of(&super::build_command(&cfg_host("sh", &["--foo"], h, None)));
+            assert_eq!(argv[0], "sh", "host={h:?} argv={argv:?}");
             assert_eq!(argv[1], "--foo");
             assert!(!argv.iter().any(|a| a == "ssh"), "sem ssh: {argv:?}");
         }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn binary_command_spawns_direct() {
+        // `sh` resolve no PATH → exec direto (sem embrulho em bash), args crus.
+        let argv = argv_of(&super::build_program("sh", &["-c".into(), "echo hi".into()]));
+        assert_eq!(argv[0], "sh", "binário direto: {argv:?}");
+        assert_eq!(argv[1], "-c");
+        assert_eq!(argv[2], "echo hi");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn shell_wrapper_command_runs_via_bash_lic() {
+        // Command que NÃO existe no PATH (simula wrapper-função tipo claude-ollama) →
+        // embrulha em `bash -lic "<linha shell-quotada>"` pra o .bashrc resolver a função.
+        let argv = argv_of(&super::build_program(
+            "__omniswitch_no_such_wrapper__",
+            &["a b".into()],
+        ));
+        assert_eq!(argv[0], "bash", "argv: {argv:?}");
+        assert_eq!(argv[1], "-lic");
+        assert_eq!(argv.len(), 3, "linha única: {argv:?}");
+        assert!(argv[2].contains("__omniswitch_no_such_wrapper__"), "linha: {}", argv[2]);
+        assert!(argv[2].contains("'a b'"), "arg com espaço shell-quotado: {}", argv[2]);
     }
 
     #[cfg(not(windows))]
