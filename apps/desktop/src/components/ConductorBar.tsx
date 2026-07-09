@@ -30,7 +30,7 @@ export function ConductorBar() {
   const conductorMode = useCanvasStore((s) => s.conductorMode);
   const setConductorMode = useCanvasStore((s) => s.setConductorMode);
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
-  const nodes = useCanvasStore((s) => s.nodes);
+  const parallels = useCanvasStore((s) => s.parallels);
   const activeParallelId = useCanvasStore((s) => s.activeParallelId);
 
   const [input, setInput] = useState("");
@@ -103,11 +103,8 @@ export function ConductorBar() {
   };
 
   // Conta agentes disponíveis no floor ativo
-  const activeNodes = nodes.filter((n) => {
-    const floor = useCanvasStore.getState().parallels.find((p) => p.id === activeParallelId);
-    return floor?.nodes.some((fn) => fn.id === n.id);
-  });
-  const agentCount = activeNodes.filter((n) => n.kind === "terminal" || n.kind === "agent").length;
+  const activeFloor = parallels.find((p) => p.id === activeParallelId);
+  const agentCount = activeFloor?.nodes.filter((n) => n.kind === "terminal" || n.kind === "agent").length ?? 0;
 
   if (!conductorMode) return null;
 

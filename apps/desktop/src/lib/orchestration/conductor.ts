@@ -50,7 +50,7 @@ export async function dispatchConductor(
 
   if (parsed.needsConductor && config.engine !== "shell") {
     // Precisa de interpretação → Conductor LLM/Agent
-    await dispatchViaConductor(input, parsed, config);
+    await dispatchViaConductor(input, parsed, config.engine);
   } else {
     // Determinístico → despacha direto
     await dispatchDirect(parsed);
@@ -89,10 +89,10 @@ async function dispatchDirect(parsed: ParsedCommand): Promise<void> {
 /** Despacho via Conductor LLM/Agent — precisa interpretar/decompor. */
 async function dispatchViaConductor(
   input: string,
-  parsed: ParsedCommand,
-  config: ConductorEngine,
+  _parsed: ParsedCommand,
+  engine: ConductorEngine,
 ): Promise<void> {
-  if (config.engine === "llm") {
+  if (engine === "llm") {
     // Modo leve: uma chamada llm_chat com snapshot do canvas
     const cfg = loadLlmConfig();
     if (!cfg) {
@@ -117,9 +117,11 @@ ${canvasSnap}`;
 
     const response = await llmChat(cfg, system, input, { kind: "conductor" });
 
-    // Parse do plano JSON
+    // Parse do plano JSON — extrai JSON da resposta (pode vir em ```json``` ou cru)
     try {
-      const plan = JSON.parse(response.extractJson?.() ?? response);
+      const jsonMatch = response.match(/```json?\s*([\s\S]*?)```/) ?? response.match(/(\{[\s\S]*\})/);
+      const jsonStr = jsonMatch ? jsonMatch[1] : response;
+      const plan = JSON.parse(jsonStr);
       if (plan.dispatches) {
         for (const d of plan.dispatches) {
           const result = await invoke<string>("orchestrator_dispatch_task", {

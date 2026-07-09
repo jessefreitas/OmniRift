@@ -37,6 +37,7 @@ import {
   Network,
   Plus,
   RefreshCw,
+  Radio,
   Repeat,
   Rocket,
   ScanLine,
@@ -193,6 +194,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "releases", icon: Rocket, label: "Novidades", desc: "Histórico completo de versões do OmniRift — o que mudou em cada release (timeline + busca)" },
   { id: "omnifs", icon: HardDrive, label: "OmniFS — Pasta de agentes", desc: "Drive versionado dos agentes: status do daemon, espaço, snapshots (com restauração humana) e reindexação da busca semântica" },
   { id: "companion", icon: Sparkles, label: "OmniPartner (IA)", desc: "Chat IA lateral que enxerga o canvas e ajuda a operar" },
+  { id: "conductor", icon: Radio, label: "Modo Conductor", desc: "Barra de orquestração por texto — despache tarefas com @, pipe e cria agentes no fluxo" },
   { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
   { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos paralelos" },
   { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
@@ -600,6 +602,7 @@ export function Sidebar() {
   const secStyle = (id: string) => ({ order: secReorder.order.indexOf(id) });
   const runTool: Record<string, () => void> = {
     companion: () => setShowCompanion(true),
+    conductor: () => setConductorMode(!conductorMode),
     git: () => setShowGitRepos(true),
     connections: () => setShowConnections(true),
     "llm-providers": () => setShowLlmProviders(true),
@@ -664,6 +667,7 @@ export function Sidebar() {
         case "git": setShowGitRepos(true); break;
         case "reminders": setShowReminders(true); break;
         case "companion": setShowCompanion(true); break;
+        case "conductor": setConductorMode(!conductorMode); break;
       }
     };
     window.addEventListener("omnirift:open-tool", h);
