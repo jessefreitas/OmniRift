@@ -267,6 +267,7 @@ const CONDUCTOR_PREAMBLE =
   "`[[CONDUCTOR-ASK from=@X id=N]] <pergunta>`, responda em UMA linha " +
   "`[[CONDUCTOR-REPLY id=N]] <resposta curta>` e VOLTE ao que fazia. " +
   "`[[CONDUCTOR-MSG from=@X]] <aviso>` é informação; incorpore e siga. " +
+  "Ao usar agent_ask/agent_tell, passe from=<seu label> (o nome acima), pra o outro saber quem fala. " +
   "ANTES de editar um arquivo faça claim_check; se estiver travado por outro agente, " +
   "use agent_ask(dono, \"preciso de <arquivo> — libera ou espero?\") e respeite a resposta.";
 

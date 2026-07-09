@@ -158,13 +158,15 @@ pub fn terminal_tool_defs() -> Vec<Value> {
             "inputSchema": { "type": "object", "properties": {
                 "target": { "type": "string" },
                 "question": { "type": "string" },
+                "from": { "type": "string", "description": "SEU próprio label (@nome), pra o alvo saber quem pergunta." },
                 "timeout_s": { "type": "integer", "description": "default 90" } },
                 "required": ["target", "question"] } }),
         json!({ "name": "agent_tell",
             "description": "AVISA o alvo de algo, sem esperar resposta (fire-and-forget). Ex: 'terminei o auth, pode seguir'.",
             "inputSchema": { "type": "object", "properties": {
                 "target": { "type": "string" },
-                "message": { "type": "string" } },
+                "message": { "type": "string" },
+                "from": { "type": "string", "description": "SEU próprio label (@nome), pra o alvo saber quem avisa." } },
                 "required": ["target", "message"] } }),
         json!({ "name": "workspace_list",
             "description": "Lista os floors (workspaces) do canvas e qual está ativo.",
@@ -644,6 +646,20 @@ fn over_agent_cap(state: &McpState) -> Option<String> {
     }
 }
 
+/// Resolve o `from` de uma chamada Conductor: usa o label que o agente passou (o
+/// preâmbulo o instrui), normaliza o prefixo `@`, default `@orquestrador` se vazio.
+fn conductor_from(args: &Value) -> String {
+    let raw = args.get("from").and_then(|v| v.as_str()).unwrap_or("").trim();
+    if raw.is_empty() {
+        return "@orquestrador".to_string();
+    }
+    if raw.starts_with('@') {
+        raw.to_string()
+    } else {
+        format!("@{raw}")
+    }
+}
+
 /// Despacha as tools Conductor (camada 4): `agent_status` (peek barato, não toca
 /// no alvo) + `agent_ask`/`agent_tell` (delegam nos helpers de entrega da server.rs).
 pub async fn conductor_dispatch(state: &McpState, tool: &str, args: Value) -> String {
@@ -671,13 +687,15 @@ pub async fn conductor_dispatch(state: &McpState, tool: &str, args: Value) -> St
         "agent_ask" => {
             let target = arg_str(&args, "target");
             let question = arg_str(&args, "question");
+            let from = conductor_from(&args);
             let timeout_s = args.get("timeout_s").and_then(|v| v.as_u64()).unwrap_or(90);
-            crate::mcp::server::conductor_ask_and_wait(state, &target, "@orquestrador", &question, timeout_s).await
+            crate::mcp::server::conductor_ask_and_wait(state, &target, &from, &question, timeout_s).await
         }
         "agent_tell" => {
             let target = arg_str(&args, "target");
             let message = arg_str(&args, "message");
-            crate::mcp::server::conductor_deliver_msg(state, &target, "@orquestrador", &message).await
+            let from = conductor_from(&args);
+            crate::mcp::server::conductor_deliver_msg(state, &target, &from, &message).await
         }
         other => format!("Tool conductor desconhecida: `{other}`."),
     }
