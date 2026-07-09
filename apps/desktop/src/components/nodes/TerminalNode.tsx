@@ -63,6 +63,21 @@ function formatAge(ms: number): string {
   return rem ? `${h}h${rem}min` : `${h}h`;
 }
 
+// Cache GLOBAL do catálogo de CLIs instalados. `clisList()` roda ~15 `which` +
+// `--version` por chamada; carregar por-nó no mount travava o canvas (N × dezenas de
+// subprocessos). Aqui roda no MÁXIMO uma vez (memoizado), sob demanda ao abrir o dropdown.
+let installedClisCache: Set<string> | null = null;
+async function ensureInstalledClis(): Promise<Set<string>> {
+  if (installedClisCache) return installedClisCache;
+  try {
+    const list = await clisList();
+    installedClisCache = new Set(list.filter((c: CliInfo) => c.installed).map((c) => c.id));
+  } catch {
+    installedClisCache = new Set();
+  }
+  return installedClisCache;
+}
+
 function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const t = useT();
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -314,19 +329,10 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
     [data.id, data.cwd, data.env, data.executionHost, data.session_id, reconnect, patchNode],
   );
 
-  // Catálogo de CLIs instalados → o dropdown marca "⚠ " + disabled os CLIs base fora do
-  // PATH. Best-effort: falha → set vazio (todos ficam sem marca, comportamento neutro).
-  useEffect(() => {
-    let alive = true;
-    clisList()
-      .then((list) => {
-        if (alive) setInstalledClis(new Set(list.filter((c: CliInfo) => c.installed).map((c) => c.id)));
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // (installedClis é carregado sob demanda ao ABRIR o dropdown — ver onMouseDown do
+  // <select>. Antes rodava aqui no mount POR-NÓ: com N terminais no canvas, N × (~15
+  // `which` + `--version`) subprocessos disparavam ao renderizar → pico de CPU e trava
+  // do canvas. Agora é lazy + cache global (ensureInstalledClis).)
 
   // Tempo de sessão: re-render leve a cada 30s só pra atualizar o "há Xmin".
   useEffect(() => {
@@ -752,6 +758,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             onMouseDown={(e) => {
               e.stopPropagation();
               setRoleOptions(loadRoles()); // refresca roles recém-criados ao abrir
+              void ensureInstalledClis().then(setInstalledClis); // lazy + cache (não trava o canvas)
             }}
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => {
