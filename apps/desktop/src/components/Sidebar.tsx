@@ -1794,7 +1794,7 @@ export function Sidebar() {
       const hit = clis.find((c) => c.binary === preset.command || c.id === preset.command);
       if (hit?.installed) {
         void notify(
-          tr("sidebar.presetAlreadyInstalled", "{cli} já está instalado ({ver}) — nada a fazer.")
+          tr("sidebar.presetAlreadyInstalled", "{cli} já está instalado ({ver}). Pra ABRIR o agente, clique no NOME dele (não no botão de instalar).")
             .replace("{cli}", tr("preset." + preset.id, preset.label))
             .replace("{ver}", hit.version ?? "ok"),
           "info",

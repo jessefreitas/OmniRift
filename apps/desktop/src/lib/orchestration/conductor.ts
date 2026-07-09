@@ -10,6 +10,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { llmChat, loadLlmConfig } from "@/lib/llm-client";
 import { analyzeCanvas } from "@/lib/companion";
 import { ptyWrite } from "@/lib/pty-client";
+import { acpPrompt } from "@/lib/acp-client";
 import { ROLE_CLIS, buildCliSwitch } from "@/lib/agent-roles";
 import { agentMcpConfig } from "@/lib/mcp-client";
 import type { TerminalNode, AgentNode } from "@/types/canvas";
@@ -202,6 +203,65 @@ Use as tools orchestrator_dispatch, orchestrator_status, orchestrator_spawn_agen
   return null;
 }
 
+/** Engines que só existem como agente ACP (sem CLI de terminal) — o modo PTY do
+ *  Conductor não consegue criá-los (não há entry no ROLE_CLIS). Roteados p/ ACP. */
+const ACP_CONDUCTOR_ENGINES: ConductorEngine[] = ["hermes"];
+
+/** Persona do Conductor — compartilhada entre o modo PTY e o ACP. */
+const CONDUCTOR_PERSONA =
+  "Você é o Conductor — o maestro de orquestração de agentes do OmniRift. " +
+  "Você recebe comandos do usuário e decide qual agente deve fazer o quê. " +
+  "Use as tools orchestrator_dispatch, orchestrator_status, orchestrator_spawn_agent quando precisar.";
+
+/** Despacho via OmniAgent ACP (ex: hermes) — cria o agente se preciso e entrega a task.
+ *  Diferente do modo PTY: não há terminal pra ptyWrite. A 1ª task vai embutida na persona
+ *  (o AgentNode entrega no ready); as seguintes via acpPrompt na sessão ACP viva. */
+async function dispatchViaAcpAgent(input: string, engine: ConductorEngine): Promise<void> {
+  const store = useCanvasStore.getState();
+  const activeFloor = store.parallels.find((p) => p.id === store.activeParallelId);
+  if (!activeFloor) return;
+  const provider = engine as "hermes";
+
+  // Reusa um Conductor ACP do mesmo provider já no floor (label "Conductor (…)").
+  const existing = activeFloor.nodes.find(
+    (n): n is AgentNode =>
+      n.kind === "agent" && n.provider === provider && (n.label ?? "").startsWith("Conductor"),
+  );
+
+  if (existing?.acpSessionId) {
+    // Sessão ACP viva → manda a task direto.
+    await acpPrompt(existing.acpSessionId, input);
+    await invoke("orchestrator_log", {
+      source: "conductor", target: "user",
+      payload: `Despachado pro agente ${engine}.`, status: "dispatched", stage: 0, parentId: null,
+    });
+    return;
+  }
+
+  if (existing) {
+    // Criado mas ainda conectando (sem acpSessionId) — avisa p/ repetir em instantes.
+    await invoke("orchestrator_log", {
+      source: "conductor", target: "user",
+      payload: `Agente ${engine} ainda conectando — repita a tarefa em instantes.`,
+      status: "working", stage: 0, parentId: null,
+    });
+    return;
+  }
+
+  // Não existe → cria o OmniAgent ACP. A 1ª task vai na persona (entregue no ready).
+  store.addAgent({
+    provider,
+    label: `Conductor (${engine})`,
+    persona: `${CONDUCTOR_PERSONA}\n\nPrimeira tarefa do usuário:\n${input}`,
+    cwd: store.currentCwd ?? undefined,
+  });
+  await invoke("orchestrator_log", {
+    source: "conductor", target: "user",
+    payload: `Criando agente ${engine} (ACP) e despachando a tarefa…`,
+    status: "dispatched", stage: 0, parentId: null,
+  });
+}
+
 /** Despacho via Conductor LLM/Agent — precisa interpretar/decompor. */
 async function dispatchViaConductor(
   input: string,
@@ -252,8 +312,13 @@ ${canvasSnap}`;
         parentId: null,
       });
     }
+  } else if (ACP_CONDUCTOR_ENGINES.includes(engine)) {
+    // Engine ACP-only (ex: hermes): não tem CLI de terminal, então o modo PTY abaixo
+    // nunca cria (não há entry no ROLE_CLIS). Cria um OmniAgent ACP e entrega a task
+    // via acpPrompt (não ptyWrite). Ver dispatchViaAcpAgent.
+    await dispatchViaAcpAgent(input, engine);
   } else {
-    // Modo Agent (claude/codex/hermes) — encontra ou cria o Conductor
+    // Modo Agent PTY (claude/codex) — encontra ou cria o Conductor terminal
     let conductorSid = useCanvasStore.getState().orchestratorSid;
 
     // Verifica se o conductorSid atual é do tipo certo
