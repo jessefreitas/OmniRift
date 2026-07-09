@@ -1782,8 +1782,25 @@ export function Sidebar() {
     });
   }
 
-  function installPreset(preset: AgentPreset) {
+  async function installPreset(preset: AgentPreset) {
     if (!preset.installCmd) return;
+    // NÃO reinstala o que já está no PATH: `npm install -g` num prefix root (/usr)
+    // falha com EACCES à toa. Checa como o fluxo Rust cli_install (is_binary_on_path).
+    try {
+      const clis = await clisList();
+      const hit = clis.find((c) => c.binary === preset.command || c.id === preset.command);
+      if (hit?.installed) {
+        void notify(
+          tr("sidebar.presetAlreadyInstalled", "{cli} já está instalado ({ver}) — nada a fazer.")
+            .replace("{cli}", tr("preset." + preset.id, preset.label))
+            .replace("{ver}", hit.version ?? "ok"),
+          "info",
+        );
+        return;
+      }
+    } catch {
+      /* checagem falhou → segue pro install (comportamento antigo, sem regressão) */
+    }
     addTerminal({
       command: "bash",
       args: [
@@ -2358,7 +2375,7 @@ export function Sidebar() {
               {preset.installCmd && (
                 <Tooltip label={tr("sidebar.installCliOf", "Instalar a CLI do {name}").replace("{name}", tr("preset." + preset.id, preset.label))} side="top" className="shrink-0">
                   <button
-                    onClick={() => installPreset(preset)}
+                    onClick={() => void installPreset(preset)}
                     className="px-2 py-2 text-textMuted hover:text-brand opacity-0 group-hover:opacity-100 transition-all"
                   >
                     <Download size={13} />
