@@ -1,5 +1,8 @@
 # Times = Grupo + Subagentes isolados + Blackboard — Design
 
+> **Absorvido pelo Conductor** (2026-07-09, `superseded_by: docs/superpowers/specs/2026-07-09-conductor-design.md`).
+> Vira a **camada 2 (Fronteira)** do Conductor. Mantido por histórico.
+
 > Status: **DRAFT / design-first** · 2026-06-30. Derivado de 3 furos reais batidos ao vivo na sessão
 > ACP (privacidade, awareness, lifecycle de subagente) — todos a MESMA raiz: o subagente/equipe não
 > tem **fronteira**. Não buildar até o desenho estar bom (mesmo princípio do [ACP layer](2026-06-30-acp-agent-layer-design.md)).
