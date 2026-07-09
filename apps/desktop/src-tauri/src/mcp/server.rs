@@ -426,6 +426,13 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
             wrap_tool_text(&state, tool, text)
         }
 
+        // Conductor (camada 4): comunicação ativa peer-a-peer. Match EXATO (não
+        // prefixo `agent_`) — labels de agente viram tools dinâmicas via to_tool_name.
+        "agent_status" | "agent_ask" | "agent_tell" => {
+            let text = crate::mcp::tools::conductor_dispatch(&state, tool, args).await;
+            wrap_tool_text(&state, tool, text)
+        }
+
         t if t.starts_with("workspace_") => {
             let text = crate::mcp::tools::workspace_dispatch(&state, t, args).await;
             wrap_tool_text(&state, t, text)
@@ -534,6 +541,92 @@ async fn do_send_task(
 
     // Resultado = tela renderizada (VT100) do agente, não o stream cru.
     Ok(state.pty_manager.read_screen(&session_id).unwrap_or_default())
+}
+
+// ── Conductor: comunicação ativa peer-a-peer (camada 4) ──────────────────────
+
+/// Injeta `[[CONDUCTOR-ASK]]` no PTY do alvo e bloqueia até casar o REPLY pelo id,
+/// ou estourar `timeout_s`. Reusa o padrão de `do_send_task` (write + \r atrasado)
+/// e de `terminal_wait_output` (assina o stream do id e relê a tela renderizada).
+pub async fn conductor_ask_and_wait(
+    state: &McpState,
+    target_label: &str,
+    from: &str,
+    question: &str,
+    timeout_s: u64,
+) -> String {
+    let sid = match state.agent_registry.get_session_id(target_label) {
+        Some(s) => s,
+        None => return format!("❌ Agente '{target_label}' não encontrado."),
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    let ask = crate::mcp::marker::render_ask(from, &id, question);
+
+    let mut rx = match state.pty_manager.subscribe_by_id(&sid) {
+        Ok(r) => r,
+        Err(e) => return format!("❌ {e}"),
+    };
+    if let Err(e) = state.pty_manager.write(&sid, ask.as_bytes()) {
+        return format!("❌ {e}");
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _ = state.pty_manager.write(&sid, b"\r");
+
+    let check = || {
+        state
+            .pty_manager
+            .read_screen(&sid)
+            .ok()
+            .and_then(|s| crate::mcp::marker::find_reply(&s, &id))
+    };
+    if let Some(ans) = check() {
+        return ans;
+    }
+    let wait = async {
+        loop {
+            match rx.recv().await {
+                Ok(_) => {
+                    if let Some(ans) = check() {
+                        return Some(ans);
+                    }
+                }
+                Err(_) => return None,
+            }
+        }
+    };
+    match tokio::time::timeout(Duration::from_secs(timeout_s), wait).await {
+        Ok(Some(ans)) => ans,
+        Ok(None) => "❌ canal fechado antes da resposta".into(),
+        Err(_) => {
+            let cur = state
+                .pty_manager
+                .agent_state(&sid)
+                .map(|s| format!("{s:?}").to_lowercase())
+                .unwrap_or_else(|| "unknown".into());
+            format!("sem resposta (timeout) · estado de {target_label} = {cur}")
+        }
+    }
+}
+
+/// Injeta `[[CONDUCTOR-MSG]]` no PTY do alvo e devolve `ok` sem esperar resposta.
+/// É o primitivo de entrega reusado pela camada 5 (barramento).
+pub async fn conductor_deliver_msg(
+    state: &McpState,
+    target_label: &str,
+    from: &str,
+    message: &str,
+) -> String {
+    let sid = match state.agent_registry.get_session_id(target_label) {
+        Some(s) => s,
+        None => return format!("❌ Agente '{target_label}' não encontrado."),
+    };
+    let msg = crate::mcp::marker::render_msg(from, message);
+    if let Err(e) = state.pty_manager.write(&sid, msg.as_bytes()) {
+        return format!("❌ {e}");
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _ = state.pty_manager.write(&sid, b"\r");
+    "ok — entregue (o alvo verá no próximo turno)".into()
 }
 
 #[cfg(test)]
