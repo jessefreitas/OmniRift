@@ -387,7 +387,7 @@ impl AcpManager {
     /// contexto — um comando Tauri SÍNCRONO roda fora do runtime e panica ("no reactor running").
     /// `resume_session_id`: se presente, faz `session/load` (resume a sessão ACP persistida)
     /// no lugar de `session/new` → recarrega `.claude/agents` MANTENDO a conversa (D2-v2).
-    pub async fn spawn(&self, id: SessionId, provider: Option<String>, cwd: Option<String>, resume_session_id: Option<String>, provider_config: Option<ProviderConfig>, app: AppHandle) -> Result<SessionId> {
+    pub async fn spawn(&self, id: SessionId, provider: Option<String>, cwd: Option<String>, resume_session_id: Option<String>, provider_config: Option<ProviderConfig>, disallowed_tools: Option<Vec<String>>, app: AppHandle) -> Result<SessionId> {
         if self.sessions.contains_key(&id) {
             return Err(anyhow!("sessão acp {id} já existe"));
         }
@@ -406,6 +406,15 @@ impl AcpManager {
         let mut cmd = Command::new(bin);
         cmd.args(&args);
         cmd.current_dir(&cwd_abs);
+
+        // Orquestrador PURO: bloqueia as tools de execução do Claude (Bash, Read, Edit,
+        // Write, Grep, Glob) no nível do adapter → ele SÓ pode delegar via MCP (terminal_*).
+        // Sem disallowed_tools = agente normal (worker), nasce com todas as tools.
+        if let Some(tools) = disallowed_tools.as_ref() {
+            if !tools.is_empty() {
+                cmd.arg("--disallowed-tools").arg(tools.join(","));
+            }
+        }
 
         // BYOK do Hermes: injeta HERMES_INFERENCE_PROVIDER/MODEL + <PROV>_API_KEY (host-gated) no
         // ambiente do adapter → a sessão nasce autenticada (authMethods vazio → session/new direto),

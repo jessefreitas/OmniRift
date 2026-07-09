@@ -19,7 +19,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Brain, FlaskConical, Maximize2, Minimize2, Repeat, RotateCw, ScrollText, Send, Target, UserRoundPlus, X } from "lucide-react";
+import { Brain, Copy, FlaskConical, Maximize2, Minimize2, Repeat, RotateCw, ScrollText, Send, Target, UserRoundPlus, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -28,7 +28,7 @@ import { kanbanList } from "@/lib/kanban-client";
 import { buildRecitation } from "@/lib/recitation";
 import { scanTextForSecrets } from "@/lib/capability-risk";
 import { trackRender } from "@/lib/debug-log";
-import { agentsMdInstruction, agentsMdRelPath, agentsMdSlug } from "@/lib/agent-contract";
+import { agentsMdInstruction, agentsMdRelPath, agentsMdSlug, ORCHESTRATOR_CONTRACT } from "@/lib/agent-contract";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -153,11 +153,14 @@ async function writeHistoryFile(cwd: string, path: string, content: string): Pro
 
 // Contrato injetado (invisível) no 1º prompt → faz o OmniAgent agir como orquestrador,
 // usando as tools MCP do OmniRift (injetadas no session/new pelo backend).
-const ORCHESTRATOR_PROMPT = `Você é o ORQUESTRADOR do OmniRift: você COORDENA agentes em vez de executar tudo sozinho. Você tem ferramentas MCP do OmniRift disponíveis: terminal_list (ver os agentes ativos), terminal_spawn_on_floor (criar um agente num worktree git isolado), terminal_run e terminal_send_text (comandar um agente), terminal_wait_status (esperar um agente concluir), memory_remember e memory_recall (blackboard compartilhado), claim_acquire e claim_release (evitar conflito de edição). Ao receber uma tarefa: decomponha em subtarefas, delegue a agentes (listando os existentes ou criando novos), acompanhe a conclusão e sintetize o resultado. Prefira DELEGAR a executar você mesmo.`;
+// USA o ORCHESTRATOR_CONTRACT canônico (agent-contract.ts) — a versão DURA que diz
+// "NUNCA execute você mesmo" em vez do prompt soft anterior que o Claude ignorava.
+const ORCHESTRATOR_PROMPT = ORCHESTRATOR_CONTRACT;
 
 function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   trackRender(`AgentNode:${data.id}`); // P0: detecta loop de render (grava o culpado em disco)
   const removeNode = useCanvasStore((s) => s.removeNode);
+  const duplicateAgentNode = useCanvasStore((s) => s.duplicateAgentNode);
   const patchNode = useCanvasStore((s) => s.patchNode);
   const emitAgentOutput = useCanvasStore((s) => s.emitAgentOutput);
   const nodeInput = useCanvasStore((s) => s.nodeInputs[data.id]);
@@ -869,6 +872,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
 
       // 2) SPAWN: reload na mesma execução usa o resumeRef; pós-restart do app usa o
       //    data.acpSessionId PERSISTIDO → session/load retoma a conversa.
+      //    O AgentNode é um ORQUESTRADOR por design (coordena via MCP terminal_*), não um
+      //    executor — bloqueia as tools de execução do Claude (Bash/Read/Edit/Write/Grep/Glob)
+      //    no nível do adapter. Assim ele SÓ pode delegar, nunca executar direto. Workers
+      //    que executam nascem como TerminalNode (PTY) via spawnRole na sidebar.
       if (!attached && alive) {
         try {
           const resume = resumeRef.current ?? data.acpSessionId ?? undefined;
@@ -878,6 +885,13 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             cwd: data.cwd,
             resumeSessionId: resume,
             providerConfig: hermesCfg ?? undefined,
+            // Só bloqueia tools de execução no provider claude (Codex/Hermes não têm --disallowed-tools).
+            ...(data.provider === "claude" || !data.provider ? {
+              disallowedTools: [
+                "Bash", "Read", "Edit", "Write", "Grep", "Glob",
+                "WebFetch", "WebSearch",
+              ],
+            } : {}),
           });
           resumeRef.current = null; // consumido
         } catch (e) {
@@ -1304,6 +1318,14 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           aria-label={isFullscreen ? t("agent.restore", "Restaurar") : t("agent.fullscreen", "Tela cheia")}
         >
           {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); duplicateAgentNode(data.id); }}
+          className="p-0.5 rounded text-text/50 hover:bg-white/10 hover:text-brand transition-colors"
+          title={t("agent.duplicate", "Clonar agente — duplica toda a config (persona, goal, loop, provider) num novo nó")}
+          aria-label={t("agent.duplicate", "Clonar agente")}
+        >
+          <Copy size={13} />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); removeNode(data.id); }}
