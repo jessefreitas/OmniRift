@@ -1,11 +1,11 @@
-# Conductor Fase 4a — Roteiro de validação manual (no app rodando)
+# Orquestrador Fase 4a — Roteiro de validação manual (no app rodando)
 
 > Por que manual: o `McpState` precisa de um `tauri::AppHandle`, então um e2e em `cargo test`
 > é impraticável — a validação real da camada 4 é dois agentes conversando no app.
 > Rode isto no teu PC (que tem as libs GTK; a máquina de sessão não linka o app).
 
 ## Pré-requisitos
-- Branch `spec/conductor` (já pushada).
+- Branch `spec/orquestração` (já pushada).
 - `cargo test -p omnirift marker::` deve passar (parser puro — 5 testes). Confirma o núcleo.
 - Build normal: `npm run tauri:dev`.
 
@@ -20,8 +20,8 @@
 ## Cenário B — agent_ask (interrompe, resposta correlacionada) ⭐ o teste central
 1. Mesmos 2 agentes.
 2. No Orquestrador: **"use agent_ask no DBA perguntando: em uma linha, o que você está fazendo agora?"**
-3. **Esperado no PTY do DBA:** aparece `[[CONDUCTOR-ASK from=@orquestrador id=<uuid>]] ...`,
-   e o DBA responde `[[CONDUCTOR-REPLY id=<uuid>]] <resposta>` (o preâmbulo o ensinou).
+3. **Esperado no PTY do DBA:** aparece `[[OMNIRIFT-ASK from=@orquestrador id=<uuid>]] ...`,
+   e o DBA responde `[[OMNIRIFT-REPLY id=<uuid>]] <resposta>` (o preâmbulo o ensinou).
 4. **Esperado no Orquestrador:** o `agent_ask` retorna **só a resposta** do DBA (não o scrollback),
    correlacionada ao `id`.
 5. **Falhas a caçar:**
@@ -31,7 +31,7 @@
 
 ## Cenário C — agent_tell (push fire-and-forget)
 1. No `Backend`: **"use agent_tell no DBA com a mensagem: terminei a API, pode seguir"**.
-2. **Esperado:** retorna `ok` na hora; no próximo turno do DBA, ele **vê** o `[[CONDUCTOR-MSG ...]]`
+2. **Esperado:** retorna `ok` na hora; no próximo turno do DBA, ele **vê** o `[[OMNIRIFT-MSG ...]]`
    e incorpora. Não bloqueia o Backend.
 
 ## Cenário D — negociação por claim (o valor real)
@@ -44,7 +44,7 @@
 
 ## O que anotar pra fechar a 4a
 - [ ] Cenário B fecha o roundtrip (é o que prova a camada 4).
-- [ ] Marcadores `[[CONDUCTOR-*]]` aparecem no xterm? (Task 12 = escondê-los — decidir com a tela à vista.)
+- [ ] Marcadores `[[OMNIRIFT-*]]` aparecem no xterm? (Task 12 = escondê-los — decidir com a tela à vista.)
 - [ ] `from` aparece como `@orquestrador` fixo? (Task 7 = identidade real do chamador.)
 - [ ] Algum LLM emite REPLY malformado (sem `]]`, id trocado)? Ajustar o parser/preâmbulo.
 

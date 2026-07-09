@@ -260,22 +260,22 @@ const INSTALL = {
 // É role-aware: o ORQUESTRADOR recebe diretiva de DELEGAÇÃO (não "execute"), o worker
 // recebe diretiva de EXECUÇÃO. Uma linha só (sem \n) de propósito — texto multi-linha no
 // PTY vira "[Pasted text +N linhas]" e não submete (ver comentário em sendTeamBriefing).
-// Conductor (camada 4): todo agente nasce ciente do protocolo de comunicação
+// Orquestração (camada 4): todo agente nasce ciente do protocolo de comunicação
 // peer-a-peer. Ensina a responder ASK/MSG e a negociar claims em vez de colidir.
-const CONDUCTOR_PREAMBLE =
-  " Você participa do Conductor: outros agentes falam com você. Ao ver uma linha " +
-  "`[[CONDUCTOR-ASK from=@X id=N]] <pergunta>`, responda em UMA linha " +
-  "`[[CONDUCTOR-REPLY id=N]] <resposta curta>` e VOLTE ao que fazia. " +
-  "`[[CONDUCTOR-MSG from=@X]] <aviso>` é informação; incorpore e siga. " +
+const ORQ_PREAMBLE =
+  " Você participa da orquestração do OmniRift: outros agentes falam com você. Ao ver uma linha " +
+  "`[[OMNIRIFT-ASK from=@X id=N]] <pergunta>`, responda em UMA linha " +
+  "`[[OMNIRIFT-REPLY id=N]] <resposta curta>` e VOLTE ao que fazia. " +
+  "`[[OMNIRIFT-MSG from=@X]] <aviso>` é informação; incorpore e siga. " +
   "Ao usar agent_ask/agent_tell, passe from=<seu label> (o nome acima), pra o outro saber quem fala. " +
   "ANTES de editar um arquivo faça claim_check; se estiver travado por outro agente, " +
   "use agent_ask(dono, \"preciso de <arquivo> — libera ou espero?\") e respeite a resposta.";
 
 function mcpRoleText(label: string, description: string, isOrchestrator: boolean): string {
   if (isOrchestrator) {
-    return `Você está agindo como ${label} (ORQUESTRADOR) no canvas OmniRift. ${description} NÃO execute tarefas você mesmo — delegue aos agentes da equipe pelas tools omnirift-agents: terminal_list para ver a equipe, terminal_run/terminal_send_text para delegar. Decomponha a tarefa, delegue e agregue os resultados.${CONDUCTOR_PREAMBLE}`;
+    return `Você está agindo como ${label} (ORQUESTRADOR) no canvas OmniRift. ${description} NÃO execute tarefas você mesmo — delegue aos agentes da equipe pelas tools omnirift-agents: terminal_list para ver a equipe, terminal_run/terminal_send_text para delegar. Decomponha a tarefa, delegue e agregue os resultados.${ORQ_PREAMBLE}`;
   }
-  return `Você está agindo como ${label} no canvas OmniRift. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.${CONDUCTOR_PREAMBLE}`;
+  return `Você está agindo como ${label} no canvas OmniRift. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.${ORQ_PREAMBLE}`;
 }
 
 const PRESETS: AgentPreset[] = [

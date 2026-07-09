@@ -646,9 +646,9 @@ fn over_agent_cap(state: &McpState) -> Option<String> {
     }
 }
 
-/// Resolve o `from` de uma chamada Conductor: usa o label que o agente passou (o
+/// Resolve o `from` de uma chamada de orquestração: usa o label que o agente passou (o
 /// preâmbulo o instrui), normaliza o prefixo `@`, default `@orquestrador` se vazio.
-fn conductor_from(args: &Value) -> String {
+fn orq_from(args: &Value) -> String {
     let raw = args.get("from").and_then(|v| v.as_str()).unwrap_or("").trim();
     if raw.is_empty() {
         return "@orquestrador".to_string();
@@ -660,9 +660,9 @@ fn conductor_from(args: &Value) -> String {
     }
 }
 
-/// Despacha as tools Conductor (camada 4): `agent_status` (peek barato, não toca
+/// Despacha as tools Orquestração (camada 4): `agent_status` (peek barato, não toca
 /// no alvo) + `agent_ask`/`agent_tell` (delegam nos helpers de entrega da server.rs).
-pub async fn conductor_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+pub async fn orq_dispatch(state: &McpState, tool: &str, args: Value) -> String {
     match tool {
         "agent_status" => {
             let target = arg_str(&args, "target");
@@ -687,17 +687,17 @@ pub async fn conductor_dispatch(state: &McpState, tool: &str, args: Value) -> St
         "agent_ask" => {
             let target = arg_str(&args, "target");
             let question = arg_str(&args, "question");
-            let from = conductor_from(&args);
+            let from = orq_from(&args);
             let timeout_s = args.get("timeout_s").and_then(|v| v.as_u64()).unwrap_or(90);
-            crate::mcp::server::conductor_ask_and_wait(state, &target, &from, &question, timeout_s).await
+            crate::mcp::server::orq_ask_and_wait(state, &target, &from, &question, timeout_s).await
         }
         "agent_tell" => {
             let target = arg_str(&args, "target");
             let message = arg_str(&args, "message");
-            let from = conductor_from(&args);
-            crate::mcp::server::conductor_deliver_msg(state, &target, &from, &message).await
+            let from = orq_from(&args);
+            crate::mcp::server::orq_deliver_msg(state, &target, &from, &message).await
         }
-        other => format!("Tool conductor desconhecida: `{other}`."),
+        other => format!("Tool de orquestração desconhecida: `{other}`."),
     }
 }
 

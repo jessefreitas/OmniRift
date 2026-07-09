@@ -426,10 +426,10 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
             wrap_tool_text(&state, tool, text)
         }
 
-        // Conductor (camada 4): comunicação ativa peer-a-peer. Match EXATO (não
+        // Orquestração (camada 4): comunicação ativa peer-a-peer. Match EXATO (não
         // prefixo `agent_`) — labels de agente viram tools dinâmicas via to_tool_name.
         "agent_status" | "agent_ask" | "agent_tell" => {
-            let text = crate::mcp::tools::conductor_dispatch(&state, tool, args).await;
+            let text = crate::mcp::tools::orq_dispatch(&state, tool, args).await;
             wrap_tool_text(&state, tool, text)
         }
 
@@ -543,12 +543,12 @@ async fn do_send_task(
     Ok(state.pty_manager.read_screen(&session_id).unwrap_or_default())
 }
 
-// ── Conductor: comunicação ativa peer-a-peer (camada 4) ──────────────────────
+// ── Orquestração: comunicação ativa peer-a-peer (camada 4) ──────────────────────
 
-/// Injeta `[[CONDUCTOR-ASK]]` no PTY do alvo e bloqueia até casar o REPLY pelo id,
+/// Injeta `[[OMNIRIFT-ASK]]` no PTY do alvo e bloqueia até casar o REPLY pelo id,
 /// ou estourar `timeout_s`. Reusa o padrão de `do_send_task` (write + \r atrasado)
 /// e de `terminal_wait_output` (assina o stream do id e relê a tela renderizada).
-pub async fn conductor_ask_and_wait(
+pub async fn orq_ask_and_wait(
     state: &McpState,
     target_label: &str,
     from: &str,
@@ -608,9 +608,9 @@ pub async fn conductor_ask_and_wait(
     }
 }
 
-/// Injeta `[[CONDUCTOR-MSG]]` no PTY do alvo e devolve `ok` sem esperar resposta.
+/// Injeta `[[OMNIRIFT-MSG]]` no PTY do alvo e devolve `ok` sem esperar resposta.
 /// É o primitivo de entrega reusado pela camada 5 (barramento).
-pub async fn conductor_deliver_msg(
+pub async fn orq_deliver_msg(
     state: &McpState,
     target_label: &str,
     from: &str,

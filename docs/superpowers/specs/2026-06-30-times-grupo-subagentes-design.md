@@ -1,7 +1,7 @@
 # Times = Grupo + Subagentes isolados + Blackboard — Design
 
-> **Absorvido pelo Conductor** (2026-07-09, `superseded_by: docs/superpowers/specs/2026-07-09-conductor-design.md`).
-> Vira a **camada 2 (Fronteira)** do Conductor. Mantido por histórico.
+> **Absorvido pelo Orquestrador** (2026-07-09, `superseded_by: docs/superpowers/specs/2026-07-09-orquestracao-design.md`).
+> Vira a **camada 2 (Fronteira)** do Orquestrador. Mantido por histórico.
 
 > Status: **DRAFT / design-first** · 2026-06-30. Derivado de 3 furos reais batidos ao vivo na sessão
 > ACP (privacidade, awareness, lifecycle de subagente) — todos a MESMA raiz: o subagente/equipe não

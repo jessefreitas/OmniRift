@@ -2,11 +2,11 @@
 status: active
 title: Ciclo de vida de specs + orquestração multi-agente
 date: 2026-06-16
-superseded_by: docs/superpowers/specs/2026-07-09-conductor-design.md
+superseded_by: docs/superpowers/specs/2026-07-09-orquestracao-design.md
 ---
 
-> **Absorvido pelo Conductor** (2026-07-09). As camadas 1 (hierarquia), 3 (coordenação passiva) e o
-> ciclo de vida de specs vivem agora em `2026-07-09-conductor-design.md`. Mantido por histórico.
+> **Absorvido pelo Orquestrador** (2026-07-09). As camadas 1 (hierarquia), 3 (coordenação passiva) e o
+> ciclo de vida de specs vivem agora em `2026-07-09-orquestracao-design.md`. Mantido por histórico.
 
 # Ciclo de vida de specs + orquestração multi-agente — Design
 

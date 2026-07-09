@@ -1,18 +1,18 @@
 ---
 status: active
-title: Conductor — sistema unificado de orquestração e comunicação inter-agente
+title: Orquestrador — sistema unificado de orquestração e comunicação inter-agente
 date: 2026-07-09
 supersedes:
   - docs/superpowers/specs/2026-06-16-spec-lifecycle-e-orquestracao-design.md
   - docs/superpowers/specs/2026-06-30-times-grupo-subagentes-design.md
 ---
 
-# Conductor — Design
+# Orquestrador — Design
 
-**Goal:** unificar sob um nome só — **Conductor** — tudo que o OmniRift já tem de orquestração
+**Goal:** unificar sob um nome só — **Orquestrador** — tudo que o OmniRift já tem de orquestração
 (Orquestrador coroado, teto/aprovação/ondas, Times = Floor + blackboard) **mais** a camada que
 faltava: **comunicação ativa peer-a-peer entre agentes** (perguntar, avisar, negociar). Hoje a
-coordenação é *passiva* — um agente posta um claim no blackboard, outro lê. Conductor adiciona o
+coordenação é *passiva* — um agente posta um claim no blackboard, outro lê. Orquestrador adiciona o
 tecido *conversacional*: A pergunta a B o que ele está fazendo, B responde; B avisa A que terminou;
 B esbarra num recurso de A e **negocia** em vez de recuar mudo.
 
@@ -51,7 +51,7 @@ faseamento 5/6/7 nasceram na sessão de brainstorming de 2026-07-09.
 ## Arquitetura — 7 camadas
 
 ```
-                         CONDUCTOR
+                         ORQUESTRADOR
   ┌──────────────────────────────────────────────────────────┐
   │ 1. HIERARQUIA   Orquestrador 👑 → membros                 │  ✅ existe (v0.1.103)
   │    teto (max 5) · aprovação do usuário · ondas            │
@@ -83,7 +83,7 @@ faseamento 5/6/7 nasceram na sessão de brainstorming de 2026-07-09.
 
 ## Camada 4 — Comunicação ativa (o núcleo novo)
 
-O coração do Conductor. Três ferramentas MCP novas em `mcp/tools.rs`, no padrão existente
+O coração do Orquestrador. Três ferramentas MCP novas em `mcp/tools.rs`, no padrão existente
 (`terminal_*`, `orchestration_*`, `claim_*`), roteadas pelo MCP server embutido (`mcp/server.rs`,
 SSE + JSON-RPC 2.0, já injetado em todo agente pelo `agent_mcp_config`).
 
@@ -114,9 +114,9 @@ casar a resposta. Solução — **marcador + preâmbulo de role**:
 **`agent_ask` (síncrono, bloqueia):**
 ```
 control plane → injeta no PTY de B:
-    [[CONDUCTOR-ASK from=@A id=<uuid>]] <pergunta>
+    [[OMNIRIFT-ASK from=@A id=<uuid>]] <pergunta>
 B (role-primed) responde numa linha própria:
-    [[CONDUCTOR-REPLY id=<uuid>]] <resposta>
+    [[OMNIRIFT-REPLY id=<uuid>]] <resposta>
 control plane → leitor de PTY casa o REPLY pelo <uuid>, extrai só a resposta,
                 desbloqueia o agent_ask de A com esse texto.
 ```
@@ -124,7 +124,7 @@ control plane → leitor de PTY casa o REPLY pelo <uuid>, extrai só a resposta,
 **`agent_tell` (fire-and-forget):**
 ```
 control plane → injeta no PTY de B:
-    [[CONDUCTOR-MSG from=@A]] <mensagem>
+    [[OMNIRIFT-MSG from=@A]] <mensagem>
 não espera reply; devolve `ok` imediatamente a A. B lê no próximo turno.
 ```
 
@@ -134,7 +134,7 @@ não espera reply; devolve `ok` imediatamente a A. B lê no próximo turno.
 - **Timeout:** default configurável (ex.: 90s). Ao estourar → devolve
   `"sem resposta (timeout) · estado de B = Working"`. **Nunca** trava A para sempre.
 - **Parsing:** o leitor de PTY (o mesmo loop que alimenta `AgentState`/scrollback em
-  `pty/session.rs`) ganha um matcher dos marcadores `[[CONDUCTOR-*]]`. Um único regex por linha;
+  `pty/session.rs`) ganha um matcher dos marcadores `[[OMNIRIFT-*]]`. Um único regex por linha;
   extrai `id` e payload. Marcadores nunca são renderizados como saída "normal" (filtrados do que o
   xterm mostra, ou marcados como meta).
 
@@ -144,16 +144,16 @@ Todo agente nasce sabendo o protocolo. Injetado no spawn pelo **mesmo caminho do
 (`commands/mcp.rs`) que já injeta Serena/memória. Bloco de texto curto no system prompt/role:
 
 ```
-Você participa do Conductor. Outros agentes podem falar com você:
-- Ao ver `[[CONDUCTOR-ASK from=@X id=N]] <pergunta>`: responda em UMA linha
-  `[[CONDUCTOR-REPLY id=N]] <resposta curta>` e volte ao que fazia.
-- `[[CONDUCTOR-MSG from=@X]] <aviso>` é informação; incorpore e siga.
+Você participa do Orquestrador. Outros agentes podem falar com você:
+- Ao ver `[[OMNIRIFT-ASK from=@X id=N]] <pergunta>`: responda em UMA linha
+  `[[OMNIRIFT-REPLY id=N]] <resposta curta>` e volte ao que fazia.
+- `[[OMNIRIFT-MSG from=@X]] <aviso>` é informação; incorpore e siga.
 - ANTES de editar um arquivo: `claim_check`. Se estiver travado por outro agente,
   use `agent_ask(dono, "preciso de <arquivo> — libera ou espero?")` e respeite a resposta.
 ```
 
 Custo consciente: o preâmbulo consome um pouco do contexto inicial de cada agente. Aceito — é o preço
-de agentes "Conductor-aware" por padrão.
+de agentes "Orquestrador-aware" por padrão.
 
 ### 4.4 Negociação por claim (liga camada 3 ↔ 4)
 
@@ -176,7 +176,7 @@ numa conversa que resolve.
 ## Camadas 1–3 — o que já existe (absorvido das specs antigas)
 
 Estas camadas vêm dos designs de 06-16 e 06-30 (agora supersedidos por este). Resumo do contrato que
-o Conductor mantém; o detalhe fica no histórico git dos arquivos originais.
+o Orquestrador mantém; o detalhe fica no histórico git dos arquivos originais.
 
 ### Camada 1 — Hierarquia (✅ existe, v0.1.103)
 - **Orquestrador** = líder promovido (coroa 👑, dock), persona de comando: divide/aciona/cobra/integra
@@ -216,11 +216,11 @@ o Conductor mantém; o detalhe fica no histórico git dos arquivos originais.
 - **Versão leve JÁ EXISTE:** o blackboard (`memory_remember`/`recall` por tag) é um quadro
   compartilhado — B grava `tag=auth "pronto"`, quem se importa faz `memory_recall(tag=auth)`. Cobre
   "anúncio pra quem interessa" sem infra nova. **Recomendação: use isso primeiro.**
-- **Versão ativa (a construir):** entrega push a inscritos reusa o marcador `[[CONDUCTOR-MSG]]` da
+- **Versão ativa (a construir):** entrega push a inscritos reusa o marcador `[[OMNIRIFT-MSG]]` da
   camada 4 — inscrição num tópico → quando alguém publica, o control plane injeta o MSG no PTY de
   cada inscrito. Depende inteiramente da camada 4 estar sólida.
 - **Contrato que a camada 4 deve expor pra 5 plugar:** função interna `deliver_msg(target, payload)`
-  (o injetor de `[[CONDUCTOR-MSG]]`) reutilizável por um dispatcher de tópicos.
+  (o injetor de `[[OMNIRIFT-MSG]]`) reutilizável por um dispatcher de tópicos.
 - YAGNI até haver cenário real com N agentes onde `recall` por tag não serve.
 
 ---
@@ -260,7 +260,7 @@ Ordem por dependência e valor. Cada fase é um PR/floor próprio.
 1. **Fase 4a — núcleo pull:** `agent_status` + `agent_ask` + protocolo de marcador (ASK/REPLY) +
    correlação por uuid + timeout + preâmbulo de role. *Entrega o valor central sozinha: agentes
    conversam.* Base de tudo.
-2. **Fase 4b — push + negociação:** `agent_tell` (`[[CONDUCTOR-MSG]]`, fire-and-forget) + etiqueta de
+2. **Fase 4b — push + negociação:** `agent_tell` (`[[OMNIRIFT-MSG]]`, fire-and-forget) + etiqueta de
    negociação por claim no preâmbulo. Barato sobre 4a.
 3. **Fase 7 — monitor passivo** (paralelo a 4b): `AgentStatusEvent` → notificação na UI + "o que X
    está fazendo?" via `agent_status`.
@@ -276,9 +276,9 @@ Camadas 1–3 já existem/estão desenhadas; o trabalho novo começa na Fase 4a.
 
 - **`mcp/tools.rs`** — definição + handler das 3 tools novas (`agent_status`/`agent_ask`/`agent_tell`).
 - **`mcp/server.rs`** — bloqueio-por-reply do `agent_ask` (reusa padrão `do_send_task`); registro.
-- **`pty/session.rs`** (ou `detector.rs`) — matcher dos marcadores `[[CONDUCTOR-*]]` no read-loop;
+- **`pty/session.rs`** (ou `detector.rs`) — matcher dos marcadores `[[OMNIRIFT-*]]` no read-loop;
   filtro pra não renderizar marcador como saída normal.
-- **`commands/mcp.rs` (`agent_mcp_config`)** — injetar o preâmbulo de role Conductor no spawn.
+- **`commands/mcp.rs` (`agent_mcp_config`)** — injetar o preâmbulo de role Orquestrador no spawn.
 - **`mcp/registry.rs`** — resolução de `target` (label/role/sid), se ainda não coberta pelo
   `orchestration_send`.
 - **(Fase 7)** `metrics`/front — consumir `AgentStatusEvent` → notificação UI.
@@ -302,7 +302,7 @@ Camadas 1–3 já existem/estão desenhadas; o trabalho novo começa na Fase 4a.
 
 ## Riscos / decisões abertas
 
-- **Marcador no output do agente por engano** — se um agente imprimir `[[CONDUCTOR-REPLY id=…]]` fora
+- **Marcador no output do agente por engano** — se um agente imprimir `[[OMNIRIFT-REPLY id=…]]` fora
   de contexto (ex.: ecoando a instrução), pode casar falso. Mitigar: `id` é uuid (colisão improvável)
   + o matcher só aceita REPLY com `id` de um ASK *pendente*.
 - **Interrupt derailla B** — injetar ASK no meio de uma tarefa de B pode confundir B. Mitigar: o
@@ -313,9 +313,9 @@ Camadas 1–3 já existem/estão desenhadas; o trabalho novo começa na Fase 4a.
   Retorno inclui o `AgentState` pra A decidir (esperar/repetir/seguir). Timeout configurável.
 - **Claims advisory** (herdado) — não travam de verdade; confiam no contrato. Floor é a garantia dura;
   FS guard (camada 6) é o lock duro opcional e provavelmente desnecessário.
-- **Nome "Conductor"** — nome guarda-chuva do sistema; não há artefato antigo literal com esse nome
-  (o código usa "Orquestrador"). Decidir se renomeia a persona/UI para Conductor ou mantém
-  "Orquestrador" no código e "Conductor" só como nome do sistema/produto.
+- **Nome "Orquestrador"** — nome guarda-chuva do sistema; não há artefato antigo literal com esse nome
+  (o código usa "Orquestrador"). Decidir se renomeia a persona/UI para Orquestrador ou mantém
+  "Orquestrador" no código e "Orquestrador" só como nome do sistema/produto.
 
 ---
 
@@ -324,4 +324,4 @@ Camadas 1–3 já existem/estão desenhadas; o trabalho novo começa na Fase 4a.
 - `2026-06-16-spec-lifecycle-e-orquestracao-design.md` — camadas 1, 3 + spec lifecycle.
 - `2026-06-30-times-grupo-subagentes-design.md` — camada 2 (Times = Floor + blackboard namespaceado).
 
-Ambas mantidas no repo por histórico; frontmatter marcado `superseded_by: 2026-07-09-conductor-design.md`.
+Ambas mantidas no repo por histórico; frontmatter marcado `superseded_by: 2026-07-09-orquestracao-design.md`.
