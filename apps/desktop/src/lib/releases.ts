@@ -24,6 +24,18 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.131",
+    date: "2026-07-08",
+    title: "Virar um agente em outro papel/modelo + fim do travamento do canvas",
+    highlights: [
+      "No cabeçalho de qualquer agente, o seletor agora tem \"Virar agente\": troque o terminal por um dos SEUS papéis criados — com a persona + modelo/wrapper dele (skills, MCP, compressor) — não só um CLI cru. Inclusive um agente que morreu vira outro na hora",
+      "Corrigido: virar um papel do tipo Shell (ex: wrapper glm/ollama via comando de abertura) agora roda o comando + injeta a persona certo (antes subia vazio e morria)",
+      "Canvas não trava mais ao abrir com vários agentes — o seletor checava os CLIs instalados por-nó (dezenas de subprocessos ao renderizar); agora é sob demanda, uma vez só",
+      "CLIs não instalados aparecem marcados/desabilitados no seletor, pra você não cair num que não abre",
+    ],
+    tag: "feature",
+  },
+  {
     version: "0.1.130",
     date: "2026-07-07",
     title: "OmniSwitch — roteador de chave LLM interno (experimental, desligado por padrão)",
