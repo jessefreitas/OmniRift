@@ -256,6 +256,17 @@ const INSTALL = {
 // @/lib/agent-contract (fonte única, compartilhada com o orchestration-client pra
 // que TODO agente dispatched também receba o contrato).
 
+// Texto de papel injetado no PTY quando um terminal entra no canal MCP (omrift-agents).
+// É role-aware: o ORQUESTRADOR recebe diretiva de DELEGAÇÃO (não "execute"), o worker
+// recebe diretiva de EXECUÇÃO. Uma linha só (sem \n) de propósito — texto multi-linha no
+// PTY vira "[Pasted text +N linhas]" e não submete (ver comentário em sendTeamBriefing).
+function mcpRoleText(label: string, description: string, isOrchestrator: boolean): string {
+  if (isOrchestrator) {
+    return `Você está agindo como ${label} (ORQUESTRADOR) no canvas OmniRift. ${description} NÃO execute tarefas você mesmo — delegue aos agentes da equipe pelas tools omnirift-agents: terminal_list para ver a equipe, terminal_run/terminal_send_text para delegar. Decomponha a tarefa, delegue e agregue os resultados.`;
+  }
+  return `Você está agindo como ${label} no canvas OmniRift. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.`;
+}
+
 const PRESETS: AgentPreset[] = [
   {
     id: "omniagent",
@@ -1029,8 +1040,9 @@ export function Sidebar() {
       const next = new Set([...mcpAgents, sessionId]);
       setMcpAgents(next);
       mcpRegisterAgent(label, sessionId, description, floorNameOf(sessionId)).catch(console.warn);
-      // Papel no terminal do agente: texto + \r separado
-      const roleText = `Você está agindo como ${label} no canvas OmniRift. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.`;
+      // Papel no terminal do agente: texto + \r separado. Role-aware: se este terminal é o
+      // Orquestrador, injeta diretiva de DELEGAÇÃO em vez de "execute você mesmo".
+      const roleText = mcpRoleText(label, description, sessionId === orchestratorSid);
       invoke("pty_write", { sessionId, data: roleText }).catch(console.warn);
       setTimeout(() => {
         invoke("pty_write", { sessionId, data: "\r" }).catch(console.warn);
@@ -1055,7 +1067,7 @@ export function Sidebar() {
       const description = agentDescriptions[sid] ?? `Agente ${label} disponível para tarefas.`;
       mcpRegisterAgent(label, sid, description, floorNameOf(sid)).catch(console.warn);
       if (n.kind === "terminal") {
-        const roleText = `Você está agindo como ${label} no canvas OmniRift. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.`;
+        const roleText = mcpRoleText(label, description, sid === orchestratorSid);
         invoke("pty_write", { sessionId: sid, data: roleText }).catch(console.warn);
         setTimeout(() => { invoke("pty_write", { sessionId: sid, data: "\r" }).catch(console.warn); }, 150);
       }
@@ -1353,6 +1365,12 @@ export function Sidebar() {
       sendTeamBriefing(next, { [sessionId]: description }, orchestratorSid, terminals);
       return next;
     });
+    // Linha no canvas: liga o novo agente ao Orquestrador — o MESMO elo visual que o
+    // onDropPick desenha ao arrastar. Sem isto, agentes criados pelo botão nasciam
+    // registrados no MCP mas SEM a linha (ou sem nada, no caso dos presets-terminal).
+    if (orchestratorSid && orchestratorSid !== sessionId) {
+      addEdge(orchestratorSid, sessionId, "generic");
+    }
   }
 
   async function spawnRole(r: AgentRoleDef, skillIdsOverride?: string[]) {
@@ -1442,7 +1460,12 @@ export function Sidebar() {
       const startup = (r.startupCmd ?? "").trim();
       const persona = (indexText ? `${r.prompt}\n\n${indexText}` : r.prompt).trim();
       if (persona && /\bclaude\b/i.test(startup) && !r.selfSystemPrompt) {
-        sendLine(`${startup} --append-system-prompt ${shellQuote(persona)}`, 400);
+        // MESMO perfil MCP do ramo claude-code nativo (workerClaudeArgs). Sem isto, um role
+        // que roda `claude` via shell/proxy (ex: glm-5.2) nasce SEM o server omnirift-agents
+        // → não tem terminal_list/terminal_run → o Orquestrador não enxerga a equipe do canvas
+        // e sai "procurando devops" em MCPs externos. Alinha shell-claude ao claude nativo.
+        const mcpArgs = roleMcpPath ? ` --mcp-config ${shellQuote(roleMcpPath)} --strict-mcp-config` : "";
+        sendLine(`${startup} --append-system-prompt ${shellQuote(persona)}${mcpArgs}`, 400);
       } else {
         sendLine(startup, 400);
         if (startup && persona) injectWhenReady(node.session_id, persona);
@@ -1519,6 +1542,24 @@ export function Sidebar() {
       compressor: loadDefaultCompressor(),
       executionHost,
     });
+  }
+
+  // Botão "Novo agente" da sidebar: cria o preset E o liga ao Orquestrador (MCP + linha),
+  // igual ao onDropPick. Sem isto, um agente criado pelo botão nascia solto — nem no time
+  // MCP nem com a edge no canvas. Orquestrador não se auto-registra; ACP registra via
+  // handleReady (acpAgentRegister), então ambos ficam de fora daqui.
+  async function spawnAgentPresetLinked(preset: AgentPreset): Promise<void> {
+    const floorNodes = () => {
+      const st = useCanvasStore.getState();
+      return st.parallels.find((f) => f.id === st.activeParallelId)?.nodes ?? [];
+    };
+    const before = new Set(floorNodes().map((n) => n.id));
+    await spawnAgentPreset(preset);
+    if (preset.id === "orquestrador" || preset.acp) return;
+    const created = floorNodes().find((n) => !before.has(n.id));
+    if (created?.kind === "terminal" && !mcpAgents.has(created.session_id)) {
+      autoRegisterMcp(created.session_id, created.label ?? created.command, "");
+    }
   }
 
   // Pick no menu de conexão: cria o agente/role escolhido, move pra posição do drop e
@@ -2237,7 +2278,7 @@ export function Sidebar() {
               className="group flex items-center rounded-md hover:bg-surface2 transition-colors"
             >
               <button
-                onClick={() => { void spawnAgentPreset(preset); }}
+                onClick={() => { void spawnAgentPresetLinked(preset); }}
                 title={isOrch ? tr("sidebar.orchRunningIn", "Orquestrador rodando em {cli} — só decompõe e delega").replace("{cli}", orchLabel) : tr("presetDesc." + preset.id, preset.description)}
                 className="flex-1 min-w-0 text-left flex items-start gap-3 px-2 py-2"
               >
