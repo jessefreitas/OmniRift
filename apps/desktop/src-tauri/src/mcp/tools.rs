@@ -154,6 +154,26 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "task": { "type": "string", "description": "Tarefa enviada ao agente após subir." },
                 "git": { "type": "boolean", "description": "Floor como branch git (default true). false = floor comum." } },
                 "required": ["branch", "command", "label"] } }),
+        json!({ "name": "agent_status",
+            "description": "BARATO, NÃO interrompe: o que um agente está fazendo agora (estado + últimas linhas). Use isto por padrão pra 'o que o X está fazendo'.",
+            "inputSchema": { "type": "object", "properties": {
+                "target": { "type": "string", "description": "label/role/@nome do agente." } },
+                "required": ["target"] } }),
+        json!({ "name": "agent_ask",
+            "description": "INTERROMPE o alvo pra ter uma resposta REAL (custa um turno dele). Use pra perguntas que só ele sabe ('como fez X?', 'me passa o resultado').",
+            "inputSchema": { "type": "object", "properties": {
+                "target": { "type": "string" },
+                "question": { "type": "string" },
+                "from": { "type": "string", "description": "SEU próprio label (@nome), pra o alvo saber quem pergunta." },
+                "timeout_s": { "type": "integer", "description": "default 90" } },
+                "required": ["target", "question"] } }),
+        json!({ "name": "agent_tell",
+            "description": "AVISA o alvo de algo, sem esperar resposta (fire-and-forget). Ex: 'terminei o auth, pode seguir'.",
+            "inputSchema": { "type": "object", "properties": {
+                "target": { "type": "string" },
+                "message": { "type": "string" },
+                "from": { "type": "string", "description": "SEU próprio label (@nome), pra o alvo saber quem avisa." } },
+                "required": ["target", "message"] } }),
         json!({ "name": "workspace_list",
             "description": "Lista os floors (workspaces) do canvas e qual está ativo.",
             "inputSchema": { "type": "object", "properties": {} } }),
@@ -672,6 +692,61 @@ fn over_agent_cap(state: &McpState) -> Option<String> {
         ))
     } else {
         None
+    }
+}
+
+/// Resolve o `from` de uma chamada de orquestração: usa o label que o agente passou (o
+/// preâmbulo o instrui), normaliza o prefixo `@`, default `@orquestrador` se vazio.
+fn orq_from(args: &Value) -> String {
+    let raw = args.get("from").and_then(|v| v.as_str()).unwrap_or("").trim();
+    if raw.is_empty() {
+        return "@orquestrador".to_string();
+    }
+    if raw.starts_with('@') {
+        raw.to_string()
+    } else {
+        format!("@{raw}")
+    }
+}
+
+/// Despacha as tools Orquestração (camada 4): `agent_status` (peek barato, não toca
+/// no alvo) + `agent_ask`/`agent_tell` (delegam nos helpers de entrega da server.rs).
+pub async fn orq_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    match tool {
+        "agent_status" => {
+            let target = arg_str(&args, "target");
+            match crate::mcp::server::resolve_agent_fuzzy(state, &target) {
+                Some((label, id)) => {
+                    let st = state
+                        .pty_manager
+                        .agent_state(&id)
+                        .map(|s| format!("{s:?}").to_lowercase())
+                        .unwrap_or_else(|| "unknown".into());
+                    let tail = state
+                        .pty_manager
+                        .read_screen(&id)
+                        .ok()
+                        .map(|s| last_lines(&s, 8))
+                        .unwrap_or_default();
+                    format!("{label} · estado: {st}\n--- últimas linhas ---\n{tail}")
+                }
+                None => format!("❌ Agente '{target}' não encontrado (use terminal_list)."),
+            }
+        }
+        "agent_ask" => {
+            let target = arg_str(&args, "target");
+            let question = arg_str(&args, "question");
+            let from = orq_from(&args);
+            let timeout_s = args.get("timeout_s").and_then(|v| v.as_u64()).unwrap_or(90);
+            crate::mcp::server::orq_ask_and_wait(state, &target, &from, &question, timeout_s).await
+        }
+        "agent_tell" => {
+            let target = arg_str(&args, "target");
+            let message = arg_str(&args, "message");
+            let from = orq_from(&args);
+            crate::mcp::server::orq_deliver_msg(state, &target, &from, &message).await
+        }
+        other => format!("Tool de orquestração desconhecida: `{other}`."),
     }
 }
 

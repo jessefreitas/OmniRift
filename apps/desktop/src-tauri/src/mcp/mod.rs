@@ -1,6 +1,7 @@
 pub mod claims;
 pub mod client;
 pub mod groups;
+pub mod marker;
 pub mod registry;
 pub mod prewarm;
 pub mod serena_pool;
