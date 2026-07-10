@@ -466,8 +466,8 @@ export function Sidebar() {
   // Orquestrador agora vive no store (compartilhado com o dock onipresente).
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
   const setOrchestratorSid = useCanvasStore((s) => s.setOrchestratorSid);
-  const conductorMode = useCanvasStore((s) => s.conductorMode);
-  const setConductorMode = useCanvasStore((s) => s.setConductorMode);
+  const constructorMode = useCanvasStore((s) => s.constructorMode);
+  const setConstructorMode = useCanvasStore((s) => s.setConstructorMode);
   // Sinal de auto-conexão A→B (FloorCanvas onConnect agente→terminal pede marcar o terminal).
   const requestMcpMark = useCanvasStore((s) => s.requestMcpMark);
   const clearRequestMcpMark = useCanvasStore((s) => s.clearRequestMcpMark);
@@ -616,7 +616,7 @@ export function Sidebar() {
   const secStyle = (id: string) => ({ order: secReorder.order.indexOf(id) });
   const runTool: Record<string, () => void> = {
     companion: () => setShowCompanion(true),
-    conductor: () => setConductorMode(!conductorMode),
+    conductor: () => setConstructorMode(!constructorMode),
     git: () => setShowGitRepos(true),
     connections: () => setShowConnections(true),
     "llm-providers": () => setShowLlmProviders(true),
@@ -681,7 +681,7 @@ export function Sidebar() {
         case "git": setShowGitRepos(true); break;
         case "reminders": setShowReminders(true); break;
         case "companion": setShowCompanion(true); break;
-        case "conductor": setConductorMode(!conductorMode); break;
+        case "conductor": setConstructorMode(!constructorMode); break;
       }
     };
     window.addEventListener("omnirift:open-tool", h);

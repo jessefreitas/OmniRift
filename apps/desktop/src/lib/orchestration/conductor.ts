@@ -5,7 +5,7 @@
 // Só chama o Conductor LLM/Agent quando precisa interpretar (sem @, ou ambíguo).
 
 import { invoke } from "@tauri-apps/api/core";
-import { parseConductorInput, type ParsedCommand } from "./parser";
+import { parseConstructorInput, type ParsedCommand } from "./parser";
 import { useCanvasStore } from "@/store/canvas-store";
 import { llmChat, loadLlmConfig } from "@/lib/llm-client";
 import { analyzeCanvas } from "@/lib/companion";
@@ -15,10 +15,10 @@ import { ROLE_CLIS, buildCliSwitch } from "@/lib/agent-roles";
 import { agentMcpConfig } from "@/lib/mcp-client";
 import type { TerminalNode, AgentNode } from "@/types/canvas";
 
-export type ConductorEngine = "claude" | "codex" | "hermes" | "llm" | "shell";
+export type ConstructorEngine = "claude" | "codex" | "hermes" | "llm" | "shell";
 
-export interface ConductorConfig {
-  engine: ConductorEngine;
+export interface ConstructorConfig {
+  engine: ConstructorEngine;
   model: string | null;
 }
 
@@ -34,11 +34,11 @@ export interface OrchestratorEntry {
 }
 
 /** Despacha um comando do Conductor. Roteia entre determinístico e LLM. */
-export async function dispatchConductor(
+export async function dispatchConstructor(
   input: string,
-  config: ConductorConfig,
+  config: ConstructorConfig,
 ): Promise<void> {
-  const parsed = parseConductorInput(input);
+  const parsed = parseConstructorInput(input);
   if (parsed.stages.length === 0) return;
 
   // Log do comando original
@@ -147,7 +147,7 @@ async function dispatchDirect(parsed: ParsedCommand): Promise<void> {
 }
 
 /** Encontra ou cria um agente Conductor do tipo especificado (claude/codex/hermes). */
-async function findOrCreateConductor(engine: ConductorEngine): Promise<string | null> {
+async function findOrCreateConductor(engine: ConstructorEngine): Promise<string | null> {
   const s = useCanvasStore.getState();
   const activeFloor = s.parallels.find((p) => p.id === s.activeParallelId);
   if (!activeFloor) return null;
@@ -202,7 +202,7 @@ async function findOrCreateConductor(engine: ConductorEngine): Promise<string | 
 
 /** Engines que só existem como agente ACP (sem CLI de terminal) — o modo PTY do
  *  Conductor não consegue criá-los (não há entry no ROLE_CLIS). Roteados p/ ACP. */
-const ACP_CONDUCTOR_ENGINES: ConductorEngine[] = ["hermes"];
+const ACP_CONDUCTOR_ENGINES: ConstructorEngine[] = ["hermes"];
 
 /** Persona do Conductor — compartilhada entre o modo PTY e o ACP. */
 const CONDUCTOR_PERSONA =
@@ -234,7 +234,7 @@ async function constructorContext(): Promise<string> {
 /** Despacho via OmniAgent ACP (ex: hermes) — cria o agente se preciso e entrega a task.
  *  Diferente do modo PTY: não há terminal pra ptyWrite. A 1ª task vai embutida na persona
  *  (o AgentNode entrega no ready); as seguintes via acpPrompt na sessão ACP viva. */
-async function dispatchViaAcpAgent(input: string, engine: ConductorEngine): Promise<void> {
+async function dispatchViaAcpAgent(input: string, engine: ConstructorEngine): Promise<void> {
   const store = useCanvasStore.getState();
   const activeFloor = store.parallels.find((p) => p.id === store.activeParallelId);
   if (!activeFloor) return;
@@ -284,7 +284,7 @@ async function dispatchViaAcpAgent(input: string, engine: ConductorEngine): Prom
 async function dispatchViaConductor(
   input: string,
   _parsed: ParsedCommand,
-  engine: ConductorEngine,
+  engine: ConstructorEngine,
 ): Promise<void> {
   if (engine === "llm") {
     const cfg = loadLlmConfig();
@@ -316,7 +316,7 @@ ${canvasSnap}`;
       const plan = JSON.parse(jsonStr);
       if (plan.dispatches) {
         for (const d of plan.dispatches) {
-          const parsed = parseConductorInput(d.target + " " + d.task);
+          const parsed = parseConstructorInput(d.target + " " + d.task);
           await dispatchDirect(parsed);
         }
       }
@@ -390,7 +390,7 @@ ${canvasSnap}`;
 }
 
 /** Carrega a config do Conductor (persistida em localStorage). */
-export function loadConductorConfig(): ConductorConfig {
+export function loadConstructorConfig(): ConstructorConfig {
   try {
     const raw = localStorage.getItem("omnirift-conductor-config");
     if (raw) return JSON.parse(raw);
@@ -399,7 +399,7 @@ export function loadConductorConfig(): ConductorConfig {
 }
 
 /** Salva a config do Conductor. */
-export function saveConductorConfig(cfg: ConductorConfig): void {
+export function saveConstructorConfig(cfg: ConstructorConfig): void {
   localStorage.setItem("omnirift-conductor-config", JSON.stringify(cfg));
 }
 

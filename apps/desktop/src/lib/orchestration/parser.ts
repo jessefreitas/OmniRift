@@ -78,7 +78,7 @@ function parseMentions(text: string): { mentions: Mention[]; remaining: string }
   return { mentions, remaining };
 }
 
-export function parseConductorInput(raw: string): ParsedCommand {
+export function parseConstructorInput(raw: string): ParsedCommand {
   const input = raw.trim();
   if (!input) {
     return { stages: [], hasMentions: false, needsConductor: false };

@@ -1,7 +1,7 @@
 // components/ConstructorPanel.tsx
 //
 // Painel flutuante ARRASTÁVEL do Constructor — a janela de resposta que flutua no canvas.
-// A barra (ConductorBar) é só o input + seletor de cérebro; ESTE painel mostra a conversa
+// A barra (ConstructorBar) é só o input + seletor de cérebro; ESTE painel mostra a conversa
 // (você ↔ Constructor ↔ agentes). Arrasta pelo header, redimensiona pelo canto, fecha no X.
 
 import { useRef, useState, useCallback, useEffect } from "react";

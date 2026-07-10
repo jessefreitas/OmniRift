@@ -1,24 +1,24 @@
-// components/ConductorBar.tsx
+// components/ConstructorBar.tsx
 //
 // Barra de input do Modo Conductor — flutua DENTRO do canvas (overlay bottom).
 // Input multiline, seletor de engine, indicador de agentes, e chat embutido.
 // Enter = despachar, Shift+Enter = multiline, Esc = fechar.
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { ChevronUp, X, Send, Radio, AlertCircle } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import {
-  dispatchConductor,
-  loadConductorConfig,
-  saveConductorConfig,
-  type ConductorEngine,
+  dispatchConstructor,
+  loadConstructorConfig,
+  saveConstructorConfig,
+  type ConstructorEngine,
   type OrchestratorEntry,
 } from "@/lib/orchestration/conductor";
 import { ConstructorPanel } from "@/components/ConstructorPanel";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-const ENGINE_LABELS: Record<ConductorEngine, string> = {
+const ENGINE_LABELS: Record<ConstructorEngine, string> = {
   claude: "Claude Code",
   codex: "Codex",
   hermes: "Hermes",
@@ -32,14 +32,22 @@ interface ChatMsg {
   ts: number;
 }
 
-export function ConductorBar() {
-  const conductorMode = useCanvasStore((s) => s.conductorMode);
-  const setConductorMode = useCanvasStore((s) => s.setConductorMode);
+/** Primeira palavra do label, só com chars que o MENTION_RE do parser aceita ([\w:-]).
+ *  O resolveMention casa por substring case-insensitive, então a 1ª palavra basta. */
+function mentionToken(label: string): string {
+  const first = label.trim().split(/\s+/)[0] ?? "";
+  const clean = first.replace(/[^\w:-]/g, "");
+  return clean || label.replace(/[^\w:-]/g, "");
+}
+
+export function ConstructorBar() {
+  const constructorMode = useCanvasStore((s) => s.constructorMode);
+  const setConstructorMode = useCanvasStore((s) => s.setConstructorMode);
   const parallels = useCanvasStore((s) => s.parallels);
   const activeParallelId = useCanvasStore((s) => s.activeParallelId);
 
   const [input, setInput] = useState("");
-  const [engine, setEngine] = useState<ConductorEngine>("claude");
+  const [engine, setEngine] = useState<ConstructorEngine>("claude");
   const [busy, setBusy] = useState(false);
   const [showEngineMenu, setShowEngineMenu] = useState(false);
   const [chat, setChat] = useState<ChatMsg[]>([]);
@@ -47,20 +55,26 @@ export function ConductorBar() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatRef = useRef<HTMLDivElement>(null);
 
+  // --- autocomplete de @mention ---
+  const terminalStatuses = useCanvasStore((s) => s.terminalStatuses);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionSel, setMentionSel] = useState(0);
+  const mentionOpenRef = useRef(false);
+
   useEffect(() => {
-    const cfg = loadConductorConfig();
+    const cfg = loadConstructorConfig();
     setEngine(cfg.engine);
   }, []);
 
   useEffect(() => {
-    saveConductorConfig({ engine, model: null });
+    saveConstructorConfig({ engine, model: null });
   }, [engine]);
 
   useEffect(() => {
-    if (conductorMode) {
+    if (constructorMode) {
       requestAnimationFrame(() => textareaRef.current?.focus());
     }
-  }, [conductorMode]);
+  }, [constructorMode]);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -74,18 +88,20 @@ export function ConductorBar() {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "c" || e.key === "C")) {
         e.preventDefault();
-        setConductorMode(!conductorMode);
-      } else if (e.key === "Escape" && conductorMode) {
-        setConductorMode(false);
+        setConstructorMode(!constructorMode);
+      } else if (e.key === "Escape" && constructorMode) {
+        // Popup de @mention aberto: Esc fecha só o popup (handler do textarea), não a barra.
+        if (mentionOpenRef.current) return;
+        setConstructorMode(false);
       }
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [conductorMode, setConductorMode]);
+  }, [constructorMode, setConstructorMode]);
 
   // Listener pra entries do orchestration_log (respostas dos agentes)
   useEffect(() => {
-    if (!conductorMode) return;
+    if (!constructorMode) return;
     let unlisten: UnlistenFn | undefined;
     listen<OrchestratorEntry>("orchestrator://log", (e) => {
       const entry = e.payload;
@@ -96,7 +112,7 @@ export function ConductorBar() {
       }]);
     }).then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };
-  }, [conductorMode]);
+  }, [constructorMode]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -114,7 +130,7 @@ export function ConductorBar() {
     setInput("");
     setChat((prev) => [...prev, { role: "user", text, ts: Date.now() }]);
     try {
-      await dispatchConductor(text, { engine, model: null });
+      await dispatchConstructor(text, { engine, model: null });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -125,17 +141,86 @@ export function ConductorBar() {
     }
   }, [input, busy, engine]);
 
+  const activeFloor = parallels.find((p) => p.id === activeParallelId);
+  const agentCount = activeFloor?.nodes.filter((n) => n.kind === "terminal" || n.kind === "agent").length ?? 0;
+
+  // Candidatos do popup de @: agentes do floor ativo + alvos especiais do parser.
+  const mentionCandidates = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const nodes = (activeFloor?.nodes ?? []).filter((n) => n.kind === "terminal" || n.kind === "agent");
+    const agents = nodes.map((n) => {
+      const sid = (n as { session_id?: string }).session_id ?? n.id;
+      const label = (n as { label?: string }).label ?? n.id;
+      return { insert: mentionToken(label), label, status: terminalStatuses[sid] ?? "idle" };
+    });
+    const specials = [
+      { insert: "all", label: "todos os agentes do floor", status: "" },
+      { insert: "idle", label: "só os agentes livres", status: "" },
+    ];
+    const q = mentionQuery.toLowerCase();
+    return [...agents, ...specials]
+      .filter((c) => !q || c.insert.toLowerCase().startsWith(q) || c.label.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [mentionQuery, activeFloor, terminalStatuses]);
+
+  const mentionOpen = mentionQuery !== null && mentionCandidates.length > 0;
+  mentionOpenRef.current = mentionOpen;
+
+  // Detecta "@parcial" imediatamente antes do caret → abre/filtra o popup.
+  const detectMention = (value: string, caret: number) => {
+    const m = value.slice(0, caret).match(/(^|\s)@([\w:-]*)$/);
+    if (m) {
+      setMentionQuery(m[2]);
+      setMentionSel(0);
+    } else {
+      setMentionQuery(null);
+    }
+  };
+
+  const insertMention = (token: string) => {
+    const ta = textareaRef.current;
+    const caret = ta?.selectionStart ?? input.length;
+    const before = input.slice(0, caret).replace(/@[\w:-]*$/, `@${token} `);
+    const after = input.slice(caret);
+    setInput(before + after);
+    setMentionQuery(null);
+    requestAnimationFrame(() => {
+      ta?.focus();
+      ta?.setSelectionRange(before.length, before.length);
+    });
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (mentionOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionSel((i) => (i + 1) % mentionCandidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionSel((i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insertMention(mentionCandidates[mentionSel].insert);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setMentionQuery(null);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void handleSubmit();
     }
   };
 
-  const activeFloor = parallels.find((p) => p.id === activeParallelId);
-  const agentCount = activeFloor?.nodes.filter((n) => n.kind === "terminal" || n.kind === "agent").length ?? 0;
-
-  if (!conductorMode) return null;
+  if (!constructorMode) return null;
 
   return (
     <>
@@ -143,9 +228,10 @@ export function ConductorBar() {
           fora da barra. A barra é só input + seletor de cérebro. */}
       {chat.length > 0 && <ConstructorPanel messages={chat} onClose={() => setChat([])} />}
 
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 w-[560px] max-w-[90%] flex flex-col rounded-xl bg-bg/95 backdrop-blur-md shadow-2xl border border-brand/40 overflow-hidden" style={{ maxHeight: "320px", boxShadow: "0 0 24px -4px rgba(59,139,212,0.25), 0 8px 32px -8px rgba(0,0,0,0.5)" }}>
+    {/* SEM overflow-hidden: o menu de engines abre pra CIMA (bottom-full) e seria clipado. */}
+    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 w-[560px] max-w-[90%] flex flex-col rounded-xl bg-bg/95 backdrop-blur-md shadow-2xl border border-brand/40" style={{ maxHeight: "320px", boxShadow: "0 0 24px -4px rgba(59,139,212,0.25), 0 8px 32px -8px rgba(0,0,0,0.5)" }}>
       {/* Borda colorida superior (gradient brand) */}
-      <div className="h-[2px] w-full bg-gradient-to-r from-brand/0 via-brand to-brand/0" />
+      <div className="h-[2px] w-full rounded-t-xl bg-gradient-to-r from-brand/0 via-brand to-brand/0" />
 
       {/* Erro inline */}
       {error && (
@@ -168,7 +254,7 @@ export function ConductorBar() {
           </button>
           {showEngineMenu && (
             <div className="absolute bottom-full left-0 mb-1 bg-bgSecondary border border-brand/30 rounded-lg shadow-xl z-50 min-w-[150px] overflow-hidden">
-              {(Object.keys(ENGINE_LABELS) as ConductorEngine[]).map((eng) => (
+              {(Object.keys(ENGINE_LABELS) as ConstructorEngine[]).map((eng) => (
                 <button
                   key={eng}
                   onClick={() => { setEngine(eng); setShowEngineMenu(false); }}
@@ -188,7 +274,7 @@ export function ConductorBar() {
         </span>
 
         <button
-          onClick={() => setConductorMode(false)}
+          onClick={() => setConstructorMode(false)}
           className="text-textMuted hover:text-red-400 p-0.5 transition-colors"
           title="Fechar (Esc)"
         >
@@ -197,11 +283,33 @@ export function ConductorBar() {
       </div>
 
       {/* Input (compacto) */}
-      <div className="flex items-end gap-1.5 px-2.5 py-1.5 shrink-0">
+      <div className="relative flex items-end gap-1.5 px-2.5 py-1.5 shrink-0">
+        {/* Popup de @mention — lista os agentes do floor ativo */}
+        {mentionOpen && (
+          <div className="absolute bottom-full left-2.5 right-2.5 mb-1 bg-bgSecondary border border-brand/30 rounded-lg shadow-xl z-50 overflow-hidden">
+            {mentionCandidates.map((c, i) => (
+              <button
+                key={`${c.insert}-${i}`}
+                onMouseDown={(e) => { e.preventDefault(); insertMention(c.insert); }}
+                onMouseEnter={() => setMentionSel(i)}
+                className={`w-full text-left px-2.5 py-1 text-[10px] flex items-center gap-1.5 transition-colors ${
+                  i === mentionSel ? "bg-brand/10 text-brand" : "text-text"
+                }`}
+              >
+                <span className="font-mono shrink-0">@{c.insert}</span>
+                <span className="text-textMuted truncate">{c.label}</span>
+                {c.status && <span className="ml-auto text-[9px] text-textMuted shrink-0">{c.status}</span>}
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length);
+          }}
           onKeyDown={handleKeyDown}
           placeholder="Converse com o sistema… ou @agente pra falar direto (Enter envia, Shift+Enter = linha)"
           rows={1}
