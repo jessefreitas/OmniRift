@@ -165,7 +165,9 @@ export function ConstructorBar() {
   }, [mentionQuery, activeFloor, terminalStatuses]);
 
   const mentionOpen = mentionQuery !== null && mentionCandidates.length > 0;
-  mentionOpenRef.current = mentionOpen;
+  useEffect(() => {
+    mentionOpenRef.current = mentionOpen;
+  }, [mentionOpen]);
 
   // Detecta "@parcial" imediatamente antes do caret → abre/filtra o popup.
   const detectMention = (value: string, caret: number) => {
