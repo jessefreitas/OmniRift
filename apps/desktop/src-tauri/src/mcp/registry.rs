@@ -36,6 +36,22 @@ impl AgentRegistry {
         self.0.remove(label).map(|(_, e)| e.session_id)
     }
 
+    /// Remove TODAS as entries apontando pra esta sessão (uso: sessão morreu/EOF).
+    /// Sem isto o label fantasma continua no registry e o resolve fuzzy ainda o
+    /// encontra ("dormindo (dead)"). Retorna os labels removidos (pra log).
+    pub fn unregister_by_session(&self, session_id: &str) -> Vec<String> {
+        let labels: Vec<String> = self
+            .0
+            .iter()
+            .filter(|e| e.value().session_id == session_id)
+            .map(|e| e.key().clone())
+            .collect();
+        for l in &labels {
+            self.0.remove(l);
+        }
+        labels
+    }
+
     pub fn list(&self) -> Vec<(String, AgentEntry)> {
         self.0.iter().map(|e| (e.key().clone(), e.value().clone())).collect()
     }

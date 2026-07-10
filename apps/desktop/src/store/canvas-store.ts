@@ -1025,13 +1025,18 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   removeNode: (id) => {
     // F2/F3 backend-owned: X/Delete num OmniAgent OU num terminal = kill EXPLÍCITO da
     // sessão ANTES de remover o nó (o unmount virou só-view e não mata mais nada).
+    // Busca em TODOS os floors: nó em floor de fundo não era removido nem tinha a
+    // sessão morta, e o terminalStatuses ficava com o "dead" fantasma pra sempre.
     const s0 = get();
-    const active0 = s0.parallels.find((f) => f.id === s0.activeParallelId);
-    const removing = active0?.nodes.find((n) => n.id === id);
+    const homeFloor = s0.parallels.find((f) => f.nodes.some((n) => n.id === id));
+    const removing = homeFloor?.nodes.find((n) => n.id === id);
     if (removing) killNodeSessions([removing]);
+    const staleSids = removing
+      ? [(removing as { session_id?: string }).session_id, removing.id].filter((x): x is string => !!x)
+      : [];
     set((s) => ({
       parallels: s.parallels.map((f) => {
-        if (f.id !== s.activeParallelId) return f;
+        if (f.id !== homeFloor?.id) return f;
         const removed = f.nodes.find((n) => n.id === id);
         const nodes = f.nodes
           .filter((n) => n.id !== id)
@@ -1047,6 +1052,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
           );
         return { ...f, nodes, edges: f.edges.filter((e) => e.source !== id && e.target !== id) };
       }),
+      // Limpa o status da sessão removida — senão o "dead" fantasma fica pra sempre.
+      terminalStatuses: staleSids.length
+        ? Object.fromEntries(Object.entries(s.terminalStatuses).filter(([k]) => !staleSids.includes(k)))
+        : s.terminalStatuses,
     }));
   },
 

@@ -265,16 +265,31 @@ impl PtySession {
 
         let id_for_waiter = id.clone();
         let app_for_waiter = app.clone();
-        std::thread::spawn(move || match child.wait() {
-            Ok(status) => {
-                let _ = app_for_waiter.emit(
-                    "pty://exit",
-                    PtyExitEvent { session_id: id_for_waiter, exit_code: Some(status.exit_code() as i32) },
-                );
+        std::thread::spawn(move || {
+            let status = child.wait();
+            // Sessão morreu → tira do registry MCP. Senão o label fantasma continua
+            // registrado apontando pra sessão morta e o resolve fuzzy ainda o acha
+            // ("dormindo (dead)"). Por session_id: se o label já foi re-registrado
+            // com sessão nova (reload/switchCli), a entry nova NÃO é tocada.
+            {
+                use tauri::Manager;
+                if let Some(reg) = app_for_waiter.try_state::<Arc<crate::mcp::AgentRegistry>>() {
+                    for label in reg.unregister_by_session(&id_for_waiter) {
+                        log::info!("MCP: agente '{label}' desregistrado (sessão morreu)");
+                    }
+                }
             }
-            Err(e) => {
-                log::error!("erro aguardando child do PTY: {e}");
-                let _ = app_for_waiter.emit("pty://exit", PtyExitEvent { session_id: id_for_waiter, exit_code: None });
+            match status {
+                Ok(status) => {
+                    let _ = app_for_waiter.emit(
+                        "pty://exit",
+                        PtyExitEvent { session_id: id_for_waiter, exit_code: Some(status.exit_code() as i32) },
+                    );
+                }
+                Err(e) => {
+                    log::error!("erro aguardando child do PTY: {e}");
+                    let _ = app_for_waiter.emit("pty://exit", PtyExitEvent { session_id: id_for_waiter, exit_code: None });
+                }
             }
         });
 
