@@ -545,9 +545,36 @@ async fn do_send_task(
 
 // ── Orquestração: comunicação ativa peer-a-peer (camada 4) ──────────────────────
 
-/// Injeta `[[OMNIRIFT-ASK]]` no PTY do alvo e bloqueia até casar o REPLY pelo id,
-/// ou estourar `timeout_s`. Reusa o padrão de `do_send_task` (write + \r atrasado)
-/// e de `terminal_wait_output` (assina o stream do id e relê a tela renderizada).
+/// Resolve um alvo por nome FUZZY (o LLM chama pelo apelido curto: "Security" casa
+/// "Security GLM52"). Tenta exato → palavra → substring (nos dois sentidos). PREFERE
+/// sessão viva (não-morta), pra não injetar num PTY já encerrado. → (label, session_id).
+pub fn resolve_agent_fuzzy(state: &McpState, query: &str) -> Option<(String, String)> {
+    let q = query.trim().trim_start_matches('@').to_lowercase();
+    if q.is_empty() {
+        return None;
+    }
+    let is_dead = |sid: &str| matches!(state.pty_manager.agent_state(sid), Some(AgentState::Dead));
+    let mut hits: Vec<(String, String)> = state
+        .agent_registry
+        .list()
+        .into_iter()
+        .filter_map(|(label, e)| {
+            let ll = label.to_lowercase();
+            let hit = ll == q
+                || ll.split_whitespace().any(|w| w == q)
+                || ll.contains(&q)
+                || q.contains(&ll);
+            hit.then_some((label, e.session_id))
+        })
+        .collect();
+    // vivas primeiro (false=0 antes de true=1); entre iguais mantém a ordem do registry.
+    hits.sort_by_key(|(_, sid)| is_dead(sid));
+    hits.into_iter().next()
+}
+
+/// Pergunta a outro agente e CAPTURA a resposta natural dele. NÃO espera marcador —
+/// o LLM não ecoa formato exato; ele responde em prosa. Injeta a pergunta, espera o
+/// alvo assentar (Working→Done/Idle/Blocked, igual `do_send_task`) e devolve a tela.
 pub async fn orq_ask_and_wait(
     state: &McpState,
     target_label: &str,
@@ -555,78 +582,74 @@ pub async fn orq_ask_and_wait(
     question: &str,
     timeout_s: u64,
 ) -> String {
-    let sid = match state.agent_registry.get_session_id(target_label) {
-        Some(s) => s,
-        None => return format!("❌ Agente '{target_label}' não encontrado."),
+    let (label, sid) = match resolve_agent_fuzzy(state, target_label) {
+        Some(x) => x,
+        None => return format!("❌ Agente '{target_label}' não encontrado (use terminal_list)."),
     };
-    let id = uuid::Uuid::new_v4().to_string();
-    let ask = crate::mcp::marker::render_ask(from, &id, question);
-
-    let mut rx = match state.pty_manager.subscribe_by_id(&sid) {
-        Ok(r) => r,
-        Err(e) => return format!("❌ {e}"),
-    };
-    if let Err(e) = state.pty_manager.write(&sid, ask.as_bytes()) {
+    if matches!(state.pty_manager.agent_state(&sid), Some(AgentState::Dead)) {
+        return format!("❌ Agente '{label}' está morto (sessão encerrada) — reabra-o antes de falar com ele.");
+    }
+    let msg = crate::mcp::marker::incoming(from, question);
+    let mut rx = state.pty_manager.subscribe_state();
+    if let Err(e) = state.pty_manager.write(&sid, msg.as_bytes()) {
         return format!("❌ {e}");
     }
     tokio::time::sleep(Duration::from_millis(200)).await;
     let _ = state.pty_manager.write(&sid, b"\r");
 
-    let check = || {
-        state
-            .pty_manager
-            .read_screen(&sid)
-            .ok()
-            .and_then(|s| crate::mcp::marker::find_reply(&s, &id))
-    };
-    if let Some(ans) = check() {
-        return ans;
-    }
-    let wait = async {
+    // Espera o alvo trabalhar e assentar (mesma lógica robusta do do_send_task).
+    let target = sid.clone();
+    let settle = async {
+        let mut saw_working = false;
         loop {
             match rx.recv().await {
-                Ok(_) => {
-                    if let Some(ans) = check() {
-                        return Some(ans);
-                    }
-                }
-                Err(_) => return None,
+                Ok((id, st)) if id == target => match st {
+                    AgentState::Working => saw_working = true,
+                    AgentState::Done | AgentState::Idle if saw_working => return,
+                    AgentState::Blocked if saw_working => return,
+                    AgentState::Dead => return,
+                    _ => {}
+                },
+                Ok(_) => continue,
+                Err(_) => return,
             }
         }
     };
-    match tokio::time::timeout(Duration::from_secs(timeout_s), wait).await {
-        Ok(Some(ans)) => ans,
-        Ok(None) => "❌ canal fechado antes da resposta".into(),
-        Err(_) => {
-            let cur = state
-                .pty_manager
-                .agent_state(&sid)
-                .map(|s| format!("{s:?}").to_lowercase())
-                .unwrap_or_else(|| "unknown".into());
-            format!("sem resposta (timeout) · estado de {target_label} = {cur}")
-        }
+    let _ = tokio::time::timeout(Duration::from_secs(timeout_s), settle).await;
+
+    // Resposta = a tela renderizada do alvo (últimas linhas), como do_send_task.
+    let screen = state.pty_manager.read_screen(&sid).unwrap_or_default();
+    let lines: Vec<&str> = screen.lines().collect();
+    let start = lines.len().saturating_sub(30);
+    let tail = lines[start..].join("\n");
+    if tail.trim().is_empty() {
+        format!("(sem resposta visível de {label} — pode ainda estar pensando; tente agent_status)")
+    } else {
+        format!("resposta de {label}:\n{tail}")
     }
 }
 
-/// Injeta `[[OMNIRIFT-MSG]]` no PTY do alvo e devolve `ok` sem esperar resposta.
-/// É o primitivo de entrega reusado pela camada 5 (barramento).
+/// Manda um aviso a outro agente (fire-and-forget). Resolve fuzzy + pula morto.
 pub async fn orq_deliver_msg(
     state: &McpState,
     target_label: &str,
     from: &str,
     message: &str,
 ) -> String {
-    let sid = match state.agent_registry.get_session_id(target_label) {
-        Some(s) => s,
-        None => return format!("❌ Agente '{target_label}' não encontrado."),
+    let (label, sid) = match resolve_agent_fuzzy(state, target_label) {
+        Some(x) => x,
+        None => return format!("❌ Agente '{target_label}' não encontrado (use terminal_list)."),
     };
-    let msg = crate::mcp::marker::render_msg(from, message);
+    if matches!(state.pty_manager.agent_state(&sid), Some(AgentState::Dead)) {
+        return format!("❌ Agente '{label}' está morto — não dá pra avisar.");
+    }
+    let msg = crate::mcp::marker::incoming(from, message);
     if let Err(e) = state.pty_manager.write(&sid, msg.as_bytes()) {
         return format!("❌ {e}");
     }
     tokio::time::sleep(Duration::from_millis(200)).await;
     let _ = state.pty_manager.write(&sid, b"\r");
-    "ok — entregue (o alvo verá no próximo turno)".into()
+    format!("ok — avisei {label} (ele verá no próximo turno)")
 }
 
 #[cfg(test)]

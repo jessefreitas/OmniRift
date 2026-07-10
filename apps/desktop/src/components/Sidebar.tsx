@@ -260,15 +260,16 @@ const INSTALL = {
 // É role-aware: o ORQUESTRADOR recebe diretiva de DELEGAÇÃO (não "execute"), o worker
 // recebe diretiva de EXECUÇÃO. Uma linha só (sem \n) de propósito — texto multi-linha no
 // PTY vira "[Pasted text +N linhas]" e não submete (ver comentário em sendTeamBriefing).
-// Orquestração (camada 4): todo agente nasce ciente do protocolo de comunicação
-// peer-a-peer. Ensina a responder ASK/MSG e a negociar claims em vez de colidir.
+// Orquestração (camada 4): todo agente nasce sabendo conversar com a equipe.
+// A resposta é capturada pelo settle do PTY — o agente só precisa responder NORMAL.
 const ORQ_PREAMBLE =
-  " Você participa da orquestração do OmniRift: outros agentes falam com você. Ao ver uma linha " +
-  "`[[OMNIRIFT-ASK from=@X id=N]] <pergunta>`, responda em UMA linha " +
-  "`[[OMNIRIFT-REPLY id=N]] <resposta curta>` e VOLTE ao que fazia. " +
-  "`[[OMNIRIFT-MSG from=@X]] <aviso>` é informação; incorpore e siga. " +
-  "Ao usar agent_ask/agent_tell, passe from=<seu label> (o nome acima), pra o outro saber quem fala. " +
-  "ANTES de editar um arquivo faça claim_check; se estiver travado por outro agente, " +
+  " Você trabalha em equipe no OmniRift. Para falar com outro agente, use as tools: " +
+  "agent_status(target) vê o que ele faz sem interromper; agent_ask(target, question) pergunta e " +
+  "ESPERA a resposta dele; agent_tell(target, message) avisa sem esperar. " +
+  "Chame os outros pelo NOME CURTO (ex.: \"Security\" casa \"Security GLM52\"). Passe from=<seu label>. " +
+  "Quando você receber uma linha `[mensagem de @X] ...`, responda NORMALMENTE em prosa — sua " +
+  "resposta é capturada automaticamente (não precisa de formato especial). " +
+  "ANTES de editar um arquivo faça claim_check; se estiver travado por outro, " +
   "use agent_ask(dono, \"preciso de <arquivo> — libera ou espero?\") e respeite a resposta.";
 
 function mcpRoleText(label: string, description: string, isOrchestrator: boolean): string {

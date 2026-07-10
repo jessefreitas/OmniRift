@@ -666,8 +666,8 @@ pub async fn orq_dispatch(state: &McpState, tool: &str, args: Value) -> String {
     match tool {
         "agent_status" => {
             let target = arg_str(&args, "target");
-            match resolve(state, &target) {
-                Ok(id) => {
+            match crate::mcp::server::resolve_agent_fuzzy(state, &target) {
+                Some((label, id)) => {
                     let st = state
                         .pty_manager
                         .agent_state(&id)
@@ -679,9 +679,9 @@ pub async fn orq_dispatch(state: &McpState, tool: &str, args: Value) -> String {
                         .ok()
                         .map(|s| last_lines(&s, 8))
                         .unwrap_or_default();
-                    format!("estado: {st}\n--- últimas linhas ---\n{tail}")
+                    format!("{label} · estado: {st}\n--- últimas linhas ---\n{tail}")
                 }
-                Err(e) => format!("❌ {e}"),
+                None => format!("❌ Agente '{target}' não encontrado (use terminal_list)."),
             }
         }
         "agent_ask" => {
