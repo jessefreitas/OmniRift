@@ -177,7 +177,7 @@ Use as tools orchestrator_dispatch, orchestrator_status, orchestrator_spawn_agen
     command: built.command,
     args: built.args,
     role: built.role,
-    label: `Conductor (${cliDef.label})`,
+    label: `Orquestrador (${cliDef.label})`,
     id,
   });
 
@@ -222,10 +222,10 @@ async function dispatchViaAcpAgent(input: string, engine: ConductorEngine): Prom
   if (!activeFloor) return;
   const provider = engine as "hermes";
 
-  // Reusa um Conductor ACP do mesmo provider já no floor (label "Conductor (…)").
+  // Reusa um Orquestrador ACP do mesmo provider já no floor (label "Orquestrador (…)").
   const existing = activeFloor.nodes.find(
     (n): n is AgentNode =>
-      n.kind === "agent" && n.provider === provider && (n.label ?? "").startsWith("Conductor"),
+      n.kind === "agent" && n.provider === provider && (n.label ?? "").startsWith("Orquestrador"),
   );
 
   if (existing?.acpSessionId) {
@@ -251,7 +251,7 @@ async function dispatchViaAcpAgent(input: string, engine: ConductorEngine): Prom
   // Não existe → cria o OmniAgent ACP. A 1ª task vai na persona (entregue no ready).
   store.addAgent({
     provider,
-    label: `Conductor (${engine})`,
+    label: `Orquestrador (${engine})`,
     persona: `${CONDUCTOR_PERSONA}\n\nPrimeira tarefa do usuário:\n${input}`,
     cwd: store.currentCwd ?? undefined,
   });
@@ -260,6 +260,35 @@ async function dispatchViaAcpAgent(input: string, engine: ConductorEngine): Prom
     payload: `Criando agente ${engine} (ACP) e despachando a tarefa…`,
     status: "dispatched", stage: 0, parentId: null,
   });
+}
+
+/** Abre (cria se não existir) o agente Orquestrador do engine, SEM despachar tarefa.
+ *  Chamado quando o usuário troca o engine no dropdown — dá feedback visual imediato
+ *  (o agente aparece no canvas) em vez de exigir digitar uma tarefa primeiro. */
+export async function ensureConductorAgent(engine: ConductorEngine): Promise<void> {
+  if (engine === "llm" || engine === "shell") return; // stateless/direto — nada a abrir
+  if (ACP_CONDUCTOR_ENGINES.includes(engine)) {
+    const store = useCanvasStore.getState();
+    const activeFloor = store.parallels.find((p) => p.id === store.activeParallelId);
+    if (!activeFloor) return;
+    const provider = engine as "hermes";
+    const already = activeFloor.nodes.some(
+      (n) =>
+        n.kind === "agent" &&
+        (n as AgentNode).provider === provider &&
+        (n.label ?? "").startsWith("Orquestrador"),
+    );
+    if (already) return;
+    store.addAgent({
+      provider,
+      label: `Orquestrador (${engine})`,
+      persona: CONDUCTOR_PERSONA,
+      cwd: store.currentCwd ?? undefined,
+    });
+    return;
+  }
+  // PTY (claude/codex/…): reusa findOrCreateConductor (cria o terminal + persona).
+  await findOrCreateConductor(engine);
 }
 
 /** Despacho via Conductor LLM/Agent — precisa interpretar/decompor. */

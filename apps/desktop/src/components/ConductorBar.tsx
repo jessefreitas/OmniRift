@@ -10,6 +10,7 @@ import { ChevronUp, X, Send, Radio, AlertCircle } from "lucide-react";
 import { useCanvasStore } from "@/store/canvas-store";
 import {
   dispatchConductor,
+  ensureConductorAgent,
   loadConductorConfig,
   saveConductorConfig,
   type ConductorEngine,
@@ -169,7 +170,7 @@ export function ConductorBar() {
       {/* Linha de controles (compacta) */}
       <div className="flex items-center gap-1.5 px-2.5 py-1 border-t border-border/30 shrink-0">
         <Radio size={11} className="text-brand shrink-0" />
-        <span className="text-[10px] font-medium text-brand shrink-0">Conductor</span>
+        <span className="text-[10px] font-medium text-brand shrink-0">Orquestrador</span>
 
         <div className="relative shrink-0">
           <button
@@ -183,7 +184,7 @@ export function ConductorBar() {
               {(Object.keys(ENGINE_LABELS) as ConductorEngine[]).map((eng) => (
                 <button
                   key={eng}
-                  onClick={() => { setEngine(eng); setShowEngineMenu(false); }}
+                  onClick={() => { setEngine(eng); setShowEngineMenu(false); void ensureConductorAgent(eng); }}
                   className={`w-full text-left px-2.5 py-1 text-[10px] hover:bg-brand/10 transition-colors ${
                     eng === engine ? "text-brand font-medium bg-brand/5" : "text-text"
                   }`}
