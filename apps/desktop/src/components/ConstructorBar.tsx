@@ -108,7 +108,8 @@ export function ConstructorBar() {
       setChat((prev) => [...prev, {
         role: entry.source === "user" ? "user" : entry.status === "error" ? "error" : "agent",
         text: `${entry.source} → ${entry.target}: ${entry.payload}`,
-        ts: entry.timestamp,
+        // Backend stampa em SEGUNDOS (as_secs); Date espera ms. Normaliza na borda.
+        ts: entry.timestamp < 1e12 ? entry.timestamp * 1000 : entry.timestamp,
       }]);
     }).then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };

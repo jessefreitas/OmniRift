@@ -119,6 +119,9 @@ async function dispatchDirect(parsed: ParsedCommand): Promise<void> {
     for (const target of targets) {
       const task = stage.payload || "";
       try {
+        const st = useCanvasStore.getState().terminalStatuses[target.sessionId];
+        const isBusy = st === "working" || st === "blocked";
+
         await ptyWrite(target.sessionId, task);
         await new Promise((r) => setTimeout(r, 150));
         await ptyWrite(target.sessionId, "\r");
@@ -126,7 +129,7 @@ async function dispatchDirect(parsed: ParsedCommand): Promise<void> {
         await invoke("orchestrator_log", {
           source: "conductor",
           target: target.label,
-          payload: task,
+          payload: isBusy ? `${task}\n⏳ ${target.label} está ocupado — entrou na fila dele.` : task,
           status: "dispatched",
           stage: i,
           parentId: null,
@@ -373,6 +376,11 @@ ${canvasSnap}`;
       return;
     }
 
+    // Agente ocupado: o PTY ENFILEIRA a mensagem (Claude Code mostra "press up to
+    // edit queued messages") — sem este aviso o usuário vê "despachado" e nada acontece.
+    const busyStatus = useCanvasStore.getState().terminalStatuses[conductorSid];
+    const isBusy = busyStatus === "working" || busyStatus === "blocked";
+
     // Injeta input como user-message no PTY do Conductor
     await ptyWrite(conductorSid, input);
     await new Promise((r) => setTimeout(r, 150));
@@ -381,7 +389,9 @@ ${canvasSnap}`;
     await invoke("orchestrator_log", {
       source: "conductor",
       target: "user",
-      payload: `Despachado pro agente ${engine}.`,
+      payload: isBusy
+        ? `Agente ${engine} está ocupado (${busyStatus}) — mensagem entrou na FILA dele e será processada quando o turno atual terminar.`
+        : `Despachado pro agente ${engine}.`,
       status: "dispatched",
       stage: 0,
       parentId: null,
