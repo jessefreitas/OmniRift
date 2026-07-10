@@ -167,17 +167,14 @@ async function findOrCreateConductor(engine: ConductorEngine): Promise<string | 
 
   // Não existe — cria um novo agente Conductor
   const mcpPath = cliDef.role === "claude-code" ? await agentMcpConfig().catch(() => null) : null;
-  const persona = `Você é o Conductor — o maestro de orquestração de agentes do OmniRift.
-Você recebe comandos do usuário e decide qual agente deve fazer o quê.
-Use as tools orchestrator_dispatch, orchestrator_status, orchestrator_spawn_agent quando precisar.`;
-  const built = buildCliSwitch({ cli: cliDef, persona, mcpConfigPath: mcpPath, settingsPath: null });
+  const built = buildCliSwitch({ cli: cliDef, persona: CONDUCTOR_PERSONA, mcpConfigPath: mcpPath, settingsPath: null });
 
   const id = `cond-${engine}-${Date.now().toString(36)}`;
   s.addTerminal({
     command: built.command,
     args: built.args,
     role: built.role,
-    label: `Orquestrador (${cliDef.label})`,
+    label: `Constructor (${cliDef.label})`,
     id,
   });
 
@@ -209,9 +206,10 @@ const ACP_CONDUCTOR_ENGINES: ConductorEngine[] = ["hermes"];
 
 /** Persona do Conductor — compartilhada entre o modo PTY e o ACP. */
 const CONDUCTOR_PERSONA =
-  "Você é o Conductor — o maestro de orquestração de agentes do OmniRift. " +
-  "Você recebe comandos do usuário e decide qual agente deve fazer o quê. " +
-  "Use as tools orchestrator_dispatch, orchestrator_status, orchestrator_spawn_agent quando precisar.";
+  "Você é o Constructor — o copiloto do sistema OmniRift. Conversa com o usuário e conhece TUDO: " +
+  "o canvas (agentes, terminais, estados, conexões) e o código do projeto. Pode comandar o " +
+  "Orquestrador (que coordena os agentes) via as tools orchestrator_dispatch/orchestrator_status " +
+  "e agent_ask/agent_tell/agent_status. Responda de forma direta e útil.";
 
 /** Despacho via OmniAgent ACP (ex: hermes) — cria o agente se preciso e entrega a task.
  *  Diferente do modo PTY: não há terminal pra ptyWrite. A 1ª task vai embutida na persona
@@ -222,10 +220,10 @@ async function dispatchViaAcpAgent(input: string, engine: ConductorEngine): Prom
   if (!activeFloor) return;
   const provider = engine as "hermes";
 
-  // Reusa um Orquestrador ACP do mesmo provider já no floor (label "Orquestrador (…)").
+  // Reusa um Constructor ACP do mesmo provider já no floor (label "Constructor (…)").
   const existing = activeFloor.nodes.find(
     (n): n is AgentNode =>
-      n.kind === "agent" && n.provider === provider && (n.label ?? "").startsWith("Orquestrador"),
+      n.kind === "agent" && n.provider === provider && (n.label ?? "").startsWith("Constructor"),
   );
 
   if (existing?.acpSessionId) {
@@ -251,7 +249,7 @@ async function dispatchViaAcpAgent(input: string, engine: ConductorEngine): Prom
   // Não existe → cria o OmniAgent ACP. A 1ª task vai na persona (entregue no ready).
   store.addAgent({
     provider,
-    label: `Orquestrador (${engine})`,
+    label: `Constructor (${engine})`,
     persona: `${CONDUCTOR_PERSONA}\n\nPrimeira tarefa do usuário:\n${input}`,
     cwd: store.currentCwd ?? undefined,
   });
@@ -276,12 +274,12 @@ export async function ensureConductorAgent(engine: ConductorEngine): Promise<voi
       (n) =>
         n.kind === "agent" &&
         (n as AgentNode).provider === provider &&
-        (n.label ?? "").startsWith("Orquestrador"),
+        (n.label ?? "").startsWith("Constructor"),
     );
     if (already) return;
     store.addAgent({
       provider,
-      label: `Orquestrador (${engine})`,
+      label: `Constructor (${engine})`,
       persona: CONDUCTOR_PERSONA,
       cwd: store.currentCwd ?? undefined,
     });

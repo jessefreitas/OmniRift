@@ -10,12 +10,12 @@ import { ChevronUp, X, Send, Radio, AlertCircle } from "lucide-react";
 import { useCanvasStore } from "@/store/canvas-store";
 import {
   dispatchConductor,
-  ensureConductorAgent,
   loadConductorConfig,
   saveConductorConfig,
   type ConductorEngine,
   type OrchestratorEntry,
 } from "@/lib/orchestration/conductor";
+import { ConstructorPanel } from "@/components/ConstructorPanel";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 const ENGINE_LABELS: Record<ConductorEngine, string> = {
@@ -138,27 +138,14 @@ export function ConductorBar() {
   if (!conductorMode) return null;
 
   return (
+    <>
+      {/* Janela flutuante de resposta do Constructor (arrastável) — a conversa vive aqui,
+          fora da barra. A barra é só input + seletor de cérebro. */}
+      {chat.length > 0 && <ConstructorPanel messages={chat} onClose={() => setChat([])} />}
+
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 w-[560px] max-w-[90%] flex flex-col rounded-xl bg-bg/95 backdrop-blur-md shadow-2xl border border-brand/40 overflow-hidden" style={{ maxHeight: "320px", boxShadow: "0 0 24px -4px rgba(59,139,212,0.25), 0 8px 32px -8px rgba(0,0,0,0.5)" }}>
       {/* Borda colorida superior (gradient brand) */}
       <div className="h-[2px] w-full bg-gradient-to-r from-brand/0 via-brand to-brand/0" />
-
-      {/* Chat — ultimas mensagens (compacto) */}
-      {chat.length > 0 && (
-        <div ref={chatRef} className="flex-1 overflow-y-auto px-3 py-1.5 space-y-0.5 min-h-0">
-          {chat.map((msg, i) => (
-            <div key={i} className={`text-[11px] font-mono leading-tight ${
-              msg.role === "user" ? "text-brand" :
-              msg.role === "error" ? "text-red-400" :
-              msg.role === "system" ? "text-textMuted" : "text-text"
-            }`}>
-              <span className="text-textMuted text-[9px] mr-1 tabular-nums">
-                {new Date(msg.ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-              </span>
-              {msg.text.length > 200 ? msg.text.slice(0, 200) + "…" : msg.text}
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Erro inline */}
       {error && (
@@ -170,7 +157,7 @@ export function ConductorBar() {
       {/* Linha de controles (compacta) */}
       <div className="flex items-center gap-1.5 px-2.5 py-1 border-t border-border/30 shrink-0">
         <Radio size={11} className="text-brand shrink-0" />
-        <span className="text-[10px] font-medium text-brand shrink-0">Orquestrador</span>
+        <span className="text-[10px] font-medium text-brand shrink-0">Constructor</span>
 
         <div className="relative shrink-0">
           <button
@@ -184,7 +171,7 @@ export function ConductorBar() {
               {(Object.keys(ENGINE_LABELS) as ConductorEngine[]).map((eng) => (
                 <button
                   key={eng}
-                  onClick={() => { setEngine(eng); setShowEngineMenu(false); void ensureConductorAgent(eng); }}
+                  onClick={() => { setEngine(eng); setShowEngineMenu(false); }}
                   className={`w-full text-left px-2.5 py-1 text-[10px] hover:bg-brand/10 transition-colors ${
                     eng === engine ? "text-brand font-medium bg-brand/5" : "text-text"
                   }`}
@@ -216,7 +203,7 @@ export function ConductorBar() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="@agente tarefa… (Enter despacha, Shift+Enter = linha nova)"
+          placeholder="Converse com o sistema… ou @agente pra falar direto (Enter envia, Shift+Enter = linha)"
           rows={1}
           className="flex-1 bg-bgSecondary border border-brand/20 rounded-lg px-2.5 py-1.5 text-xs text-text placeholder:text-textMuted focus:outline-none focus:border-brand/60 resize-none font-mono transition-colors"
           style={{ minHeight: "28px", maxHeight: "80px" }}
@@ -232,5 +219,6 @@ export function ConductorBar() {
         </button>
       </div>
     </div>
+    </>
   );
 }
