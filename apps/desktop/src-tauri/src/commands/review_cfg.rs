@@ -285,6 +285,45 @@ pub fn review_pathrules_write(dir: String, rules: Vec<PathRule>) -> Result<(), S
     std::fs::write(d.join("review-pathrules.json"), json).map_err(|e| e.to_string())
 }
 
+/// Config dir ISOLADO pros agentes claude spawnados (`~/.omnirift/agent-claude-home`).
+/// Os hooks/skills globais do usuário (`~/.claude/settings.json`) NÃO carregam no agente
+/// — só os curados via `--settings` (status/review/failproof), que independem do config
+/// dir. Motivação: agentes herdavam a suíte global inteira e cada turno pagava 2min+ só
+/// de Stop hooks, atrasando o settle do `agent_ask`.
+/// Credenciais são COPIADAS, não symlinkadas: o refresh de token grava por rename e um
+/// symlink faria o agente trocar o arquivo real do usuário.
+/// Falha-aberto: `None` → o caller spawna sem o env (herda o global, comportamento antigo).
+#[tauri::command]
+pub fn agent_config_dir() -> Option<String> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()?;
+    let home = std::path::Path::new(&home);
+    let dir = home.join(".omnirift").join("agent-claude-home");
+    std::fs::create_dir_all(&dir).ok()?;
+
+    // Estado principal (~/.claude.json: conta OAuth + onboarding concluído) — só se
+    // faltar, pra não atropelar o estado que os agentes escrevem no dir isolado.
+    // Sem ele o claude abriria o wizard interativo e TRAVARIA o PTY.
+    let main_json = home.join(".claude.json");
+    let agent_json = dir.join(".claude.json");
+    if !agent_json.exists() && main_json.exists() {
+        let _ = std::fs::copy(&main_json, &agent_json);
+    }
+
+    // Credenciais: cópia FRESCA a cada spawn (temp+rename — agentes concorrentes podem
+    // estar lendo o arquivo no mesmo instante).
+    let creds = home.join(".claude").join(".credentials.json");
+    if creds.exists() {
+        let tmp = dir.join(".credentials.json.tmp");
+        if std::fs::copy(&creds, &tmp).is_ok() {
+            let _ = std::fs::rename(&tmp, dir.join(".credentials.json"));
+        }
+    }
+
+    dir.to_str().map(String::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::inject_failproof_hooks;

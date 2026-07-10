@@ -17,13 +17,29 @@ import type {
   PtySpawnConfig,
   SessionId,
 } from "@/types/pty";
+import { getFlag } from "@/lib/feature-flags";
+
+/** Agentes claude nascem com config dir ISOLADO (flag `agent-clean-hooks`): os hooks
+ *  globais do usuário (~/.claude/settings.json) não carregam — cada turno pagava 2min+
+ *  de Stop hooks herdados, atrasando o settle do agent_ask. Os hooks curados do app
+ *  seguem via --settings (independem do config dir). Só spawn LOCAL do binário `claude`
+ *  (claude-ollama roda via shell e fica de fora). Falha-aberto: sem dir → herda global. */
+async function withAgentConfigDir(config: PtySpawnConfig): Promise<PtySpawnConfig> {
+  const base = config.command.split(/[\\/]/).pop();
+  const isLocalClaude = base === "claude" && !config.execution_host;
+  const alreadySet = config.env?.some(([k]) => k === "CLAUDE_CONFIG_DIR") ?? false;
+  if (!isLocalClaude || alreadySet || !getFlag("agent-clean-hooks")) return config;
+  const dir = await invoke<string | null>("agent_config_dir").catch(() => null);
+  if (!dir) return config;
+  return { ...config, env: [...(config.env ?? []), ["CLAUDE_CONFIG_DIR", dir]] };
+}
 
 /** Cria uma sessão PTY no backend. O id é gerado no front (nanoid). */
 export async function ptySpawn(
   id: SessionId,
   config: PtySpawnConfig,
 ): Promise<SessionId> {
-  return invoke<SessionId>("pty_spawn", { id, config });
+  return invoke<SessionId>("pty_spawn", { id, config: await withAgentConfigDir(config) });
 }
 
 /** Envia bytes (string UTF-8) para o stdin do PTY. */

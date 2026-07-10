@@ -66,7 +66,7 @@ use health::HealthCache;
 use commands::license::{license_activate, license_status, license_store_meta, license_stored_key, license_was_beta};
 use commands::llm::{learn_ask_grounded, llm_chat, llm_list_models, llm_via_cli};
 use commands::review_cfg::{
-    agent_settings_config, review_config_path, review_config_write, review_context_read,
+    agent_config_dir, agent_settings_config, review_config_path, review_config_write, review_context_read,
     review_context_write, review_pathrules_read, review_pathrules_write, review_suppress_read,
     review_suppress_write,
 };
@@ -526,6 +526,7 @@ pub fn run() {
             review_config_write,
             review_config_path,
             agent_settings_config,
+            agent_config_dir,
             review_context_read,
             review_context_write,
             review_suppress_read,
