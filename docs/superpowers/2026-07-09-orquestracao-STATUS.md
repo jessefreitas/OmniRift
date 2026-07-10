@@ -119,3 +119,34 @@ cd apps/desktop/src-tauri && cargo test -p omnirift marker::
 5. `docs` — roteiro de validação manual
 6. `refactor` — rename Conductor → Orquestrador (colisão de marca)
 7. `fix` — 3 causas raiz de "agentes não conversam" (este é o estado atual)
+
+---
+
+## 6. Sessão noturna 2026-07-09/10 (autônoma, Jessé dormindo) — branch `feat/orquestracao-integrada`
+
+### Validado ao vivo (screenshots do Jessé antes de dormir)
+- ✅ **Fase 4a FUNCIONA de ponta a ponta**: "conversa com o frontend sobre se html é uma linguagem"
+  → Orquestrador chamou `omnirift-agents` → Frontend respondeu naturalmente → edge animada.
+  A validação manual pendente da seção 3 está FEITA.
+- ⚠️ **Overhead dos hooks globais**: agentes spawnados herdam os 15 hooks do `~/.claude` do Jessé
+  (failproof, local-review…) — o Frontend ficou 2m+ em "running stop hooks 11/15", o que atrasa o
+  settle que o `agent_ask` espera. DECISÃO PENDENTE: spawnar agentes com config enxuta
+  (CLAUDE_CONFIG_DIR isolado ou --settings) ou aceitar o custo.
+
+### Fixes commitados nesta sessão
+1. `0168d48` — **menu de engines invisível** (Codex/Hermes "não subiam"): o dropdown abre pra cima
+   e era clipado pelo `overflow-hidden` do container da barra. + **autocomplete de @** (digitar @
+   lista agentes do floor + @all/@idle, teclado completo) + **rename concluído**
+   `ConductorBar.tsx → ConstructorBar.tsx` (tsc estava vermelho; em dev dava ReferenceError no boot).
+2. `e3b3e1f` — **timestamp 12:27 fixo no painel**: backend stampa `orchestrator_log` em SEGUNDOS,
+   front passava direto pro `Date` (ms) → 21/jan/1970. Normalizado na borda. + **aviso de agente
+   ocupado**: mensagem pro agente busy entra na FILA do PTY e "nada acontece" — agora o log avisa.
+3. (em validação) — **agente deletado ficava "morto" pra sempre**: `removeNode` só olhava o floor
+   ativo (nó em floor de fundo nem era removido) e nunca limpava `terminalStatuses`; e o waiter do
+   PTY não desregistrava a sessão morta do registry MCP (label fantasma → "dormindo (dead)").
+   Fix nas 3 camadas: `canvas-store.ts::removeNode` (busca cross-floor + limpa status),
+   `registry.rs::unregister_by_session`, `session.rs` (waiter desregistra no exit).
+
+### Build
+- `.deb` noturno em andamento (`/tmp/omnirift_build_night.log`); segundo build sai com o item 3.
+- **NÃO reiniciei o app do Jessé** (agentes vivos no canvas) — instalar o .deb de manhã.
