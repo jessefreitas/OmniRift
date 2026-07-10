@@ -150,3 +150,18 @@ cd apps/desktop/src-tauri && cargo test -p omnirift marker::
 ### Build
 - `.deb` noturno em andamento (`/tmp/omnirift_build_night.log`); segundo build sai com o item 3.
 - **NÃO reiniciei o app do Jessé** (agentes vivos no canvas) — instalar o .deb de manhã.
+
+### Fechamento da noite (00:00)
+- ✅ **`.deb` FINAL pronto** (= HEAD `5f43c22`, todos os fixes):
+  `apps/desktop/src-tauri/target/release/bundle/deb/OmniRift_0.1.131_amd64.deb` (23:59)
+  Instalar: `sudo dpkg -i` no caminho acima. (O "exit 1" nos logs de build é só a
+  assinatura do updater — sem `TAURI_SIGNING_PRIVATE_KEY` local; o .deb sai normal.)
+- ✅ Regression guard: `cargo test --lib` 593/593 (1 flaky de ambiente passou no re-run) + `tsc -b` + eslint.
+- ✅ Branch pushada pro Forgejo (`omnirift-fj/feat/orquestracao-integrada`) — backup anti-divergência.
+- 🧹 Lint pré-existente restante no ConstructorBar: `set-state-in-effect` na carga de config (não é desta noite).
+
+### Decisões que esperam o Jessé (manhã)
+1. **Hooks globais nos agentes spawnados** (15 hooks = 2min+ de stop hooks por turno) — isolar config ou aceitar.
+2. **Task 12** — esconder `[mensagem de @X]` do xterm (precisa verificação visual).
+3. **Fase 7** — toast não-intrusivo do monitor passivo (decidir com a tela à vista).
+4. **Spawn flaky claude-ollama** — decisão A/B (mem 507370).
