@@ -167,7 +167,7 @@ async function findOrCreateConductor(engine: ConductorEngine): Promise<string | 
 
   // Não existe — cria um novo agente Conductor
   const mcpPath = cliDef.role === "claude-code" ? await agentMcpConfig().catch(() => null) : null;
-  const built = buildCliSwitch({ cli: cliDef, persona: CONDUCTOR_PERSONA, mcpConfigPath: mcpPath, settingsPath: null });
+  const built = buildCliSwitch({ cli: cliDef, persona: await constructorContext(), mcpConfigPath: mcpPath, settingsPath: null });
 
   const id = `cond-${engine}-${Date.now().toString(36)}`;
   s.addTerminal({
@@ -206,10 +206,30 @@ const ACP_CONDUCTOR_ENGINES: ConductorEngine[] = ["hermes"];
 
 /** Persona do Conductor — compartilhada entre o modo PTY e o ACP. */
 const CONDUCTOR_PERSONA =
-  "Você é o Constructor — o copiloto do sistema OmniRift. Conversa com o usuário e conhece TUDO: " +
-  "o canvas (agentes, terminais, estados, conexões) e o código do projeto. Pode comandar o " +
-  "Orquestrador (que coordena os agentes) via as tools orchestrator_dispatch/orchestrator_status " +
-  "e agent_ask/agent_tell/agent_status. Responda de forma direta e útil.";
+  "Você é o Constructor — o copiloto do sistema OmniRift. Você CONVERSA com o usuário e tem acesso " +
+  "total ao sistema. NÃO chute: use as tools pra ver o estado REAL antes de responder ou agir.\n\n" +
+  "VOCÊ CONHECE O CANVAS: use orchestrator_status / orchestrator_query / agent_status pra ver os " +
+  "agentes, terminais, estados (idle/working/blocked/done) e conexões AGORA.\n" +
+  "VOCÊ CONHECE O CÓDIGO: use serena (símbolos/navegação), omnifs (busca semântica no código), " +
+  "code_chunks (fatiar arquivo por AST) e context7 (docs de libs) pra entender o projeto.\n" +
+  "VOCÊ COMANDA O ORQUESTRADOR: use orchestrator_dispatch (manda tarefa a um agente), " +
+  "orchestrator_spawn_agent (cria agente), agent_ask/agent_tell (fala com um agente) e " +
+  "orchestration_send (fan-out pra um grupo) pra colocar a frota pra trabalhar.\n\n" +
+  "Responda direto e útil, em português. Quando for AGIR (não só responder), diga o que vai fazer e use a tool.";
+
+/** Persona do Constructor + snapshot do canvas no momento (grounding inicial). As tools dão o
+ *  estado FRESCO; o snapshot é só pra ele já começar situado sem gastar um turno consultando. */
+async function constructorContext(): Promise<string> {
+  let canvas = "";
+  try {
+    canvas = await analyzeCanvas();
+  } catch {
+    /* segue sem snapshot — ele consulta via orchestrator_status/query */
+  }
+  return canvas
+    ? `${CONDUCTOR_PERSONA}\n\n--- Snapshot do canvas agora (use as tools p/ estado fresco) ---\n${canvas}`
+    : CONDUCTOR_PERSONA;
+}
 
 /** Despacho via OmniAgent ACP (ex: hermes) — cria o agente se preciso e entrega a task.
  *  Diferente do modo PTY: não há terminal pra ptyWrite. A 1ª task vai embutida na persona
@@ -250,7 +270,7 @@ async function dispatchViaAcpAgent(input: string, engine: ConductorEngine): Prom
   store.addAgent({
     provider,
     label: `Constructor (${engine})`,
-    persona: `${CONDUCTOR_PERSONA}\n\nPrimeira tarefa do usuário:\n${input}`,
+    persona: `${await constructorContext()}\n\nPrimeira tarefa do usuário:\n${input}`,
     cwd: store.currentCwd ?? undefined,
   });
   await invoke("orchestrator_log", {
@@ -258,35 +278,6 @@ async function dispatchViaAcpAgent(input: string, engine: ConductorEngine): Prom
     payload: `Criando agente ${engine} (ACP) e despachando a tarefa…`,
     status: "dispatched", stage: 0, parentId: null,
   });
-}
-
-/** Abre (cria se não existir) o agente Orquestrador do engine, SEM despachar tarefa.
- *  Chamado quando o usuário troca o engine no dropdown — dá feedback visual imediato
- *  (o agente aparece no canvas) em vez de exigir digitar uma tarefa primeiro. */
-export async function ensureConductorAgent(engine: ConductorEngine): Promise<void> {
-  if (engine === "llm" || engine === "shell") return; // stateless/direto — nada a abrir
-  if (ACP_CONDUCTOR_ENGINES.includes(engine)) {
-    const store = useCanvasStore.getState();
-    const activeFloor = store.parallels.find((p) => p.id === store.activeParallelId);
-    if (!activeFloor) return;
-    const provider = engine as "hermes";
-    const already = activeFloor.nodes.some(
-      (n) =>
-        n.kind === "agent" &&
-        (n as AgentNode).provider === provider &&
-        (n.label ?? "").startsWith("Constructor"),
-    );
-    if (already) return;
-    store.addAgent({
-      provider,
-      label: `Constructor (${engine})`,
-      persona: CONDUCTOR_PERSONA,
-      cwd: store.currentCwd ?? undefined,
-    });
-    return;
-  }
-  // PTY (claude/codex/…): reusa findOrCreateConductor (cria o terminal + persona).
-  await findOrCreateConductor(engine);
 }
 
 /** Despacho via Conductor LLM/Agent — precisa interpretar/decompor. */
