@@ -454,6 +454,12 @@ export function Sidebar() {
 
   const nameRef = useRef<HTMLInputElement>(null);
 
+  // Projetos abertos recentemente (mais novo primeiro) — a listinha da seção PROJETO.
+  const [recentProjects, setRecentProjects] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("omnirift-recent-projects") ?? "[]"); }
+    catch { return []; }
+  });
+
   // MCP: persistido em localStorage para sobreviver restarts
   const [mcpAgents, setMcpAgents] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("omnirift-mcp-agents") ?? "[]")); }
@@ -841,6 +847,17 @@ export function Sidebar() {
   useEffect(() => {
     localStorage.setItem("omnirift-mcp-agents", JSON.stringify([...mcpAgents]));
   }, [mcpAgents]);
+  // Registro EXTERNO (terminal_spawn / orchestrator_spawn_agent, via orchestration-client):
+  // o backend registra no agent_registry mas este estado é local → sem o sync o
+  // checkbox "MCP AGENTS" ficava desmarcado pra agentes criados pelo Constructor.
+  useEffect(() => {
+    const onRegistered = (e: Event) => {
+      const sid = (e as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
+      if (sid) setMcpAgents((prev) => (prev.has(sid) ? prev : new Set([...prev, sid])));
+    };
+    window.addEventListener("omnirift:mcp-registered", onRegistered);
+    return () => window.removeEventListener("omnirift:mcp-registered", onRegistered);
+  }, []);
   useEffect(() => {
     localStorage.setItem("omnirift-mcp-descs", JSON.stringify(agentDescriptions));
   }, [agentDescriptions]);
@@ -1827,20 +1844,31 @@ export function Sidebar() {
     });
   }
 
-  async function pickFolder() {
-    const selected = await open({ directory: true, multiple: false, title: tr("sidebar.pickProjectFolderTitle", "Selecionar pasta do projeto") });
-    if (typeof selected !== "string") return;
+  /** Abre uma pasta de projeto (do dialog OU da lista de recentes) e grava nos recentes. */
+  async function openFolder(selected: string) {
     // Canvas por pasta: salva o canvas atual atrelado à pasta ATUAL (se houver) antes de trocar.
     if (currentCwd) {
       await folderCanvasSave(currentCwd, JSON.stringify(getWorkspaceSnapshot())).catch(() => {});
     }
     setCurrentCwd(selected);
+    // Recentes: mais novo primeiro, dedup, teto 8 — a listinha da seção PROJETO.
+    setRecentProjects((prev) => {
+      const next = [selected, ...prev.filter((p) => p !== selected)].slice(0, 8);
+      try { localStorage.setItem("omnirift-recent-projects", JSON.stringify(next)); } catch { /* cheio */ }
+      return next;
+    });
     // Restaura o canvas salvo daquela pasta → "os agentes daquele projeto voltam". Pasta nova
     // (sem canvas salvo) → mantém o canvas atual (não limpa).
     try {
       const saved = await folderCanvasLoad(selected);
       if (saved) restoreWorkspace(JSON.parse(saved));
     } catch { /* canvas corrompido → ignora, segue com o atual */ }
+  }
+
+  async function pickFolder() {
+    const selected = await open({ directory: true, multiple: false, title: tr("sidebar.pickProjectFolderTitle", "Selecionar pasta do projeto") });
+    if (typeof selected !== "string") return;
+    await openFolder(selected);
   }
 
   async function handleSave() {
@@ -2217,6 +2245,25 @@ export function Sidebar() {
           <p className="px-2 mt-0.5 text-[9px] text-textMuted truncate opacity-60" title={currentCwd}>
             {currentCwd}
           </p>
+        )}
+        {/* Recentes — abre direto sem caçar a pasta no dialog. Esconde o projeto já aberto. */}
+        {recentProjects.filter((p) => p !== currentCwd).length > 0 && (
+          <div className="mt-1">
+            <p className="px-2 text-[9px] uppercase tracking-wide text-textMuted opacity-60">
+              {tr("sidebar.recentProjects", "Recentes")}
+            </p>
+            {recentProjects.filter((p) => p !== currentCwd).slice(0, 5).map((p) => (
+              <button
+                key={p}
+                onClick={() => void openFolder(p)}
+                title={p}
+                className="w-full flex items-center gap-1.5 px-2 py-0.5 rounded text-left hover:bg-surface2 transition-colors"
+              >
+                <History size={10} className="text-textMuted shrink-0" />
+                <span className="text-[10px] text-textMuted truncate">{p.split("/").filter(Boolean).pop()}</span>
+              </button>
+            ))}
+          </div>
         )}
         {currentCwd && <EditorOpenButton path={currentCwd} />}
         {/* Sync CLAUDE.md ↔ AGENTS.md (regras de projeto pros agentes) */}
