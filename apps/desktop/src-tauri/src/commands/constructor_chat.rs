@@ -104,32 +104,40 @@ pub async fn constructor_chat_send(
     let cli = cli.unwrap_or_else(|| "claude".into());
     let cwd = cwd.filter(|c| !c.is_empty()).unwrap_or_else(|| ".".into());
     let persona = persona.unwrap_or_default();
-    let mut guard = state.0.lock().await;
-
-    let needs_spawn = match guard.as_mut() {
-        None => true,
-        Some(p) => {
-            p.cwd != cwd || p.cli != cli || matches!(p.child.try_wait(), Ok(Some(_)) | Err(_))
-        }
-    };
-    if needs_spawn {
-        *guard = Some(spawn_proc(&app, &cli, &cwd, &persona).await?);
-    }
-
-    let proc = guard.as_mut().unwrap();
     let msg =
         serde_json::json!({ "type": "user", "message": { "role": "user", "content": input } });
     let line = format!("{msg}\n");
-    let res = async {
-        proc.stdin.write_all(line.as_bytes()).await?;
-        proc.stdin.flush().await
+    let mut guard = state.0.lock().await;
+
+    // Até 2 tentativas: se o processo morreu (pipe quebrado / saiu no idle), recria e
+    // reenvia UMA vez — transparente, sem o usuário ver "sessão caiu".
+    let mut last_err = String::new();
+    for attempt in 0..2u8 {
+        let needs_spawn = attempt == 1
+            || match guard.as_mut() {
+                None => true,
+                Some(p) => {
+                    p.cwd != cwd || p.cli != cli || matches!(p.child.try_wait(), Ok(Some(_)) | Err(_))
+                }
+            };
+        if needs_spawn {
+            *guard = Some(spawn_proc(&app, &cli, &cwd, &persona).await?);
+        }
+        let proc = guard.as_mut().unwrap();
+        let res = async {
+            proc.stdin.write_all(line.as_bytes()).await?;
+            proc.stdin.flush().await
+        }
+        .await;
+        match res {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                last_err = e.to_string();
+                *guard = None; // pipe quebrado → recria na próxima volta
+            }
+        }
     }
-    .await;
-    if let Err(e) = res {
-        *guard = None; // pipe quebrado → recria no próximo send
-        return Err(format!("sessão do copiloto caiu ({e}) — mande de novo"));
-    }
-    Ok(())
+    Err(format!("não consegui falar com o copiloto ({last_err})"))
 }
 
 /// Encerra a sessão do copiloto (ao fechar o Constructor / trocar de projeto).
