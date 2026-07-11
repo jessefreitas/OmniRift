@@ -5,11 +5,13 @@
 // Enter = despachar, Shift+Enter = multiline, Esc = fechar.
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { ChevronUp, X, Send, Radio, AlertCircle } from "lucide-react";
+import { ChevronUp, X, Send, Radio, AlertCircle, ArrowUpRight } from "lucide-react";
+import { cn } from "@/lib/cn";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import {
   dispatchConstructor,
+  chatConstructor,
   loadConstructorConfig,
   saveConstructorConfig,
   type ConstructorEngine,
@@ -45,9 +47,12 @@ export function ConstructorBar() {
   const setConstructorMode = useCanvasStore((s) => s.setConstructorMode);
   const parallels = useCanvasStore((s) => s.parallels);
   const activeParallelId = useCanvasStore((s) => s.activeParallelId);
+  const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
 
   const [input, setInput] = useState("");
-  const [engine, setEngine] = useState<ConstructorEngine>("claude");
+  const [engine, setEngine] = useState<ConstructorEngine>(() => loadConstructorConfig().engine);
+  // Modo: "chat" = conversa inline (brainstorm); "dispatch" = orquestra a frota.
+  const [talkMode, setTalkMode] = useState<"chat" | "dispatch">(() => loadConstructorConfig().talkMode ?? "chat");
   const [busy, setBusy] = useState(false);
   const [showEngineMenu, setShowEngineMenu] = useState(false);
   const [chat, setChat] = useState<ChatMsg[]>([]);
@@ -61,14 +66,10 @@ export function ConstructorBar() {
   const [mentionSel, setMentionSel] = useState(0);
   const mentionOpenRef = useRef(false);
 
+  // engine/talkMode lidos do config no init (lazy); aqui só persistem quando mudam.
   useEffect(() => {
-    const cfg = loadConstructorConfig();
-    setEngine(cfg.engine);
-  }, []);
-
-  useEffect(() => {
-    saveConstructorConfig({ engine, model: null });
-  }, [engine]);
+    saveConstructorConfig({ engine, model: null, talkMode });
+  }, [engine, talkMode]);
 
   useEffect(() => {
     if (constructorMode) {
@@ -122,7 +123,8 @@ export function ConstructorBar() {
     }
   }, [chat]);
 
-  const handleSubmit = useCallback(async () => {
+  // `forceDispatch` = o botão "→ enviar ao agente" (despacha mesmo em modo Conversa).
+  const handleSubmit = useCallback(async (forceDispatch = false) => {
     const text = input.trim();
     if (!text || busy) return;
 
@@ -131,7 +133,11 @@ export function ConstructorBar() {
     setInput("");
     setChat((prev) => [...prev, { role: "user", text, ts: Date.now() }]);
     try {
-      await dispatchConstructor(text, { engine, model: null });
+      if (talkMode === "chat" && !forceDispatch) {
+        await chatConstructor(text, engine); // conversa inline (Claude local, sem chave), não toca na frota
+      } else {
+        await dispatchConstructor(text, { engine, model: null });
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -140,10 +146,15 @@ export function ConstructorBar() {
       setBusy(false);
       textareaRef.current?.focus();
     }
-  }, [input, busy, engine]);
+  }, [input, busy, engine, talkMode]);
 
   const activeFloor = parallels.find((p) => p.id === activeParallelId);
-  const agentCount = activeFloor?.nodes.filter((n) => n.kind === "terminal" || n.kind === "agent").length ?? 0;
+  // O copiloto (terminal do orquestrador) NÃO conta como frota — só agentes de
+  // trabalho. Assim "0 agt" reflete o canvas vazio mesmo com o Constructor vivo.
+  const agentCount = activeFloor?.nodes.filter(
+    (n) => (n.kind === "terminal" || n.kind === "agent") &&
+      (n as { session_id?: string }).session_id !== orchestratorSid,
+  ).length ?? 0;
 
   // Candidatos do popup de @: agentes do floor ativo + alvos especiais do parser.
   const mentionCandidates = useMemo(() => {
@@ -248,15 +259,29 @@ export function ConstructorBar() {
         <Radio size={11} className="text-brand shrink-0" />
         <span className="text-[10px] font-medium text-brand shrink-0">Constructor</span>
 
+        {/* Toggle Conversar/Despachar — Conversar não toca na frota; Despachar orquestra. */}
+        <button
+          onClick={() => setTalkMode((m) => (m === "chat" ? "dispatch" : "chat"))}
+          title={talkMode === "chat" ? "Modo Conversar (só troca ideia). Clique pra Despachar." : "Modo Despachar (orquestra a frota). Clique pra Conversar."}
+          className={cn(
+            "text-[10px] px-1.5 py-0.5 rounded border shrink-0 transition-colors",
+            talkMode === "chat"
+              ? "bg-brand/10 border-brand/40 text-brand"
+              : "bg-surface2 border-border text-textMuted hover:border-brand/40",
+          )}
+        >
+          {talkMode === "chat" ? "💬 Conversar" : "⚡ Despachar"}
+        </button>
+
         <div className="relative shrink-0">
           <button
             onClick={() => setShowEngineMenu((v) => !v)}
-            className="text-[10px] px-1.5 py-0.5 rounded bg-bgSecondary border border-brand/20 text-text hover:border-brand/50 transition-colors"
+            className="text-[10px] px-1.5 py-0.5 rounded bg-surface2 border border-brand/20 text-text hover:border-brand/50 transition-colors"
           >
             {ENGINE_LABELS[engine]} ▾
           </button>
           {showEngineMenu && (
-            <div className="absolute bottom-full left-0 mb-1 bg-bgSecondary border border-brand/30 rounded-lg shadow-xl z-50 min-w-[150px] overflow-hidden">
+            <div className="absolute bottom-full left-0 mb-1 bg-surface2 border border-brand/30 rounded-lg shadow-xl z-50 min-w-[150px] overflow-hidden">
               {(Object.keys(ENGINE_LABELS) as ConstructorEngine[]).map((eng) => (
                 <button
                   key={eng}
@@ -289,7 +314,7 @@ export function ConstructorBar() {
       <div className="relative flex items-end gap-1.5 px-2.5 py-1.5 shrink-0">
         {/* Popup de @mention — lista os agentes do floor ativo */}
         {mentionOpen && (
-          <div className="absolute bottom-full left-2.5 right-2.5 mb-1 bg-bgSecondary border border-brand/30 rounded-lg shadow-xl z-50 overflow-hidden">
+          <div className="absolute bottom-full left-2.5 right-2.5 mb-1 bg-surface2 border border-brand/30 rounded-lg shadow-xl z-50 overflow-hidden">
             {mentionCandidates.map((c, i) => (
               <button
                 key={`${c.insert}-${i}`}
@@ -314,17 +339,28 @@ export function ConstructorBar() {
             detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length);
           }}
           onKeyDown={handleKeyDown}
-          placeholder="Converse com o sistema… ou @agente pra falar direto (Enter envia, Shift+Enter = linha)"
+          placeholder={talkMode === "chat" ? "Converse… ou @agente · Enter envia" : "Tarefa pra frota… ou @agente · Enter despacha"}
           rows={1}
-          className="flex-1 bg-bgSecondary border border-brand/20 rounded-lg px-2.5 py-1.5 text-xs text-text placeholder:text-textMuted focus:outline-none focus:border-brand/60 resize-none font-mono transition-colors"
+          className="flex-1 bg-surface2 border border-brand/20 rounded-lg px-2.5 py-1.5 text-xs text-text placeholder:text-textMuted focus:outline-none focus:border-brand/60 resize-none font-mono transition-colors"
           style={{ minHeight: "28px", maxHeight: "80px" }}
           disabled={busy}
         />
+        {/* No modo Conversar: manda a ideia atual pro agente (força despacho). */}
+        {talkMode === "chat" && (
+          <button
+            onClick={() => void handleSubmit(true)}
+            disabled={!input.trim() || busy}
+            className="shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg border border-brand/40 text-brand text-[10px] disabled:opacity-30 disabled:cursor-not-allowed hover:bg-brand/10 transition-colors"
+            title="Enviar a ideia atual pro agente (despacha)"
+          >
+            <ArrowUpRight size={12} /> agente
+          </button>
+        )}
         <button
           onClick={() => void handleSubmit()}
           disabled={!input.trim() || busy}
           className="shrink-0 p-1.5 rounded-lg bg-brand text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-brand/90 transition-colors"
-          title="Despachar (Enter)"
+          title={talkMode === "chat" ? "Conversar (Enter)" : "Despachar (Enter)"}
         >
           {busy ? <ChevronUp size={13} className="animate-pulse" /> : <Send size={13} />}
         </button>

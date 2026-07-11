@@ -20,6 +20,8 @@ export type ConstructorEngine = "claude" | "codex" | "hermes" | "llm" | "shell";
 export interface ConstructorConfig {
   engine: ConstructorEngine;
   model: string | null;
+  /** "chat" = conversa inline (brainstorm, não age); "dispatch" = orquestra a frota. */
+  talkMode?: "chat" | "dispatch";
 }
 
 export interface OrchestratorEntry {
@@ -31,6 +33,82 @@ export interface OrchestratorEntry {
   status: string;
   stage: number;
   parentId: string | null;
+}
+
+/** Persona do modo CONVERSA — copiloto que só troca ideia, sem tocar na frota. */
+const CHAT_PERSONA =
+  "Você é o Constructor, copiloto conversacional do OmniRift. CONVERSE com o usuário em português: " +
+  "tire dúvidas, ajude a planejar, discuta ideias sobre os agentes e o projeto. Você está em MODO " +
+  "CONVERSA: NÃO crie agentes, NÃO despache tarefas, NÃO execute nada — só responda e ajude a pensar. " +
+  "Quando o usuário quiser executar, ele clica 'enviar ao agente'. Seja curto e direto.";
+
+/** Garante o terminal Constructor PERSISTENTE (sessão viva → só a 1ª msg paga o boot) e
+ *  escreve `text` nele. Reusa o orchestratorSid se ainda válido; senão cria. Devolve o sid
+ *  (ou null se não deu). É o canal único pros dois modos (conversa e executar). */
+async function sendToConductorTerminal(text: string, engine: ConstructorEngine): Promise<string | null> {
+  let sid = useCanvasStore.getState().orchestratorSid;
+  if (sid) {
+    const s = useCanvasStore.getState();
+    const floor = s.parallels.find((p) => p.id === s.activeParallelId);
+    const node = floor?.nodes.find((n) => (n as TerminalNode).session_id === sid) as TerminalNode | undefined;
+    const cliDef = ROLE_CLIS.find((c) => c.id === engine);
+    if (!node || (cliDef && node.command !== cliDef.command)) sid = null; // morto/tipo errado → recria
+  }
+  if (!sid) sid = await findOrCreateConductor(engine);
+  if (!sid) return null;
+  try {
+    await ptyWrite(sid, text);
+    await new Promise((r) => setTimeout(r, 150));
+    await ptyWrite(sid, "\r");
+    return sid;
+  } catch {
+    useCanvasStore.getState().setOrchestratorSid(null);
+    return null;
+  }
+}
+
+/** Modo CONVERSA — brainstorm SEM criar/despachar nada. Claude/Codex usa o terminal
+ *  Constructor PERSISTENTE (sessão viva; só a 1ª msg paga o boot; resposta no card do
+ *  terminal). O engine "Leve (LLM)" responde inline no painel via BYOK. */
+export async function chatConstructor(input: string, engine: ConstructorEngine): Promise<void> {
+  if (!input.trim()) return;
+  await invoke("orchestrator_log", {
+    source: "user", target: "conductor", payload: input, status: "chat", stage: 0, parentId: null,
+  });
+
+  if (engine === "llm") {
+    const cfg = loadLlmConfig();
+    if (!cfg) {
+      await invoke("orchestrator_log", {
+        source: "conductor", target: "user",
+        payload: "O engine 'Leve (LLM)' precisa de uma chave. Configure em Ferramentas → 'LLM (BYOK)', ou troque pra Claude Code (usa sua subscription).",
+        status: "error", stage: 0, parentId: null,
+      });
+      return;
+    }
+    try {
+      const canvas = await analyzeCanvas().catch(() => "");
+      const system = canvas ? `${CHAT_PERSONA}\n\n--- Canvas agora ---\n${canvas}` : CHAT_PERSONA;
+      const reply = await llmChat(cfg, system, input, { kind: "conductor" });
+      await invoke("orchestrator_log", {
+        source: "conductor", target: "user", payload: reply.slice(0, 2000), status: "done", stage: 0, parentId: null,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await invoke("orchestrator_log", {
+        source: "conductor", target: "user", payload: `Erro ao conversar: ${msg}`, status: "error", stage: 0, parentId: null,
+      });
+    }
+    return;
+  }
+
+  // Claude/Codex → terminal persistente. Marcador [CONVERSA] = só responde, não age.
+  const sid = await sendToConductorTerminal(`[CONVERSA — só responda e ajude a pensar; NÃO crie agentes nem despache] ${input}`, engine);
+  await invoke("orchestrator_log", {
+    source: "conductor", target: "user",
+    payload: sid ? "💬 conversando no terminal do Constructor (a resposta aparece no card dele)." : "Não consegui abrir o Constructor. Tente de novo.",
+    status: sid ? "working" : "error", stage: 0, parentId: null,
+  });
 }
 
 /** Despacha um comando do Conductor. Roteia entre determinístico e LLM. */
@@ -67,12 +145,15 @@ function resolveMention(mention: { kind: string; value: string }): Array<{ label
   const terminals = activeFloor.nodes.filter((n): n is TerminalNode => n.kind === "terminal");
   const agents = activeFloor.nodes.filter((n): n is AgentNode => n.kind === "agent");
   const all = [...terminals, ...agents];
+  // O copiloto (orquestrador) não é frota: @all/@idle não o incluem, senão o
+  // Constructor mandaria o broadcast pra si mesmo. @nome explícito ainda o acha.
+  const fleet = all.filter((n) => ((n as TerminalNode).session_id ?? n.id) !== s.orchestratorSid);
 
   if (mention.kind === "all") {
-    return all.map((n) => ({ label: n.label ?? n.id, sessionId: (n as TerminalNode).session_id ?? n.id, kind: n.kind }));
+    return fleet.map((n) => ({ label: n.label ?? n.id, sessionId: (n as TerminalNode).session_id ?? n.id, kind: n.kind }));
   }
   if (mention.kind === "idle") {
-    return all
+    return fleet
       .filter((n) => {
         const sid = (n as TerminalNode).session_id ?? n.id;
         const st = s.terminalStatuses[sid];
@@ -173,34 +254,29 @@ async function findOrCreateConductor(engine: ConstructorEngine): Promise<string 
   const built = buildCliSwitch({ cli: cliDef, persona: await constructorContext(), mcpConfigPath: mcpPath, settingsPath: null });
 
   const id = `cond-${engine}-${Date.now().toString(36)}`;
-  s.addTerminal({
+  // Usa o NÓ que o addTerminal devolve (session_id síncrono garantido) em vez de
+  // re-buscar no store — a busca frágil (find por id após 3s) às vezes não achava e
+  // cuspia "não consegui criar", mesmo com o terminal criado. `null` = circuit-breaker
+  // de spawn cortou (loop) → sobe pro caller avisar.
+  const created = s.addTerminal({
     command: built.command,
     args: built.args,
     role: built.role,
     label: `Constructor (${cliDef.label})`,
     id,
   });
+  if (!created) return null;
+  const sid = created.session_id;
+  useCanvasStore.getState().setOrchestratorSid(sid);
 
-  // Espera o PTY estar pronto (3s de grace)
+  // Grace pro PTY subir no backend antes da 1ª escrita (senão o write se perde).
   await new Promise((r) => setTimeout(r, 3000));
-
-  // Busca o sessionId do nó criado
-  const node = useCanvasStore.getState().parallels
-    .find((p) => p.id === s.activeParallelId)
-    ?.nodes.find((n) => n.id === id) as TerminalNode | undefined;
-
-  if (node?.session_id) {
-    useCanvasStore.getState().setOrchestratorSid(node.session_id);
-    // Envia a persona como primeira mensagem (se não for claude-code com flag)
-    if (built.firstMessage) {
-      await ptyWrite(node.session_id, built.firstMessage);
-      await new Promise((r) => setTimeout(r, 200));
-      await ptyWrite(node.session_id, "\r");
-    }
-    return node.session_id;
+  if (built.firstMessage) {
+    await ptyWrite(sid, built.firstMessage);
+    await new Promise((r) => setTimeout(r, 200));
+    await ptyWrite(sid, "\r");
   }
-
-  return null;
+  return sid;
 }
 
 /** Engines que só existem como agente ACP (sem CLI de terminal) — o modo PTY do
@@ -218,10 +294,19 @@ const CONDUCTOR_PERSONA =
   "VOCÊ COMANDA O ORQUESTRADOR: use orchestrator_dispatch (manda tarefa a um agente), " +
   "orchestrator_spawn_agent (cria agente), agent_ask/agent_tell (fala com um agente) e " +
   "orchestration_send (fan-out pra um grupo) pra colocar a frota pra trabalhar.\n\n" +
-  "Responda direto e útil, em português. Quando for AGIR (não só responder), diga o que vai fazer e use a tool.";
+  "DOIS MODOS — cada mensagem do usuário começa com um marcador; OBEDEÇA:\n" +
+  "• [CONVERSA] → só CONVERSE: responda, tire dúvidas, ajude a planejar. NÃO crie agentes, " +
+  "NÃO despache, NÃO execute nada. É brainstorm — espere ele mandar executar.\n" +
+  "• [EXECUTAR] → você é ORQUESTRADOR PURO: NUNCA faça a tarefa você mesmo (não gere código, texto, " +
+  "imagem ou artifact; não edite arquivos). SEMPRE delegue a um agente da frota via orchestrator_dispatch; " +
+  "se nenhum servir, crie com orchestrator_spawn_agent. Mesmo tarefa 'simples' de 1 arquivo vai pra um " +
+  "agente — se você se pegar prestes a fazer direto, PARE e delegue. Diga A QUEM delegou e O QUÊ.\n" +
+  "Responda curto, em português.";
 
 /** Persona do Constructor + snapshot do canvas no momento (grounding inicial). As tools dão o
- *  estado FRESCO; o snapshot é só pra ele já começar situado sem gastar um turno consultando. */
+ *  estado FRESCO; o snapshot é só pra ele já começar situado sem gastar um turno consultando.
+ *  O isolamento de memória por projeto NÃO é feito aqui (remendo de prompt) e sim pelo hook
+ *  SessionStart do usuário (context-loader), agora preservado no config do agente. */
 async function constructorContext(): Promise<string> {
   let canvas = "";
   try {
@@ -342,13 +427,16 @@ ${canvasSnap}`;
     // Modo Agent PTY (claude/codex) — encontra ou cria o Conductor terminal
     let conductorSid = useCanvasStore.getState().orchestratorSid;
 
-    // Verifica se o conductorSid atual é do tipo certo
+    // Verifica se o conductorSid atual ainda é válido e do tipo certo.
+    // (orchestratorSid vem do localStorage e sobrevive a reinício/rebuild do app,
+    //  mas a sessão PTY morre — então o sid pode apontar pra um nó que não existe
+    //  mais no canvas. Sem invalidar aqui, cai num ptyWrite → "sessão não encontrada".)
     if (conductorSid) {
       const activeFloor = useCanvasStore.getState().parallels.find((p) => p.id === useCanvasStore.getState().activeParallelId);
       const node = activeFloor?.nodes.find((n) => (n as TerminalNode).session_id === conductorSid) as TerminalNode | undefined;
       const cliDef = ROLE_CLIS.find((c) => c.id === engine);
-      if (node && cliDef && node.command !== cliDef.command) {
-        conductorSid = null; // tipo errado, precisa criar novo
+      if (!node || (cliDef && node.command !== cliDef.command)) {
+        conductorSid = null; // nó sumiu (sessão morta) ou é de tipo errado → recria
       }
     }
 
@@ -381,10 +469,27 @@ ${canvasSnap}`;
     const busyStatus = useCanvasStore.getState().terminalStatuses[conductorSid];
     const isBusy = busyStatus === "working" || busyStatus === "blocked";
 
-    // Injeta input como user-message no PTY do Conductor
-    await ptyWrite(conductorSid, input);
-    await new Promise((r) => setTimeout(r, 150));
-    await ptyWrite(conductorSid, "\r");
+    // Injeta input como user-message no PTY do Conductor. Se a sessão morreu no
+    // backend sem que o nó saísse do canvas (EOF), o ptyWrite falha — limpa o sid
+    // órfão e pede pra repetir (o próximo turno recria via findOrCreateConductor).
+    try {
+      // Marcador [EXECUTAR] → a persona do Constructor delega à frota (não faz sozinho).
+      await ptyWrite(conductorSid, `[EXECUTAR — delegue à frota, NÃO faça você mesmo] ${input}`);
+      await new Promise((r) => setTimeout(r, 150));
+      await ptyWrite(conductorSid, "\r");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      useCanvasStore.getState().setOrchestratorSid(null);
+      await invoke("orchestrator_log", {
+        source: "conductor",
+        target: "user",
+        payload: `A sessão do agente ${engine} não está mais viva (${msg}). Recriando — repita a mensagem em instantes.`,
+        status: "error",
+        stage: 0,
+        parentId: null,
+      });
+      return;
+    }
 
     await invoke("orchestrator_log", {
       source: "conductor",
