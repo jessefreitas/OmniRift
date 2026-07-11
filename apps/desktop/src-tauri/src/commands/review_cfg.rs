@@ -163,6 +163,16 @@ pub fn agent_settings_config(
         }
     });
 
+    // Isolamento de projeto (igual VS Code): preserva os hooks SessionStart do usuário
+    // global. O config dir isolado tira TODOS os hooks globais pra evitar os Stop lentos
+    // (2min+), mas os SessionStart são rápidos e é ONDE vive o isolamento — ex: um
+    // context-loader que escopa a sessão de memória ao cwd. Sem eles, o agente não escopa
+    // e um provider de memória global (omnimemory) vaza contexto de OUTROS projetos.
+    // Falha-aberto: usuário sem SessionStart global → nada muda.
+    if let Some(ss) = global_sessionstart_hooks() {
+        settings["hooks"]["SessionStart"] = ss;
+    }
+
     // failproof: injeta os 3 hooks de APRENDIZADO nos agentes spawnados — assim o
     // cliente que baixa o app já ganha agentes que aprendem com os próprios erros.
     // Falha-aberto: se não der pra escrever os scripts, o agente ainda nasce com os
@@ -201,14 +211,36 @@ fn inject_failproof_hooks(settings: &mut serde_json::Value, hooks_dir: &std::pat
             { "type": "command", "command": cmd("userprompt_correction_detector.py"), "timeout": 10 }
         ));
     }
-    // SessionStart: injeta os erros já conhecidos do projeto no contexto.
-    hooks.insert("SessionStart".into(), serde_json::json!([ { "hooks": [
+    // SessionStart: injeta os erros já conhecidos do projeto no contexto. MERGE (não
+    // sobrescreve): preserva os SessionStart do usuário global já mesclados antes (ex:
+    // context-loader de isolamento de projeto) — só APPENDA o grupo do failproof.
+    let fp_group = serde_json::json!({ "hooks": [
         { "type": "command", "command": cmd("sessionstart_known_failures.py"), "timeout": 10 }
-    ] } ]));
+    ] });
+    match hooks.get_mut("SessionStart").and_then(|v| v.as_array_mut()) {
+        Some(arr) => arr.push(fp_group),
+        None => { hooks.insert("SessionStart".into(), serde_json::json!([fp_group])); }
+    }
     // PostToolUse (só Bash): captura par falha→fix e devolve fix conhecido.
     hooks.insert("PostToolUse".into(), serde_json::json!([ { "matcher": "Bash", "hooks": [
         { "type": "command", "command": cmd("posttool_failure_capture.py"), "timeout": 10 }
     ] } ]));
+}
+
+/// Lê os hooks `SessionStart` do settings global do usuário (`~/.claude/settings.json`).
+/// É onde vive o isolamento de projeto (ex.: um context-loader que escopa a sessão de
+/// memória ao cwd). O agente com config dir isolado não herda os hooks globais, então
+/// reintroduzimos SÓ os SessionStart (rápidos) — os Stop lentos continuam de fora.
+/// Falha-aberto: `None` se o arquivo não existe / não parseia / não tem SessionStart.
+fn global_sessionstart_hooks() -> Option<serde_json::Value> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()?;
+    let path = std::path::Path::new(&home).join(".claude").join("settings.json");
+    let raw = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let ss = v.get("hooks")?.get("SessionStart")?;
+    ss.is_array().then(|| ss.clone())
 }
 
 // ── Contexto de design + supressões do reviewer (committed em <projeto>/.forgejo) ──
@@ -309,6 +341,24 @@ pub fn agent_config_dir() -> Option<String> {
     let agent_json = dir.join(".claude.json");
     if !agent_json.exists() && main_json.exists() {
         let _ = std::fs::copy(&main_json, &agent_json);
+    }
+
+    // Pré-aceita o modo bypass no config isolado: o app spawna todo agente claude com
+    // --dangerously-skip-permissions e, sem este flag, o CLI TRAVA o PTY num gate
+    // "Yes, I accept". Idempotente (só reescreve se ainda não aceito) e atômico
+    // (temp+rename), preservando o resto do JSON que o próprio claude grava no dir.
+    if let Ok(raw) = std::fs::read_to_string(&agent_json) {
+        if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if v.get("bypassPermissionsModeAccepted") != Some(&serde_json::Value::Bool(true)) {
+                v["bypassPermissionsModeAccepted"] = serde_json::Value::Bool(true);
+                if let Ok(s) = serde_json::to_string(&v) {
+                    let tmp = dir.join(".claude.json.tmp");
+                    if std::fs::write(&tmp, s).is_ok() {
+                        let _ = std::fs::rename(&tmp, &agent_json);
+                    }
+                }
+            }
+        }
     }
 
     // Credenciais: cópia FRESCA a cada spawn (temp+rename — agentes concorrentes podem

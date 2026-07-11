@@ -1034,6 +1034,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     const staleSids = removing
       ? [(removing as { session_id?: string }).session_id, removing.id].filter((x): x is string => !!x)
       : [];
+    // Se o nó removido era o Orquestrador ativo, solta o orchestratorSid — senão o
+    // Constructor segue roteando "opa" pra uma sessão deletada ("procurando agente…
+    // / entrou na fila") e o canvas parece ter 1 agente que já não existe.
+    const clearingOrch = s0.orchestratorSid != null && staleSids.includes(s0.orchestratorSid);
     set((s) => ({
       parallels: s.parallels.map((f) => {
         if (f.id !== homeFloor?.id) return f;
@@ -1056,7 +1060,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       terminalStatuses: staleSids.length
         ? Object.fromEntries(Object.entries(s.terminalStatuses).filter(([k]) => !staleSids.includes(k)))
         : s.terminalStatuses,
+      ...(clearingOrch ? { orchestratorSid: null } : null),
     }));
+    if (clearingOrch) {
+      try { localStorage.removeItem("omnirift-mcp-orch"); } catch { /* localStorage indisponível */ }
+    }
   },
 
   duplicateAgentNode: (id) => {
