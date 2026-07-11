@@ -210,7 +210,7 @@ async function dispatchDirect(parsed: ParsedCommand): Promise<void> {
         const isBusy = st === "working" || st === "blocked";
 
         await ptyWrite(target.sessionId, task);
-        await new Promise((r) => setTimeout(r, 150));
+        await new Promise((r) => setTimeout(r, 500)); // paste + Enter: 500ms garante o submit
         await ptyWrite(target.sessionId, "\r");
 
         await invoke("orchestrator_log", {
@@ -481,8 +481,11 @@ ${canvasSnap}`;
     // órfão e pede pra repetir (o próximo turno recria via findOrCreateConductor).
     try {
       // Marcador [EXECUTAR] → a persona do Constructor delega à frota (não faz sozinho).
+      // Delay MAIOR antes do Enter: o Claude Code trata o texto como paste (bracketed);
+      // com 150ms o \r chegava antes do paste ser processado e era engolido (mensagem
+      // ficava digitada no prompt, sem submeter). 500ms + \r garante o submit.
       await ptyWrite(conductorSid, `[EXECUTAR — delegue à frota, NÃO faça você mesmo] ${input}`);
-      await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 500));
       await ptyWrite(conductorSid, "\r");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
