@@ -19,6 +19,7 @@ import {
 } from "@/lib/orchestration/conductor";
 import { ConstructorPanel } from "@/components/ConstructorPanel";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 
 const ENGINE_LABELS: Record<ConstructorEngine, string> = {
   claude: "Claude Code",
@@ -32,6 +33,8 @@ interface ChatMsg {
   role: "user" | "agent" | "system" | "error";
   text: string;
   ts: number;
+  /** true enquanto a resposta ainda está chegando em streaming (sessão persistente). */
+  streaming?: boolean;
 }
 
 /** Primeira palavra do label, só com chars que o MENTION_RE do parser aceita ([\w:-]).
@@ -114,6 +117,33 @@ export function ConstructorBar() {
       }]);
     }).then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };
+  }, [constructorMode]);
+
+  // Streaming da sessão persistente (modo Conversar / Claude): os deltas montam a
+  // resposta progressivamente numa entrada "ao vivo" que cresce; o done a fecha.
+  useEffect(() => {
+    if (!constructorMode) return;
+    let unD: UnlistenFn | undefined, unDone: UnlistenFn | undefined, unDead: UnlistenFn | undefined;
+    listen<string>("constructor://chat-delta", (e) => {
+      const t = e.payload;
+      setChat((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.streaming) return [...prev.slice(0, -1), { ...last, text: last.text + t }];
+        return [...prev, { role: "agent", text: t, ts: Date.now(), streaming: true }];
+      });
+    }).then((fn) => { unD = fn; });
+    listen<string>("constructor://chat-done", () => {
+      setChat((prev) => {
+        const last = prev[prev.length - 1];
+        return last?.streaming ? [...prev.slice(0, -1), { ...last, streaming: false }] : prev;
+      });
+      setBusy(false);
+    }).then((fn) => { unDone = fn; });
+    listen("constructor://chat-dead", () => {
+      setChat((prev) => [...prev, { role: "error", text: "A sessão do copiloto caiu — mande de novo.", ts: Date.now() }]);
+      setBusy(false);
+    }).then((fn) => { unDead = fn; });
+    return () => { unD?.(); unDone?.(); unDead?.(); };
   }, [constructorMode]);
 
   // Auto-scroll chat
@@ -302,7 +332,7 @@ export function ConstructorBar() {
         </span>
 
         <button
-          onClick={() => setConstructorMode(false)}
+          onClick={() => { void invoke("constructor_chat_close").catch(() => {}); setConstructorMode(false); }}
           className="text-textMuted hover:text-red-400 p-0.5 transition-colors"
           title="Fechar (Esc)"
         >

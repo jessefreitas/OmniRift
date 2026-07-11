@@ -317,6 +317,7 @@ pub fn run() {
             let sw_token = crate::rpc::metadata::generate_token();
             let sw_state = crate::llm_router::server::load_state(sw_token);
             app.manage(sw_state.clone());
+            app.manage(crate::commands::constructor_chat::ConstructorChat::default());
             tauri::async_runtime::spawn(async move {
                 crate::llm_router::server::boot(sw_state).await;
             });
@@ -520,6 +521,8 @@ pub fn run() {
             llm_chat,
             llm_list_models,
             llm_via_cli,
+            crate::commands::constructor_chat::constructor_chat_send,
+            crate::commands::constructor_chat::constructor_chat_close,
             learn_ask_grounded,
             learn_socratic_prompt,
             learn_check_leak,

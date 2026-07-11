@@ -3,6 +3,7 @@ pub mod agent_docs;
 pub mod browser;
 pub mod code;
 pub mod compress;
+pub mod constructor_chat;
 pub mod clis;
 pub mod dbnode;
 pub mod debug;

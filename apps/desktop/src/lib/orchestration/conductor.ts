@@ -78,19 +78,15 @@ export async function chatConstructor(input: string, engine: ConstructorEngine):
     return;
   }
 
-  // Claude/Codex → claude -p headless: responde INLINE no painel, ZERO terminal no canvas.
-  await invoke("orchestrator_log", {
-    source: "conductor", target: "user", payload: "💭 pensando…", status: "working", stage: 0, parentId: null,
-  });
+  // Claude/Codex → SESSÃO PERSISTENTE (stream-json) invisível ao canvas. A 1ª msg paga o
+  // boot; as seguintes reusam a sessão (sem cold-start). A resposta chega em STREAMING via
+  // constructor://chat-delta/done (montada no ConstructorBar). persona vai no spawn (uma vez).
   try {
     const canvas = await analyzeCanvas().catch(() => "");
-    const system = canvas ? `${CHAT_PERSONA}\n\n--- Canvas agora ---\n${canvas}` : CHAT_PERSONA;
+    const persona = canvas ? `${CHAT_PERSONA}\n\n--- Canvas agora (contexto) ---\n${canvas}` : CHAT_PERSONA;
     const bin = ROLE_CLIS.find((c) => c.id === engine && (c.command === "claude" || c.command === "codex"))?.command ?? "claude";
     const cwd = useCanvasStore.getState().currentCwd ?? null;
-    const reply = await invoke<string>("llm_via_cli", { prompt: `${system}\n\n---\nUsuário: ${input}`, cli: bin, cwd });
-    await invoke("orchestrator_log", {
-      source: "conductor", target: "user", payload: (reply.slice(0, 2000) || "(sem resposta)"), status: "done", stage: 0, parentId: null,
-    });
+    await invoke("constructor_chat_send", { input, cli: bin, cwd, persona });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await invoke("orchestrator_log", {
