@@ -42,34 +42,10 @@ const CHAT_PERSONA =
   "CONVERSA: NÃO crie agentes, NÃO despache tarefas, NÃO execute nada — só responda e ajude a pensar. " +
   "Quando o usuário quiser executar, ele clica 'enviar ao agente'. Seja curto e direto.";
 
-/** Garante o terminal Constructor PERSISTENTE (sessão viva → só a 1ª msg paga o boot) e
- *  escreve `text` nele. Reusa o orchestratorSid se ainda válido; senão cria. Devolve o sid
- *  (ou null se não deu). É o canal único pros dois modos (conversa e executar). */
-async function sendToConductorTerminal(text: string, engine: ConstructorEngine): Promise<string | null> {
-  let sid = useCanvasStore.getState().orchestratorSid;
-  if (sid) {
-    const s = useCanvasStore.getState();
-    const floor = s.parallels.find((p) => p.id === s.activeParallelId);
-    const node = floor?.nodes.find((n) => (n as TerminalNode).session_id === sid) as TerminalNode | undefined;
-    const cliDef = ROLE_CLIS.find((c) => c.id === engine);
-    if (!node || (cliDef && node.command !== cliDef.command)) sid = null; // morto/tipo errado → recria
-  }
-  if (!sid) sid = await findOrCreateConductor(engine);
-  if (!sid) return null;
-  try {
-    await ptyWrite(sid, text);
-    await new Promise((r) => setTimeout(r, 150));
-    await ptyWrite(sid, "\r");
-    return sid;
-  } catch {
-    useCanvasStore.getState().setOrchestratorSid(null);
-    return null;
-  }
-}
-
-/** Modo CONVERSA — brainstorm SEM criar/despachar nada. Claude/Codex usa o terminal
- *  Constructor PERSISTENTE (sessão viva; só a 1ª msg paga o boot; resposta no card do
- *  terminal). O engine "Leve (LLM)" responde inline no painel via BYOK. */
+/** Modo CONVERSA — brainstorm INLINE no painel, SEM criar NENHUM agente/terminal no
+ *  canvas (só você e o painel). Claude/Codex respondem via `claude -p` headless (sua
+ *  subscription, zero card); "Leve (LLM)" via BYOK. Custo do headless: ~alguns segundos
+ *  de cold-start por mensagem — é o preço de não deixar nada no canvas. */
 export async function chatConstructor(input: string, engine: ConstructorEngine): Promise<void> {
   if (!input.trim()) return;
   await invoke("orchestrator_log", {
@@ -102,13 +78,25 @@ export async function chatConstructor(input: string, engine: ConstructorEngine):
     return;
   }
 
-  // Claude/Codex → terminal persistente. Marcador [CONVERSA] = só responde, não age.
-  const sid = await sendToConductorTerminal(`[CONVERSA — só responda e ajude a pensar; NÃO crie agentes nem despache] ${input}`, engine);
+  // Claude/Codex → claude -p headless: responde INLINE no painel, ZERO terminal no canvas.
   await invoke("orchestrator_log", {
-    source: "conductor", target: "user",
-    payload: sid ? "💬 conversando no terminal do Constructor (a resposta aparece no card dele)." : "Não consegui abrir o Constructor. Tente de novo.",
-    status: sid ? "working" : "error", stage: 0, parentId: null,
+    source: "conductor", target: "user", payload: "💭 pensando…", status: "working", stage: 0, parentId: null,
   });
+  try {
+    const canvas = await analyzeCanvas().catch(() => "");
+    const system = canvas ? `${CHAT_PERSONA}\n\n--- Canvas agora ---\n${canvas}` : CHAT_PERSONA;
+    const bin = ROLE_CLIS.find((c) => c.id === engine && (c.command === "claude" || c.command === "codex"))?.command ?? "claude";
+    const cwd = useCanvasStore.getState().currentCwd ?? null;
+    const reply = await invoke<string>("llm_via_cli", { prompt: `${system}\n\n---\nUsuário: ${input}`, cli: bin, cwd });
+    await invoke("orchestrator_log", {
+      source: "conductor", target: "user", payload: (reply.slice(0, 2000) || "(sem resposta)"), status: "done", stage: 0, parentId: null,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await invoke("orchestrator_log", {
+      source: "conductor", target: "user", payload: `Erro ao conversar: ${msg}`, status: "error", stage: 0, parentId: null,
+    });
+  }
 }
 
 /** Despacha um comando do Conductor. Roteia entre determinístico e LLM. */
