@@ -886,8 +886,17 @@ export function Landing() {
               </a>
             </div>
           </div>
-          <p style={{ color: MUTED, fontSize: 12.5, maxWidth: 460, margin: "22px auto 0" }}>
-            macOS é não-assinado (uso pessoal): na 1ª vez, botão-direito no app → Abrir.
+          <p style={{ color: MUTED, fontSize: 12.5, maxWidth: 560, margin: "22px auto 0", lineHeight: 1.5 }}>
+            macOS beta (Apple Silicon): se o Gatekeeper disser “damaged”, instale com{" "}
+            <a
+              href="https://github.com/jessefreitas/OmniRift/blob/main/scripts/install-macos.sh"
+              target="_blank"
+              rel="noreferrer noopener"
+              style={{ color: "var(--ac)" }}
+            >
+              scripts/install-macos.sh
+            </a>
+            {" "}(remove quarentena + sela o bundle). Solução definitiva: Developer ID + notarize.
           </p>
           <a href="https://github.com/jessefreitas/OmniRift/releases/latest" target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 16, color: "var(--ac)", textDecoration: "none", fontSize: 14 }}>
             Todas as versões e formatos (.deb, .msi, .dmg) → GitHub Releases

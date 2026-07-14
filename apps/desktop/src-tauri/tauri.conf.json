@@ -59,6 +59,9 @@
       "nsis": {
         "installerHooks": "./windows/hooks.nsh"
       }
+    },
+    "macOS": {
+      "signingIdentity": "-"
     }
   },
   "plugins": {

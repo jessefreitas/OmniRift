@@ -83,6 +83,27 @@ A linha entre agentes carrega **estrutura**, não só texto:
 Baixe a versão mais recente no [site](https://omnirift.omniforge.com.br) ou na [página de Releases](https://github.com/jessefreitas/OmniRift/releases):
 - **Linux:** `.AppImage` (portátil, sem instalação) ou `.deb` (Debian/Ubuntu).
 - **Windows:** `.exe` (instalador padrão) ou `.msi` (implantação corporativa/silenciosa).
+- **macOS (Apple Silicon):** `.dmg` — ou o instalador assistido abaixo (recomendado no beta).
+
+### macOS (Apple Silicon) — instalador assistido
+
+Builds de beta ainda **não** usam Apple Developer ID + notarization. No macOS moderno isso pode aparecer como *“OmniRift is damaged and can’t be opened”* (falso positivo do Gatekeeper: assinatura ad-hoc incompleta + quarentena do download).
+
+**Caminho recomendado** (baixa o latest, instala em `/Applications`, remove quarentena e sela o bundle):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jessefreitas/OmniRift/main/scripts/install-macos.sh | bash
+```
+
+Ou, com o repositório clonado / um `.dmg` local:
+
+```bash
+bash scripts/install-macos.sh
+bash scripts/install-macos.sh /caminho/OmniRift_x.y.z_aarch64.dmg
+```
+
+> [!NOTE]
+> A correção **de produção** é Developer ID + notarize + staple no CI. Até lá o release Mac já força *ad-hoc seal* no bundler (`bundle.macOS.signingIdentity = "-"`) e o script acima cobre a quarentena do download. Detalhes: `scripts/macos-adhoc-codesign.sh`, `docs/macos-gatekeeper.md`.
 
 ## Desenvolvimento 🛠️
 Quer rodar do fonte, implementar uma feature ou corrigir um bug?
