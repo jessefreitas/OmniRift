@@ -136,6 +136,17 @@ jobs:
             echo "OmniFS não compilou no macOS — .dmg sai sem OmniFS (degrade pro PATH)."
           fi
 
+      # macOS sem Developer ID: força identidade ad-hoc ("-") no bundler Tauri.
+      # Sem isso o .app sai linker-signed incompleto → Gatekeeper "is damaged".
+      # tauri.conf.json já tem bundle.macOS.signingIdentity = "-"; o env reforça no job.
+      # NÃO substitui notarization — só evita o falso "damaged" até haver cert pago.
+      # Ver scripts/macos-adhoc-codesign.sh e scripts/install-macos.sh.
+      - name: macOS ad-hoc signing identity (até Developer ID + notarize)
+        if: matrix.os == 'macos-14'
+        run: |
+          echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+          echo "→ signingIdentity ad-hoc (-) — seal do bundle no tauri build"
+
       - name: Build + Release (tauri-action)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -162,6 +173,17 @@ jobs:
           # Gera latest.json (feed do updater) + .sig de cada bundle e anexa ao Release.
           includeUpdaterJson: true
           args: --bundles ${{ matrix.bundles }}
+
+      - name: macOS — garantir seal ad-hoc no .app e reempacotar .dmg
+        if: matrix.os == 'macos-14'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: bash scripts/macos-repack-dmg.sh
 
   # Gate de smoke no ARTEFATO REAL: instala o .deb do draft e exige boot limpo.
   # Verde → publica o release (updater/clientes passam a ver). Vermelho → fica DRAFT,
