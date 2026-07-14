@@ -167,7 +167,9 @@ pub async fn dispatch_task(
         return format!("{{\"status\": \"dispatched\", \"targets\": {}}}", labels.len());
     }
 
-    // Blocking — despacha e espera cada agente
+    // Blocking — despacha e registra; espera real (ACP condvar) é Fase 2.
+    // Por enquanto o comportamento é idêntico ao async: retorna imediatamente
+    // após o despacho. O resultado do agente chega via event stream (orchestrator://log).
     let mut results = Vec::new();
     for sid in &resolved {
         let label = agents.iter()
@@ -176,8 +178,6 @@ pub async fn dispatch_task(
             .unwrap_or(sid.clone());
 
         let _ = dispatch_to_session(state, sid, &full_task);
-        // TODO (fase 2): esperar acp://update com status=done via canal/condvar
-        // Por enquanto, retorna que despachou (o resultado chega na stream via event)
         results.push(format!("{}: dispatched", label));
 
         log_entry(db, &label, "conductor", "tarefa recebida", "working", 0, None);

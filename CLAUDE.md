@@ -50,8 +50,8 @@ npm run dev
 | 3 | Roles + persistência SQLite | ✅ |
 | 4 | Sketches + Notas (tldraw) + FileTree + Group | ✅ |
 | 5 | Portais browser (iframe in-DOM; webview nativo falha no WebKitGTK) | ✅ (localhost) |
-| 6 | Floors (= worktrees git) ✅ + Routines 🔶 (MVP: SQLite+histórico+alvo-de-floor; falta triggers de floor + gate) | 🔶 |
-| 7 | **OmniPartner** (LLM local — ex-"Ombro") + OmniForge bridges | ⏳ |
+| 6 | Floors (= worktrees git) ✅ + Routines ✅ (SQLite+histórico+alvo-de-floor+triggers de floor+gates) | 🔶 |
+| 7 | **OmniPartner** (LLM local — ex-"Ombro") + OmniForge bridges | 🔶 núcleo ✅ (Analisar+OmniSwitch+Aprender A0-A4); falta bridges OmniForge |
 | 8 | **Memória plugável** (interface do cérebro: OmniMemory/Obsidian) + Área de Conexões | 🔶 1a backend ✅ |
 | 9 | **OmniPartner Aprender** (tutor Socrático: ensina a programar via Serena+Context7 + scaffolding + exercícios com auto-check; modos Fazer/Par na fase 2) — spec `docs/superpowers/specs/2026-06-28-omnipartner-aprender-design.md` | 📋 spec draft |
 
