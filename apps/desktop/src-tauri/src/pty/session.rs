@@ -508,13 +508,12 @@ fn fail_safe_program(err: &str) -> (String, Vec<String>) {
 
 #[cfg(not(windows))]
 fn build_program(command: &str, args: &[String]) -> CommandBuilder {
-    // Wrapper de shell (FUNÇÃO/alias def no .bashrc — ex.: `claude-ollama`/`claude-glm52`,
-    // que rodam `command claude --model <glm> …`) NÃO é binário no PATH → o exec direto do
-    // portable-pty falha com "No viable candidates found". Se `command` não resolve como
-    // binário, roda via `bash -lic "<linha shell-quotada>"`: `-l`+`-i` sourceiam
-    // .bash_profile→.bashrc (onde o wrapper vive; `-i` é OBRIGATÓRIO — o .bashrc bail em
-    // shell não-interativo `[[ $- != *i* ]] && return`). Binário resolvível → exec direto
-    // (comportamento original intocado; zero regressão pra claude/codex/gemini/bash/…).
+    // Wrapper de shell (FUNÇÃO/alias no .zshrc/.bashrc — ex.: `claudefast`, `claude-ollama`)
+    // NÃO é binário no PATH → exec direto do portable-pty falha. Se `command` não resolve
+    // como binário, roda via `$SHELL -lic "<linha>"` (não hardcode bash): no macOS o user
+    // default é zsh e aliases em .zshrc NÃO aparecem no bash -lic. `-l`+`-i` sourceiam o
+    // rc interativo; em bash também forçamos `shopt -s expand_aliases` (senão alias não
+    // expande em -c). Binário no PATH → exec direto (zero regressão pra claude/codex/…).
     if command_is_binary(command) {
         let mut cmd = CommandBuilder::new(command);
         for arg in args {
@@ -527,10 +526,44 @@ fn build_program(command: &str, args: &[String]) -> CommandBuilder {
         line.push(' ');
         line.push_str(&host::shell_quote_single(arg));
     }
-    let mut cmd = CommandBuilder::new("bash");
+    let shell = user_login_shell();
+    // bash: aliases só expandem com expand_aliases (mesmo em -i sob -c).
+    let line = if shell_is_bash(&shell) {
+        format!("shopt -s expand_aliases 2>/dev/null; {line}")
+    } else {
+        line
+    };
+    let mut cmd = CommandBuilder::new(&shell);
     cmd.arg("-lic");
     cmd.arg(&line);
     cmd
+}
+
+/// Shell de login do usuário (`$SHELL`), com fallbacks seguros. Preferimos o shell real
+/// (zsh no macOS) pra resolver aliases/funções definidos no rc do usuário.
+#[cfg(not(windows))]
+fn user_login_shell() -> String {
+    if let Ok(s) = std::env::var("SHELL") {
+        let t = s.trim();
+        if !t.is_empty() && std::path::Path::new(t).is_file() {
+            return t.to_string();
+        }
+    }
+    for candidate in ["/bin/zsh", "/bin/bash", "/bin/sh"] {
+        if std::path::Path::new(candidate).is_file() {
+            return candidate.to_string();
+        }
+    }
+    "bash".to_string()
+}
+
+#[cfg(not(windows))]
+fn shell_is_bash(shell: &str) -> bool {
+    std::path::Path::new(shell)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n == "bash" || n.starts_with("bash"))
+        .unwrap_or(false)
 }
 
 /// `command` resolve como binário executável? Com `/` = path explícito → confia (exec direto,
@@ -803,18 +836,26 @@ mod tests {
 
     #[cfg(not(windows))]
     #[test]
-    fn shell_wrapper_command_runs_via_bash_lic() {
-        // Command que NÃO existe no PATH (simula wrapper-função tipo claude-ollama) →
-        // embrulha em `bash -lic "<linha shell-quotada>"` pra o .bashrc resolver a função.
+    fn shell_wrapper_command_runs_via_user_shell_lic() {
+        // Command que NÃO existe no PATH (simula alias/função tipo claudefast) →
+        // embrulha em `$SHELL -lic "<linha>"` (zsh no mac) pra o rc do user resolver.
         let argv = argv_of(&super::build_program(
             "__omniswitch_no_such_wrapper__",
             &["a b".into()],
         ));
-        assert_eq!(argv[0], "bash", "argv: {argv:?}");
+        let shell = super::user_login_shell();
+        assert_eq!(argv[0], shell, "argv: {argv:?}");
         assert_eq!(argv[1], "-lic");
         assert_eq!(argv.len(), 3, "linha única: {argv:?}");
         assert!(argv[2].contains("__omniswitch_no_such_wrapper__"), "linha: {}", argv[2]);
         assert!(argv[2].contains("'a b'"), "arg com espaço shell-quotado: {}", argv[2]);
+        if super::shell_is_bash(&shell) {
+            assert!(
+                argv[2].contains("expand_aliases"),
+                "bash precisa expand_aliases: {}",
+                argv[2]
+            );
+        }
     }
 
     #[cfg(not(windows))]
