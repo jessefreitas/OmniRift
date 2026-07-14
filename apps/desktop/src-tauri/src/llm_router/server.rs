@@ -106,7 +106,10 @@ fn resolve_class(table: &RoutingTable, headers: &HeaderMap, want: Protocol) -> O
 /// chave em cooldown e tenta o próximo, até `max_attempts` ou esgotar. Devolve a Response
 /// axum (streaming no sucesso).
 async fn route_and_forward(s: &RouterState, headers: &HeaderMap, want: Protocol, path: &str, body: bytes::Bytes) -> Response {
-    let now_ms = 0u64; // v1: cooldown dentro do request; Plano 3 injeta relógio real.
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
     let (chain, strategy, providers) = {
         let t = s.table.lock();
         let class = match resolve_class(&t, headers, want) {
