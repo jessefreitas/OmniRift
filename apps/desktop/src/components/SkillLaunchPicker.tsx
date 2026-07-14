@@ -56,19 +56,12 @@ export function SkillLaunchPicker({ role, onLaunch, onClose }: Props) {
         <div className="p-4 space-y-3">
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">
-              CLI
+              CLI / Command
             </label>
-            <p className="mt-1 text-xs text-text font-mono">
-              {cliId}
-              {startup ? (
-                <span className="text-textMuted"> → {effectiveCmd}</span>
-              ) : null}
+            <p className="mt-1 text-xs text-text font-mono break-all">{effectiveCmd}</p>
+            <p className="mt-0.5 text-[10px] text-textMuted opacity-70">
+              Edite no lápis do role (CLI + Command presets)
             </p>
-            {startup ? (
-              <p className="mt-0.5 text-[10px] text-textMuted opacity-70">
-                startup override do role (edite no ⚙ do role)
-              </p>
-            ) : null}
           </div>
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">

@@ -18,13 +18,11 @@ export interface AgentRoleDef {
   /** true = o Orquestrador master (coordena os outros; destaque na UI). */
   master?: boolean;
   /**
-   * Comando de startup opcional.
-   * - cli "shell": linha rodada no terminal ao abrir (ex: `npm run dev` ou
-   *   `claude --model …`). Persona pode ir nativa via `--append-system-prompt`
-   *   se a linha contiver `claude` (ver spawnRole).
-   * - demais CLIs (claude/codex/…): **override do binário/comando** em vez do
-   *   default do ROLE_CLIS (ex: `claudefast` no lugar de `claude`). Aceita
-   *   args extras no começo da linha (`claudefast --foo`). Vazio = default.
+   * Linha de comando do CLI (estilo Agent Grid).
+   * - cli "shell": comando opcional rodado ao abrir o terminal.
+   * - demais: preset ou custom (ex: `claude --dangerously-skip-permissions`).
+   *   Vazio = binário default do CLI sem flags extras.
+   *   Flags de system-prompt/MCP do OmniRift são anexadas em buildRoleSpawn.
    */
   startupCmd?: string;
   /** Skills (nomes de .claude/skills) curadas pra este role — injetadas na persona no spawn. */
@@ -64,6 +62,18 @@ export interface RoleCli {
   systemPromptFlag?: string;
 }
 
+/** Preset de linha de comando por CLI (UX estilo Agent Grid / VS Code). */
+export interface CliCommandPreset {
+  id: string;
+  /** Texto no dropdown. */
+  label: string;
+  /**
+   * Linha completa (binário + flags). Vazio = só o binário default do CLI.
+   * Id `custom` = o usuário digita (não é um preset real).
+   */
+  line: string;
+}
+
 /** Shell do SO (terminal puro, sem LLM) — pra roles que são só um terminal. */
 function detectShell(): string {
   if (typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)) return "powershell.exe";
@@ -75,8 +85,99 @@ export const ROLE_CLIS: RoleCli[] = [
   { id: "codex", label: "Codex", command: "codex", role: "codex" },
   { id: "opencode", label: "OpenCode", command: "opencode", role: "opencode" },
   { id: "antigravity", label: "Antigravity (agy)", command: "agy", role: "antigravity" },
+  { id: "grok", label: "Grok", command: "grok", role: "grok" },
   { id: "shell", label: "Shell (terminal puro)", command: detectShell(), role: "shell" },
 ];
+
+/**
+ * Presets de comando por CLI — inspirado no Agent Grid (VS Code), expandido com
+ * flags reais de cada binário (claude / codex / opencode / agy / grok).
+ * O último item de cada lista deve ser `custom` (input livre).
+ */
+export const CLI_COMMAND_PRESETS: Record<string, CliCommandPreset[]> = {
+  claude: [
+    { id: "default", label: "claude", line: "" },
+    { id: "skip-perms", label: "claude --dangerously-skip-permissions", line: "claude --dangerously-skip-permissions" },
+    { id: "effort-max", label: "claude --effort max", line: "claude --effort max" },
+    {
+      id: "skip-effort-max",
+      label: "claude --skip-perms --effort max",
+      line: "claude --dangerously-skip-permissions --effort max",
+    },
+    { id: "continue", label: "claude --continue", line: "claude --continue" },
+    {
+      id: "skip-continue",
+      label: "claude --skip-perms --continue",
+      line: "claude --dangerously-skip-permissions --continue",
+    },
+    { id: "custom", label: "Custom…", line: "" },
+  ],
+  codex: [
+    { id: "default", label: "codex", line: "" },
+    {
+      id: "sandbox-full",
+      label: "codex --sandbox danger-full-access",
+      line: "codex --sandbox danger-full-access",
+    },
+    {
+      id: "bypass",
+      label: "codex --dangerously-bypass-approvals-and-sandbox",
+      line: "codex --dangerously-bypass-approvals-and-sandbox",
+    },
+    {
+      id: "never-full",
+      label: "codex -a never --sandbox danger-full-access",
+      line: "codex -a never --sandbox danger-full-access",
+    },
+    { id: "resume-last", label: "codex resume --last", line: "codex resume --last" },
+    { id: "custom", label: "Custom…", line: "" },
+  ],
+  opencode: [
+    { id: "default", label: "opencode", line: "" },
+    { id: "pure", label: "opencode --pure", line: "opencode --pure" },
+    { id: "continue", label: "opencode --continue", line: "opencode --continue" },
+    { id: "custom", label: "Custom…", line: "" },
+  ],
+  antigravity: [
+    { id: "default", label: "agy", line: "" },
+    {
+      id: "skip-perms",
+      label: "agy --dangerously-skip-permissions",
+      line: "agy --dangerously-skip-permissions",
+    },
+    { id: "sandbox", label: "agy --sandbox", line: "agy --sandbox" },
+    { id: "continue", label: "agy --continue", line: "agy --continue" },
+    { id: "custom", label: "Custom…", line: "" },
+  ],
+  grok: [
+    { id: "default", label: "grok", line: "" },
+    { id: "always-approve", label: "grok --always-approve", line: "grok --always-approve" },
+    { id: "continue", label: "grok --continue", line: "grok --continue" },
+    { id: "no-plan", label: "grok --no-plan", line: "grok --no-plan" },
+    { id: "custom", label: "Custom…", line: "" },
+  ],
+  shell: [{ id: "custom", label: "Custom…", line: "" }],
+};
+
+/** Presets de um CLI (sempre com Custom no fim). */
+export function presetsForCli(cliId: string): CliCommandPreset[] {
+  return CLI_COMMAND_PRESETS[cliId] ?? [{ id: "custom", label: "Custom…", line: "" }];
+}
+
+/**
+ * Qual preset casa com o `startupCmd` salvo? Default se vazio; custom se não bate
+ * com nenhum preset de linha.
+ */
+export function matchPresetId(cliId: string, startupCmd: string | undefined): string {
+  const raw = (startupCmd ?? "").trim();
+  const presets = presetsForCli(cliId);
+  if (!raw) {
+    const d = presets.find((p) => p.id === "default");
+    return d?.id ?? "custom";
+  }
+  const hit = presets.find((p) => p.id !== "custom" && p.line.trim() === raw);
+  return hit?.id ?? "custom";
+}
 
 /** Recupera a persona CRUA (sem o contrato) dos args de um agente claude já spawnado.
  *  Os args de um claude carregam a persona embutida em `--append-system-prompt`, com o

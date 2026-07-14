@@ -70,6 +70,29 @@ fn profiles() -> &'static Vec<AgentProfile> {
                 ready: vec![re(r"(?m)^\s*[❯>›]\s*$")],
             },
             AgentProfile {
+                name: "opencode",
+                is_agent: true,
+                blocked: vec![
+                    re(r"Do you want"),
+                    re(r"\(y/n\)"),
+                    re(r"[Aa]llow"),
+                    re(r"Press [Ee]nter"),
+                ],
+                ready: vec![re(r"(?m)^\s*[❯>›]\s*$")],
+            },
+            AgentProfile {
+                name: "grok",
+                is_agent: true,
+                blocked: vec![
+                    re(r"Do you want"),
+                    re(r"\(y/n\)"),
+                    re(r"[Aa]llow"),
+                    re(r"Press [Ee]nter"),
+                    re(r"approve"),
+                ],
+                ready: vec![re(r"(?m)^\s*[❯>›]\s*$")],
+            },
+            AgentProfile {
                 name: "shell",
                 is_agent: false,
                 blocked: vec![],
@@ -89,6 +112,10 @@ pub fn profile_for(command: &str) -> &'static AgentProfile {
         "codex"
     } else if base.contains("antigravity") || base == "agy" {
         "antigravity"
+    } else if base.contains("opencode") {
+        "opencode"
+    } else if base.contains("grok") {
+        "grok"
     } else {
         "shell"
     };
