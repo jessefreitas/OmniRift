@@ -272,12 +272,16 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                       onChange={(e) => patch(r.id, { trigger: e.target.value as RoutineTrigger })}
                       className="px-1.5 py-0.5 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
                     >
-                      <option value="interval">{t("routines.trigInterval", "Intervalo")}</option>
-                      <option value="atTime">{t("routines.trigAtTime", "Diário HH:MM")}</option>
-                      <option value="floor-created">{t("routines.trigFloorCreated", "Ao criar floor")}</option>
-                      <option value="floor-deleted">{t("routines.trigFloorDeleted", "Ao deletar floor")}</option>
-                      <option value="gate:land">{t("routines.trigGateLand", "Gate de Land")}</option>
-                      <option value="gate:graph">{t("routines.trigGateGraph", "Gate estrutural (OmniGraph)")}</option>
+                      <optgroup label={t("routines.trigGroupScheduled", "Agendado")}>
+                        <option value="interval">{t("routines.trigInterval", "Intervalo")}</option>
+                        <option value="atTime">{t("routines.trigAtTime", "Diário HH:MM")}</option>
+                        <option value="floor-created">{t("routines.trigFloorCreated", "Ao criar floor")}</option>
+                        <option value="floor-deleted">{t("routines.trigFloorDeleted", "Ao deletar floor")}</option>
+                      </optgroup>
+                      <optgroup label={t("routines.trigGroupGates", "Gates do Land (não agendados)")}>
+                        <option value="gate:land">{t("routines.trigGateLand", "Gate de Land (shell)")}</option>
+                        <option value="gate:graph">{t("routines.trigGateGraph", "Gate estrutural (OmniGraph)")}</option>
+                      </optgroup>
                     </select>
                   </label>
                   {effectiveTrigger(r) === "interval" && (
