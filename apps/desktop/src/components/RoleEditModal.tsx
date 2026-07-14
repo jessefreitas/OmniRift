@@ -182,7 +182,69 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-[10px] text-textMuted opacity-60">
+              {t(
+                "roleEdit.cliHint",
+                "Perfil de wiring (skills/MCP/persona). O binário real pode ser sobrescrito no comando de startup abaixo.",
+              )}
+            </p>
           </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider text-textMuted">
+              {isShell
+                ? t("roleEdit.startupCmd", "Comando ao abrir (opcional)")
+                : t("roleEdit.startupCmdOverride", "Comando de startup (override do binário)")}
+            </label>
+            <SafeInput
+              value={startupCmd}
+              onChange={(e) => setStartupCmd(e.target.value)}
+              placeholder={
+                isShell
+                  ? t("roleEdit.startupCmdPlaceholder", "ex: npm run dev")
+                  : t(
+                      "roleEdit.startupCmdOverridePlaceholder",
+                      "ex: claudefast  ·  vazio = {default}",
+                    ).replace(
+                      "{default}",
+                      ROLE_CLIS.find((c) => c.id === cli)?.command ?? "claude",
+                    )
+              }
+              className="mt-1 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono"
+            />
+            <p className="mt-1 text-[10px] text-textMuted opacity-60">
+              {isShell
+                ? t(
+                    "roleEdit.startupCmdHint",
+                    "Roda ao abrir o terminal. Se for um CLI Claude (ex.: claude-ollama), a persona abaixo entra nativa via --append-system-prompt.",
+                  )
+                : t(
+                    "roleEdit.startupCmdOverrideHint",
+                    "Substitui o binário padrão do CLI (ex.: claude → claudefast). Aceita args no começo da linha. Deixe vazio pro default ({default}).",
+                  ).replace(
+                    "{default}",
+                    ROLE_CLIS.find((c) => c.id === cli)?.command ?? "claude",
+                  )}
+            </p>
+          </div>
+          {(isShell || !!startupCmd.trim()) && (
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selfSystemPrompt}
+                onChange={(e) => setSelfSystemPrompt(e.target.checked)}
+                className="mt-0.5 accent-brand"
+              />
+              <span className="text-xs text-text">
+                {t("roleEdit.selfSystemPrompt", "Este comando injeta o próprio system-prompt")}
+                <span className="block text-[10px] text-textMuted opacity-60">
+                  {t(
+                    "roleEdit.selfSystemPromptHint",
+                    "Marque pra wrappers (ex.: claude-ollama, claudefast) que já passam --append-system-prompt(-file). O OmniRift não anexa o seu — a persona vai como 1ª mensagem. Evita o erro \"Cannot use both --append-system-prompt and --append-system-prompt-file\".",
+                  )}
+                </span>
+              </span>
+            </label>
+          )}
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("roleEdit.tokenCompressor", "Compressor de token")}</label>
             <select
@@ -208,36 +270,6 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
               </span>
             </p>
           </div>
-          {isShell && (
-            <div>
-              <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("roleEdit.startupCmd", "Comando ao abrir (opcional)")}</label>
-              <SafeInput
-                value={startupCmd}
-                onChange={(e) => setStartupCmd(e.target.value)}
-                placeholder={t("roleEdit.startupCmdPlaceholder", "ex: npm run dev")}
-                className="mt-1 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono"
-              />
-              <p className="mt-1 text-[10px] text-textMuted opacity-60">
-                {t("roleEdit.startupCmdHint", "Roda ao abrir. Se for um CLI Claude (ex.: claude-ollama), a persona abaixo entra nativa via --append-system-prompt.")}
-              </p>
-            </div>
-          )}
-          {isShell && (
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={selfSystemPrompt}
-                onChange={(e) => setSelfSystemPrompt(e.target.checked)}
-                className="mt-0.5 accent-brand"
-              />
-              <span className="text-xs text-text">
-                {t("roleEdit.selfSystemPrompt", "Este comando injeta o próprio system-prompt")}
-                <span className="block text-[10px] text-textMuted opacity-60">
-                  {t("roleEdit.selfSystemPromptHint", "Marque pra wrappers de Claude (ex.: claude-ollama) que já passam --append-system-prompt(-file). O OmniRift não anexa o seu — a persona vai como 1ª mensagem. Evita o erro \"Cannot use both --append-system-prompt and --append-system-prompt-file\".")}
-                </span>
-              </span>
-            </label>
-          )}
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">
               {isShell ? t("roleEdit.personaLabel", "Persona (injetada no CLI que o comando abrir)") : t("roleEdit.promptLabel", "Prompt (persona / instruções)")}

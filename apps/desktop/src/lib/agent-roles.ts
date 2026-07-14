@@ -17,7 +17,15 @@ export interface AgentRoleDef {
   builtin?: boolean;
   /** true = o Orquestrador master (coordena os outros; destaque na UI). */
   master?: boolean;
-  /** Só pra cli "shell": comando rodado ao abrir o terminal (opcional). */
+  /**
+   * Comando de startup opcional.
+   * - cli "shell": linha rodada no terminal ao abrir (ex: `npm run dev` ou
+   *   `claude --model …`). Persona pode ir nativa via `--append-system-prompt`
+   *   se a linha contiver `claude` (ver spawnRole).
+   * - demais CLIs (claude/codex/…): **override do binário/comando** em vez do
+   *   default do ROLE_CLIS (ex: `claudefast` no lugar de `claude`). Aceita
+   *   args extras no começo da linha (`claudefast --foo`). Vazio = default.
+   */
   startupCmd?: string;
   /** Skills (nomes de .claude/skills) curadas pra este role — injetadas na persona no spawn. */
   skills?: string[];

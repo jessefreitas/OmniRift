@@ -33,6 +33,24 @@ export interface RoleSpawn {
 }
 
 /**
+ * Resolve o executável do role: se `startupCmd` estiver setado, sobrescreve o
+ * `command` default do ROLE_CLIS (ex.: `claudefast` no lugar de `claude`). Aceita
+ * args prefixados na linha (`claudefast --foo` → command=claudefast, prefixArgs=[--foo]).
+ * Split whitespace simples (aspas simples/duplas básicas). Vazio → default do CLI.
+ */
+export function resolveRoleCommand(
+  role: AgentRoleDef,
+  defaultCommand: string,
+): { command: string; prefixArgs: string[] } {
+  const raw = (role.startupCmd ?? "").trim();
+  if (!raw) return { command: defaultCommand, prefixArgs: [] };
+  const parts =
+    raw.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((s) => s.replace(/^['"]|['"]$/g, "")) ?? [raw];
+  const [command, ...prefixArgs] = parts;
+  return { command: command || defaultCommand, prefixArgs };
+}
+
+/**
  * Monta o spawn COMPLETO de um role — replica a lógica NÃO-shell do `spawnRole`:
  * resolve o CLI, faz o wiring de skills (`agent_skills_config`), monta os args
  * (claude-code → workerClaudeArgs; flag → [flag, prompt]; sem flag → persona como
@@ -41,6 +59,10 @@ export interface RoleSpawn {
  * `skillIdsOverride`: override por-instância das skills (SkillLaunchPicker); undefined
  * usa `role.skills`. `mcpFallback`: path do agent-mcp.json a usar quando `agentMcpConfig`
  * falha (o Sidebar passa o `mcpConfigPath` resolvido 1x; o TerminalNode passa null).
+ *
+ * `role.startupCmd` (não-shell): override do binário (ex. `claudefast`).
+ * `role.selfSystemPrompt`: wrapper já injeta system-prompt → persona vira 1ª mensagem
+ * e NÃO se anexa `--append-system-prompt` (evita conflito com wrappers).
  */
 export async function buildRoleSpawn(
   role: AgentRoleDef,
@@ -54,6 +76,8 @@ export async function buildRoleSpawn(
   if (cli.role === "shell") {
     return { command: cli.command, role: cli.role };
   }
+
+  const { command, prefixArgs } = resolveRoleCommand(role, cli.command);
 
   // União das skills GLOBAIS (todo agente recebe) com as do role/override. Vazio →
   // mantém a invariante no-skills (sem invoke, sem args/env extras).
@@ -86,16 +110,43 @@ export async function buildRoleSpawn(
       ? ((await agentMcpConfig(role.mcpServers).catch(() => null)) ?? mcpFallback)
       : ((await agentMcpConfig().catch(() => null)) ?? mcpFallback);
 
+  // Wrapper (ex.: claudefast / claude-ollama) que JÁ injeta system-prompt: não anexar
+  // --append-system-prompt; persona (+ index de skills) vai como 1ª mensagem.
+  if (role.selfSystemPrompt) {
+    const firstMessage = indexText ? `${role.prompt}\n\n${indexText}` : role.prompt;
+    return {
+      command,
+      args: prefixArgs.length || pluginArgs.length ? [...prefixArgs, ...pluginArgs] : undefined,
+      role: cli.role,
+      env,
+      compressor,
+      firstMessage,
+    };
+  }
+
   if (cli.systemPromptFlag) {
     const baseArgs =
       cli.role === "claude-code"
         ? workerClaudeArgs(roleMcpPath, role.prompt, await agentSettingsConfig(role.name).catch(() => null))
         : [cli.systemPromptFlag, role.prompt];
-    return { command: cli.command, args: [...baseArgs, ...pluginArgs], role: cli.role, env, compressor };
+    return {
+      command,
+      args: [...prefixArgs, ...baseArgs, ...pluginArgs],
+      role: cli.role,
+      env,
+      compressor,
+    };
   }
 
   // CLI sem flag de system-prompt (codex/opencode/antigravity): persona (+ indexText das
   // skills) vai como 1ª mensagem quando o terminal fica ready.
   const firstMessage = indexText ? `${role.prompt}\n\n${indexText}` : role.prompt;
-  return { command: cli.command, role: cli.role, env, compressor, firstMessage };
+  return {
+    command,
+    args: prefixArgs.length ? prefixArgs : undefined,
+    role: cli.role,
+    env,
+    compressor,
+    firstMessage,
+  };
 }
