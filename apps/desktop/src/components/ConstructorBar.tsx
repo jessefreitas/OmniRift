@@ -168,6 +168,8 @@ export function ConstructorBar() {
     setError(null);
     setInput("");
     setChat((prev) => [...prev, { role: "user", text, ts: Date.now() }]);
+    // Timeout guard: libera busy após 90s se chat-done/chat-dead não chegarem
+    const busyGuard = setTimeout(() => setBusy(false), 90_000);
     try {
       if (talkMode === "chat" && !forceDispatch) {
         await chatConstructor(text, engine); // conversa inline (Claude local, sem chave), não toca na frota
@@ -179,6 +181,7 @@ export function ConstructorBar() {
       setError(msg);
       setChat((prev) => [...prev, { role: "error", text: `Erro: ${msg}`, ts: Date.now() }]);
     } finally {
+      clearTimeout(busyGuard);
       setBusy(false);
       textareaRef.current?.focus();
     }

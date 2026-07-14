@@ -45,13 +45,23 @@ async fn spawn_proc(app: &AppHandle, cli: &str, cwd: &str, persona: &str) -> Res
         .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped()) // captura stderr — erros de auth/startup ficam visíveis no tracing
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("não consegui iniciar `{cli}`: {e}"))?;
 
     let stdin = child.stdin.take().ok_or("sem stdin")?;
     let stdout = child.stdout.take().ok_or("sem stdout")?;
+    // Drena stderr em background para evitar bloqueio do processo quando o buffer
+    // encher; loga cada linha via tracing::warn pra aparecer nos logs do app.
+    if let Some(stderr) = child.stderr.take() {
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                log::warn!("[constructor-chat stderr] {line}");
+            }
+        });
+    }
 
     let app2 = app.clone();
     tokio::spawn(async move {
