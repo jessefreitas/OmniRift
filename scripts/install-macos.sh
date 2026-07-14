@@ -43,11 +43,18 @@ DMG_SRC="${1:-}"
 download_latest_dmg() {
   echo "→ Buscando .dmg mais recente em github.com/${REPO}/releases/latest …"
   # API pública; não precisa de auth para release público
-  local url
-  url="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | python3 -c '
+  local response url
+  response="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")"
+
+  if command -v jq >/dev/null 2>&1; then
+    url="$(printf '%s' "$response" | jq -r '.assets[]? | select(.name | test("\\.dmg$";"i")) | select(.name | (contains("aarch64") or contains("arm64"))) | .browser_download_url' | head -n1)"
+    if [[ -z "$url" ]]; then
+      url="$(printf '%s' "$response" | jq -r '.assets[]? | select(.name | test("\\.dmg$";"i")) | .browser_download_url' | head -n1)"
+    fi
+  elif command -v python3 >/dev/null 2>&1; then
+    url="$(printf '%s' "$response" | python3 -c '
 import json,sys
-rel=json.load(sys.stdin)
+rel=json.loads(sys.stdin.read())
 for a in rel.get("assets",[]):
     n=a.get("name","")
     if n.endswith(".dmg") and ("aarch64" in n or "arm64" in n):
@@ -57,6 +64,11 @@ for a in rel.get("assets",[]):
         print(a["browser_download_url"]); sys.exit(0)
 sys.exit("nenhum .dmg no release latest")
 ')"
+  else
+    echo "❌ jq ou python3 é necessário para processar a resposta da API." >&2
+    exit 1
+  fi
+
   if [[ -z "$url" ]]; then
     echo "❌ Não achei .dmg no latest release de ${REPO}." >&2
     exit 1

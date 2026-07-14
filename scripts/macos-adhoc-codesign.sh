@@ -23,8 +23,13 @@ APP="${1:-}"
 if [[ -z "$APP" ]]; then
   # Preferir o bundle de release; cai pro debug se não houver.
   APP="$(find apps/desktop/src-tauri/target -type d -name 'OmniRift.app' 2>/dev/null \
-    | grep -E '/release/|/debug/' \
+    | grep '/release/' \
     | head -n 1 || true)"
+  if [[ -z "$APP" ]]; then
+    APP="$(find apps/desktop/src-tauri/target -type d -name 'OmniRift.app' 2>/dev/null \
+      | grep '/debug/' \
+      | head -n 1 || true)"
+  fi
 fi
 
 if [[ -z "$APP" || ! -d "$APP" ]]; then

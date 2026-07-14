@@ -891,7 +891,7 @@ export function Landing() {
             <a
               href="https://github.com/jessefreitas/OmniRift/blob/main/scripts/install-macos.sh"
               target="_blank"
-              rel="noreferrer"
+              rel="noreferrer noopener"
               style={{ color: "var(--ac)" }}
             >
               scripts/install-macos.sh
