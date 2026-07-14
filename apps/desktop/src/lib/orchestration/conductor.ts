@@ -275,8 +275,19 @@ async function findOrCreateConductor(engine: ConstructorEngine): Promise<string 
   const sid = created.session_id;
   useCanvasStore.getState().setOrchestratorSid(sid);
 
-  // Grace pro PTY subir no backend antes da 1ª escrita (senão o write se perde).
-  await new Promise((r) => setTimeout(r, 3000));
+  // Aguarda o PTY ficar idle (ready) antes da 1ª escrita — retry com backoff
+  // exponencial (50ms → 100ms → 200ms → … até 3s, máx 10 tentativas ~3s total).
+  // Evita o setTimeout(3000) fixo: na maioria dos casos resolve em <500ms.
+  const waitReady = async (): Promise<void> => {
+    let delay = 50;
+    for (let i = 0; i < 10; i++) {
+      const st = useCanvasStore.getState().terminalStatuses[sid];
+      if (st === "idle" || st === "working") return;
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(delay * 2, 800);
+    }
+  };
+  await waitReady();
   if (built.firstMessage) {
     await ptyWrite(sid, built.firstMessage);
     await new Promise((r) => setTimeout(r, 200));
