@@ -46,6 +46,11 @@ export function resolveRoleCommand(
   if (!raw) return { command: defaultCommand, prefixArgs: [] };
   const parts =
     raw.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((s) => s.replace(/^['"]|['"]$/g, "")) ?? [raw];
+  // Se o primeiro token é uma flag (começa com "-"), o startupCmd é só prefixArgs —
+  // usa o defaultCommand como executável e todos os tokens viram prefixArgs.
+  if (parts[0]?.startsWith("-")) {
+    return { command: defaultCommand, prefixArgs: parts };
+  }
   const [command, ...prefixArgs] = parts;
   return { command: command || defaultCommand, prefixArgs };
 }

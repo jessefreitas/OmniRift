@@ -101,13 +101,13 @@ export const CLI_COMMAND_PRESETS: Record<string, CliCommandPreset[]> = {
     { id: "effort-max", label: "claude --effort max", line: "claude --effort max" },
     {
       id: "skip-effort-max",
-      label: "claude --skip-perms --effort max",
+      label: "claude --dangerously-skip-permissions --effort max",
       line: "claude --dangerously-skip-permissions --effort max",
     },
     { id: "continue", label: "claude --continue", line: "claude --continue" },
     {
       id: "skip-continue",
-      label: "claude --skip-perms --continue",
+      label: "claude --dangerously-skip-permissions --continue",
       line: "claude --dangerously-skip-permissions --continue",
     },
     { id: "custom", label: "Custom…", line: "" },
