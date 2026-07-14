@@ -225,6 +225,7 @@ pub fn run() {
             match &data_dir {
                 Ok(dir) => match crate::db::Db::open(dir) {
                     Ok(db) => {
+                        crate::orchestrator::init(&db);
                         app.manage(db);
                     }
                     Err(e) => log::error!("falha ao abrir DB de persistência: {e:#}"),

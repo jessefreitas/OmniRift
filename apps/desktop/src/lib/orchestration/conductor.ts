@@ -415,7 +415,13 @@ ${canvasSnap}`;
       const plan = JSON.parse(jsonStr);
       if (plan.dispatches) {
         for (const d of plan.dispatches) {
-          const parsed = parseConstructorInput(d.target + " " + d.task);
+          // Sanitiza d.task antes de injetar no PTY — remove \r, \n e null bytes
+          // que poderiam executar comandos não intencionais no terminal do agente.
+          const safeTask = String(d.task ?? "")
+            .replace(/[\r\n\0]/g, " ")
+            .trim();
+          if (!safeTask) continue;
+          const parsed = parseConstructorInput(d.target + " " + safeTask);
           await dispatchDirect(parsed);
         }
       }
@@ -443,7 +449,8 @@ ${canvasSnap}`;
     //  mas a sessão PTY morre — então o sid pode apontar pra um nó que não existe
     //  mais no canvas. Sem invalidar aqui, cai num ptyWrite → "sessão não encontrada".)
     if (conductorSid) {
-      const activeFloor = useCanvasStore.getState().parallels.find((p) => p.id === useCanvasStore.getState().activeParallelId);
+      const st = useCanvasStore.getState(); // captura uma vez — evita TOCTOU
+      const activeFloor = st.parallels.find((p) => p.id === st.activeParallelId);
       const node = activeFloor?.nodes.find((n) => (n as TerminalNode).session_id === conductorSid) as TerminalNode | undefined;
       const cliDef = ROLE_CLIS.find((c) => c.id === engine);
       if (!node || (cliDef && node.command !== cliDef.command)) {

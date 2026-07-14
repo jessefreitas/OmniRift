@@ -127,8 +127,14 @@ export function ConstructorBar() {
     listen<string>("constructor://chat-delta", (e) => {
       const t = e.payload;
       setChat((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.streaming) return [...prev.slice(0, -1), { ...last, text: last.text + t }];
+        // Procura a última entrada de streaming (pode haver entrada de log intercalada)
+        const idx = [...prev].reverse().findIndex((m) => m.streaming);
+        if (idx >= 0) {
+          const realIdx = prev.length - 1 - idx;
+          const updated = [...prev];
+          updated[realIdx] = { ...updated[realIdx], text: updated[realIdx].text + t };
+          return updated;
+        }
         return [...prev, { role: "agent", text: t, ts: Date.now(), streaming: true }];
       });
     }).then((fn) => { unD = fn; });

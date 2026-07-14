@@ -57,6 +57,12 @@ fn now_epoch() -> i64 {
         .unwrap_or(0)
 }
 
+/// Inicializa o schema — chamar uma vez no startup. log_entry e load_stream
+/// assumem que o schema já existe (evita DDL em cada write do hot path).
+pub fn init(db: &Db) {
+    let _ = db.with_conn(|conn| ensure_schema(conn));
+}
+
 /// Registra uma entrada no log de orquestração e emite evento pro frontend.
 pub fn log_entry(
     db: &Db,
@@ -70,7 +76,6 @@ pub fn log_entry(
     let id = Uuid::new_v4().to_string();
     let ts = now_epoch();
     let _ = db.with_conn(|conn| {
-        ensure_schema(conn)?;
         conn.execute(
             "INSERT INTO orchestration_log (id, timestamp, source, target, payload, status, stage, parent_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -79,15 +84,12 @@ pub fn log_entry(
         )?;
         Ok(())
     });
-    // Emite evento pro frontend (chat do ConductorBar recebe em tempo real)
-    // O AppHandle é passado pelo caller (commands/orchestrator.rs)
     id
 }
 
 /// Carrega o histórico da stream (mais recente primeiro, limit 200).
 pub fn load_stream(db: &Db) -> Vec<OrchestratorLog> {
     db.with_conn(|conn| {
-        ensure_schema(conn)?;
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, source, target, payload, status, stage, parent_id
              FROM orchestration_log ORDER BY timestamp DESC LIMIT 200"
@@ -191,16 +193,14 @@ pub async fn dispatch_task(
 /// que o adapter está rodando. Não precisa de AcpManager diretamente — o PTY
 /// é o canal físico que tudo compartilha.
 fn dispatch_to_session(state: &McpState, session_id: &str, text: &str) -> Result<(), String> {
+    // Envia texto + \r numa única write — evitar std::thread::sleep em contexto async.
+    // TUIs modernas (Claude Code, Codex) aceitam texto\r colado; o sleep era heurístico.
+    let mut payload = text.as_bytes().to_vec();
+    payload.push(b'\r');
     state
         .pty_manager
-        .write(session_id, text.as_bytes())
-        .map_err(|e| format!("PTY write falhou: {e}"))?;
-    // Enter separado (TUIs raw-mode às vezes não submetem texto+\r colado)
-    std::thread::sleep(std::time::Duration::from_millis(200));
-    state
-        .pty_manager
-        .write(session_id, b"\r")
-        .map_err(|e| format!("PTY write Enter falhou: {e}"))
+        .write(session_id, &payload)
+        .map_err(|e| format!("PTY write falhou: {e}"))
 }
 
 /// Snapshot dos agentes pro Conductor (mesma estrutura do mcp/tools.rs).
