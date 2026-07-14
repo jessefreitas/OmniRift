@@ -1467,32 +1467,18 @@ export function Sidebar() {
     }
 
     // NÃO-SHELL: montagem COMPLETA via helper compartilhado (mesma do "virar agente" no
-    // TerminalNode). Invariante: mesmos args/env/compressor/1ª-mensagem do código antigo.
+    // TerminalNode). `startupCmd` no role sobrescreve o binário (ex.: claudefast).
+    // `firstMessage` pode coexistir com `args` (wrappers selfSystemPrompt + prefixArgs).
     const built = await buildRoleSpawn(r, skillIdsOverride, mcpConfigPath);
-    if (built.args !== undefined) {
-      // CLI com system-prompt embutido nos args (claude/flag): sem 1ª mensagem.
-      const node = addTerminal({
-        command: built.command,
-        args: built.args,
-        role: built.role,
-        label: r.name,
-        compressor: built.compressor,
-        env: built.env,
-      });
-      // Auto-registra como MCP agent → o Orquestrador vê o agente imediatamente.
-      if (node) autoRegisterMcp(node.session_id, r.name, r.prompt);
-      return;
-    }
-    // CLI sem flag de system-prompt: persona (+ skills) como 1ª mensagem quando ready.
     const node = addTerminal({
       command: built.command,
+      args: built.args,
       role: built.role,
       label: r.name,
       compressor: built.compressor,
       env: built.env,
     });
     if (!node) return;
-    // Auto-registra como MCP agent (mesmo motivo dos ramos acima).
     autoRegisterMcp(node.session_id, r.name, r.prompt);
     if (built.firstMessage) sendLine(node.session_id, built.firstMessage, 1800);
   }

@@ -22,7 +22,15 @@ interface SpawnRequest {
   position?: { x: number; y: number } | null;
 }
 
-const VALID_ROLES: AgentRole[] = ["shell", "claude-code", "codex", "opencode", "antigravity", "custom"];
+const VALID_ROLES: AgentRole[] = [
+  "shell",
+  "claude-code",
+  "codex",
+  "opencode",
+  "antigravity",
+  "grok",
+  "custom",
+];
 
 function asRole(role?: string): AgentRole {
   return (VALID_ROLES as string[]).includes(role ?? "") ? (role as AgentRole) : "shell";
@@ -33,7 +41,9 @@ function asRole(role?: string): AgentRole {
  *  Casa pelo basename do executável; sem match → "shell". */
 function roleFromCommand(command: string): AgentRole {
   const bin = (command.trim().split(/\s+/)[0] ?? "").split(/[\\/]/).pop() ?? "";
-  const hit = ROLE_CLIS.find((c) => c.command === bin || `${c.command}.exe` === bin);
+  const hit = ROLE_CLIS.find(
+    (c) => c.command === bin || `${c.command}.exe` === bin || c.id === bin,
+  );
   return hit?.role ?? "shell";
 }
 

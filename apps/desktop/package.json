@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "tauri:dev": "GTK_MODULES= LD_PRELOAD=/lib/x86_64-linux-gnu/libpthread.so.0 PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
     "tauri:build": "tauri build",
+    "tauri:build:dev-app": "tauri build --config src-tauri/tauri.dev-install.conf.json --bundles app",
     "test:grab": "node scripts/run-grab-tests.mjs"
   },
   "dependencies": {
@@ -62,5 +63,8 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.12"
+  },
+  "optionalDependencies": {
+    "lightningcss-darwin-arm64": "^1.32.0"
   }
 }

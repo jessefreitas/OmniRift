@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "OmniRift Dev",
+  "identifier": "com.omniforge.omnirift.dev",
+  "app": {
+    "windows": [
+      {
+        "title": "OmniRift Dev"
+      }
+    ]
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "signingIdentity": "-"
+    }
+  }
+}

@@ -74,3 +74,6 @@ bin/endorctl
 
 # logs de gate de tools locais (sessões de agente) — nunca commitar
 tools/**/.gate.log
+
+# conf gerada pelo install-macos-dev.sh
+apps/desktop/src-tauri/tauri.dev-install.generated.json

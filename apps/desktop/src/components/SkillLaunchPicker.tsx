@@ -8,7 +8,7 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
-import { type AgentRoleDef } from "@/lib/agent-roles";
+import { ROLE_CLIS, type AgentRoleDef } from "@/lib/agent-roles";
 import { loadCatalog, type SkillDef } from "@/lib/agent-skills";
 import { SkillCheckboxList } from "@/components/SkillCheckboxList";
 
@@ -31,6 +31,11 @@ export function SkillLaunchPicker({ role, onLaunch, onClose }: Props) {
     return () => { cancelled = true; };
   }, []);
 
+  const cliId = role.cli ?? "claude";
+  const defaultCmd = ROLE_CLIS.find((c) => c.id === cliId)?.command ?? cliId;
+  const startup = (role.startupCmd ?? "").trim();
+  const effectiveCmd = startup || defaultCmd;
+
   return createPortal(
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4"
@@ -51,9 +56,12 @@ export function SkillLaunchPicker({ role, onLaunch, onClose }: Props) {
         <div className="p-4 space-y-3">
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">
-              CLI
+              CLI / Command
             </label>
-            <p className="mt-1 text-xs text-text">{role.cli ?? "claude"}</p>
+            <p className="mt-1 text-xs text-text font-mono break-all">{effectiveCmd}</p>
+            <p className="mt-0.5 text-[10px] text-textMuted opacity-70">
+              Edite no lápis do role (CLI + Command presets)
+            </p>
           </div>
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">

@@ -11,7 +11,13 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { Download, FileUp, Gauge, Sparkles, X } from "lucide-react";
 
-import { ROLE_CLIS, type AgentRoleDef, type ImportedRole } from "@/lib/agent-roles";
+import {
+  ROLE_CLIS,
+  matchPresetId,
+  presetsForCli,
+  type AgentRoleDef,
+  type ImportedRole,
+} from "@/lib/agent-roles";
 import { skillsList, skillsImportMd, skillsImportGithub, type SkillInfo } from "@/lib/skills-client";
 import { mcpInventory, type McpInventoryItem } from "@/lib/mcp-client";
 import { githubToken } from "@/lib/git-providers";
@@ -33,6 +39,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
   const [prompt, setPrompt] = useState(role.prompt);
   const [cli, setCli] = useState(role.cli ?? "claude");
   const [startupCmd, setStartupCmd] = useState(role.startupCmd ?? "");
+  const [cmdPreset, setCmdPreset] = useState(() => matchPresetId(role.cli ?? "claude", role.startupCmd));
   const [skills, setSkills] = useState<string[]>(role.skills ?? []);
   const [skillQuery, setSkillQuery] = useState("");
   const [available, setAvailable] = useState<SkillInfo[]>([]);
@@ -47,7 +54,26 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
   // window.prompt é no-op no WebKitGTK → modal próprio pra pedir a URL do repo.
   const [askGithub, setAskGithub] = useState(false);
   const isShell = cli === "shell";
+  const cmdPresets = presetsForCli(cli);
+  const isCustomCmd = isShell || cmdPreset === "custom";
   const omniOn = isCompressorEnabled("omnicompress"); // nativo, global (Ferramentas → Compressores)
+
+  function onCliChange(nextCli: string) {
+    setCli(nextCli);
+    // Ao trocar o CLI, volta pro preset default desse CLI (não herda flags de outro).
+    const presets = presetsForCli(nextCli);
+    const def = presets.find((p) => p.id === "default") ?? presets[0];
+    setCmdPreset(def?.id ?? "custom");
+    setStartupCmd(def && def.id !== "custom" ? def.line : "");
+    if (nextCli !== "shell") setSelfSystemPrompt(false);
+  }
+
+  function onCmdPresetChange(presetId: string) {
+    setCmdPreset(presetId);
+    if (presetId === "custom") return; // mantém o texto atual pra o user editar
+    const p = cmdPresets.find((x) => x.id === presetId);
+    setStartupCmd(p?.line ?? "");
+  }
 
   const loadSkills = useCallback(async () => {
     if (!cwd) { setAvailable([]); return; }
@@ -173,7 +199,7 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
             <label className="text-[11px] uppercase tracking-wider text-textMuted">CLI / LLM</label>
             <select
               value={cli}
-              onChange={(e) => setCli(e.target.value)}
+              onChange={(e) => onCliChange(e.target.value)}
               className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text focus:outline-none focus:border-brand"
             >
               {ROLE_CLIS.map((c) => (
@@ -182,7 +208,79 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-[10px] text-textMuted opacity-60">
+              {t(
+                "roleEdit.cliHint",
+                "Escolha o agente. Em seguida o comando (presets estilo Agent Grid, ou Custom).",
+              )}
+            </p>
           </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider text-textMuted">
+              {t("roleEdit.command", "Command")}
+            </label>
+            {!isShell && (
+              <select
+                value={cmdPreset}
+                onChange={(e) => onCmdPresetChange(e.target.value)}
+                className="mt-1 w-full px-2 py-1.5 rounded-md text-sm bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono"
+              >
+                {cmdPresets.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {isCustomCmd && (
+              <SafeInput
+                value={startupCmd}
+                onChange={(e) => {
+                  setStartupCmd(e.target.value);
+                  if (!isShell) setCmdPreset("custom");
+                }}
+                placeholder={
+                  isShell
+                    ? t("roleEdit.startupCmdPlaceholder", "ex: npm run dev")
+                    : t(
+                        "roleEdit.customCmdPlaceholder",
+                        "ex: claude --dangerously-skip-permissions  ·  ou alias: claudefast",
+                      )
+                }
+                className="mt-1.5 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono"
+              />
+            )}
+            <p className="mt-1 text-[10px] text-textMuted opacity-60">
+              {isShell
+                ? t(
+                    "roleEdit.startupCmdHint",
+                    "Opcional. Roda ao abrir o shell. Wrappers Claude (alias/função no zsh) também funcionam.",
+                  )
+                : t(
+                    "roleEdit.commandHint",
+                    "Flags do CLI neste role. System-prompt/MCP do OmniRift são anexados automaticamente (exceto se marcar self system-prompt).",
+                  )}
+            </p>
+          </div>
+          {(isShell || cmdPreset === "custom") && (
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selfSystemPrompt}
+                onChange={(e) => setSelfSystemPrompt(e.target.checked)}
+                className="mt-0.5 accent-brand"
+              />
+              <span className="text-xs text-text">
+                {t("roleEdit.selfSystemPrompt", "Este comando injeta o próprio system-prompt")}
+                <span className="block text-[10px] text-textMuted opacity-60">
+                  {t(
+                    "roleEdit.selfSystemPromptHint",
+                    "Marque pra wrappers (ex.: claude-ollama) que já passam --append-system-prompt(-file). O OmniRift não anexa o seu — a persona vai como 1ª mensagem.",
+                  )}
+                </span>
+              </span>
+            </label>
+          )}
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("roleEdit.tokenCompressor", "Compressor de token")}</label>
             <select
@@ -208,36 +306,6 @@ export function RoleEditModal({ role, cwd, onSave, onClose }: Props) {
               </span>
             </p>
           </div>
-          {isShell && (
-            <div>
-              <label className="text-[11px] uppercase tracking-wider text-textMuted">{t("roleEdit.startupCmd", "Comando ao abrir (opcional)")}</label>
-              <SafeInput
-                value={startupCmd}
-                onChange={(e) => setStartupCmd(e.target.value)}
-                placeholder={t("roleEdit.startupCmdPlaceholder", "ex: npm run dev")}
-                className="mt-1 w-full px-2 py-1.5 rounded-md text-xs bg-bg border border-border text-text focus:outline-none focus:border-brand font-mono"
-              />
-              <p className="mt-1 text-[10px] text-textMuted opacity-60">
-                {t("roleEdit.startupCmdHint", "Roda ao abrir. Se for um CLI Claude (ex.: claude-ollama), a persona abaixo entra nativa via --append-system-prompt.")}
-              </p>
-            </div>
-          )}
-          {isShell && (
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={selfSystemPrompt}
-                onChange={(e) => setSelfSystemPrompt(e.target.checked)}
-                className="mt-0.5 accent-brand"
-              />
-              <span className="text-xs text-text">
-                {t("roleEdit.selfSystemPrompt", "Este comando injeta o próprio system-prompt")}
-                <span className="block text-[10px] text-textMuted opacity-60">
-                  {t("roleEdit.selfSystemPromptHint", "Marque pra wrappers de Claude (ex.: claude-ollama) que já passam --append-system-prompt(-file). O OmniRift não anexa o seu — a persona vai como 1ª mensagem. Evita o erro \"Cannot use both --append-system-prompt and --append-system-prompt-file\".")}
-                </span>
-              </span>
-            </label>
-          )}
           <div>
             <label className="text-[11px] uppercase tracking-wider text-textMuted">
               {isShell ? t("roleEdit.personaLabel", "Persona (injetada no CLI que o comando abrir)") : t("roleEdit.promptLabel", "Prompt (persona / instruções)")}

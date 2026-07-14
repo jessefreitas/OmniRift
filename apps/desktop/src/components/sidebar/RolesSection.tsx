@@ -183,9 +183,18 @@ export function RolesSection({
               >
                 {r.name}
               </button>
-              {((r.cli ?? "claude") !== "claude" || r.master) && (
-                <span className="text-[8px] px-1 rounded shrink-0 bg-brand/15 text-brand uppercase">
-                  {r.cli ?? "claude"}
+              {((r.cli ?? "claude") !== "claude" || r.master || !!(r.startupCmd ?? "").trim()) && (
+                <span
+                  className="text-[8px] px-1 rounded shrink-0 bg-brand/15 text-brand uppercase max-w-[5.5rem] truncate"
+                  title={
+                    (r.startupCmd ?? "").trim()
+                      ? `startup: ${(r.startupCmd ?? "").trim()}`
+                      : (r.cli ?? "claude")
+                  }
+                >
+                  {(r.startupCmd ?? "").trim()
+                    ? (r.startupCmd ?? "").trim().split(/\s+/)[0]
+                    : (r.cli ?? "claude")}
                 </span>
               )}
               <Tooltip label={tr("sidebar.launchWith", "Launch with… (override de skills por-instância)")} side="top" className="shrink-0">
