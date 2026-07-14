@@ -6,7 +6,7 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCanvasStore } from "@/store/canvas-store";
-import { floorMirrorSet, canvasAgentsSet, agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
+import { floorMirrorSet, canvasAgentsSet, agentMcpConfig, agentSettingsConfig, mcpRegisterAgent } from "@/lib/mcp-client";
 import { parallelGitCreate } from "@/lib/git-client";
 import { workerClaudeArgs } from "@/lib/agent-contract";
 import { ROLE_CLIS } from "@/lib/agent-roles";
@@ -87,6 +87,14 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
       role,
       position: p.position ?? undefined,
     });
+    // Linha ao Orquestrador — paridade com os demais caminhos de spawn (botão da
+    // Sidebar e rpc://agent-spawned). Sem isto, agentes criados via terminal_spawn
+    // (o caminho que o Constructor usa) nasciam soltos no canvas.
+    const orchSid = store().orchestratorSid;
+    if (orchSid && orchSid !== p.id) store().addEdge(orchSid, p.id, "generic");
+    // O backend JÁ registrou no agent_registry (terminal_spawn) — sincroniza o
+    // checkbox "MCP AGENTS" do Sidebar (estado local), senão fica desmarcado.
+    window.dispatchEvent(new CustomEvent("omnirift:mcp-registered", { detail: { sessionId: p.id } }));
   });
 
   // Attach (Fase 2 do #8): a CLI rodou `omnirift spawn <cmd>` → o backend
@@ -107,6 +115,13 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
       executionHost: p.executionHost ?? undefined,
       attach: true,
     });
+    // Paridade com autoRegisterMcp (Sidebar): liga o novo agente ao Orquestrador no
+    // canvas. Sem isto, agentes spawnados pelo Constructor via MCP (terminal_spawn)
+    // nasciam SEM a linha de conexão — só o botão "New Agent" desenhava o elo.
+    const orchSid = store().orchestratorSid;
+    if (orchSid && orchSid !== p.sessionId) {
+      store().addEdge(orchSid, p.sessionId, "generic");
+    }
   });
 
   // Orquestrador spawna um agente num Floor novo (branch git por padrão) — base da
@@ -161,6 +176,46 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
     },
   );
 
+  // Tool `orchestrator_spawn_agent` (MCP): o backend só EMITE este evento — sem este
+  // listener a tool respondia "✅ Solicitada criação…" e NADA aparecia no canvas
+  // (evento morria no vazio; agente nunca virava addressável). Cria o terminal com
+  // persona nos args (claude) e registra no registry MCP (addressável no terminal_list),
+  // com linha ao Orquestrador (paridade com autoRegisterMcp do Sidebar).
+  const unOrchSpawn = await listen<{
+    name: string;
+    cli: string;
+    floor?: string;
+    role?: string;
+    systemPrompt?: string;
+  }>("orchestrator://spawn-agent", async (event) => {
+    const p = event.payload;
+    if (!p?.name || !p?.cli) return;
+    const s = store();
+    if (p.cli === "hermes") {
+      // Hermes é ACP-only (sem CLI de terminal) — nasce como OmniAgent.
+      s.addAgent({ provider: "hermes", label: p.name, persona: p.systemPrompt || p.role || undefined, cwd: s.currentCwd ?? undefined });
+      return;
+    }
+    const cliDef = ROLE_CLIS.find((c) => c.id === p.cli);
+    if (!cliDef) return;
+    const persona = (p.systemPrompt || p.role || "").trim();
+    const id = `orch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const args =
+      cliDef.role === "claude-code"
+        ? workerClaudeArgs(
+            mcpConfigPath,
+            persona || undefined,
+            await agentSettingsConfig(p.name).catch(() => null),
+          )
+        : undefined;
+    s.addTerminal({ id, command: cliDef.command, args, label: p.name, role: cliDef.role });
+    mcpRegisterAgent(p.name, id, persona.slice(0, 120) || `Agente ${p.name}`, undefined).catch(console.warn);
+    const orchSid = s.orchestratorSid;
+    if (orchSid && orchSid !== id) s.addEdge(orchSid, id, "generic");
+    // Sincroniza o checkbox "MCP AGENTS" do Sidebar (estado local do componente).
+    window.dispatchEvent(new CustomEvent("omnirift:mcp-registered", { detail: { sessionId: id } }));
+  });
+
   const unCreate = await listen<{ name?: string }>("canvas://floor-create", (e) => {
     store().createParallel(e.payload.name, { focus: true });
   });
@@ -210,6 +265,7 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
     unSpawn();
     unAttach();
     unSpawnFloor();
+    unOrchSpawn();
     unWake();
     unCreate();
     unFocus();

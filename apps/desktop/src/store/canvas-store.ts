@@ -262,6 +262,10 @@ interface CanvasState {
   // orquestrador designado (global) — dock onipresente + sidebar
   orchestratorSid: string | null;
   setOrchestratorSid: (sid: string | null) => void;
+  // Modo Conductor — barra de orquestração por texto (feature flag, default OFF).
+  // Quando ON: barra fixa embaixo do canvas + stream lateral. Não afeta fluxo normal.
+  constructorMode: boolean;
+  setConstructorMode: (on: boolean) => void;
 
   // persistência
   getWorkspaceSnapshot: () => WorkspaceFileV3;
@@ -387,6 +391,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   terminalStatuses: {},
   orchestratorSid:
     (typeof localStorage !== "undefined" && localStorage.getItem("omnirift-mcp-orch")) || null,
+  constructorMode: false,
 
   // ---- project management (canvas isolado por projeto; floors flat) ----
   addProject: ({ name, cwd = null } = {}) => {
@@ -1020,13 +1025,22 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   removeNode: (id) => {
     // F2/F3 backend-owned: X/Delete num OmniAgent OU num terminal = kill EXPLÍCITO da
     // sessão ANTES de remover o nó (o unmount virou só-view e não mata mais nada).
+    // Busca em TODOS os floors: nó em floor de fundo não era removido nem tinha a
+    // sessão morta, e o terminalStatuses ficava com o "dead" fantasma pra sempre.
     const s0 = get();
-    const active0 = s0.parallels.find((f) => f.id === s0.activeParallelId);
-    const removing = active0?.nodes.find((n) => n.id === id);
+    const homeFloor = s0.parallels.find((f) => f.nodes.some((n) => n.id === id));
+    const removing = homeFloor?.nodes.find((n) => n.id === id);
     if (removing) killNodeSessions([removing]);
+    const staleSids = removing
+      ? [(removing as { session_id?: string }).session_id, removing.id].filter((x): x is string => !!x)
+      : [];
+    // Se o nó removido era o Orquestrador ativo, solta o orchestratorSid — senão o
+    // Constructor segue roteando "opa" pra uma sessão deletada ("procurando agente…
+    // / entrou na fila") e o canvas parece ter 1 agente que já não existe.
+    const clearingOrch = s0.orchestratorSid != null && staleSids.includes(s0.orchestratorSid);
     set((s) => ({
       parallels: s.parallels.map((f) => {
-        if (f.id !== s.activeParallelId) return f;
+        if (f.id !== homeFloor?.id) return f;
         const removed = f.nodes.find((n) => n.id === id);
         const nodes = f.nodes
           .filter((n) => n.id !== id)
@@ -1042,7 +1056,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
           );
         return { ...f, nodes, edges: f.edges.filter((e) => e.source !== id && e.target !== id) };
       }),
+      // Limpa o status da sessão removida — senão o "dead" fantasma fica pra sempre.
+      terminalStatuses: staleSids.length
+        ? Object.fromEntries(Object.entries(s.terminalStatuses).filter(([k]) => !staleSids.includes(k)))
+        : s.terminalStatuses,
+      ...(clearingOrch ? { orchestratorSid: null } : null),
     }));
+    if (clearingOrch) {
+      try { localStorage.removeItem("omnirift-mcp-orch"); } catch { /* localStorage indisponível */ }
+    }
   },
 
   duplicateAgentNode: (id) => {
@@ -1205,6 +1227,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     } catch { /* localStorage indisponível */ }
     set({ orchestratorSid: sid });
   },
+
+  setConstructorMode: (on) => set({ constructorMode: on }),
 
   // ---- persistência ----
   getWorkspaceSnapshot: () => {

@@ -20,6 +20,7 @@ import { CanvasToolbar } from "@/components/CanvasToolbar";
 import { FleetBar } from "@/components/FleetBar";
 import { GraphImportButton } from "@/components/GraphImportButton";
 import { CommandPalette } from "@/components/CommandPalette";
+import { ConstructorBar } from "@/components/ConstructorBar";
 import { useQuickJump } from "@/hooks/useQuickJump";
 import { useRoutines } from "@/hooks/useRoutines";
 
@@ -56,6 +57,8 @@ export function Canvas() {
       <GraphImportButton />
       {/* Dock onipresente do Orquestrador — visível em qualquer floor. */}
       <OrchestratorDock />
+      {/* Modo Conductor — barra de orquestração dentro do canvas (overlay bottom). */}
+      <ConstructorBar />
       {/* Paleta de comandos (Ctrl/Cmd+K). */}
       <CommandPalette />
     </div>

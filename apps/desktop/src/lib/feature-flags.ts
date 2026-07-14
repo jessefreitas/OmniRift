@@ -34,6 +34,14 @@ export interface FlagDef {
 // ainda em construção — liga sob demanda.
 export const FLAGS: FlagDef[] = [
   {
+    key: "agent-clean-hooks",
+    label: "Agentes com config isolado (sem hooks globais)",
+    description:
+      "Agentes claude spawnados pelo canvas nascem com CLAUDE_CONFIG_DIR próprio (~/.omnirift/agent-claude-home): os hooks e skills GLOBAIS do seu ~/.claude não carregam neles — sem isso, cada turno de agente pagava minutos de Stop hooks herdados, atrasando a conversa entre agentes (agent_ask). Os hooks do OmniRift (status/review/failproof) continuam, via --settings. Credenciais são copiadas do login principal. Kill-switch: desligue pra voltar a herdar seu ~/.claude inteiro.",
+    default: true,
+    stage: "beta",
+  },
+  {
     key: "failproof-agents",
     label: "Agentes aprendem com erros (failproof)",
     description:

@@ -21,6 +21,9 @@ pub mod pty;
 // Redator de segredos — aplicado no caminho OUTBOUND (gateway OmniMemory + /diag),
 // nunca no blackboard local. Módulo puro (regex compiladas lazy via OnceLock):
 // boot-safe, sem IO no load. Ver redactor.rs para a fronteira local vs sai-da-máquina.
+// Módulo Conductor — barramento de despacho do Modo Conductor (orchestrator/).
+// Reusa ACP + PTY + MCP. Estende orchestration_send existente com tools novas.
+pub mod orchestrator;
 pub mod redactor;
 // Registro RPC central (ref #8) — substrato CLI/mobile: socket local + token por
 // sessão + 3 métodos (status / agents.list / pty.snapshot). Subido no setup() via
@@ -63,7 +66,7 @@ use health::HealthCache;
 use commands::license::{license_activate, license_status, license_store_meta, license_stored_key, license_was_beta};
 use commands::llm::{learn_ask_grounded, llm_chat, llm_list_models, llm_via_cli};
 use commands::review_cfg::{
-    agent_settings_config, review_config_path, review_config_write, review_context_read,
+    agent_config_dir, agent_settings_config, review_config_path, review_config_write, review_context_read,
     review_context_write, review_pathrules_read, review_pathrules_write, review_suppress_read,
     review_suppress_write,
 };
@@ -118,6 +121,9 @@ use commands::providers::{
 use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
 use turbo::commands::{run_check, turbo_list, turbo_start, turbo_status, turbo_stop};
 use commands::workspace::{workspace_load, workspace_save};
+use commands::orchestrator::{
+    orchestrator_dispatch_task, orchestrator_log, orchestrator_stream_load,
+};
 use db::{
     db_load_workspace, db_save_workspace, kanban_card_create, kanban_card_delete,
     kanban_card_move, kanban_card_update, kanban_columns_query, kanban_columns_save,
@@ -219,6 +225,7 @@ pub fn run() {
             match &data_dir {
                 Ok(dir) => match crate::db::Db::open(dir) {
                     Ok(db) => {
+                        crate::orchestrator::init(&db);
                         app.manage(db);
                     }
                     Err(e) => log::error!("falha ao abrir DB de persistência: {e:#}"),
@@ -311,6 +318,7 @@ pub fn run() {
             let sw_token = crate::rpc::metadata::generate_token();
             let sw_state = crate::llm_router::server::load_state(sw_token);
             app.manage(sw_state.clone());
+            app.manage(crate::commands::constructor_chat::ConstructorChat::default());
             tauri::async_runtime::spawn(async move {
                 crate::llm_router::server::boot(sw_state).await;
             });
@@ -514,12 +522,15 @@ pub fn run() {
             llm_chat,
             llm_list_models,
             llm_via_cli,
+            crate::commands::constructor_chat::constructor_chat_send,
+            crate::commands::constructor_chat::constructor_chat_close,
             learn_ask_grounded,
             learn_socratic_prompt,
             learn_check_leak,
             review_config_write,
             review_config_path,
             agent_settings_config,
+            agent_config_dir,
             review_context_read,
             review_context_write,
             review_suppress_read,
@@ -606,6 +617,9 @@ pub fn run() {
             omniswitch_config_get,
             omniswitch_config_set,
             omniswitch_health,
+            orchestrator_dispatch_task,
+            orchestrator_log,
+            orchestrator_stream_load,
         ])
         .build(tauri::generate_context!())
         .expect("erro fatal construindo OmniRift")

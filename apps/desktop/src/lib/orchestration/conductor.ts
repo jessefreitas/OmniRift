@@ -1,0 +1,545 @@
+// lib/orchestration/conductor.ts
+//
+// Cliente do Conductor — a ponte entre a barra de input e os agentes no canvas.
+// Resolve @nome localmente (via canvas-store), despacha direto via ptyWrite/acp.
+// Só chama o Conductor LLM/Agent quando precisa interpretar (sem @, ou ambíguo).
+
+import { invoke } from "@tauri-apps/api/core";
+import { parseConstructorInput, type ParsedCommand } from "./parser";
+import { useCanvasStore } from "@/store/canvas-store";
+import { llmChat, loadLlmConfig } from "@/lib/llm-client";
+import { analyzeCanvas } from "@/lib/companion";
+import { ptyWrite } from "@/lib/pty-client";
+import { acpPrompt } from "@/lib/acp-client";
+import { ROLE_CLIS, buildCliSwitch } from "@/lib/agent-roles";
+import { agentMcpConfig } from "@/lib/mcp-client";
+import type { TerminalNode, AgentNode } from "@/types/canvas";
+
+export type ConstructorEngine = "claude" | "codex" | "hermes" | "llm" | "shell";
+
+export interface ConstructorConfig {
+  engine: ConstructorEngine;
+  model: string | null;
+  /** "chat" = conversa inline (brainstorm, não age); "dispatch" = orquestra a frota. */
+  talkMode?: "chat" | "dispatch";
+}
+
+export interface OrchestratorEntry {
+  id: string;
+  timestamp: number;
+  source: string;
+  target: string;
+  payload: string;
+  status: string;
+  stage: number;
+  parentId: string | null;
+}
+
+/** Briefing do OmniRift — o conhecimento do SISTEMA, compartilhado por todas as personas
+ *  do Constructor. É o que faz o copiloto falar com propriedade em vez de chutar. */
+const OMNIRIFT_BRIEFING =
+  "SOBRE O OMNIRIFT (o sistema onde você vive — NÃO confunda com 'Canva.com' de design): é um app " +
+  "DESKTOP open-source (Tauri = Rust no backend + React no front) que funciona como um CANVAS INFINITO " +
+  "pra ORQUESTRAR AGENTES DE IA. Conceitos-chave:\n" +
+  "• CANVAS: espaço infinito onde ficam os nós — agentes, terminais, notas, sketches e portais de browser.\n" +
+  "• AGENTE: cada nó-agente é um TERMINAL rodando um CLI de IA (Claude Code, Codex, Hermes, OpenCode, " +
+  "Antigravity ou shell). Cada um é um trabalhador com um ROLE (Backend, DevOps, Frontend, DBA, QA, " +
+  "Code Reviewer, Arquiteto, Security, Debugger) e persona própria.\n" +
+  "• PARALELOS (floors): as abas do canvas; cada paralelo = uma WORKTREE GIT isolada (branch própria), " +
+  "então agentes de paralelos diferentes não se atravessam.\n" +
+  "• CONEXÕES: linhas entre agentes (a saída de um vira contexto do outro); dá pra fazer fan-out pra um grupo.\n" +
+  "• ORQUESTRAÇÃO: o Orquestrador comanda a frota por tools MCP nativas (criar agente, despachar tarefa, " +
+  "perguntar/mandar). Há um Kanban integrado que os agentes movem.\n" +
+  "• VOCÊ (Constructor) é o copiloto do sistema, com dois modos: CONVERSA (brainstorm, não age) e " +
+  "DESPACHAR (orquestrador puro que delega à frota).\n" +
+  "• CAMADAS DE CÓDIGO: OmniFS (versionador + busca semântica), OmniGraph (grafo estrutural), Serena " +
+  "(símbolos), OmniSwitch (roteador de LLM), memória plugável (blackboard local ou OmniMemory).\n" +
+  "O usuário monta uma frota de agentes no canvas, conecta e orquestra pra construir/auditar/revisar software.";
+
+/** Persona do modo CONVERSA — copiloto que só troca ideia, sem tocar na frota. */
+const CHAT_PERSONA =
+  "Você é o Constructor, copiloto conversacional do OmniRift. CONVERSE com o usuário em português: " +
+  "tire dúvidas, ajude a planejar, discuta ideias sobre os agentes e o projeto. Você está em MODO " +
+  "CONVERSA: NÃO crie agentes, NÃO despache tarefas, NÃO execute nada — só responda e ajude a pensar. " +
+  "Quando o usuário quiser executar, ele clica 'enviar ao agente'. Seja curto e direto.\n\n" +
+  OMNIRIFT_BRIEFING;
+
+/** Modo CONVERSA — brainstorm INLINE no painel, SEM criar NENHUM agente/terminal no
+ *  canvas (só você e o painel). Claude/Codex respondem via `claude -p` headless (sua
+ *  subscription, zero card); "Leve (LLM)" via BYOK. Custo do headless: ~alguns segundos
+ *  de cold-start por mensagem — é o preço de não deixar nada no canvas. */
+export async function chatConstructor(input: string, engine: ConstructorEngine): Promise<void> {
+  if (!input.trim()) return;
+  await invoke("orchestrator_log", {
+    source: "user", target: "conductor", payload: input, status: "chat", stage: 0, parentId: null,
+  });
+
+  if (engine === "llm") {
+    const cfg = loadLlmConfig();
+    if (!cfg) {
+      await invoke("orchestrator_log", {
+        source: "conductor", target: "user",
+        payload: "O engine 'Leve (LLM)' precisa de uma chave. Configure em Ferramentas → 'LLM (BYOK)', ou troque pra Claude Code (usa sua subscription).",
+        status: "error", stage: 0, parentId: null,
+      });
+      return;
+    }
+    try {
+      const canvas = await analyzeCanvas().catch(() => "");
+      const system = canvas ? `${CHAT_PERSONA}\n\n--- Canvas agora ---\n${canvas}` : CHAT_PERSONA;
+      const reply = await llmChat(cfg, system, input, { kind: "conductor" });
+      await invoke("orchestrator_log", {
+        source: "conductor", target: "user", payload: reply.slice(0, 2000), status: "done", stage: 0, parentId: null,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await invoke("orchestrator_log", {
+        source: "conductor", target: "user", payload: `Erro ao conversar: ${msg}`, status: "error", stage: 0, parentId: null,
+      });
+    }
+    return;
+  }
+
+  // Claude/Codex → SESSÃO PERSISTENTE (stream-json) invisível ao canvas. A 1ª msg paga o
+  // boot; as seguintes reusam a sessão (sem cold-start). A resposta chega em STREAMING via
+  // constructor://chat-delta/done (montada no ConstructorBar). persona vai no spawn (uma vez).
+  try {
+    const canvas = await analyzeCanvas().catch(() => "");
+    const persona = canvas ? `${CHAT_PERSONA}\n\n--- Canvas agora (contexto) ---\n${canvas}` : CHAT_PERSONA;
+    const bin = ROLE_CLIS.find((c) => c.id === engine && (c.command === "claude" || c.command === "codex"))?.command ?? "claude";
+    const cwd = useCanvasStore.getState().currentCwd ?? null;
+    await invoke("constructor_chat_send", { input, cli: bin, cwd, persona });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await invoke("orchestrator_log", {
+      source: "conductor", target: "user", payload: `Erro ao conversar: ${msg}`, status: "error", stage: 0, parentId: null,
+    });
+  }
+}
+
+/** Despacha um comando do Conductor. Roteia entre determinístico e LLM. */
+export async function dispatchConstructor(
+  input: string,
+  config: ConstructorConfig,
+): Promise<void> {
+  const parsed = parseConstructorInput(input);
+  if (parsed.stages.length === 0) return;
+
+  // Log do comando original
+  await invoke("orchestrator_log", {
+    source: "user",
+    target: parsed.hasMentions ? parsed.stages.map((s) => s.mentions.map((m) => m.raw).join(" ")).join(", ") : "conductor",
+    payload: input,
+    status: "dispatched",
+    stage: 0,
+    parentId: null,
+  });
+
+  if (parsed.needsConductor && config.engine !== "shell") {
+    await dispatchViaConductor(input, parsed, config.engine);
+  } else {
+    await dispatchDirect(parsed);
+  }
+}
+
+/** Resolve @nome → TerminalNode/AgentNode no canvas-store. */
+function resolveMention(mention: { kind: string; value: string }): Array<{ label: string; sessionId: string; kind: string }> {
+  const s = useCanvasStore.getState();
+  const activeFloor = s.parallels.find((p) => p.id === s.activeParallelId);
+  if (!activeFloor) return [];
+
+  const terminals = activeFloor.nodes.filter((n): n is TerminalNode => n.kind === "terminal");
+  const agents = activeFloor.nodes.filter((n): n is AgentNode => n.kind === "agent");
+  const all = [...terminals, ...agents];
+  // O copiloto (orquestrador) não é frota: @all/@idle não o incluem, senão o
+  // Constructor mandaria o broadcast pra si mesmo. @nome explícito ainda o acha.
+  const fleet = all.filter((n) => ((n as TerminalNode).session_id ?? n.id) !== s.orchestratorSid);
+
+  if (mention.kind === "all") {
+    return fleet.map((n) => ({ label: n.label ?? n.id, sessionId: (n as TerminalNode).session_id ?? n.id, kind: n.kind }));
+  }
+  if (mention.kind === "idle") {
+    return fleet
+      .filter((n) => {
+        const sid = (n as TerminalNode).session_id ?? n.id;
+        const st = s.terminalStatuses[sid];
+        return !st || st === "idle";
+      })
+      .map((n) => ({ label: n.label ?? n.id, sessionId: (n as TerminalNode).session_id ?? n.id, kind: n.kind }));
+  }
+  // @nome ou @role:x — match por label ou role (case-insensitive)
+  const query = mention.value.toLowerCase();
+  return all
+    .filter((n) => {
+      const label = (n.label ?? "").toLowerCase();
+      const role = ((n as TerminalNode).role ?? "").toString().toLowerCase();
+      if (mention.kind === "role") return role.includes(query);
+      return label === query || label.includes(query) || (label.length > 0 && query.includes(label));
+    })
+    .map((n) => ({ label: n.label ?? n.id, sessionId: (n as TerminalNode).session_id ?? n.id, kind: n.kind }));
+}
+
+/** Despacho determinístico — @ explícito, resolve localmente e envia via PTY. */
+async function dispatchDirect(parsed: ParsedCommand): Promise<void> {
+  for (let i = 0; i < parsed.stages.length; i++) {
+    const stage = parsed.stages[i];
+    if (stage.mentions.length === 0) continue;
+
+    const targets: Array<{ label: string; sessionId: string; kind: string }> = [];
+    for (const m of stage.mentions) {
+      targets.push(...resolveMention(m));
+    }
+
+    if (targets.length === 0) {
+      const mentionStr = stage.mentions.map((m) => m.raw).join(" ");
+      await invoke("orchestrator_log", {
+        source: "conductor",
+        target: "user",
+        payload: `Nenhum agente casou '${mentionStr}'. Crie um agente no canvas e use o nome dele com @.`,
+        status: "error",
+        stage: i,
+        parentId: null,
+      });
+      continue;
+    }
+
+    for (const target of targets) {
+      const task = stage.payload || "";
+      try {
+        const st = useCanvasStore.getState().terminalStatuses[target.sessionId];
+        const isBusy = st === "working" || st === "blocked";
+
+        await ptyWrite(target.sessionId, task);
+        await new Promise((r) => setTimeout(r, 500)); // paste + Enter: 500ms garante o submit
+        await ptyWrite(target.sessionId, "\r");
+
+        await invoke("orchestrator_log", {
+          source: "conductor",
+          target: target.label,
+          payload: isBusy ? `${task}\n⏳ ${target.label} está ocupado — entrou na fila dele.` : task,
+          status: "dispatched",
+          stage: i,
+          parentId: null,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await invoke("orchestrator_log", {
+          source: "conductor",
+          target: target.label,
+          payload: `Erro: ${msg}`,
+          status: "error",
+          stage: i,
+          parentId: null,
+        });
+      }
+    }
+  }
+}
+
+/** Encontra ou cria um agente Conductor do tipo especificado (claude/codex/hermes). */
+async function findOrCreateConductor(engine: ConstructorEngine): Promise<string | null> {
+  const s = useCanvasStore.getState();
+  const activeFloor = s.parallels.find((p) => p.id === s.activeParallelId);
+  if (!activeFloor) return null;
+
+  const cliDef = ROLE_CLIS.find((c) => c.id === engine);
+  if (!cliDef) return null;
+
+  // Procura um terminal com este CLI no floor ativo
+  const existing = activeFloor.nodes.find((n): n is TerminalNode => {
+    if (n.kind !== "terminal") return false;
+    return (n as TerminalNode).command === cliDef.command;
+  });
+  if (existing) {
+    s.setOrchestratorSid(existing.session_id);
+    return existing.session_id;
+  }
+
+  // Não existe — cria um novo agente Conductor
+  const mcpPath = cliDef.role === "claude-code" ? await agentMcpConfig().catch(() => null) : null;
+  const built = buildCliSwitch({ cli: cliDef, persona: await constructorContext(), mcpConfigPath: mcpPath, settingsPath: null });
+
+  const id = `cond-${engine}-${Date.now().toString(36)}`;
+  // Usa o NÓ que o addTerminal devolve (session_id síncrono garantido) em vez de
+  // re-buscar no store — a busca frágil (find por id após 3s) às vezes não achava e
+  // cuspia "não consegui criar", mesmo com o terminal criado. `null` = circuit-breaker
+  // de spawn cortou (loop) → sobe pro caller avisar.
+  const created = s.addTerminal({
+    command: built.command,
+    args: built.args,
+    role: built.role,
+    label: `Constructor (${cliDef.label})`,
+    id,
+  });
+  if (!created) return null;
+  const sid = created.session_id;
+  useCanvasStore.getState().setOrchestratorSid(sid);
+
+  // Grace pro PTY subir no backend antes da 1ª escrita (senão o write se perde).
+  await new Promise((r) => setTimeout(r, 3000));
+  if (built.firstMessage) {
+    await ptyWrite(sid, built.firstMessage);
+    await new Promise((r) => setTimeout(r, 200));
+    await ptyWrite(sid, "\r");
+  }
+  return sid;
+}
+
+/** Engines que só existem como agente ACP (sem CLI de terminal) — o modo PTY do
+ *  Conductor não consegue criá-los (não há entry no ROLE_CLIS). Roteados p/ ACP. */
+const ACP_CONDUCTOR_ENGINES: ConstructorEngine[] = ["hermes"];
+
+/** Persona do Conductor — compartilhada entre o modo PTY e o ACP. */
+const CONDUCTOR_PERSONA =
+  "Você é o Constructor — o copiloto do sistema OmniRift. Você CONVERSA com o usuário e tem acesso " +
+  "total ao sistema. NÃO chute: use as tools pra ver o estado REAL antes de responder ou agir.\n\n" +
+  "VOCÊ CONHECE O CANVAS: use orchestrator_status / orchestrator_query / agent_status pra ver os " +
+  "agentes, terminais, estados (idle/working/blocked/done) e conexões AGORA.\n" +
+  "VOCÊ CONHECE O CÓDIGO: use serena (símbolos/navegação), omnifs (busca semântica no código), " +
+  "code_chunks (fatiar arquivo por AST) e context7 (docs de libs) pra entender o projeto.\n" +
+  "VOCÊ COMANDA O ORQUESTRADOR: use orchestrator_dispatch (manda tarefa a um agente), " +
+  "orchestrator_spawn_agent (cria agente), agent_ask/agent_tell (fala com um agente) e " +
+  "orchestration_send (fan-out pra um grupo) pra colocar a frota pra trabalhar.\n\n" +
+  "DOIS MODOS — cada mensagem do usuário começa com um marcador; OBEDEÇA:\n" +
+  "• [CONVERSA] → só CONVERSE: responda, tire dúvidas, ajude a planejar. NÃO crie agentes, " +
+  "NÃO despache, NÃO execute nada. É brainstorm — espere ele mandar executar.\n" +
+  "• [EXECUTAR] → você é ORQUESTRADOR PURO: NUNCA faça a tarefa você mesmo (não gere código, texto, " +
+  "imagem ou artifact; não edite arquivos). SEMPRE delegue a um agente da frota via orchestrator_dispatch; " +
+  "se nenhum servir, crie com orchestrator_spawn_agent. Mesmo tarefa 'simples' de 1 arquivo vai pra um " +
+  "agente — se você se pegar prestes a fazer direto, PARE e delegue. Diga A QUEM delegou e O QUÊ.\n" +
+  "AJA JÁ, NÃO SÓ PROPONHA: quando o usuário pedir agentes ou uma tarefa concreta (ex: 'traz 5 agentes', " +
+  "'faz um site'), CHAME orchestrator_spawn_agent pra criar CADA agente e orchestrator_dispatch pra dar as " +
+  "tarefas — NA HORA, no MESMO turno. NÃO termine perguntando 'qual você quer?' nem devolvendo só um plano: " +
+  "escolha o razoável e EXECUTE. Só pergunte se faltar o OBJETIVO (o quê construir); nunca por permissão.\n" +
+  "Responda curto, em português.\n\n" +
+  OMNIRIFT_BRIEFING;
+
+/** Persona do Constructor + snapshot do canvas no momento (grounding inicial). As tools dão o
+ *  estado FRESCO; o snapshot é só pra ele já começar situado sem gastar um turno consultando.
+ *  O isolamento de memória por projeto NÃO é feito aqui (remendo de prompt) e sim pelo hook
+ *  SessionStart do usuário (context-loader), agora preservado no config do agente. */
+async function constructorContext(): Promise<string> {
+  let canvas = "";
+  try {
+    canvas = await analyzeCanvas();
+  } catch {
+    /* segue sem snapshot — ele consulta via orchestrator_status/query */
+  }
+  return canvas
+    ? `${CONDUCTOR_PERSONA}\n\n--- Snapshot do canvas agora (use as tools p/ estado fresco) ---\n${canvas}`
+    : CONDUCTOR_PERSONA;
+}
+
+/** Despacho via OmniAgent ACP (ex: hermes) — cria o agente se preciso e entrega a task.
+ *  Diferente do modo PTY: não há terminal pra ptyWrite. A 1ª task vai embutida na persona
+ *  (o AgentNode entrega no ready); as seguintes via acpPrompt na sessão ACP viva. */
+async function dispatchViaAcpAgent(input: string, engine: ConstructorEngine): Promise<void> {
+  const store = useCanvasStore.getState();
+  const activeFloor = store.parallels.find((p) => p.id === store.activeParallelId);
+  if (!activeFloor) return;
+  const provider = engine as "hermes";
+
+  // Reusa um Constructor ACP do mesmo provider já no floor (label "Constructor (…)").
+  const existing = activeFloor.nodes.find(
+    (n): n is AgentNode =>
+      n.kind === "agent" && n.provider === provider && (n.label ?? "").startsWith("Constructor"),
+  );
+
+  if (existing?.acpSessionId) {
+    // Sessão ACP viva → manda a task direto.
+    await acpPrompt(existing.acpSessionId, input);
+    await invoke("orchestrator_log", {
+      source: "conductor", target: "user",
+      payload: `Despachado pro agente ${engine}.`, status: "dispatched", stage: 0, parentId: null,
+    });
+    return;
+  }
+
+  if (existing) {
+    // Criado mas ainda conectando (sem acpSessionId) — avisa p/ repetir em instantes.
+    await invoke("orchestrator_log", {
+      source: "conductor", target: "user",
+      payload: `Agente ${engine} ainda conectando — repita a tarefa em instantes.`,
+      status: "working", stage: 0, parentId: null,
+    });
+    return;
+  }
+
+  // Não existe → cria o OmniAgent ACP. A 1ª task vai na persona (entregue no ready).
+  store.addAgent({
+    provider,
+    label: `Constructor (${engine})`,
+    persona: `${await constructorContext()}\n\nPrimeira tarefa do usuário:\n${input}`,
+    cwd: store.currentCwd ?? undefined,
+  });
+  await invoke("orchestrator_log", {
+    source: "conductor", target: "user",
+    payload: `Criando agente ${engine} (ACP) e despachando a tarefa…`,
+    status: "dispatched", stage: 0, parentId: null,
+  });
+}
+
+/** Despacho via Conductor LLM/Agent — precisa interpretar/decompor. */
+async function dispatchViaConductor(
+  input: string,
+  _parsed: ParsedCommand,
+  engine: ConstructorEngine,
+): Promise<void> {
+  if (engine === "llm") {
+    const cfg = loadLlmConfig();
+    if (!cfg) {
+      await invoke("orchestrator_log", {
+        source: "conductor",
+        target: "user",
+        payload: "Configure um LLM em Ferramentas → 'LLM do review (BYOK)'.",
+        status: "error",
+        stage: 0,
+        parentId: null,
+      });
+      return;
+    }
+
+    const canvasSnap = await analyzeCanvas();
+    const system = `Você é o Conductor do OmniRift — o maestro de orquestração de agentes.
+Olhe o canvas e o input do usuário. Decida qual agente deve fazer o quê.
+Responda SEMPRE em formato JSON: {"dispatches": [{"target": "@nome", "task": "descrição", "priority": "blocking|async"}]}
+
+Canvas atual:
+${canvasSnap}`;
+
+    const response = await llmChat(cfg, system, input, { kind: "conductor" });
+
+    try {
+      const jsonMatch = response.match(/```json?\s*([\s\S]*?)```/) ?? response.match(/(\{[\s\S]*\})/);
+      const jsonStr = jsonMatch ? jsonMatch[1] : response;
+      const plan = JSON.parse(jsonStr);
+      if (plan.dispatches) {
+        for (const d of plan.dispatches) {
+          // Sanitiza d.task antes de injetar no PTY — remove \r, \n e null bytes
+          // que poderiam executar comandos não intencionais no terminal do agente.
+          const safeTask = String(d.task ?? "")
+            .replace(/[\r\n\0]/g, " ")
+            .trim();
+          if (!safeTask) continue;
+          const parsed = parseConstructorInput(d.target + " " + safeTask);
+          await dispatchDirect(parsed);
+        }
+      }
+    } catch {
+      await invoke("orchestrator_log", {
+        source: "conductor",
+        target: "user",
+        payload: response.slice(0, 500),
+        status: "done",
+        stage: 0,
+        parentId: null,
+      });
+    }
+  } else if (ACP_CONDUCTOR_ENGINES.includes(engine)) {
+    // Engine ACP-only (ex: hermes): não tem CLI de terminal, então o modo PTY abaixo
+    // nunca cria (não há entry no ROLE_CLIS). Cria um OmniAgent ACP e entrega a task
+    // via acpPrompt (não ptyWrite). Ver dispatchViaAcpAgent.
+    await dispatchViaAcpAgent(input, engine);
+  } else {
+    // Modo Agent PTY (claude/codex) — encontra ou cria o Conductor terminal
+    let conductorSid = useCanvasStore.getState().orchestratorSid;
+
+    // Verifica se o conductorSid atual ainda é válido e do tipo certo.
+    // (orchestratorSid vem do localStorage e sobrevive a reinício/rebuild do app,
+    //  mas a sessão PTY morre — então o sid pode apontar pra um nó que não existe
+    //  mais no canvas. Sem invalidar aqui, cai num ptyWrite → "sessão não encontrada".)
+    if (conductorSid) {
+      const st = useCanvasStore.getState(); // captura uma vez — evita TOCTOU
+      const activeFloor = st.parallels.find((p) => p.id === st.activeParallelId);
+      const node = activeFloor?.nodes.find((n) => (n as TerminalNode).session_id === conductorSid) as TerminalNode | undefined;
+      const cliDef = ROLE_CLIS.find((c) => c.id === engine);
+      if (!node || (cliDef && node.command !== cliDef.command)) {
+        conductorSid = null; // nó sumiu (sessão morta) ou é de tipo errado → recria
+      }
+    }
+
+    if (!conductorSid) {
+      await invoke("orchestrator_log", {
+        source: "conductor",
+        target: "user",
+        payload: `Procurando agente ${engine}…`,
+        status: "working",
+        stage: 0,
+        parentId: null,
+      });
+      conductorSid = await findOrCreateConductor(engine);
+    }
+
+    if (!conductorSid) {
+      await invoke("orchestrator_log", {
+        source: "conductor",
+        target: "user",
+        payload: `Não consegui encontrar ou criar um agente ${engine}. Crie um terminal ${engine} no canvas e tente de novo.`,
+        status: "error",
+        stage: 0,
+        parentId: null,
+      });
+      return;
+    }
+
+    // Agente ocupado: o PTY ENFILEIRA a mensagem (Claude Code mostra "press up to
+    // edit queued messages") — sem este aviso o usuário vê "despachado" e nada acontece.
+    const busyStatus = useCanvasStore.getState().terminalStatuses[conductorSid];
+    const isBusy = busyStatus === "working" || busyStatus === "blocked";
+
+    // Injeta input como user-message no PTY do Conductor. Se a sessão morreu no
+    // backend sem que o nó saísse do canvas (EOF), o ptyWrite falha — limpa o sid
+    // órfão e pede pra repetir (o próximo turno recria via findOrCreateConductor).
+    try {
+      // Marcador [EXECUTAR] → a persona do Constructor delega à frota (não faz sozinho).
+      // Delay MAIOR antes do Enter: o Claude Code trata o texto como paste (bracketed);
+      // com 150ms o \r chegava antes do paste ser processado e era engolido (mensagem
+      // ficava digitada no prompt, sem submeter). 500ms + \r garante o submit.
+      await ptyWrite(conductorSid, `[EXECUTAR — delegue à frota, NÃO faça você mesmo] ${input}`);
+      await new Promise((r) => setTimeout(r, 500));
+      await ptyWrite(conductorSid, "\r");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      useCanvasStore.getState().setOrchestratorSid(null);
+      await invoke("orchestrator_log", {
+        source: "conductor",
+        target: "user",
+        payload: `A sessão do agente ${engine} não está mais viva (${msg}). Recriando — repita a mensagem em instantes.`,
+        status: "error",
+        stage: 0,
+        parentId: null,
+      });
+      return;
+    }
+
+    await invoke("orchestrator_log", {
+      source: "conductor",
+      target: "user",
+      payload: isBusy
+        ? `Agente ${engine} está ocupado (${busyStatus}) — mensagem entrou na FILA dele e será processada quando o turno atual terminar.`
+        : `Despachado pro agente ${engine}.`,
+      status: "dispatched",
+      stage: 0,
+      parentId: null,
+    });
+  }
+}
+
+/** Carrega a config do Conductor (persistida em localStorage). */
+export function loadConstructorConfig(): ConstructorConfig {
+  try {
+    const raw = localStorage.getItem("omnirift-conductor-config");
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return { engine: "claude", model: null };
+}
+
+/** Salva a config do Conductor. */
+export function saveConstructorConfig(cfg: ConstructorConfig): void {
+  localStorage.setItem("omnirift-conductor-config", JSON.stringify(cfg));
+}
+
+/** Carrega o histórico da stream de orquestração. */
+export async function loadOrchestratorStream(): Promise<OrchestratorEntry[]> {
+  return invoke("orchestrator_stream_load");
+}

@@ -32,7 +32,11 @@ export async function analyzeCanvas(): Promise<string> {
 
   let mem = "";
   try {
-    const ms = await memoryQuery({ limit: 8 });
+    // ESCOPADO ao projeto atual (basename do cwd — o mesmo valor que os agentes usam
+    // no `scope` ao salvar). Sem o filtro, as últimas 8 memórias GLOBAIS do blackboard
+    // (de qualquer projeto) entravam na persona → vazamento cross-project no spawn.
+    const scope = (s.currentCwd ?? "").split("/").filter(Boolean).pop();
+    const ms = scope ? await memoryQuery({ scope, limit: 8 }) : [];
     if (ms.length) mem = "\n\nMemórias recentes do projeto:\n" + ms.map((m) => `- ${m.value}`).join("\n");
   } catch {
     /* memória é opcional */

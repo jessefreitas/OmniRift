@@ -37,6 +37,7 @@ import {
   Network,
   Plus,
   RefreshCw,
+  Radio,
   Repeat,
   Rocket,
   ScanLine,
@@ -114,6 +115,7 @@ const SnapshotsModal = lazy(() => import("@/components/SnapshotsModal").then((m)
 const RoutinesModal = lazy(() => import("@/components/RoutinesModal").then((m) => ({ default: m.RoutinesModal })));
 const RemindersModal = lazy(() => import("@/components/RemindersModal").then((m) => ({ default: m.RemindersModal })));
 const CompanionModal = lazy(() => import("@/components/CompanionModal").then((m) => ({ default: m.CompanionModal })));
+const OrchestratorStream = lazy(() => import("@/components/OrchestratorStream").then((m) => ({ default: m.OrchestratorStream })));
 const AppearanceModal = lazy(() => import("@/components/AppearanceModal").then((m) => ({ default: m.AppearanceModal })));
 const UsageModal = lazy(() => import("@/components/UsageModal").then((m) => ({ default: m.UsageModal })));
 const ConnectionsModal = lazy(() => import("@/components/ConnectionsModal").then((m) => ({ default: m.ConnectionsModal })));
@@ -191,6 +193,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "releases", icon: Rocket, label: "Novidades", desc: "Histórico completo de versões do OmniRift — o que mudou em cada release (timeline + busca)" },
   { id: "omnifs", icon: HardDrive, label: "OmniFS — Pasta de agentes", desc: "Drive versionado dos agentes: status do daemon, espaço, snapshots (com restauração humana) e reindexação da busca semântica" },
   { id: "companion", icon: Sparkles, label: "OmniPartner (IA)", desc: "Chat IA lateral que enxerga o canvas e ajuda a operar" },
+  { id: "conductor", icon: Radio, label: "Modo Conductor", desc: "Barra de orquestração por texto — despache tarefas com @, pipe e cria agentes no fluxo" },
   { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
   { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos paralelos" },
   { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
@@ -248,9 +251,12 @@ interface AgentPreset {
 }
 
 // Instaladores oficiais dos CLIs (rodados num terminal ao clicar "instalar").
+// npm -g num prefixo user-writável (~/.omnirift/tools) — NÃO em /usr (root → EACCES).
+// O tools/bin entra no PATH dos agentes (src-tauri/pty/session.rs), então o CLI é achado
+// ao spawnar. Mesmo dir do fluxo Rust cli_install (clis.rs::tools_prefix).
 const INSTALL = {
-  claude: "npm install -g @anthropic-ai/claude-code",
-  codex: "npm install -g @openai/codex",
+  claude: 'npm install -g --prefix "$HOME/.omnirift/tools" @anthropic-ai/claude-code',
+  codex: 'npm install -g --prefix "$HOME/.omnirift/tools" @openai/codex',
   opencode: "curl -fsSL https://opencode.ai/install | bash",
   antigravity: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
 };
@@ -263,11 +269,23 @@ const INSTALL = {
 // É role-aware: o ORQUESTRADOR recebe diretiva de DELEGAÇÃO (não "execute"), o worker
 // recebe diretiva de EXECUÇÃO. Uma linha só (sem \n) de propósito — texto multi-linha no
 // PTY vira "[Pasted text +N linhas]" e não submete (ver comentário em sendTeamBriefing).
+// Orquestração (camada 4): todo agente nasce sabendo conversar com a equipe.
+// A resposta é capturada pelo settle do PTY — o agente só precisa responder NORMAL.
+const ORQ_PREAMBLE =
+  " Você trabalha em equipe no OmniRift. Para falar com outro agente, use as tools: " +
+  "agent_status(target) vê o que ele faz sem interromper; agent_ask(target, question) pergunta e " +
+  "ESPERA a resposta dele; agent_tell(target, message) avisa sem esperar. " +
+  "Chame os outros pelo NOME CURTO (ex.: \"Security\" casa \"Security GLM52\"). Passe from=<seu label>. " +
+  "Quando você receber uma linha `[mensagem de @X] ...`, responda NORMALMENTE em prosa — sua " +
+  "resposta é capturada automaticamente (não precisa de formato especial). " +
+  "ANTES de editar um arquivo faça claim_check; se estiver travado por outro, " +
+  "use agent_ask(dono, \"preciso de <arquivo> — libera ou espero?\") e respeite a resposta.";
+
 function mcpRoleText(label: string, description: string, isOrchestrator: boolean): string {
   if (isOrchestrator) {
-    return `Você está agindo como ${label} (ORQUESTRADOR) no canvas OmniRift. ${description} NÃO execute tarefas você mesmo — delegue aos agentes da equipe pelas tools omnirift-agents: terminal_list para ver a equipe, terminal_run/terminal_send_text para delegar. Decomponha a tarefa, delegue e agregue os resultados.`;
+    return `Você está agindo como ${label} (ORQUESTRADOR) no canvas OmniRift. ${description} NÃO execute tarefas você mesmo — delegue aos agentes da equipe pelas tools omnirift-agents: terminal_list para ver a equipe, terminal_run/terminal_send_text para delegar. Decomponha a tarefa, delegue e agregue os resultados.${ORQ_PREAMBLE}`;
   }
-  return `Você está agindo como ${label} no canvas OmniRift. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.`;
+  return `Você está agindo como ${label} no canvas OmniRift. ${description} Quando receber uma tarefa, execute e responda de forma objetiva.${ORQ_PREAMBLE}`;
 }
 
 const PRESETS: AgentPreset[] = [
@@ -436,6 +454,12 @@ export function Sidebar() {
 
   const nameRef = useRef<HTMLInputElement>(null);
 
+  // Projetos abertos recentemente (mais novo primeiro) — a listinha da seção PROJETO.
+  const [recentProjects, setRecentProjects] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("omnirift-recent-projects") ?? "[]"); }
+    catch { return []; }
+  });
+
   // MCP: persistido em localStorage para sobreviver restarts
   const [mcpAgents, setMcpAgents] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("omnirift-mcp-agents") ?? "[]")); }
@@ -448,6 +472,8 @@ export function Sidebar() {
   // Orquestrador agora vive no store (compartilhado com o dock onipresente).
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
   const setOrchestratorSid = useCanvasStore((s) => s.setOrchestratorSid);
+  const constructorMode = useCanvasStore((s) => s.constructorMode);
+  const setConstructorMode = useCanvasStore((s) => s.setConstructorMode);
   // Sinal de auto-conexão A→B (FloorCanvas onConnect agente→terminal pede marcar o terminal).
   const requestMcpMark = useCanvasStore((s) => s.requestMcpMark);
   const clearRequestMcpMark = useCanvasStore((s) => s.clearRequestMcpMark);
@@ -548,6 +574,7 @@ export function Sidebar() {
   const [showGitRepos, setShowGitRepos] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
   const [showCompanion, setShowCompanion] = useState(false);
+  const [showOrchestratorStream, setShowOrchestratorStream] = useState(false);
   const [showSectionOrder, setShowSectionOrder] = useState(false);
   const [cow, setCow] = useState<CowInfo | null>(null);
   // Chip de custo no rodapé: custo estimado de HOJE (CLI + nativo). Refaz o scan
@@ -595,6 +622,7 @@ export function Sidebar() {
   const secStyle = (id: string) => ({ order: secReorder.order.indexOf(id) });
   const runTool: Record<string, () => void> = {
     companion: () => setShowCompanion(true),
+    conductor: () => setConstructorMode(!constructorMode),
     git: () => setShowGitRepos(true),
     connections: () => setShowConnections(true),
     "llm-providers": () => setShowLlmProviders(true),
@@ -659,6 +687,7 @@ export function Sidebar() {
         case "git": setShowGitRepos(true); break;
         case "reminders": setShowReminders(true); break;
         case "companion": setShowCompanion(true); break;
+        case "conductor": setConstructorMode(!constructorMode); break;
       }
     };
     window.addEventListener("omnirift:open-tool", h);
@@ -818,6 +847,17 @@ export function Sidebar() {
   useEffect(() => {
     localStorage.setItem("omnirift-mcp-agents", JSON.stringify([...mcpAgents]));
   }, [mcpAgents]);
+  // Registro EXTERNO (terminal_spawn / orchestrator_spawn_agent, via orchestration-client):
+  // o backend registra no agent_registry mas este estado é local → sem o sync o
+  // checkbox "MCP AGENTS" ficava desmarcado pra agentes criados pelo Constructor.
+  useEffect(() => {
+    const onRegistered = (e: Event) => {
+      const sid = (e as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
+      if (sid) setMcpAgents((prev) => (prev.has(sid) ? prev : new Set([...prev, sid])));
+    };
+    window.addEventListener("omnirift:mcp-registered", onRegistered);
+    return () => window.removeEventListener("omnirift:mcp-registered", onRegistered);
+  }, []);
   useEffect(() => {
     localStorage.setItem("omnirift-mcp-descs", JSON.stringify(agentDescriptions));
   }, [agentDescriptions]);
@@ -1760,8 +1800,25 @@ export function Sidebar() {
     });
   }
 
-  function installPreset(preset: AgentPreset) {
+  async function installPreset(preset: AgentPreset) {
     if (!preset.installCmd) return;
+    // NÃO reinstala o que já está no PATH: `npm install -g` num prefix root (/usr)
+    // falha com EACCES à toa. Checa como o fluxo Rust cli_install (is_binary_on_path).
+    try {
+      const clis = await clisList();
+      const hit = clis.find((c) => c.binary === preset.command || c.id === preset.command);
+      if (hit?.installed) {
+        void notify(
+          tr("sidebar.presetAlreadyInstalled", "{cli} já está instalado ({ver}). Pra ABRIR o agente, clique no NOME dele (não no botão de instalar).")
+            .replace("{cli}", tr("preset." + preset.id, preset.label))
+            .replace("{ver}", hit.version ?? "ok"),
+          "info",
+        );
+        return;
+      }
+    } catch {
+      /* checagem falhou → segue pro install (comportamento antigo, sem regressão) */
+    }
     addTerminal({
       command: "bash",
       args: [
@@ -1773,20 +1830,31 @@ export function Sidebar() {
     });
   }
 
-  async function pickFolder() {
-    const selected = await open({ directory: true, multiple: false, title: tr("sidebar.pickProjectFolderTitle", "Selecionar pasta do projeto") });
-    if (typeof selected !== "string") return;
+  /** Abre uma pasta de projeto (do dialog OU da lista de recentes) e grava nos recentes. */
+  async function openFolder(selected: string) {
     // Canvas por pasta: salva o canvas atual atrelado à pasta ATUAL (se houver) antes de trocar.
     if (currentCwd) {
       await folderCanvasSave(currentCwd, JSON.stringify(getWorkspaceSnapshot())).catch(() => {});
     }
     setCurrentCwd(selected);
+    // Recentes: mais novo primeiro, dedup, teto 8 — a listinha da seção PROJETO.
+    setRecentProjects((prev) => {
+      const next = [selected, ...prev.filter((p) => p !== selected)].slice(0, 8);
+      try { localStorage.setItem("omnirift-recent-projects", JSON.stringify(next)); } catch { /* cheio */ }
+      return next;
+    });
     // Restaura o canvas salvo daquela pasta → "os agentes daquele projeto voltam". Pasta nova
     // (sem canvas salvo) → mantém o canvas atual (não limpa).
     try {
       const saved = await folderCanvasLoad(selected);
       if (saved) restoreWorkspace(JSON.parse(saved));
     } catch { /* canvas corrompido → ignora, segue com o atual */ }
+  }
+
+  async function pickFolder() {
+    const selected = await open({ directory: true, multiple: false, title: tr("sidebar.pickProjectFolderTitle", "Selecionar pasta do projeto") });
+    if (typeof selected !== "string") return;
+    await openFolder(selected);
   }
 
   async function handleSave() {
@@ -2164,6 +2232,25 @@ export function Sidebar() {
             {currentCwd}
           </p>
         )}
+        {/* Recentes — abre direto sem caçar a pasta no dialog. Esconde o projeto já aberto. */}
+        {recentProjects.filter((p) => p !== currentCwd).length > 0 && (
+          <div className="mt-1">
+            <p className="px-2 text-[9px] uppercase tracking-wide text-textMuted opacity-60">
+              {tr("sidebar.recentProjects", "Recentes")}
+            </p>
+            {recentProjects.filter((p) => p !== currentCwd).slice(0, 5).map((p) => (
+              <button
+                key={p}
+                onClick={() => void openFolder(p)}
+                title={p}
+                className="w-full flex items-center gap-1.5 px-2 py-0.5 rounded text-left hover:bg-surface2 transition-colors"
+              >
+                <History size={10} className="text-textMuted shrink-0" />
+                <span className="text-[10px] text-textMuted truncate">{p.split("/").filter(Boolean).pop()}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {currentCwd && <EditorOpenButton path={currentCwd} />}
         {/* Sync CLAUDE.md ↔ AGENTS.md (regras de projeto pros agentes) */}
         {currentCwd && docsStatus && (docsStatus.claude || docsStatus.agents) && (
@@ -2336,7 +2423,7 @@ export function Sidebar() {
               {preset.installCmd && (
                 <Tooltip label={tr("sidebar.installCliOf", "Instalar a CLI do {name}").replace("{name}", tr("preset." + preset.id, preset.label))} side="top" className="shrink-0">
                   <button
-                    onClick={() => installPreset(preset)}
+                    onClick={() => void installPreset(preset)}
                     className="px-2 py-2 text-textMuted hover:text-brand opacity-0 group-hover:opacity-100 transition-all"
                   >
                     <Download size={13} />
@@ -2548,6 +2635,7 @@ export function Sidebar() {
       {showRoutines && <RoutinesModal onClose={() => setShowRoutines(false)} cwd={currentCwd} />}
       {showReminders && <RemindersModal onClose={() => setShowReminders(false)} />}
       {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
+      {showOrchestratorStream && <OrchestratorStream onClose={() => setShowOrchestratorStream(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
       {showLlmProviders && <ProvidersCentralModal onClose={() => setShowLlmProviders(false)} />}
       {showPipeline && <PipelineArchitectModal onClose={() => setShowPipeline(false)} />}

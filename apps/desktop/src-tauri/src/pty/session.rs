@@ -265,16 +265,31 @@ impl PtySession {
 
         let id_for_waiter = id.clone();
         let app_for_waiter = app.clone();
-        std::thread::spawn(move || match child.wait() {
-            Ok(status) => {
-                let _ = app_for_waiter.emit(
-                    "pty://exit",
-                    PtyExitEvent { session_id: id_for_waiter, exit_code: Some(status.exit_code() as i32) },
-                );
+        std::thread::spawn(move || {
+            let status = child.wait();
+            // Sessão morreu → tira do registry MCP. Senão o label fantasma continua
+            // registrado apontando pra sessão morta e o resolve fuzzy ainda o acha
+            // ("dormindo (dead)"). Por session_id: se o label já foi re-registrado
+            // com sessão nova (reload/switchCli), a entry nova NÃO é tocada.
+            {
+                use tauri::Manager;
+                if let Some(reg) = app_for_waiter.try_state::<Arc<crate::mcp::AgentRegistry>>() {
+                    for label in reg.unregister_by_session(&id_for_waiter) {
+                        log::info!("MCP: agente '{label}' desregistrado (sessão morreu)");
+                    }
+                }
             }
-            Err(e) => {
-                log::error!("erro aguardando child do PTY: {e}");
-                let _ = app_for_waiter.emit("pty://exit", PtyExitEvent { session_id: id_for_waiter, exit_code: None });
+            match status {
+                Ok(status) => {
+                    let _ = app_for_waiter.emit(
+                        "pty://exit",
+                        PtyExitEvent { session_id: id_for_waiter, exit_code: Some(status.exit_code() as i32) },
+                    );
+                }
+                Err(e) => {
+                    log::error!("erro aguardando child do PTY: {e}");
+                    let _ = app_for_waiter.emit("pty://exit", PtyExitEvent { session_id: id_for_waiter, exit_code: None });
+                }
             }
         });
 
@@ -458,13 +473,29 @@ fn build_command(cfg: &PtySpawnConfig) -> CommandBuilder {
     // do `cfg.env` pra um TERM custom do caller ainda poder sobrescrever.
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    // PATH do shell de login: acha CLIs instalados via nvm/npm-global (ex: gemini) que o
-    // PATH restrito do app GUI não enxerga. Prepende o login PATH ao do app (login vence
-    // na resolução; o do app continua de fallback). Antes do `cfg.env` pra o caller poder
-    // sobrescrever PATH se quiser. No-op se `login_shell_path()` for None.
-    if let Some(lp) = login_shell_path() {
-        let current = std::env::var("PATH").unwrap_or_default();
-        cmd.env("PATH", if current.is_empty() { lp.to_string() } else { format!("{lp}:{current}") });
+    // PATH dos agentes, em ordem de prioridade (prepend = vence na resolução):
+    //   1) tools/bin do OmniRift (~/.omnirift/tools/bin) — CLIs instalados pelo app via
+    //      npm/pipx/cargo com prefixo user-writável; enxerga o recém-instalado na hora.
+    //   2) login PATH (nvm/npm-global do usuário) — CLIs que o PATH restrito do app GUI
+    //      não enxerga (ex: gemini). No-op se `login_shell_path()` for None.
+    //   3) PATH do processo do app — fallback.
+    // Montado num único `cmd.env` (setar PATH duas vezes sobrescreveria a 1ª). Antes do
+    // `cfg.env` pra o caller ainda poder sobrescrever PATH se quiser.
+    {
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(tb) = crate::commands::clis::tools_bin() {
+            parts.push(tb.to_string_lossy().to_string());
+        }
+        if let Some(lp) = login_shell_path() {
+            parts.push(lp.to_string());
+        }
+        let process_path = std::env::var("PATH").unwrap_or_default();
+        if !process_path.is_empty() {
+            parts.push(process_path);
+        }
+        if !parts.is_empty() {
+            cmd.env("PATH", parts.join(":"));
+        }
     }
     for (k, v) in &cfg.env {
         cmd.env(k, v);
