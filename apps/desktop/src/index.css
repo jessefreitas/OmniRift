@@ -105,6 +105,31 @@ textarea::-webkit-scrollbar-track {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
 }
 
+/* Resize: mesma dor dos handles acima, mesma técnica. No CSS do @xyflow a BORDA
+   (.line) é alvo de 1px e o canto (.handle) de 8px — pinçar pra expandir é sorte.
+   O ::after invisível alarga SÓ a pega; o visual (linha de 1px, canto de 8px) fica
+   intocado. Vale também sobre o handleStyle inline dos nós (inline vence CSS de
+   width/height, mas não o pseudo-elemento). */
+.react-flow__resize-control.line::after,
+.react-flow__resize-control.handle::after {
+  content: "";
+  position: absolute;
+}
+/* bordas esquerda/direita: 1px → ~11px de pega */
+.react-flow__resize-control.line.left::after,
+.react-flow__resize-control.line.right::after {
+  inset: 0 -5px;
+}
+/* bordas topo/baixo: 1px → ~11px de pega */
+.react-flow__resize-control.line.top::after,
+.react-flow__resize-control.line.bottom::after {
+  inset: -5px 0;
+}
+/* cantos: 8px → ~20px de pega */
+.react-flow__resize-control.handle::after {
+  inset: -6px;
+}
+
 /* Markdown renderizado no Preview node (sem @tailwindcss/typography). */
 .md-preview {
   line-height: 1.55;

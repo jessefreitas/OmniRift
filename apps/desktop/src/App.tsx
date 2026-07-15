@@ -13,6 +13,7 @@ import { persistReviewConfig } from "@/lib/review-config-sync";
 import { acpGc } from "@/lib/acp-client";
 import { initPtyGlobalSink } from "@/lib/pty-global-sink";
 import { useCanvasStore } from "@/store/canvas-store";
+import { startMainThreadWatchdog } from "@/lib/debug-log";
 import { mcpServersImportGlobal } from "@/lib/mcp-servers-client";
 import { notify } from "@/lib/notify";
 import { useT } from "@/lib/i18n";
@@ -24,6 +25,22 @@ export default function App() {
   useOrchestrationWatchdog();
 
   const tr = useT();
+
+  // Watchdog de main thread: grava no debug.log quando a UI congela (o "não responde /
+  // forçar saída" do WebKitGTK). O contexto vai junto pra correlacionar o travamento com a
+  // CARGA — floors montados vs nós vs terminais VIVOS (dormentes não custam PTY/xterm).
+  // O trackRender já cobre loop de render; isto cobre bloqueio sem loop, que ele não vê.
+  useEffect(() => {
+    return startMainThreadWatchdog(() => {
+      const s = useCanvasStore.getState();
+      const nodes = s.parallels.reduce((acc, f) => acc + f.nodes.length, 0);
+      const live = s.parallels.reduce(
+        (acc, f) => acc + f.nodes.filter((n) => n.kind === "terminal" && !n.dormant).length,
+        0,
+      );
+      return `floors=${s.parallels.length} nodes=${nodes} terms-vivos=${live}`;
+    });
+  }, []);
 
   // Aviso pós strict-mcp: os agentes NÃO herdam mais os mcpServers do ~/.claude.json.
   // No boot, importa os globais como DESLIGADOS (idempotente — nunca liga nem

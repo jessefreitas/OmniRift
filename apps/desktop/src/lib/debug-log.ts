@@ -50,3 +50,64 @@ export function trackRender(key: string): void {
     );
   }
 }
+
+// ── Watchdog de main thread bloqueada ───────────────────────────────────────
+// WebKitGTK (Linux) não implementa PerformanceObserver com entryType "longtask",
+// então usamos deriva de timer: se o setInterval acordou atrasado, a main thread
+// esteve bloqueada durante o tick. Detecta QUE travou e por quanto, mas não QUEM travou.
+
+const TICK_MS = 500;
+const BLOCK_WARN_MS = 250;
+const BLOCK_SEVERE_MS = 1000;
+const BLOCK_COOLDOWN_MS = 2000;
+
+let mainThreadWatchdogHandle: number | null = null;
+let mainThreadWatchdogCleanup: (() => void) | null = null;
+// -BLOCK_COOLDOWN_MS (e não 0): performance.now() começa perto de zero, então com 0 o
+// cooldown engoliria os bloqueios dos 2 primeiros segundos — justo o boot. Mesmo
+// padrão do `alertedAt` no detector de render acima.
+let lastMainBlockLog = -BLOCK_COOLDOWN_MS;
+
+/** Liga o watchdog. `getContext` (opcional) devolve contexto curto pra linha do log. */
+export function startMainThreadWatchdog(getContext?: () => string): () => void {
+  if (mainThreadWatchdogCleanup !== null) {
+    return mainThreadWatchdogCleanup;
+  }
+
+  let expected = performance.now() + TICK_MS;
+
+  mainThreadWatchdogHandle = window.setInterval(() => {
+    const now = performance.now();
+    const drift = now - expected;
+
+    if (drift >= BLOCK_WARN_MS && now - lastMainBlockLog >= BLOCK_COOLDOWN_MS) {
+      lastMainBlockLog = now;
+
+      let context: string;
+      try {
+        context = getContext?.() ?? "";
+      } catch {
+        context = ""; // getContext nunca derruba o watchdog
+      }
+
+      const severity = drift >= BLOCK_SEVERE_MS ? "severo" : "jank";
+      const roundedDrift = Math.round(drift);
+      const contextPart = context ? ` ${context}` : "";
+      logToDisk(
+        `[${new Date().toISOString()}] [⏱ MAIN-BLOCK] main thread parada ~${roundedDrift}ms (${severity})${contextPart}`,
+      );
+    }
+
+    expected = now + TICK_MS;
+  }, TICK_MS);
+
+  mainThreadWatchdogCleanup = () => {
+    if (mainThreadWatchdogHandle !== null) {
+      clearInterval(mainThreadWatchdogHandle);
+      mainThreadWatchdogHandle = null;
+    }
+    mainThreadWatchdogCleanup = null;
+  };
+
+  return mainThreadWatchdogCleanup;
+}
