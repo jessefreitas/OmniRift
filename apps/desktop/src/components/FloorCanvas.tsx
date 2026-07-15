@@ -6,7 +6,7 @@
 // seguro porque as sessões são do backend (AgentNode re-anexa via acp_attach/F2;
 // TerminalNode via pty_list+pty_snapshot; kill só explícito no canvas-store).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ReactFlow,
@@ -48,7 +48,6 @@ import { ReviewNode } from "@/components/nodes/ReviewNode";
 import { FilterNode } from "@/components/nodes/FilterNode";
 import { CommunityNode } from "@/components/nodes/CommunityNode";
 import { FlowEdge } from "@/components/edges/FlowEdge";
-import { useConnectionRouting } from "@/hooks/useConnectionRouting";
 import { useCanvasStore } from "@/store/canvas-store";
 import { registerFloorInstance } from "@/lib/canvas-focus";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
@@ -114,8 +113,18 @@ function miniMapNodeColor(n: Node): string {
   return MINIMAP_COLORS[n.type ?? ""] ?? "rgb(120, 120, 130)";
 }
 
-export function FloorCanvas({ floorId, active }: { floorId: string; active: boolean }) {
-  useConnectionRouting(); // roteia saída de agente → entrada do nó conectado + anima a edge
+// memo: props são só primitivos (floorId/active) e TODO o resto vem de seletores do
+// store. Sem isso, qualquer set() no canvas-store re-renderizava o Canvas (que assina
+// `parallels`) e com ele os N FloorCanvas — N ReactFlow re-renderizando por mudança de
+// store, sendo que só um floor mudou. setTerminalStatus de agente streamando e drag de
+// nó disparam isso dezenas de vezes por segundo. Com o memo, cada floor só re-renderiza
+// quando o SEU objeto de floor muda (seletor da linha de baixo).
+function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean }) {
+  // useConnectionRouting NÃO mora aqui — é roteador GLOBAL (opera no floor ativo via
+  // activeParallelId) e o Canvas monta um FloorCanvas por floor. Uma instância por floor
+  // = N roteadores com `seenRef` INDEPENDENTE → cada saída de agente era roteada N vezes
+  // (o ptyWrite pro terminal alvo não é batchado pelo React: escrevia o texto N vezes).
+  // Vive no Canvas, que monta 1x. Ver Canvas.tsx.
   const floor = useCanvasStore((s) => s.parallels.find((f) => f.id === floorId));
   const updateNodePosition = useCanvasStore((s) => s.updateNodePosition);
   const updateNodeSize = useCanvasStore((s) => s.updateNodeSize);
@@ -463,3 +472,5 @@ export function FloorCanvas({ floorId, active }: { floorId: string; active: bool
     </ReactFlow>
   );
 }
+
+export const FloorCanvas = memo(FloorCanvasImpl);

@@ -23,6 +23,7 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { ConstructorBar } from "@/components/ConstructorBar";
 import { useQuickJump } from "@/hooks/useQuickJump";
 import { useRoutines } from "@/hooks/useRoutines";
+import { useConnectionRouting } from "@/hooks/useConnectionRouting";
 
 export function Canvas() {
   const parallels = useCanvasStore((s) => s.parallels);
@@ -30,6 +31,10 @@ export function Canvas() {
   const activeProjectId = useCanvasStore((s) => s.activeProjectId);
   useQuickJump(); // Alt+1..9 → floor N
   useRoutines(); // scheduler das routines por intervalo
+  // Roteador GLOBAL (saída de agente → entrada do nó conectado + anima a edge). Aqui, e
+  // não no FloorCanvas: lá seria uma instância por floor, cada uma com `seenRef` próprio,
+  // roteando a MESMA saída N vezes. Ver comentário no FloorCanvas.
+  useConnectionRouting();
 
   return (
     <div className="absolute inset-0">
