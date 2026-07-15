@@ -174,16 +174,18 @@ jobs:
           includeUpdaterJson: true
           args: --bundles ${{ matrix.bundles }}
 
-      - name: macOS — garantir seal ad-hoc no .app e reempacotar .dmg
+      # GUARD de leitura: confere que o .app dentro do .dmg saiu com seal ad-hoc do
+      # bundler. Verifica sem tocar no dmg — reempacotar invalidaria o .sig minisign
+      # que o tauri-action acabou de gerar.
+      # continue-on-error: macOS é best-effort e NÃO está no feed do updater (só
+      # Linux/Win auto-atualizam). Uma regressão de seal no Mac não pode segurar a
+      # entrega dessas duas — mesmo critério dos steps do OmniFS acima. Falha aparece
+      # como annotation vermelha no run.
+      - name: macOS — verificar seal ad-hoc do .dmg (não modifica)
         if: matrix.os == 'macos-14'
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bash scripts/macos-repack-dmg.sh
+        continue-on-error: true
+        run: bash scripts/macos-verify-seal.sh
 
   # Gate de smoke no ARTEFATO REAL: instala o .deb do draft e exige boot limpo.
   # Verde → publica o release (updater/clientes passam a ver). Vermelho → fica DRAFT,
