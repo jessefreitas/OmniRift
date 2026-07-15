@@ -21,7 +21,8 @@ Isso **não** significa download corrompido.
 | Camada | Onde | Efeito |
 |--------|------|--------|
 | Seal ad-hoc no **build** | `tauri.conf.json` → `bundle.macOS.signingIdentity: "-"` + job macOS no `release.yml` | O `.app` dentro do `.dmg` sai com sealed resources |
-| Fallback CI | `scripts/macos-adhoc-codesign.sh` + `scripts/macos-repack-dmg.sh` | Re-sela e reempacota se o bundler regredir |
+| Guard no CI | `scripts/macos-verify-seal.sh` | Monta o `.dmg` e **falha o step** se o seal do bundler regredir (não modifica o dmg — reempacotar invalidaria o `.sig` do updater) |
+| Re-seal manual | `scripts/macos-adhoc-codesign.sh` | Sela um `.app` local (usado pelo `install-macos-dev.sh`) |
 | Install do usuário | `scripts/install-macos.sh` | `xattr -cr` + re-seal local + copia pra `/Applications` |
 
 ## Workaround local (uma linha)
