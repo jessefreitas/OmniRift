@@ -367,6 +367,16 @@ pub fn run() {
             tauri_plugin_log::Builder::new()
                 .targets(targets)
                 .level(log::LevelFilter::Info)
+                // [segurança] Redige segredos na ESCRITA (não só na leitura do /diag): sem
+                // isto, qualquer log::info!/error! que interpole output de comando, header ou
+                // linha de env grava `sk-…`/`ghp_…`/PEM em CLARO no omnirift.log (que outro
+                // processo com acesso ao FS do usuário pode ler). Reproduz o formato default
+                // do plugin (`[data][hora][target][LEVEL] msg`, UTC) e redige só a mensagem.
+                .format(|out, message, record| {
+                    let ts = chrono::Utc::now().format("[%Y-%m-%d][%H:%M:%S]");
+                    let msg = crate::redactor::redact(&message.to_string());
+                    out.finish(format_args!("{}[{}][{}] {}", ts, record.target(), record.level(), msg));
+                })
                 // Rotação razoável: mantém só o log atual até ~5 MB, depois rotaciona.
                 .max_file_size(5 * 1024 * 1024)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
