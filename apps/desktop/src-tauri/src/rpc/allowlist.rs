@@ -22,6 +22,10 @@ pub const MOBILE_RPC_METHOD_ALLOWLIST: &[&str] = &[
     // Mobile #9 read-only: pendências de permissão dos OmniAgents + board Kanban.
     "permissions.list",
     "kanban.list",
+    // ACP read-only: listar OmniAgents + ver o histórico observável de um (acp.snapshot
+    // reusa o attach). A resposta é redigida no ws antes de sair pro relay.
+    "acp.list",
+    "acp.snapshot",
 ];
 
 /// Métodos que o **steering opt-in** (Mobile steering #9) destrava p/ um device `mobile`
@@ -30,8 +34,16 @@ pub const MOBILE_RPC_METHOD_ALLOWLIST: &[&str] = &[
 /// [`MOBILE_RPC_METHOD_ALLOWLIST`] segue `forbidden` mesmo com steer ligado.
 /// As 3 mutações de agente + as 2 mutações mobile #9 (`permission.respond` = responder um
 /// pedido de permissão do agente; `kanban.move` = mover card) exigem steering ligado.
-pub const MOBILE_STEER_ALLOWLIST: &[&str] =
-    &["agent.spawn", "agent.send", "agent.kill", "permission.respond", "kanban.move"];
+pub const MOBILE_STEER_ALLOWLIST: &[&str] = &[
+    "agent.spawn",
+    "agent.send",
+    "agent.kill",
+    "permission.respond",
+    "kanban.move",
+    // ACP: mandar prompt pro OmniAgent (equivalente do agent.send) + matar (agent.kill).
+    "acp.prompt",
+    "acp.cancel",
+];
 
 /// `true` se `method` é permitido pro `scope`. `Runtime` = full (CLI confiável); `Mobile`
 /// = só o que está na allowlist. Comparação exata do nome (sem normalização — os nomes do
@@ -102,6 +114,33 @@ mod tests {
     }
 
     #[test]
+    fn acp_readonly_allowed_mutations_need_steer() {
+        let readonly = ["acp.list", "acp.snapshot"];
+        let mutations = ["acp.prompt", "acp.cancel"];
+
+        for method in readonly {
+            assert!(
+                is_allowed(method, DeviceScope::Mobile),
+                "método read-only {} deveria ser permitido em DeviceScope::Mobile",
+                method
+            );
+        }
+
+        for method in mutations {
+            assert!(
+                !is_allowed(method, DeviceScope::Mobile),
+                "método de mutação {} não deveria ser permitido diretamente em DeviceScope::Mobile",
+                method
+            );
+            assert!(
+                is_steer_allowed(method),
+                "método de mutação {} deveria exigir steer (is_steer_allowed)",
+                method
+            );
+        }
+    }
+
+    #[test]
     fn runtime_scope_allows_anything() {
         assert!(is_allowed("pty.kill", DeviceScope::Runtime));
         assert!(is_allowed("status", DeviceScope::Runtime));
@@ -110,17 +149,18 @@ mod tests {
 
     #[test]
     fn allowlist_is_exactly_the_mvp_set() {
-        // 4 do MVP (#8A/push) + 2 read-only mobile #9 (permissions.list, kanban.list).
-        assert_eq!(MOBILE_RPC_METHOD_ALLOWLIST.len(), 6, "read-only mobile = 6 métodos");
+        // 4 do MVP (#8A/push) + 2 read-only mobile #9 (permissions.list, kanban.list)
+        // + 2 ACP read-only (acp.list, acp.snapshot).
+        assert_eq!(MOBILE_RPC_METHOD_ALLOWLIST.len(), 8, "read-only mobile = 8 métodos");
     }
 
     // --- Steering opt-in (#9) ---
 
     #[test]
     fn steer_allowlist_is_exactly_the_three_mutations() {
-        // 3 mutações de agente + 2 mutações mobile #9 (permission.respond, kanban.move).
-        assert_eq!(MOBILE_STEER_ALLOWLIST.len(), 5, "steering = 3 mutações de agente + 2 #9");
-        for m in ["agent.spawn", "agent.send", "agent.kill", "permission.respond", "kanban.move"] {
+        // 3 mutações de agente + 2 mutações mobile #9 + 2 ACP (acp.prompt, acp.cancel).
+        assert_eq!(MOBILE_STEER_ALLOWLIST.len(), 7, "steering = 3 agente + 2 #9 + 2 ACP");
+        for m in ["agent.spawn", "agent.send", "agent.kill", "permission.respond", "kanban.move", "acp.prompt", "acp.cancel"] {
             assert!(is_steer_allowed(m), "'{m}' é destravável por steer");
         }
     }
