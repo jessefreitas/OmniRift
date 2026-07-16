@@ -40,11 +40,7 @@
     "shortDescription": "Canvas infinito para orquestrar agentes de IA, terminais e notas.",
     "longDescription": "OmniRift é um canvas infinito para orquestrar agentes de IA (Claude Code, Codex, shell), terminais PTY, sketches e notas — o equivalente open-source do Maestri para Linux e Windows. Conecte agentes entre si, organize o trabalho em workspaces e paralelos (git worktrees) e mantenha terminais, notas e navegadores num só lugar.",
     "createUpdaterArtifacts": true,
-    "externalBin": [
-      "binaries/omnicompress-proxy",
-      "binaries/omnicompress-mcp",
-      "binaries/omnicompress"
-    ],
+    "externalBin": [],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -57,6 +53,8 @@
     },
     "windows": {
       "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
         "installerHooks": "./windows/hooks.nsh"
       }
     },

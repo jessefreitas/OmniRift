@@ -71,7 +71,27 @@ export function SessionHistoryModal({ onClose }: Props) {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    let mounted = true;
+    async function run() {
+      setLoading(true);
+      setError(null);
+      try {
+        const rows = await sessionsList();
+        if (!mounted) return;
+        setSessions(rows);
+        setSelected((cur) => cur ?? rows[0]?.id ?? null);
+      } catch (e) {
+        if (!mounted) return;
+        setError(String(e));
+      } finally {
+        if (!mounted) return;
+        setLoading(false);
+      }
+    }
+    void run();
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     if (!selected) { setEvents([]); return; }

@@ -85,7 +85,26 @@ export function SnapshotsModal({ onClose }: Props) {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    let mounted = true;
+    async function run() {
+      setLoading(true);
+      setError(null);
+      try {
+        const items = await snapshotsList();
+        if (!mounted) return;
+        setItems(items);
+      } catch (e) {
+        if (!mounted) return;
+        setError(String(e));
+      } finally {
+        if (!mounted) return;
+        setLoading(false);
+      }
+    }
+    void run();
+    return () => { mounted = false; };
+  }, []);
 
   async function create() {
     const label = prompt(t("snapshots.labelPrompt", "Rótulo do snapshot (opcional):")) ?? undefined;

@@ -396,7 +396,13 @@ impl AcpManager {
         let cwd_abs: String = match cwd.as_deref() {
             Some(c) => std::fs::canonicalize(c)
                 .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| c.to_string()),
+                .or_else(|_| {
+                    if std::path::Path::new(c).exists() {
+                        Ok(c.to_string())
+                    } else {
+                        Err(anyhow!("diretório não existe: {}", c))
+                    }
+                })?,
             None => std::env::current_dir()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| "/".to_string()),

@@ -30,12 +30,30 @@ export function CompressorsModal({ onClose }: { onClose: () => void }) {
 
   const refresh = () => {
     setLoading(true);
-    refreshCompressors() // atualiza o cache de reachability (gate do spawn)
+    refreshCompressors()
       .then(setList)
       .catch(() => setList([]))
       .finally(() => setLoading(false));
   };
-  useEffect(refresh, []);
+  useEffect(() => {
+    let mounted = true;
+    async function run() {
+      setLoading(true);
+      try {
+        const list = await refreshCompressors();
+        if (!mounted) return;
+        setList(list);
+      } catch {
+        if (!mounted) return;
+        setList([]);
+      } finally {
+        if (!mounted) return;
+        setLoading(false);
+      }
+    }
+    void run();
+    return () => { mounted = false; };
+  }, []);
 
   // Roda o comando de instalação num terminal do canvas (BYO instalável pelo app).
   // `update=true` → usa rótulos de "atualização" (o comando já vem transformado).

@@ -43,7 +43,21 @@ export function ProvidersCentralModal({ onClose }: { onClose: () => void }) {
   function reload() {
     llmProvidersList().then(setList).catch(() => setList([]));
   }
-  useEffect(reload, []);
+  useEffect(() => {
+    let mounted = true;
+    async function run() {
+      try {
+        const list = await llmProvidersList();
+        if (!mounted) return;
+        setList(list);
+      } catch {
+        if (!mounted) return;
+        setList([]);
+      }
+    }
+    void run();
+    return () => { mounted = false; };
+  }, []);
 
   function applyKind(k: string) {
     setKind(k);

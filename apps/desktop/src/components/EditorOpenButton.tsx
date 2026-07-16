@@ -25,7 +25,16 @@ export function EditorOpenButton({ path, line }: { path: string; line?: number }
   const [open, setOpen] = useState(false);
   const addTerminal = useCanvasStore((s) => s.addTerminal);
 
-  useEffect(() => { void detectEditors().then(setEditors); }, []);
+  useEffect(() => {
+    let mounted = true;
+    async function run() {
+      const list = await detectEditors();
+      if (!mounted) return;
+      setEditors(list);
+    }
+    void run();
+    return () => { mounted = false; };
+  }, []);
 
   if (editors.length === 0) return null;
   const chosen = editors.find((e) => e.id === pref) ?? editors[0];

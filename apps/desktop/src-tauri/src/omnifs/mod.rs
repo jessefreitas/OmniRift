@@ -1171,10 +1171,13 @@ mod tests {
                     let method = req.get("method").and_then(Value::as_str).unwrap_or("");
                     // Notificação (sem id) → sem resposta, igual ao serve_conn real.
                     let Some(id) = id else { continue };
-                    let result = match method {
-                        "initialize" => json!({ "protocolVersion": "2024-11-05",
-                            "capabilities": { "tools": {} },
-                            "serverInfo": { "name": "omnifs", "version": "0.0.1" } }),
+                    let resp = match method {
+                        "initialize" => {
+                            let result = json!({ "protocolVersion": "2024-11-05",
+                                "capabilities": { "tools": {} },
+                                "serverInfo": { "name": "omnifs", "version": "0.0.1" } });
+                            json!({ "jsonrpc": "2.0", "id": id, "result": result })
+                        }
                         "tools/call" => {
                             let name = req.pointer("/params/name").and_then(Value::as_str);
                             assert_eq!(name, Some("omnifs_snapshot"));
@@ -1182,12 +1185,15 @@ mod tests {
                                 .pointer("/params/arguments/message")
                                 .and_then(Value::as_str)
                                 .unwrap_or("");
-                            json!({ "content": [{ "type": "text",
-                                "text": format!("snapshot: deadbeef ({msg})") }] })
+                            let result = json!({ "content": [{ "type": "text",
+                                "text": format!("snapshot: deadbeef ({msg})") }] });
+                            json!({ "jsonrpc": "2.0", "id": id, "result": result })
                         }
-                        _ => panic!("método inesperado: {method}"),
+                        _ => {
+                            json!({ "jsonrpc": "2.0", "id": id, "error": {
+                                "code": -32601, "message": format!("método não suportado: {method}") } })
+                        }
                     };
-                    let resp = json!({ "jsonrpc": "2.0", "id": id, "result": result });
                     writeln!(writer, "{resp}").unwrap();
                     writer.flush().unwrap();
                 }

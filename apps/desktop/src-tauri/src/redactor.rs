@@ -62,8 +62,10 @@ fn rules() -> &'static [Rule] {
     RULES.get_or_init(|| {
         let mut v: Vec<Rule> = Vec::new();
         let mut push = |pat: &str, repl: &'static str| {
-            // unwrap é seguro: padrões são literais auditados (testes cobrem cada um).
-            v.push(Rule { re: Regex::new(pat).expect("regex do redactor inválida"), repl: Repl::Simple(repl) });
+            match Regex::new(pat) {
+                Ok(re) => v.push(Rule { re, repl: Repl::Simple(repl) }),
+                Err(e) => log::error!("regex do redactor inválida '{}': {}", pat, e),
+            }
         };
 
         // --- 1. Blocos PEM (MAIS específico: multi-linha, deve vir antes de tudo) ---
@@ -98,13 +100,12 @@ fn rules() -> &'static [Rule] {
         // "CHAVE=", grupo 2 = o valor (resto da linha sem newline). `(?m)` para `^`/`$`
         // casarem por linha. O replacement (EnvKvSkipRedacted) preserva a chave e
         // redige o valor — exceto se o valor já for um placeholder `[REDACTED:…]`.
-        v.push(Rule {
-            re: Regex::new(
-                r"(?im)^(\s*[A-Za-z0-9_.\-]*(?:TOKEN|SECRET|KEY|PASSWORD|API)[A-Za-z0-9_.\-]*\s*=\s*)(\S.*)$",
-            )
-            .expect("regex do redactor inválida"),
-            repl: Repl::EnvKvSkipRedacted,
-        });
+        match Regex::new(
+            r"(?im)^(\s*[A-Za-z0-9_.\-]*(?:TOKEN|SECRET|KEY|PASSWORD|API)[A-Za-z0-9_.\-]*\s*=\s*)(\S.*)$",
+        ) {
+            Ok(re) => v.push(Rule { re, repl: Repl::EnvKvSkipRedacted }),
+            Err(e) => log::error!("regex do redactor inválida (env-kv): {}", e),
+        }
 
         v
     })

@@ -38,7 +38,26 @@ export function RemindersModal({ onClose }: Props) {
       setLoading(false);
     }
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    let mounted = true;
+    async function run() {
+      setLoading(true);
+      setError(null);
+      try {
+        const items = await remindersList();
+        if (!mounted) return;
+        setItems(items);
+      } catch (e) {
+        if (!mounted) return;
+        setError(String(e));
+      } finally {
+        if (!mounted) return;
+        setLoading(false);
+      }
+    }
+    void run();
+    return () => { mounted = false; };
+  }, []);
 
   async function toggle(r: Reminder) {
     await reminderSetDone(r.id, !r.done);

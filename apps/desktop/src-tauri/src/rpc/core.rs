@@ -142,7 +142,7 @@ impl Registry {
     pub fn register(&mut self, name: impl Into<String>, handler: Handler) {
         let name = name.into();
         if self.methods.contains_key(&name) {
-            panic!("RPC: método duplicado registrado: '{name}'");
+            log::warn!("RPC: método duplicado registrado '{name}', sobrescrevendo o anterior");
         }
         self.methods.insert(name, handler);
     }

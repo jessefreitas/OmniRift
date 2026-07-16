@@ -140,7 +140,18 @@ export function RoutinesModal({ onClose, cwd }: Props) {
   async function reloadInstalled() {
     try { setInstalled(new Set(await schedulerList())); } catch { /* ignore */ }
   }
-  useEffect(() => { void reloadInstalled(); }, []);
+  useEffect(() => {
+    let mounted = true;
+    async function run() {
+      try {
+        const list = await schedulerList();
+        if (!mounted) return;
+        setInstalled(new Set(list));
+      } catch {}
+    }
+    void run();
+    return () => { mounted = false; };
+  }, []);
 
   async function toggleOsSchedule(r: Routine) {
     setSchedErr(null);

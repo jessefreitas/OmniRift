@@ -41,7 +41,21 @@ export function McpServersModal({ onClose }: Props) {
   async function load() {
     try { setServers(await mcpServersList()); } catch (e) { setErr(String(e)); }
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    let mounted = true;
+    async function run() {
+      try { 
+        const list = await mcpServersList();
+        if (!mounted) return;
+        setServers(list);
+      } catch (e) { 
+        if (!mounted) return;
+        setErr(String(e)); 
+      }
+    }
+    void run();
+    return () => { mounted = false; };
+  }, []);
 
   function reset() {
     setPicked(null); setParam(""); setCustomName(""); setCustomJson(""); setErr(null);

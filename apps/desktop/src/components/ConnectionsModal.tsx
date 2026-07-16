@@ -206,7 +206,26 @@ export function ConnectionsModal({ onClose }: Props) {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    let mounted = true;
+    async function run() {
+      try {
+        const [list, act] = await Promise.all([providersList(), providerActive()]);
+        if (!mounted) return;
+        setConns(list);
+        setActive(act);
+        const omni = list.find((c) => c.kind === "omnimemory");
+        if (omni?.endpoint) setOmniEndpoint(omni.endpoint);
+        const obs = list.find((c) => c.kind === "obsidian");
+        if (obs?.endpoint) setObsEndpoint(obs.endpoint);
+      } catch (e) {
+        if (!mounted) return;
+        setError(String(e));
+      }
+    }
+    void run();
+    return () => { mounted = false; };
+  }, []);
 
   const configured = (k: ProviderKind) => conns.some((c) => c.kind === k);
 

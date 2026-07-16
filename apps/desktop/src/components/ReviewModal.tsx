@@ -47,7 +47,8 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
   const [result, setResult] = useState<ReviewResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const config = useMemo(() => loadLlmConfig(), []);
+  const [config, setConfig] = useState(() => loadLlmConfig());
+  useEffect(() => { setConfig(loadLlmConfig()); }, []);
   const policy = useMemo(() => loadPolicy(floor.repoRoot || floor.id), [floor]);
   const base = floor.baseBranch ?? "main";
   const scope = floor.repoRoot || floor.id;
@@ -117,7 +118,7 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (config) void run(); }, []);
+  useEffect(() => { if (config) void run().catch((e) => setError(String(e))); }, []);
 
   // Re-review automático: quando o agente de auto-fix termina (idle/done depois de
   // ter trabalhado), roda o review de novo. "dead" só limpa o watch.
@@ -130,7 +131,7 @@ export function ReviewModal({ floor, onClose, onConfigure, onEditPolicy }: Props
       fixBusyRef.current = false;
       setFixingAgentId(null);
       setDispatchNote(t("review.fixerDone", "Agente de correção terminou — re-revisando…"));
-      void run();
+      void run().catch((e) => setError(String(e)));
     }
   }, [fixAgentStatus, fixingAgentId]);
 
