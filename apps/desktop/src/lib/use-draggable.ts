@@ -1,6 +1,8 @@
-// Hook genérico de "painel flutuante arrastável": prende um elemento pelo grip, clampa
-// dentro da viewport e persiste a posição por storageKey (localStorage). Sem posição salva,
-// style é undefined (o CSS default posiciona); ao arrastar, vira {left, top} absoluto.
+// Hook de painel flutuante arrastável. Usa setPointerCapture no grip + escuta os eventos NO
+// PRÓPRIO grip (não no window): no WebKitGTK o pointerup do window às vezes não dispara e o
+// listener de move ficava preso — o painel grudava no cursor ("mouse travado"). Com capture,
+// pointerup/pointercancel vêm sempre pro grip capturado. Posição persistida por storageKey.
+// `fixed` (não absolute): left/top em coords de viewport, batendo com o clientX/clientY do drag.
 import { useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 type Pos = { x: number; y: number };
@@ -16,23 +18,19 @@ export function useDraggable(storageKey: string) {
     try {
       const raw = localStorage.getItem(storageKey);
       if (raw) return JSON.parse(raw) as Pos;
-    } catch {
-      return null;
-    }
+    } catch {}
     return null;
   });
 
-  // `fixed` (não `absolute`): assim left/top são coordenadas de VIEWPORT, batendo com o
-  // clientX/clientY do drag. Com `absolute` o offset do container (sidebar/aba) fazia o
-  // painel saltar pra longe do cursor. `right:auto` neutraliza o `right-3` do default.
   const style: CSSProperties | undefined = pos
     ? { position: "fixed", left: pos.x, top: pos.y, right: "auto" }
     : undefined;
 
-  const onPointerDown = (e: ReactPointerEvent) => {
+  const onPointerDown = (e: ReactPointerEvent<HTMLElement>) => {
     const el = ref.current;
     if (!el) return;
 
+    const grip = e.currentTarget as HTMLElement;
     const rect = el.getBoundingClientRect();
     const dx = e.clientX - rect.left;
     const dy = e.clientY - rect.top;
@@ -40,19 +38,23 @@ export function useDraggable(storageKey: string) {
     const h = el.offsetHeight;
 
     e.preventDefault();
+    try {
+      grip.setPointerCapture(e.pointerId);
+    } catch {}
 
-    // Handler de movimento: recalcula left/top clampados dentro da viewport
     const move = (ev: PointerEvent) => {
       const x = clamp(ev.clientX - dx, 0, window.innerWidth - w);
       const y = clamp(ev.clientY - dy, 0, window.innerHeight - h);
       setPos({ x, y });
     };
 
-    // Handler de soltar: remove listeners e persiste a posição no localStorage
     const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      try {
+        grip.releasePointerCapture(e.pointerId);
+      } catch {}
       setPos((current) => {
         if (current) {
           try {
@@ -63,8 +65,9 @@ export function useDraggable(storageKey: string) {
       });
     };
 
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
   };
 
   return { ref, onPointerDown, style, floating: pos !== null };
