@@ -22,8 +22,11 @@ export function useDraggable(storageKey: string) {
     return null;
   });
 
+  // `fixed` (não `absolute`): assim left/top são coordenadas de VIEWPORT, batendo com o
+  // clientX/clientY do drag. Com `absolute` o offset do container (sidebar/aba) fazia o
+  // painel saltar pra longe do cursor. `right:auto` neutraliza o `right-3` do default.
   const style: CSSProperties | undefined = pos
-    ? { left: pos.x, top: pos.y, right: "auto" }
+    ? { position: "fixed", left: pos.x, top: pos.y, right: "auto" }
     : undefined;
 
   const onPointerDown = (e: ReactPointerEvent) => {
