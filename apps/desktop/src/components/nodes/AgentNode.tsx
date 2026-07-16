@@ -894,6 +894,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             } : {}),
           });
           resumeRef.current = null; // consumido
+          // Primeiro spawn desta vida do nó → marca no store: é o sinal que o
+          // FloorCanvas usa pra soltar a virtualização de volta (time do Montar
+          // fora do viewport monta uma vez, spawna, e o floor volta ao normal).
+          if (!data.spawnedOnce) patchNode(data.id, { spawnedOnce: true });
         } catch (e) {
           pushSys(`erro ao iniciar: ${e}`);
           setStatus("dead");
