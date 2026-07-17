@@ -391,7 +391,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             crate::audio::play_boot_sound,
-            crate::audio::speak_greeting,
+            crate::audio::play_greeting,
             acp_spawn,
             acp_attach,
             acp_prompt,

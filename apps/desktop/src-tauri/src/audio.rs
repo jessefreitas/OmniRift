@@ -1,4 +1,3 @@
-use std::process::Command;
 use std::thread;
 
 // Áudio da intro é tocado pelo backend porque o WebKitGTK usado pelo Tauri no Linux
@@ -56,17 +55,28 @@ pub fn play_boot_sound() {
     });
 }
 
-// Síntese de voz também fica no backend para não depender do navegador embutido.
-// Usa spd-say do sistema, já que o WebKitGTK não expõe TTS confiável.
+// Saudação FRIDAY: voz neural PRÉ-GRAVADA (ElevenLabs, Daniel/britânico, PT-BR) embutida no
+// binário como WAV. Tocada pelo backend via rodio (Decoder wav) — o WebKitGTK não roteia
+// Web Audio nem TTS no Linux. Voz fixa de alta qualidade, offline, sem custo em runtime.
+static GREETING_WAV: &[u8] = include_bytes!("../assets/boot-greeting.wav");
+
 #[tauri::command]
-pub fn speak_greeting(text: String) {
-    thread::spawn(move || {
-        let _ = Command::new("spd-say")
-            .arg("-l")
-            .arg("pt-BR")
-            .arg("-w")
-            .arg(&text)
-            .status();
-        // erros são ignorados: se o spd-say não estiver instalado, não travamos o app
+pub fn play_greeting() {
+    thread::spawn(|| {
+        let (_stream, handle) = match rodio::OutputStream::try_default() {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let sink = match rodio::Sink::try_new(&handle) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let cursor = std::io::Cursor::new(GREETING_WAV);
+        let source = match rodio::Decoder::new(cursor) {
+            Ok(s) => s,
+            Err(_) => return, // WAV inválido: falha silenciosa
+        };
+        sink.append(source);
+        sink.sleep_until_end();
     });
 }

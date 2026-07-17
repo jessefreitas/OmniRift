@@ -5,7 +5,7 @@ import { playBootSound, speakGreeting, stopAudio } from "@/lib/boot-audio";
 
 export function BootIntro({
   onDone,
-  greeting = "Bom dia. Sistemas OmniRift online.",
+  greeting = "Bom dia, senhor. Sistemas OmniRift online. Todos os agentes ao seu comando.",
   color = "#38d6ff",
 }: {
   onDone: () => void;
