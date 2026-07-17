@@ -26,6 +26,7 @@ pub mod pty;
 // Reusa ACP + PTY + MCP. Estende orchestration_send existente com tools novas.
 pub mod orchestrator;
 pub mod redactor;
+pub mod sandbox;
 // Registro RPC central (ref #8) — substrato CLI/mobile: socket local + token por
 // sessão + 3 métodos (status / agents.list / pty.snapshot). Subido no setup() via
 // tauri::async_runtime::spawn; degrade limpo se o socket não bindar.
