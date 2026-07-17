@@ -1,143 +1,107 @@
 import { useEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent } from "react";
-import { createFridayOrb, type FridayOrbHandle } from "@/lib/friday-orb";
+import { buildHudSvg, pickAccent } from "@/lib/boot-hud";
 import { BOOT_PROBES, runBootProbe, type ProbeResult } from "@/lib/boot-probes";
 import { playBootSound, speakGreeting, stopAudio } from "@/lib/boot-audio";
-import { currentGreeting, getBootVoice, setBootVoice, type BootVoice } from "@/lib/boot-greeting";
+import { getBootVoice, setBootVoice, type BootVoice } from "@/lib/boot-greeting";
 
-export function BootIntro({ onDone, color = "#38d6ff" }: { onDone: () => void; color?: string }) {
-  const greeting = currentGreeting(); // texto neutro por período do dia
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const orbRef = useRef<FridayOrbHandle | null>(null);
-  const aliveRef = useRef(true);
+const CSS = `
+.bi-root{position:fixed;inset:0;z-index:9999;background:radial-gradient(circle at 50% 50%,#0d0f12 0%,#060708 70%);font-family:'Orbitron',system-ui,monospace;transition:opacity .5s;color:#dbe1e7;}
+.bi-hud{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:10;}
+.bi-hud svg{width:min(90vmin,640px);height:min(90vmin,640px);}
+.bhud-spin{transform-origin:320px 320px;animation:bhudspin var(--dur,20s) linear infinite;animation-direction:var(--dir,normal);}
+@keyframes bhudspin{to{transform:rotate(360deg);}}
+.bi-brand{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;z-index:50;}
+.bi-title{font-size:3rem;font-weight:700;letter-spacing:.45em;text-shadow:0 0 24px rgba(200,208,216,.6);}
+.bi-cta{margin-top:1.4rem;font-size:.72rem;letter-spacing:.4em;text-transform:uppercase;color:rgba(255,255,255,.55);animation:bipulse 2.2s ease-in-out infinite;}
+@keyframes bipulse{0%,100%{opacity:.35}50%{opacity:1}}
+@keyframes biignite{0%{transform:rotate(0) scale(1);opacity:1}70%{transform:rotate(360deg) scale(1.3);opacity:.7}100%{transform:rotate(360deg) scale(1.6);opacity:0}}
+.igniting .bi-hud{animation:biignite 1.5s cubic-bezier(.5,.05,.3,1) forwards;}
+.igniting .bi-brand{opacity:0;transition:opacity .4s;}
+.bi-loader{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,80vw);opacity:0;pointer-events:none;z-index:60;transition:opacity .6s;}
+.loading .bi-loader{opacity:1;}
+.entering .bi-loader{opacity:0;}
+.bi-bar{height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden;margin-bottom:16px;}
+.bi-fill{height:100%;background:linear-gradient(90deg,#6b7280,#c0c8d0);box-shadow:0 0 12px rgba(200,208,216,.6);transition:width .35s ease;}
+.bi-list{list-style:none;font-size:11px;letter-spacing:.12em;margin:0;padding:0;}
+.bi-list li{display:flex;justify-content:space-between;padding:3px 0;color:rgba(215,222,228,.85);}
+.bi-list li .ok{color:#9aa6b2;}
+.bi-pct{text-align:right;font-size:10px;letter-spacing:.2em;color:rgba(255,255,255,.35);margin-top:10px;}
+.bi-enter{position:absolute;left:50%;bottom:18%;transform:translateX(-50%);z-index:70;text-align:center;opacity:0;pointer-events:none;transition:opacity .6s;}
+.ready .bi-enter{opacity:1;}
+.bi-enter .rdy{font-size:14px;letter-spacing:.35em;text-shadow:0 0 16px rgba(200,208,216,.5);}
+.bi-enter .go{margin-top:10px;font-size:11px;letter-spacing:.4em;text-transform:uppercase;color:rgba(255,255,255,.6);animation:bipulse 2s ease-in-out infinite;}
+.bi-voice{position:absolute;right:16px;top:16px;z-index:80;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.05);border-radius:999px;padding:4px 12px;font:11px 'Orbitron',monospace;color:rgba(255,255,255,.7);cursor:pointer;}
+`;
+
+export function BootIntro({ onDone }: { onDone: () => void }) {
+  const [hud] = useState(() => buildHudSvg());
+  const [accent] = useState(() => (Math.random() < 0.4 ? pickAccent() : "#dbe1e7"));
+  const [phase, setPhase] = useState<"idle"|"igniting"|"loading"|"ready"|"entering">("idle");
   const [results, setResults] = useState<ProbeResult[]>([]);
-  const [started, setStarted] = useState(false);
-  const [ready, setReady] = useState(false);
-  const [fading, setFading] = useState(false);
   const [voice, setVoiceState] = useState<BootVoice>(getBootVoice());
+  const aliveRef = useRef(true);
+  const phaseRef = useRef(phase); phaseRef.current = phase;
 
-  // Inicia o orb com baixa intensidade e escuta redimensionamento
-  useEffect(() => {
-    const orb = createFridayOrb(canvasRef.current!, { color });
-    orbRef.current = orb;
-    orb.start();
-    orb.setIntensity(0.15);
-    aliveRef.current = true;
+  useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; stopAudio(); }; }, []);
 
-    const onResize = () => orb.resize();
-    window.addEventListener("resize", onResize);
-
-    return () => {
-      aliveRef.current = false;
-      orb.stop();
-      stopAudio();
-      window.removeEventListener("resize", onResize);
-      orbRef.current = null;
-    };
-  }, [color]);
-
-  // Toque 1: acorda FRIDAY, toca som, fala saudação e executa probes
-  const begin = useCallback(() => {
-    setStarted(true);
-    playBootSound();
-    void speakGreeting(voice);
-
-    const orb = orbRef.current;
-    if (orb) orb.setIntensity(0.7);
-
+  const startLoading = useCallback(() => {
+    setPhase("loading");
     (async () => {
       for (const p of BOOT_PROBES) {
         if (!aliveRef.current) return;
         const res = await runBootProbe(p);
         if (!aliveRef.current) return;
         setResults((prev) => [...prev, res]);
-        orb?.setIntensity(0.9);
-        setTimeout(() => orb?.setIntensity(0.35), 250);
         await new Promise((r) => setTimeout(r, 380));
       }
-      if (aliveRef.current) setReady(true);
+      if (aliveRef.current) setPhase("ready");
     })();
+  }, []);
+
+  const ignite = useCallback(() => {
+    setPhase("igniting");
+    playBootSound();
+    void speakGreeting(voice);
+    setTimeout(() => { if (aliveRef.current) startLoading(); }, 1500);
+  }, [voice, startLoading]);
+
+  const enter = useCallback(() => {
+    setPhase("entering");
+    stopAudio();
+    setTimeout(onDone, 600);
+  }, [onDone]);
+
+  const onGesture = useCallback(() => {
+    const ph = phaseRef.current;
+    if (ph === "idle") ignite();
+    else if (ph === "ready") enter();
+  }, [ignite, enter]);
+
+  const toggleVoice = useCallback((e: ReactMouseEvent) => {
+    e.stopPropagation();
+    const next: BootVoice = voice === "male" ? "female" : "male";
+    setVoiceState(next); setBootVoice(next);
   }, [voice]);
 
-  // Toque 2: inicia fade e encerra introdução
-  const enter = useCallback(() => {
-    if (fading) return;
-    setFading(true);
-    stopAudio();
-    setTimeout(onDone, 500);
-  }, [fading, onDone]);
-
-  // Encaminha clique/tecla para o fluxo correto
-  const handleGesture = useCallback(() => {
-    if (!started) begin();
-    else enter();
-  }, [started, begin, enter]);
-
-  // Troca a voz (persiste); se já acordou, re-toca na hora
-  const toggleVoice = useCallback(
-    (e: ReactMouseEvent) => {
-      e.stopPropagation();
-      const next: BootVoice = voice === "male" ? "female" : "male";
-      setVoiceState(next);
-      setBootVoice(next);
-      if (started) void speakGreeting(next);
-    },
-    [voice, started]
-  );
-
-  // Permite acordar/entrar via teclado
-  useEffect(() => {
-    const onKey = () => handleGesture();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [handleGesture]);
+  const pct = BOOT_PROBES.length ? Math.round(results.length / BOOT_PROBES.length * 100) : 0;
 
   return (
-    <div
-      onClick={handleGesture}
-      className={`fixed inset-0 z-[9999] flex items-center justify-center bg-[#05070a] transition-opacity duration-500 ${
-        fading ? "opacity-0" : "opacity-100"
-      }`}
-    >
-      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
-
-      {/* Botão de voz no canto superior direito */}
-      <button
-        onClick={toggleVoice}
-        className="absolute right-4 top-4 z-20 rounded-full border border-white/15 bg-white/5 px-3 py-1 font-mono text-[11px] text-white/70 hover:border-white/30 hover:text-white"
-      >
-        {voice === "male" ? "♂ Adam" : "♀ Ophelia"}
-      </button>
-
-      <div className="relative z-10 flex flex-col items-center gap-6 px-6 text-center font-mono select-none">
-        <div className="text-2xl font-semibold tracking-[0.3em]" style={{ color }}>
-          OMNIRIFT
-        </div>
-
-        {started && <div className="text-sm text-white/70">{greeting}</div>}
-
-        {started && (
-          <div className="mt-2 flex flex-col gap-1 text-[11px]">
-            {results.map((r, i) => (
-              <div key={i} className="flex min-w-[260px] items-center justify-between gap-6">
-                <span className="text-white/50">{r.label}</span>
-                <span className={r.ok ? "text-emerald-400" : "text-white/30"}>{r.status}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!started ? (
-          <div className="mt-4 animate-pulse text-[11px] uppercase tracking-widest text-white/60">
-            clique ou tecle para acordar a FRIDAY
-          </div>
-        ) : !ready ? (
-          <div className="mt-4 text-[11px] text-white/30">inicializando…</div>
-        ) : (
-          <div className="mt-4 animate-pulse text-[11px] uppercase tracking-widest text-white/60">
-            clique ou tecle para entrar
-          </div>
-        )}
+    <div className={`bi-root ${phase}`} onClick={onGesture} style={{ opacity: phase === "entering" ? 0 : 1 }}>
+      <style>{CSS}</style>
+      <button className="bi-voice" onClick={toggleVoice}>{voice === "male" ? "♂ Adam" : "♀ Maria"}</button>
+      <div className="bi-hud" dangerouslySetInnerHTML={{ __html: hud }} />
+      <div className="bi-brand">
+        <div className="bi-title" style={{ color: accent }}>OMNIRIFT</div>
+        <div className="bi-cta">clique para iniciar</div>
       </div>
+      <div className="bi-loader">
+        <div className="bi-bar"><div className="bi-fill" style={{ width: pct + "%" }} /></div>
+        <ul className="bi-list">
+          {results.map((r, i) => (<li key={i}><span>{r.label}</span><span className="ok">{r.status}</span></li>))}
+        </ul>
+        <div className="bi-pct">{pct}%</div>
+      </div>
+      <div className="bi-enter"><div className="rdy">SISTEMA PRONTO</div><div className="go">clique para entrar</div></div>
     </div>
   );
 }
