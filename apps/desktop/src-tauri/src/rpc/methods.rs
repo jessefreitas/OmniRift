@@ -212,7 +212,11 @@ fn pty_snapshot(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
     let snap = pty
         .snapshot(&parsed.session_id, rows)
         .map_err(|e| RpcError::not_found(format!("{e:#}")))?;
-    serde_json::to_value(snap).map_err(|e| RpcError::internal(e.to_string()))
+    // [segurança] Redige segredos antes de espelhar o VT pro mobile (o device pareado decifra
+    // o e2ee e veria `sk-…`/`ghp_…` na tela). O xterm LOCAL usa outro caminho (comando Tauri).
+    let mut val = serde_json::to_value(snap).map_err(|e| RpcError::internal(e.to_string()))?;
+    crate::redactor::redact_json(&mut val);
+    Ok(val)
 }
 
 // ===========================================================================
@@ -701,8 +705,10 @@ fn acp_snapshot(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
         .attach(&p.session_id)
         .map_err(|e| RpcError::not_found(format!("{e:#}")))?;
 
-    serde_json::to_value(snapshot)
-        .map_err(|e| RpcError::internal(e.to_string()))
+    // [segurança] acp.snapshot está na allowlist mobile → redige os payloads antes do relay.
+    let mut val = serde_json::to_value(snapshot).map_err(|e| RpcError::internal(e.to_string()))?;
+    crate::redactor::redact_json(&mut val);
+    Ok(val)
 }
 
 fn acp_prompt(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {

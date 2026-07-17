@@ -159,6 +159,22 @@ pub fn redact_value(s: &str) -> String {
     redact(s)
 }
 
+/// Redige recursivamente as strings-folha de um Value (snapshots do relay pro mobile:
+/// PTY `data` + payloads ACP). Só altera o que casa padrão de segredo — ids/seq intactos.
+pub fn redact_json(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::String(s) => {
+            let r = redact(s);
+            if r != *s {
+                *s = r;
+            }
+        }
+        serde_json::Value::Array(a) => a.iter_mut().for_each(redact_json),
+        serde_json::Value::Object(o) => o.values_mut().for_each(redact_json),
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,6 +184,29 @@ mod tests {
         let out = redact("key=sk-ant-api03-AbCdEf1234567890_xyz endhere");
         assert!(out.contains("[REDACTED:anthropic]"), "got: {out}");
         assert!(!out.contains("sk-ant-api03"), "got: {out}");
+    }
+
+    #[test]
+    fn redact_json_scrubs_nested_strings_only() {
+        let key = format!("sk-{}", "AbCdEfGhIjKlMnOpQrStUvWx");
+        let mut v = serde_json::json!({
+            "data": format!("A chave é {} e é secreta.", key),
+            "events": [
+                {
+                    "payload": {
+                        "text": key.clone()
+                    }
+                }
+            ],
+            "id": "sessao-123",
+            "seq": 42
+        });
+        redact_json(&mut v);
+        let s = v.to_string();
+        assert!(!s.contains("sk-Ab"), "chave OpenAI vazou no JSON");
+        assert!(s.contains("[REDACTED:openai]"), "chave OpenAI não foi redigida");
+        assert!(s.contains("sessao-123"), "id foi alterado indevidamente");
+        assert!(s.contains("42"), "número foi alterado indevidamente");
     }
 
     #[test]
