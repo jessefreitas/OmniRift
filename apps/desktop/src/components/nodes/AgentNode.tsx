@@ -59,6 +59,7 @@ import {
 } from "@/lib/acp-client";
 import { scheduleReindex, omnifsIsManagedCwd, omnifsSnapshotNow } from "@/lib/omnifs-client";
 import { getFlag, useFlag } from "@/lib/feature-flags";
+import { runLazinessCheck } from "@/lib/laziness-check";
 import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
 import { communityForPath } from "@/lib/omnigraph-graph";
 import { useAgentCheckpoints } from "@/lib/agent-checkpoints";
@@ -247,6 +248,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // Saída da condição na iteração anterior — se repetir idêntica, o agente está preso num
   // raciocínio circular (aplicou o mesmo fix que não muda nada) → aborta (detecção de estagnação).
   const goalLastOutRef = useRef<string | null>(null);
+  // 🕵️ Classificador de preguiça (grok 4.2): tool calls REAIS do turno + teto de auto-nudges.
+  const turnToolsRef = useRef<{ count: number; names: string[] }>({ count: 0, names: [] });
+  const lazinessNudgeRef = useRef(0);
   const statusRef = useRef<Status>("starting");
   const [goalRun, setGoalRun] = useState<{ iter: number; status: "running" | "done" | "stopped" | "fail" } | null>(null);
   const [panel, setPanel] = useState<"none" | "goal" | "loop">("none");
@@ -507,6 +511,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         const title = up.title as string | undefined;
         const tk = up.kind as string | undefined;
         const st = up.status as string | undefined;
+        if (kind === "tool_call") { turnToolsRef.current.count += 1; if (title) turnToolsRef.current.names.push(title); }
         // Fase 2a — captura o DIFF do tool_call (content[].type === "diff") pra virar payload
         // estruturado na linha. ACP dá {path, oldText, newText} (ou um patch pronto).
         const content = up.content as Array<Record<string, unknown>> | undefined;
@@ -673,6 +678,8 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           // Gêmeo estrutural do reindex temporal; gate barato + no-op no backend se não há grafo.
           scheduleGraphRebuild(turnCwd);
           const reply = lastReplyRef.current.trim();
+          const turnTools = { ...turnToolsRef.current };
+          turnToolsRef.current = { count: 0, names: [] };
           // 🧹 turno de COMPACTAÇÃO: a resposta É o resumo → substitui a conversa por
           // [system marcador + assistant resumo]. Turno interno de manutenção: não emite
           // saída na linha nem roda o Goal.
@@ -799,6 +806,16 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
                 );
               }
             }
+          } else if (getFlag("laziness-check")) {
+            // grok 4.2 — sem Goal ativo: classificador de preguiça só SINALIZA parada prematura
+            // (auto-nudge fica pro Goal, que tem limite objetivo). Best-effort, nunca trava o turno.
+            const claim = { reply, toolCallCount: turnTools.count, toolNames: turnTools.names, goal: g?.objective };
+            void (async () => {
+              try {
+                const r = await runLazinessCheck(claim, { hasGoal: false, nudgeCount: lazinessNudgeRef.current, maxNudges: 2, project: data.cwd || "" });
+                if (r.action === "signal") pushSys(`⚠️ ${r.message}`);
+              } catch { /* best-effort */ }
+            })();
           }
         })),
         // acp://exit agora é só morte REAL (kill intencional — cancel/gc/reload — não emite).

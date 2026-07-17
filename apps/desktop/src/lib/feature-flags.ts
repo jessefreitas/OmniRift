@@ -114,6 +114,14 @@ export const FLAGS: FlagDef[] = [
     stage: "experimental",
   },
   {
+    key: "laziness-check",
+    label: "Classificador de preguiça",
+    description:
+      "Ao fim de cada turno SEM Goal ativo, um juiz LLM (o mesmo do OmniPartner/review) cruza o que o agente DISSE com as tool calls que ele REALMENTE fez e sinaliza 'possível parada prematura' quando ele declara vitória sem verificar. Experimental — kill-switch. Precisa de um LLM configurado em Ferramentas.",
+    default: false,
+    stage: "experimental",
+  },
+  {
     key: "omnifs-auto-checkpoint",
     label: "Checkpoint automático (OmniFS)",
     description:

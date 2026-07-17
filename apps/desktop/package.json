@@ -12,7 +12,8 @@
     "tauri:dev": "GTK_MODULES= LD_PRELOAD=/lib/x86_64-linux-gnu/libpthread.so.0 PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
     "tauri:build": "tauri build",
     "tauri:build:dev-app": "tauri build --config src-tauri/tauri.dev-install.conf.json --bundles app",
-    "test:grab": "node scripts/run-grab-tests.mjs"
+    "test:grab": "node scripts/run-grab-tests.mjs",
+    "test:laziness": "node scripts/run-laziness-tests.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
