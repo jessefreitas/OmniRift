@@ -16,6 +16,7 @@ const CSS = `
 @keyframes bipulse{0%,100%{opacity:.35}50%{opacity:1}}
 @keyframes biignite{0%{transform:rotate(0) scale(1);opacity:1}70%{transform:rotate(360deg) scale(1.3);opacity:.7}100%{transform:rotate(360deg) scale(1.6);opacity:0}}
 .igniting .bi-hud{animation:biignite 1.5s cubic-bezier(.5,.05,.3,1) forwards;}
+.loading .bi-hud,.ready .bi-hud,.entering .bi-hud{opacity:0;pointer-events:none;}
 .igniting .bi-brand{opacity:0;transition:opacity .4s;}
 .bi-loader{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,80vw);opacity:0;pointer-events:none;z-index:60;transition:opacity .6s;}
 .loading .bi-loader{opacity:1;}
