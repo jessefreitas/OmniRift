@@ -1,4 +1,5 @@
 pub mod acp;
+pub mod audio;
 pub mod code;
 pub mod commands;
 pub mod compress;
@@ -389,6 +390,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
+            crate::audio::play_boot_sound,
+            crate::audio::speak_greeting,
             acp_spawn,
             acp_attach,
             acp_prompt,

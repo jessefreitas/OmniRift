@@ -139,6 +139,9 @@ local-ip-address = "0.6"
 # Datas: cutoff do filtro por período + carimbo do ledger nativo (RFC3339 comparável
 # aos timestamps ISO das sessões dos CLIs). default-features off + clock = leve.
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Áudio da intro FRIDAY tocado pelo backend (o WebKitGTK não roteia Web Audio no Linux).
+# default-features=false: só o output (cpal→ALSA/Pulse) + SamplesBuffer; sem decoders (síntese pura).
+rodio = { version = "0.19", default-features = false }
 tauri-plugin-clipboard-manager = "2.3.2"
 
 # Registro do Windows (App Paths de editores) via API — sem subprocess `reg query`.
