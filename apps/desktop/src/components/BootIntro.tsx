@@ -1,35 +1,26 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { createFridayOrb, type FridayOrbHandle } from "@/lib/friday-orb";
 import { BOOT_PROBES, runBootProbe, type ProbeResult } from "@/lib/boot-probes";
 import { playBootSound, speakGreeting, stopAudio } from "@/lib/boot-audio";
+import { currentGreeting, getBootVoice, setBootVoice, type BootVoice } from "@/lib/boot-greeting";
 
-export function BootIntro({
-  onDone,
-  greeting = "Bom dia, senhor. Sistemas OmniRift online. Todos os agentes ao seu comando.",
-  color = "#38d6ff",
-}: {
-  onDone: () => void;
-  greeting?: string;
-  color?: string;
-}) {
-  // refs do orb, canvas e ciclo de vida
+export function BootIntro({ onDone, color = "#38d6ff" }: { onDone: () => void; color?: string }) {
+  const greeting = currentGreeting(); // texto neutro por período do dia
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const orbRef = useRef<FridayOrbHandle | null>(null);
   const aliveRef = useRef(true);
-
-  // estado da introdução
   const [results, setResults] = useState<ProbeResult[]>([]);
   const [started, setStarted] = useState(false);
   const [ready, setReady] = useState(false);
   const [fading, setFading] = useState(false);
+  const [voice, setVoiceState] = useState<BootVoice>(getBootVoice());
 
-  // inicializa o orb ao montar
+  // Inicia o orb com baixa intensidade e escuta redimensionamento
   useEffect(() => {
     const orb = createFridayOrb(canvasRef.current!, { color });
     orbRef.current = orb;
     orb.start();
     orb.setIntensity(0.15);
-
     aliveRef.current = true;
 
     const onResize = () => orb.resize();
@@ -44,11 +35,11 @@ export function BootIntro({
     };
   }, [color]);
 
-  // inicia áudio e sequência de probes no primeiro gesto
+  // Toque 1: acorda FRIDAY, toca som, fala saudação e executa probes
   const begin = useCallback(() => {
     setStarted(true);
     playBootSound();
-    void speakGreeting(greeting);
+    void speakGreeting(voice);
 
     const orb = orbRef.current;
     if (orb) orb.setIntensity(0.7);
@@ -65,9 +56,9 @@ export function BootIntro({
       }
       if (aliveRef.current) setReady(true);
     })();
-  }, [greeting]);
+  }, [voice]);
 
-  // finaliza a intro e chama o callback
+  // Toque 2: inicia fade e encerra introdução
   const enter = useCallback(() => {
     if (fading) return;
     setFading(true);
@@ -75,13 +66,25 @@ export function BootIntro({
     setTimeout(onDone, 500);
   }, [fading, onDone]);
 
-  // clique/tecla disparam o fluxo
+  // Encaminha clique/tecla para o fluxo correto
   const handleGesture = useCallback(() => {
     if (!started) begin();
     else enter();
   }, [started, begin, enter]);
 
-  // escuta teclado globalmente
+  // Troca a voz (persiste); se já acordou, re-toca na hora
+  const toggleVoice = useCallback(
+    (e: ReactMouseEvent) => {
+      e.stopPropagation();
+      const next: BootVoice = voice === "male" ? "female" : "male";
+      setVoiceState(next);
+      setBootVoice(next);
+      if (started) void speakGreeting(next);
+    },
+    [voice, started]
+  );
+
+  // Permite acordar/entrar via teclado
   useEffect(() => {
     const onKey = () => handleGesture();
     window.addEventListener("keydown", onKey);
@@ -96,29 +99,28 @@ export function BootIntro({
       }`}
     >
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+
+      {/* Botão de voz no canto superior direito */}
+      <button
+        onClick={toggleVoice}
+        className="absolute right-4 top-4 z-20 rounded-full border border-white/15 bg-white/5 px-3 py-1 font-mono text-[11px] text-white/70 hover:border-white/30 hover:text-white"
+      >
+        {voice === "male" ? "♂ Adam" : "♀ Ophelia"}
+      </button>
+
       <div className="relative z-10 flex flex-col items-center gap-6 px-6 text-center font-mono select-none">
-        <div
-          className="text-2xl font-semibold tracking-[0.3em]"
-          style={{ color }}
-        >
+        <div className="text-2xl font-semibold tracking-[0.3em]" style={{ color }}>
           OMNIRIFT
         </div>
 
-        {started && (
-          <div className="text-sm text-white/70">{greeting}</div>
-        )}
+        {started && <div className="text-sm text-white/70">{greeting}</div>}
 
         {started && (
           <div className="mt-2 flex flex-col gap-1 text-[11px]">
             {results.map((r, i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between gap-6 min-w-[260px]"
-              >
+              <div key={i} className="flex min-w-[260px] items-center justify-between gap-6">
                 <span className="text-white/50">{r.label}</span>
-                <span className={r.ok ? "text-emerald-400" : "text-white/30"}>
-                  {r.status}
-                </span>
+                <span className={r.ok ? "text-emerald-400" : "text-white/30"}>{r.status}</span>
               </div>
             ))}
           </div>

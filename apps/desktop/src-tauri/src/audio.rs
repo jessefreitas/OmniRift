@@ -1,3 +1,4 @@
+use chrono::Timelike;
 use std::thread;
 
 // Áudio da intro é tocado pelo backend porque o WebKitGTK usado pelo Tauri no Linux
@@ -55,14 +56,35 @@ pub fn play_boot_sound() {
     });
 }
 
-// Saudação FRIDAY: voz neural PRÉ-GRAVADA (ElevenLabs, Daniel/britânico, PT-BR) embutida no
-// binário como WAV. Tocada pelo backend via rodio (Decoder wav) — o WebKitGTK não roteia
-// Web Audio nem TTS no Linux. Voz fixa de alta qualidade, offline, sem custo em runtime.
-static GREETING_WAV: &[u8] = include_bytes!("../assets/boot-greeting.wav");
+// Saudações FRIDAY: 8 WAVs neurais (ElevenLabs, PT-BR) embutidos — Adam (masc) e Ophelia (fem)
+// × 4 períodos, frases NEUTRAS (sem gênero de quem opera). Escolhidos pela HORA local + voz.
+// Tocados pelo backend via rodio (o WebKitGTK não roteia Web Audio/TTS no Linux). Offline.
+static WAV_MORNING_M: &[u8] = include_bytes!("../assets/boot-morning-male.wav");
+static WAV_AFTERNOON_M: &[u8] = include_bytes!("../assets/boot-afternoon-male.wav");
+static WAV_EVENING_M: &[u8] = include_bytes!("../assets/boot-evening-male.wav");
+static WAV_NIGHT_M: &[u8] = include_bytes!("../assets/boot-night-male.wav");
+static WAV_MORNING_F: &[u8] = include_bytes!("../assets/boot-morning-female.wav");
+static WAV_AFTERNOON_F: &[u8] = include_bytes!("../assets/boot-afternoon-female.wav");
+static WAV_EVENING_F: &[u8] = include_bytes!("../assets/boot-evening-female.wav");
+static WAV_NIGHT_F: &[u8] = include_bytes!("../assets/boot-night-female.wav");
 
 #[tauri::command]
-pub fn play_greeting() {
-    thread::spawn(|| {
+pub fn play_greeting(voice: String) {
+    // Fire-and-forget: não bloqueia a UI.
+    thread::spawn(move || {
+        // female == "Ophelia"; qualquer outro valor usa "Adam".
+        let female = voice == "female";
+        // Faixas: manhã 5-11, tarde 12-17, noite 18-23, madrugada 0-4.
+        let wav: &[u8] = match (chrono::Local::now().hour(), female) {
+            (5..=11, false) => WAV_MORNING_M,
+            (12..=17, false) => WAV_AFTERNOON_M,
+            (18..=23, false) => WAV_EVENING_M,
+            (_, false) => WAV_NIGHT_M,
+            (5..=11, true) => WAV_MORNING_F,
+            (12..=17, true) => WAV_AFTERNOON_F,
+            (18..=23, true) => WAV_EVENING_F,
+            (_, true) => WAV_NIGHT_F,
+        };
         let (_stream, handle) = match rodio::OutputStream::try_default() {
             Ok(v) => v,
             Err(_) => return,
@@ -71,10 +93,9 @@ pub fn play_greeting() {
             Ok(s) => s,
             Err(_) => return,
         };
-        let cursor = std::io::Cursor::new(GREETING_WAV);
-        let source = match rodio::Decoder::new(cursor) {
+        let source = match rodio::Decoder::new(std::io::Cursor::new(wav)) {
             Ok(s) => s,
-            Err(_) => return, // WAV inválido: falha silenciosa
+            Err(_) => return,
         };
         sink.append(source);
         sink.sleep_until_end();

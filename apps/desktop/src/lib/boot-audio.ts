@@ -8,11 +8,11 @@ export function playBootSound(): void {
   invoke("play_boot_sound").catch(() => {});
 }
 
-// A voz é PRÉ-GRAVADA (ElevenLabs) e embutida no backend; o `text` é ignorado (mantido só
-// pra compatibilidade de assinatura — o texto na tela vem do greeting do BootIntro).
-export async function speakGreeting(_text: string): Promise<boolean> {
+// Voz PRÉ-GRAVADA (ElevenLabs) embutida no backend; `voice` = "male" (Adam) | "female" (Ophelia).
+// O backend escolhe o áudio por essa voz + a hora local. O texto na tela vem do currentGreeting.
+export async function speakGreeting(voice: string): Promise<boolean> {
   try {
-    await invoke("play_greeting");
+    await invoke("play_greeting", { voice });
     return true;
   } catch {
     return false;
