@@ -17,9 +17,10 @@ const CSS = `
 @keyframes biignite{0%{transform:rotate(0) scale(1);opacity:1}70%{transform:rotate(360deg) scale(1.3);opacity:.7}100%{transform:rotate(360deg) scale(1.6);opacity:0}}
 .igniting .bi-hud{animation:biignite 1.5s cubic-bezier(.5,.05,.3,1) forwards;}
 .loading .bi-hud,.ready .bi-hud,.entering .bi-hud{opacity:0;pointer-events:none;}
-.igniting .bi-brand{opacity:0;transition:opacity .4s;}
+.bi-brand{transition:opacity .4s;}
+.igniting .bi-brand,.loading .bi-brand,.ready .bi-brand,.entering .bi-brand{opacity:0;}
 .bi-loader{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,80vw);opacity:0;pointer-events:none;z-index:60;transition:opacity .6s;}
-.loading .bi-loader{opacity:1;}
+.loading .bi-loader,.ready .bi-loader{opacity:1;}
 .entering .bi-loader{opacity:0;}
 .bi-bar{height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden;margin-bottom:16px;}
 .bi-fill{height:100%;background:linear-gradient(90deg,#6b7280,#c0c8d0);box-shadow:0 0 12px rgba(200,208,216,.6);transition:width .35s ease;}
