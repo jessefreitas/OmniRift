@@ -1,6 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Canvas } from "@/components/Canvas";
+import { BootIntro } from "@/components/BootIntro";
+import { useFlag } from "@/lib/feature-flags";
 import { Sidebar } from "@/components/Sidebar";
 import { ProjectTabs } from "@/components/ProjectTabs";
 import { ResourceChip } from "@/components/ResourceChip";
@@ -25,6 +27,11 @@ export default function App() {
   useOrchestrationWatchdog();
 
   const tr = useT();
+
+  // Intro FRIDAY (flag boot-intro): cobre a tela na abertura até o usuário entrar.
+  // introDone sobe no onDone → some pra sempre nesta sessão (não re-monta em re-render).
+  const bootIntroOn = useFlag("boot-intro");
+  const [introDone, setIntroDone] = useState(false);
 
   // Watchdog de main thread: grava no debug.log quando a UI congela (o "não responde /
   // forçar saída" do WebKitGTK). O contexto vai junto pra correlacionar o travamento com a
@@ -184,6 +191,7 @@ export default function App() {
       </main>
       <ResourceChip />
       <ResourcePanel />
+      {bootIntroOn && !introDone && <BootIntro onDone={() => setIntroDone(true)} />}
     </div>
   );
 }

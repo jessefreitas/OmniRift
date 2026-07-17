@@ -161,6 +161,14 @@ export const FLAGS: FlagDef[] = [
     default: false,
     stage: "experimental",
   },
+  {
+    key: "boot-intro",
+    label: "Intro FRIDAY (boot animado)",
+    description:
+      "Uma intro estilo assistente de voz sci-fi (esfera FRIDAY em Canvas 2D) na abertura do app: som de boot sintetizado + voz TTS + a sequência de inicialização REAL (provedores, sessões, snapshots) acendendo linha a linha. Fica na tela até você clicar/teclar pra entrar. Personalizável. Kill-switch: desligue pra abrir direto no canvas. (MVP default:true pra teste — vira false no release.)",
+    default: true,
+    stage: "experimental",
+  },
 ];
 
 const FLAGS_BY_KEY: Record<string, FlagDef> = Object.fromEntries(FLAGS.map((f) => [f.key, f]));
