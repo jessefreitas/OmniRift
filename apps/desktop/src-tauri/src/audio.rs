@@ -69,9 +69,10 @@ static WAV_EVENING_F: &[u8] = include_bytes!("../assets/boot-evening-female.wav"
 static WAV_NIGHT_F: &[u8] = include_bytes!("../assets/boot-night-female.wav");
 
 #[tauri::command]
-pub fn play_greeting(voice: String) {
-    // Fire-and-forget: não bloqueia a UI.
-    thread::spawn(move || {
+pub async fn play_greeting(voice: String) {
+    // Resolve SÓ quando a fala termina (spawn_blocking + await) → o frontend espera o áudio
+    // acabar antes de fechar a intro. Em erro (sem dispositivo) o closure retorna cedo e resolve.
+    let _ = tauri::async_runtime::spawn_blocking(move || {
         // female == "Ophelia"; qualquer outro valor usa "Adam".
         let female = voice == "female";
         // Faixas: manhã 5-11, tarde 12-17, noite 18-23, madrugada 0-4.
@@ -99,5 +100,6 @@ pub fn play_greeting(voice: String) {
         };
         sink.append(source);
         sink.sleep_until_end();
-    });
+    })
+    .await;
 }

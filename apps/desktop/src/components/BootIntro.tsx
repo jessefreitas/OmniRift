@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, type MouseEvent as ReactMouse
 import { buildHudSvg, pickAccent } from "@/lib/boot-hud";
 import { BOOT_PROBES, runBootProbe, type ProbeResult } from "@/lib/boot-probes";
 import { playBootSound, speakGreeting, stopAudio } from "@/lib/boot-audio";
+import { gateClose } from "@/lib/gate-close";
 import { getBootVoice, setBootVoice, type BootVoice } from "@/lib/boot-greeting";
 
 const CSS = `
@@ -43,6 +44,8 @@ export function BootIntro({ onDone }: { onDone: () => void }) {
   const [voice, setVoiceState] = useState<BootVoice>(getBootVoice());
   const aliveRef = useRef(true);
   const phaseRef = useRef(phase); phaseRef.current = phase;
+  const greetRef = useRef<Promise<boolean> | null>(null); // saudação em voo (disparada no ignite)
+  const enteredRef = useRef(false);
 
   useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; stopAudio(); }; }, []);
 
@@ -63,14 +66,18 @@ export function BootIntro({ onDone }: { onDone: () => void }) {
   const ignite = useCallback(() => {
     setPhase("igniting");
     playBootSound();
-    void speakGreeting(voice);
+    greetRef.current = speakGreeting(voice);
     setTimeout(() => { if (aliveRef.current) startLoading(); }, 1500);
   }, [voice, startLoading]);
 
   const enter = useCallback(() => {
-    setPhase("entering");
-    stopAudio();
-    setTimeout(onDone, 600);
+    if (enteredRef.current) return;
+    enteredRef.current = true;
+    // Espera a saudação (disparada no ignite) terminar antes de fechar; teto de 6s de segurança.
+    void gateClose(greetRef.current ?? Promise.resolve(), 6000).then(() => {
+      setPhase("entering");
+      setTimeout(onDone, 600);
+    });
   }, [onDone]);
 
   const onGesture = useCallback(() => {

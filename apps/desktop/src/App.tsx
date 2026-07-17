@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Canvas } from "@/components/Canvas";
 import { BootIntro } from "@/components/BootIntro";
+import { BootIntroArmor } from "@/components/BootIntroArmor";
 import { useFlag } from "@/lib/feature-flags";
 import { Sidebar } from "@/components/Sidebar";
 import { ProjectTabs } from "@/components/ProjectTabs";
@@ -32,6 +33,8 @@ export default function App() {
   // introDone sobe no onDone → some pra sempre nesta sessão (não re-monta em re-render).
   const bootIntroOn = useFlag("boot-intro");
   const [introDone, setIntroDone] = useState(false);
+  // Alterna a cada boot: numa vez a armadura JARVIS, na outra o HUD procedural.
+  const [useArmor] = useState(() => Math.random() < 0.5);
 
   // Watchdog de main thread: grava no debug.log quando a UI congela (o "não responde /
   // forçar saída" do WebKitGTK). O contexto vai junto pra correlacionar o travamento com a
@@ -191,7 +194,9 @@ export default function App() {
       </main>
       <ResourceChip />
       <ResourcePanel />
-      {bootIntroOn && !introDone && <BootIntro onDone={() => setIntroDone(true)} />}
+      {bootIntroOn && !introDone && (useArmor
+        ? <BootIntroArmor onDone={() => setIntroDone(true)} />
+        : <BootIntro onDone={() => setIntroDone(true)} />)}
     </div>
   );
 }
