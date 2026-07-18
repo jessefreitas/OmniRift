@@ -679,6 +679,61 @@ fn floor_suffix(floor: &Option<String>) -> String {
     floor.as_deref().map(|f| format!(" @{f}")).unwrap_or_default()
 }
 
+// Tabela deliberadamente conservativa: termos genéricos demais ("web", "app", "dev", "db", "ops")
+// ficam de fora de propósito, porque um falso positivo aqui BLOQUEIA trabalho legítimo,
+// e o custo de errar bloqueando é maior que o de deixar passar uma duplicata.
+const ROLE_SYNONYMS: &[(&str, &[&str])] = &[
+    ("frontend", &["frontend", "front-end", "ui", "ux", "react"]),
+    ("backend", &["backend", "back-end", "api", "servidor"]),
+    ("dba", &["dba", "database", "banco", "sql"]),
+    ("qa", &["qa", "tester", "testes", "qualidade"]),
+    ("devops", &["devops", "infra", "deploy", "sre"]),
+    ("security", &["security", "seguranca", "segurança", "appsec"]),
+    ("reviewer", &["reviewer", "review", "revisor"]),
+    ("architect", &["architect", "arquiteto", "arquitetura"]),
+    ("debugger", &["debugger", "debug", "depurador"]),
+    ("orquestrador", &["orquestrador", "orchestrator"]),
+];
+
+/// Retorna o papel canônico de um agente, normalizando `role` ou inferindo a partir do `label`.
+///
+/// Regras:
+/// - Se `role` for `Some` e não-vazio após trim, tenta casar contra `ROLE_SYNONYMS`.
+///   Se não casar, devolve `None` — não cai para o label, porque quem declarou um
+///   papel fora da lista provavelmente quis dizer algo específico (ex: "Integrações Stripe")
+///   e inferir outro papel só a partir do nome seria pior do que admitir desconhecido.
+/// - Se `role` for `None` ou vazio, tenta casar o `label` contra a mesma tabela.
+/// - Casamento usa `crate::mcp::groups::word_boundary_match`, respeitando fronteira de palavra.
+/// - O primeiro papel da tabela que casar vence (ordem determinística).
+/// - Se nada casar, devolve `None` (papel desconhecido; o guard recai em proteção por nome).
+pub(crate) fn canonical_role(label: &str, role: Option<&str>) -> Option<&'static str> {
+    fn match_text(text: &str) -> Option<&'static str> {
+        for (canonical, synonyms) in ROLE_SYNONYMS {
+            for synonym in *synonyms {
+                if crate::mcp::groups::word_boundary_match(text, synonym) {
+                    return Some(*canonical);
+                }
+            }
+        }
+        None
+    }
+
+    if let Some(r) = role {
+        let r = r.trim();
+        if !r.is_empty() {
+            // Role declarado e não-vazio: só consulta a tabela, sem fallback para o label.
+            return match_text(r);
+        }
+    }
+
+    // Sem role declarado ou role vazio: a única informação disponível é o label.
+    let label = label.trim();
+    if label.is_empty() {
+        return None;
+    }
+    match_text(label)
+}
+
 /// Detecta tentativa de spawn duplicado e devolve mensagem de recusa consultando o estado MCP.
 fn duplicate_agent_refusal(state: &McpState, name: &str, role: Option<&str>) -> Option<String> {
     duplicate_refusal_from_roster(&agent_snapshot(state), name, role)
@@ -693,7 +748,10 @@ fn duplicate_refusal_from_roster(agents: &[crate::mcp::AgentInfo], name: &str, r
         .cloned()
         .collect();
 
-    let target_role = role.map(|r| r.trim()).filter(|r| !r.is_empty());
+    // Papel canônico do que está sendo pedido. Cai pro LABEL quando o spawn não declarou
+    // role — é isso que estende a proteção pros agentes criados fora do orquestrador
+    // (Sidebar, CLI), que nascem sempre com role=None.
+    let target_role = canonical_role(name, role);
 
     // Ordem de prioridade: nome exato primeiro, papel depois. O casamento por PAPEL
     // é o que fecha o buraco real — o orquestrador raramente reusa o mesmo nome quando
@@ -704,11 +762,11 @@ fn duplicate_refusal_from_roster(agents: &[crate::mcp::AgentInfo], name: &str, r
         .find(|a| a.label.trim().eq_ignore_ascii_case(name.trim()))
         .or_else(|| {
             target_role.and_then(|tr| {
-                livres.iter().find(|a| {
-                    a.role.as_deref()
-                        .map(|r| !r.trim().is_empty() && r.trim().eq_ignore_ascii_case(tr))
-                        .unwrap_or(false)
-                })
+                // Os DOIS lados passam pelo mesmo normalizador: um "UI Dev" pedido casa
+                // com um "Frontend" existente porque ambos canonizam pra "frontend".
+                livres
+                    .iter()
+                    .find(|a| canonical_role(&a.label, a.role.as_deref()) == Some(tr))
             })
         })?;
 
@@ -729,18 +787,16 @@ fn duplicate_refusal_from_roster(agents: &[crate::mcp::AgentInfo], name: &str, r
     let lista = livres
         .iter()
         .map(|a| {
-            let papel = a
-                .role
-                .as_deref()
-                .and_then(|r| {
-                    let rt = r.trim();
-                    if rt.is_empty() {
-                        None
-                    } else {
-                        Some(format!("({})", rt))
-                    }
-                })
-                .unwrap_or_else(|| "(papel não declarado)".to_string());
+            // Mostra o papel DECLARADO quando existe; senão o INFERIDO do nome, marcado como
+            // tal — o LLM precisa saber que ali houve um palpite, não uma declaração.
+            let declarado = a.role.as_deref().map(str::trim).filter(|r| !r.is_empty());
+            let papel = match declarado {
+                Some(r) => format!("({r})"),
+                None => match canonical_role(&a.label, None) {
+                    Some(inf) => format!("(papel inferido do nome: {inf})"),
+                    None => "(papel não declarado)".to_string(),
+                },
+            };
             let a_st = match a.state {
                 crate::pty::AgentState::Done => "done",
                 _ => "idle",
@@ -2523,16 +2579,31 @@ mod tests {
         );
     }
 
+    /// COBERTURA UNIVERSAL — o agente do roster NÃO declarou papel (caso dos nós criados
+    /// pelo Sidebar e pela CLI, que sempre registram role=None). Antes da inferência por
+    /// label esse agente ficava fora da proteção por papel e um 'UI Dev' passava batido.
+    /// Agora 'Frontend' é inferido do próprio nome e a recusa acontece.
     #[test]
-    fn sem_papel_declarado_so_casa_por_nome() {
+    fn agente_sem_papel_declarado_ainda_e_protegido_por_inferencia_do_nome() {
         let roster = vec![ag("Frontend", None, crate::pty::AgentState::Idle)];
-        assert!(
-            duplicate_refusal_from_roster(&roster, "UI Dev", Some("frontend")).is_none(),
-            "sem papel declarado, não é possível casar por papel"
-        );
-        let msg = duplicate_refusal_from_roster(&roster, "Frontend", None)
+        let mut msg = duplicate_refusal_from_roster(&roster, "UI Dev", Some("frontend"))
+            .expect("o papel do agente existente deve ser inferido do label 'Frontend'");
+        assert!(msg.contains("mesmo papel"), "a recusa deveria ser por papel inferido");
+
+        msg = duplicate_refusal_from_roster(&roster, "Frontend", None)
             .expect("deveria recusar pelo nome quando não há papel");
-        assert!(msg.contains("mesmo nome"), "a recusa deveria ser por mesmo nome");
+        assert!(msg.contains("mesmo nome"), "nome exato tem prioridade sobre papel");
+    }
+
+    /// contraprova da inferência — nome que não casa com nenhum sinônimo conhecido
+    /// continua livre. Sem isto, um normalizador guloso bloquearia trabalho legítimo.
+    #[test]
+    fn nome_fora_da_tabela_nao_e_bloqueado_por_inferencia() {
+        let roster = vec![ag("Zeus", None, crate::pty::AgentState::Idle)];
+        assert!(
+            duplicate_refusal_from_roster(&roster, "Hermes", None).is_none(),
+            "dois nomes desconhecidos não podem colidir por inferência"
+        );
     }
 
     #[test]
@@ -2545,7 +2616,9 @@ mod tests {
         let msg = duplicate_refusal_from_roster(&roster, "Frontend", None)
             .expect("deveria recusar porque Frontend está livre");
         assert!(msg.contains("@DBA"), "a lista de livres deveria incluir @DBA");
-        assert!(msg.contains("(papel não declarado)"), "a lista deveria mostrar DBA sem papel declarado");
+        // "DBA" não declarou papel, mas o próprio nome infere "dba" — a lista precisa deixar
+        // explícito que ali houve palpite, não declaração.
+        assert!(msg.contains("(papel inferido do nome: dba)"), "a lista deveria marcar o papel de DBA como inferido");
         assert!(!msg.contains("@Backend"), "agente Working não deve aparecer na lista de livres");
     }
 
@@ -2564,5 +2637,78 @@ mod tests {
         let msg = duplicate_refusal_from_roster(&roster, "X", Some("frontend"))
             .expect("deveria casar papel ignorando caixa e espaços");
         assert!(msg.contains("mesmo papel"), "a recusa deveria ser por mesmo papel");
+    }
+
+
+    #[test]
+    fn role_declarado_normaliza() {
+        assert_eq!(
+            canonical_role("Qualquer", Some("Frontend")),
+            Some("frontend"),
+            "role declarado deve ser normalizado para o papel canônico"
+        );
+    }
+
+    #[test]
+    fn infere_do_label_quando_sem_role() {
+        assert_eq!(
+            canonical_role("UI Dev", None),
+            Some("frontend"),
+            "sem role declarado, o label 'UI Dev' deve ser inferido como frontend"
+        );
+    }
+
+    #[test]
+    fn infere_backend_de_api() {
+        assert_eq!(
+            canonical_role("API Gateway", None),
+            Some("backend"),
+            "o sinônimo 'api' no label deve inferir backend"
+        );
+    }
+
+    #[test]
+    fn role_fora_da_tabela_nao_cai_pro_label() {
+        assert_eq!(
+            canonical_role("Frontend", Some("Integrações Stripe")),
+            None,
+            "role declarado fora da tabela não deve ser substituído por inferência do label"
+        );
+    }
+
+    #[test]
+    fn label_desconhecido_devolve_none() {
+        assert_eq!(
+            canonical_role("Zeus", None),
+            None,
+            "label sem sinônimo conhecido deve resultar em papel desconhecido"
+        );
+    }
+
+    #[test]
+    fn fronteira_de_palavra_evita_falso_positivo() {
+        assert_eq!(
+            canonical_role("Android Build", None),
+            None,
+            "casamentos dentro de outras palavras (ex: 'droid', 'ui' implícito) devem ser rejeitados pela fronteira de palavra"
+        );
+    }
+
+    #[test]
+    fn reviewer_e_review_nao_colidem() {
+        assert_eq!(
+            canonical_role("Reviewer", None),
+            Some("reviewer"),
+            "'Reviewer' como palavra inteira deve casar, mas 'review' dentro de 'reviewer' não deve confundir"
+        );
+    }
+
+    #[test]
+    fn caixa_e_espaco_ignorados() {
+        assert_eq!(
+            canonical_role("  BACKEND  ", None),
+            Some("backend"),
+            "espaços em branco e diferença de caixa não devem impedir o casamento"
+        );
     }
 }

@@ -35,7 +35,7 @@ pub struct AgentInfo {
 /// Espelha o regex do ref `(?<![\w./\\-])TOKEN(?![\w./\\-])` sem usar lookbehind
 /// (que a crate `regex` não suporta): valida manualmente os bytes vizinhos.
 /// Assim `claude` casa "Claude" / "Claude ready" mas NÃO "android" / "claude-x".
-fn word_boundary_match(text: &str, token: &str) -> bool {
+pub(crate) fn word_boundary_match(text: &str, token: &str) -> bool {
     if token.is_empty() {
         return false;
     }
