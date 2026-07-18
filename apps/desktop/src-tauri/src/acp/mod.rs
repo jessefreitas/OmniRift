@@ -499,7 +499,7 @@ impl AcpManager {
         // corpo do agente). Best-effort: só avisa, não bloqueia — o agente ainda roda com as
         // tools nativas do adapter. Emitido aqui (fora do async move) enquanto `app`/`id` vivem.
         if !npx_available() {
-            let _ = app.emit("acp://mcp-warning", GenericEvent {
+            app.emit_typed("acp://mcp-warning", GenericEvent {
                 session_id: id.clone(),
                 seq: 0,
                 data: json!({
@@ -532,7 +532,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             while let Ok(Some(line)) = lines.next_line().await {
                 // `acp://raw` NÃO entra no event_log (debug puro, duplicaria os updates) —
                 // a spec F1 loga só os eventos de sessão (ready/update/permission/…).
-                let _ = app.emit("acp://raw", RawEvent { session_id: sid.clone(), line: line.clone() });
+                app.emit_typed("acp://raw", RawEvent { session_id: sid.clone(), line: line.clone() });
                 let msg: Value = match serde_json::from_str(&line) {
                     Ok(v) => v,
                     Err(_) => continue, // linha não-JSON (ruído) → ignora
@@ -569,7 +569,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                         } else if needs_auth {
                             let methods = result.get("authMethods").cloned().unwrap_or(Value::Null);
                             let seq = sess.observed.lock().record("auth-required", methods.clone());
-                            let _ = app.emit("acp://auth-required", GenericEvent {
+                            app.emit_typed("acp://auth-required", GenericEvent {
                                 session_id: sid.clone(),
                                 seq,
                                 data: methods,
@@ -599,7 +599,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                         }
                         log::info!("[acp {sid}] session/new OK — MCP de orquestracao injetado");
                         let seq = sess.observed.lock().record("ready", result.clone());
-                        let _ = app.emit("acp://ready", GenericEvent { session_id: sid.clone(), seq, data: result.clone() });
+                        app.emit_typed("acp://ready", GenericEvent { session_id: sid.clone(), seq, data: result.clone() });
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] session/new falhou: {err}");
                     }
@@ -616,7 +616,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                         log::info!("[acp {sid}] session/load OK — sessao resumida (conversa mantida)");
                         let ready = msg.get("result").cloned().unwrap_or(Value::Null);
                         let seq = sess.observed.lock().record("ready", ready.clone());
-                        let _ = app.emit("acp://ready", GenericEvent {
+                        app.emit_typed("acp://ready", GenericEvent {
                             session_id: sid.clone(),
                             seq,
                             data: ready,
@@ -643,7 +643,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] authenticate falhou: {err}");
                         let seq = sess.observed.lock().record("auth-failed", err.clone());
-                        let _ = app.emit("acp://auth-failed", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
+                        app.emit_typed("acp://auth-failed", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
                     }
                     continue;
                 }
@@ -651,7 +651,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                 // Resposta do prompt (id=3) → fim de turno.
                 if id_num == Some(3) {
                     let seq = sess.observed.lock().record("turn-done", msg.clone());
-                    let _ = app.emit("acp://turn-done", GenericEvent { session_id: sid.clone(), seq, data: msg.clone() });
+                    app.emit_typed("acp://turn-done", GenericEvent { session_id: sid.clone(), seq, data: msg.clone() });
                     continue;
                 }
 
@@ -663,7 +663,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                     if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] set_model/set_config_option (id={id_num:?}) recusado: {err}");
                         let seq = sess.observed.lock().record("model-rejected", err.clone());
-                        let _ = app.emit("acp://model-rejected", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
+                        app.emit_typed("acp://model-rejected", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
                     } else {
                         log::info!("[acp {sid}] set_model/set_config_option (id={id_num:?}) OK");
                     }
@@ -674,7 +674,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                 if method == Some("session/update") {
                     let update = msg.get("params").and_then(|p| p.get("update")).cloned().unwrap_or(Value::Null);
                     let seq = sess.observed.lock().record("update", update.clone());
-                    let _ = app.emit("acp://update", GenericEvent { session_id: sid.clone(), seq, data: update });
+                    app.emit_typed("acp://update", GenericEvent { session_id: sid.clone(), seq, data: update });
                     continue;
                 }
 
@@ -687,7 +687,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                         .observed
                         .lock()
                         .record("permission", json!({ "reqId": req_id.clone(), "params": params.clone() }));
-                    let _ = app.emit("acp://permission", PermissionEvent {
+                    app.emit_typed("acp://permission", PermissionEvent {
                         session_id: sid.clone(),
                         seq,
                         req_id,
@@ -712,7 +712,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             // id (F2). Morte REAL: registra + marca Dead (buffer fica p/ post-mortem).
             if !sess.killed.load(Ordering::SeqCst) {
                 let seq = sess.observed.lock().record("exit", Value::Null);
-                let _ = app.emit("acp://exit", GenericEvent { session_id: sid.clone(), seq, data: Value::Null });
+                app.emit_typed("acp://exit", GenericEvent { session_id: sid.clone(), seq, data: Value::Null });
             }
         });
 
@@ -901,6 +901,37 @@ async fn write_line(stdin: &Arc<AsyncMutex<ChildStdin>>, value: &Value) -> Resul
     guard.write_all(&buf).await?;
     guard.flush().await?;
     Ok(())
+}
+
+/// Destino dos eventos do read-loop ACP. Existe pra DESACOPLAR o loop do Tauri:
+/// em produção é o `AppHandle`; em teste, um dublê que grava os eventos numa lista.
+/// Sem isso o loop é intestável (o `AppHandle` real exige runtime gráfico, e o
+/// `MockRuntime` do Tauri é um TIPO diferente — `AppHandle<MockRuntime>` != `AppHandle<Wry>`).
+/// Object-safe de propósito (`emit_typed` tem `where Self: Sized`) pra permitir `dyn EventSink`.
+pub(crate) trait EventSink: Send + Sync + 'static {
+    /// Emite um payload já serializado.
+    fn emit_json(&self, event: &str, payload: Value);
+
+    /// Conveniência: serializa a struct tipada. Produz o MESMO JSON que o `emit` do
+    /// Tauri produzia (mesma impl `Serialize`) — o contrato com o front não muda.
+    fn emit_typed<T: Serialize>(&self, event: &str, payload: T)
+    where
+        Self: Sized,
+    {
+        match serde_json::to_value(payload) {
+            Ok(v) => self.emit_json(event, v),
+            // Melhor logar que emitir `null` silencioso (confundiria o front).
+            Err(e) => log::warn!("[acp] falha ao serializar payload de {event}: {e}"),
+        }
+    }
+}
+
+impl EventSink for AppHandle {
+    fn emit_json(&self, event: &str, payload: Value) {
+        // Falha de emit é best-effort (front pode não estar ouvindo) — mesmo
+        // comportamento do `let _ = app.emit(...)` anterior.
+        let _ = Emitter::emit(self, event, payload);
+    }
 }
 
 #[derive(Serialize, Clone)]
