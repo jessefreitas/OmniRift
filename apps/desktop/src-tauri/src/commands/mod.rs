@@ -8,6 +8,7 @@ pub mod clis;
 pub mod dbnode;
 pub mod debug;
 pub mod debug_log;
+pub mod debug_mode;
 pub mod diagnostics;
 pub mod editor;
 pub mod explain;

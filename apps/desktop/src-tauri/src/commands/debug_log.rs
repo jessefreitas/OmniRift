@@ -29,7 +29,11 @@ fn append(line: &str) {
         let _ = create_dir_all(dir);
     }
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
-        let _ = writeln!(f, "{line}");
+        // [segurança] Redige na ESCRITA, igual o omnirift.log faz. Este arquivo é
+        // escrito pelo FRONTEND (debug_log_write) e agora vai anexado no diagnóstico
+        // que o beta tester manda pro suporte — sem isto, um log de UI que interpole
+        // token/URL com credencial sairia em claro da máquina do cliente.
+        let _ = writeln!(f, "{}", crate::redactor::redact(line));
     }
 }
 

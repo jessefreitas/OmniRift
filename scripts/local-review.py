@@ -372,7 +372,81 @@ def _anti_patterns_scanner():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "omnirift-anti-patterns.py")
 
 
-def error_handling_gate(cwd):
+def changed_lines(diff_text):
+    """Mapa {path relativo -> set(linhas ADICIONADAS)} a partir de um diff unificado.
+
+    Escopa o gate de error-handling ao que o diff realmente introduziu. Sem isto o
+    scanner varre a arvore inteira e reporta o passivo do codebase como se fosse
+    novo — foi o que gerou 188 CRITICAL num review onde so 1 era real (186 eram
+    `catch {}` que existem na main ha meses).
+
+    NAO vale pros gates de SEGURANCA: segredo em qualquer lugar e segredo, mesmo em
+    codigo nao tocado pelo diff. So divida de estilo e escopada ao novo.
+
+    O contador so avanca DENTRO de um hunk (`in_hunk`), senao metadados entre
+    arquivos (`diff --git`, `index`) deslocariam a numeracao do proximo arquivo.
+    """
+    out, path, newno, in_hunk = {}, None, 0, False
+    for ln in (diff_text or "").splitlines():
+        # Cabecalho SO fora de hunk: dentro do hunk, uma linha de conteudo removida
+        # que comeca com "-- " vira "--- ..." (prefixo do diff) e seria confundida
+        # com header — desativando o hunk e PERDENDO as linhas adicionadas seguintes.
+        # Frontmatter markdown (---) dispara isso na hora.
+        if not in_hunk and (ln.startswith("diff --git ") or ln.startswith("--- ")):
+            continue
+        if not in_hunk and ln.startswith("+++ "):
+            p = ln[4:].strip()
+            if p.startswith("b/"):
+                p = p[2:]
+            path = None if p == "/dev/null" else p
+            newno, in_hunk = 0, False
+            continue
+        if ln.startswith("@@"):
+            try:
+                newpart = ln.split("+", 1)[1].split("@@", 1)[0].strip()
+                newno = int(newpart.split(",", 1)[0])
+                in_hunk = True
+            except Exception:
+                newno, in_hunk = 0, False
+            continue
+        if not in_hunk or path is None or newno <= 0:
+            continue
+        if ln.startswith("\\"):
+            continue  # "\ No newline at end of file" nao e linha de conteudo
+        if ln.startswith("+"):
+            out.setdefault(path, set()).add(newno)
+            newno += 1
+        elif ln.startswith("-"):
+            pass  # linha removida nao avanca o contador do lado novo
+        else:
+            newno += 1
+    return out
+
+
+def _in_changed(changed, file_path, line):
+    """O achado caiu numa linha ADICIONADA pelo diff?
+
+    Compara por sufixo porque o scanner pode devolver path absoluto enquanto o git
+    devolve relativo a raiz do repo. O scanner roda sobre a MESMA arvore de onde o
+    diff foi tirado, entao os numeros de linha batem (nao ha deslocamento).
+    """
+    if not changed:
+        return False
+    try:
+        line = int(line or 0)
+    except Exception:
+        return False
+    if line <= 0:
+        return False
+    fp = str(file_path or "").replace("\\", "/")
+    for path, lines in changed.items():
+        p = path.replace("\\", "/")
+        if fp == p or fp.endswith("/" + p):
+            return line in lines
+    return False
+
+
+def error_handling_gate(cwd, changed=None):
     """Roda `omnirift-anti-patterns.py --json <cwd>` e converte os achados pro
     MESMO formato dos findings do review ({severity, category, file, title,
     suggestion}). Devolve (findings, skipped). Nunca levanta — degrada limpo
@@ -415,6 +489,11 @@ def error_handling_gate(cwd):
             continue
         file = str(f.get("file") or "?")
         line = f.get("line") or 0
+        # SO reporta divida introduzida por ESTE diff. O scanner varre a arvore
+        # inteira; sem este filtro o passivo do codebase (que a main tambem tem)
+        # vira CRITICAL em toda review e o gate fica inutil de tanto ruido.
+        if changed is not None and not _in_changed(changed, file, line):
+            continue
         rule = str(f.get("rule") or "anti-pattern")
         snippet = str(f.get("snippet") or "").strip()
         phrase = _EH_RULE_TITLES.get(rule, "anti-padrão de tratamento de erro")
@@ -530,10 +609,12 @@ def review(cwd, config_path, base):
     #   • error-handling (omnirift-anti-patterns.py, gate 8 do marketplace).
     # Ambos degradam limpo (ferramenta/scanner ausente ou timeout → skipped).
     sec_findings, sec_skipped = security_gates(cwd)
-    eh_findings, eh_skipped = error_handling_gate(cwd)
+    # Diff ANTES do gate de error-handling: ele so reporta o que o diff ADICIONOU
+    # (divida de estilo). Seguranca continua varrendo a arvore toda de proposito.
+    diff = git_diff(cwd, base)
+    eh_findings, eh_skipped = error_handling_gate(cwd, changed_lines(diff))
     det_findings = sec_findings + eh_findings  # gates determinísticos consolidados
     det_skipped = sec_skipped + eh_skipped
-    diff = git_diff(cwd, base)
     if not diff.strip():
         # Sem diff, mas os gates determinísticos ainda valem (secret / anti-padrão
         # podem estar no working tree não commitado). Se limpos, mantém o GO

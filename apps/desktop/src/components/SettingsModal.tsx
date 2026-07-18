@@ -7,16 +7,18 @@
 // billing) — a cara profissional que a fase de lançamento pedia. NÃO reimplementa ativação:
 // "Gerenciar licença" abre o LicenseModal existente (openLicense).
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
   Check, Copy, ExternalLink, Flag, KeyRound, Lock, Network, Palette,
   Server, Settings as SettingsIcon, Shield, SlidersHorizontal, Sparkles, User, X,
+  LifeBuoy,
 } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { useLicenseStore } from "@/store/license-store";
 import { useI18n, useT, type Locale } from "@/lib/i18n";
+import { debugModeGet, debugModeSet, diagnosticsExport } from "@/lib/debug-client";
 import {
   loadShellPref,
   saveShellPref,
@@ -236,6 +238,88 @@ function ShellSection() {
   );
 }
 
+/** 🐞 Modo debug + diagnóstico pro suporte. O beta tester liga, reproduz o problema,
+ *  gera o arquivo e anexa no contato com o suporte. Ver commands/debug_mode.rs. */
+function DebugSection() {
+  const t = useT();
+  const [on, setOn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    void debugModeGet().then(setOn).catch(() => setOn(false));
+  }, []);
+
+  async function toggle() {
+    setBusy(true);
+    setErr(null);
+    setSaved(null); // caminho antigo não vale mais depois de mudar o modo
+    try {
+      // O backend devolve o estado EFETIVO: se a escrita falhar, volta desmarcado
+      // (em vez de fingir que ligou e o tester coletar log que não existe).
+      const next = await debugModeSet(!on);
+      setOn(next);
+      if (next !== !on) setErr(t("debug.setFailed", "não consegui salvar o modo debug (permissão de disco?)"));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false); // sem o finally, uma rejeição travava a UI em "busy"
+    }
+  }
+
+  async function exportar() {
+    setBusy(true);
+    setErr(null);
+    setSaved(null);
+    try {
+      setSaved(await diagnosticsExport());
+    } catch (e) {
+      setErr(String(e));
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="space-y-2">
+      <label className="flex items-start gap-2 cursor-pointer">
+        <input type="checkbox" checked={on} disabled={busy} onChange={() => void toggle()} className="mt-0.5" />
+        <span className="flex-1">
+          <span className="block text-text">{t("debug.title", "Modo debug")}</span>
+          <span className="block text-[11px] text-textMuted">
+            {t("debug.desc", "Grava log detalhado pra investigar problemas. Ligue, reproduza o problema, e gere o diagnóstico abaixo.")}
+          </span>
+        </span>
+      </label>
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void exportar()}
+          disabled={busy}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border border-border text-text hover:border-brand hover:text-brand disabled:opacity-50"
+        >
+          <LifeBuoy size={13} /> {t("debug.export", "Gerar diagnóstico pro suporte")}
+        </button>
+        {!on && (
+          <span className="text-[10px] text-textMuted/70">
+            {t("debug.offHint", "com o modo debug desligado o log tem menos detalhe")}
+          </span>
+        )}
+      </div>
+
+      {saved && (
+        <p className="text-[10px] text-textMuted break-all">
+          {t("debug.saved", "Arquivo salvo em")}: <span className="font-mono">{saved}</span>
+          <br />
+          {t("debug.sendHint", "Abra pra conferir o conteúdo e anexe no contato com o suporte.")}
+        </p>
+      )}
+      {err && <p className="text-[10px] text-danger break-all">{err}</p>}
+    </div>
+  );
+}
+
 function GeneralTab({ openTool }: { openTool: (tool: string) => void }) {
   const t = useT();
   const locale = useI18n((s) => s.locale);
@@ -258,6 +342,8 @@ function GeneralTab({ openTool }: { openTool: (tool: string) => void }) {
       </div>
 
       <ShellSection />
+
+      <DebugSection />
 
       <button onClick={() => openTool("appearance")} className="flex items-center gap-2 w-full px-3 py-2 rounded-md border border-border text-left hover:border-brand transition-colors">
         <Palette size={14} className="text-brand shrink-0" />

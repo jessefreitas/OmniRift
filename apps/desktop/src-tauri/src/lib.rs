@@ -47,7 +47,7 @@ use commands::code::{
 use commands::dbnode::db_query;
 use commands::debug::debug_request;
 use commands::debug_log::{debug_log_mark, debug_log_path, debug_log_write};
-use commands::diagnostics::collect_diagnostics;
+use commands::diagnostics::{collect_diagnostics, diagnostics_export};
 use commands::metrics::metrics_snapshot;
 use commands::compress::{compressor_list, compressor_savings};
 use commands::editor::{detect_editors, open_in_editor};
@@ -74,6 +74,7 @@ use commands::review_cfg::{
     review_suppress_write,
 };
 use commands::review_history::{review_history_add, review_history_list};
+use commands::debug_mode::{debug_mode_get, debug_mode_set};
 use commands::observability::{
     observability_count, observability_record, observability_record_batch, observability_timeline,
 };
@@ -372,7 +373,10 @@ pub fn run() {
             targets.push(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout));
             tauri_plugin_log::Builder::new()
                 .targets(targets)
-                .level(log::LevelFilter::Info)
+                // Nível vem do MODO DEBUG (marcador ~/.omnirift/debug-mode), lido aqui
+                // no boot: Debug quando ligado, Info caso contrário. O beta tester liga
+                // em Configurações, reproduz o problema e manda o diagnóstico.
+                .level(commands::debug_mode::level_filter())
                 // [segurança] Redige segredos na ESCRITA (não só na leitura do /diag): sem
                 // isto, qualquer log::info!/error! que interpole output de comando, header ou
                 // linha de env grava `sk-…`/`ghp_…`/PEM em CLARO no omnirift.log (que outro
@@ -557,6 +561,9 @@ pub fn run() {
             review_pathrules_write,
             review_history_add,
             review_history_list,
+            debug_mode_get,
+            debug_mode_set,
+            diagnostics_export,
             observability_record,
             observability_record_batch,
             observability_timeline,
