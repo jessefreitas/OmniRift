@@ -1,7 +1,9 @@
 // apps/desktop/src/lib/clis-client.ts
 //
 // Cliente frontend para gerência de CLIs de agentes de IA (Claude Code, Codex,
-// OpenCode, Gemini, Aider, Crush, Antigravity, Continue, Roo, Kilo, Amp).
+// OpenCode, Gemini, Kimi Code, Aider, Crush, Antigravity, Continue, Roo, Kilo, Amp).
+// O array CLI_CATALOG abaixo espelha o CATALOG de src-tauri/src/commands/clis.rs —
+// a sincronia é travada pelo teste `catalogo_rust_e_frontend_estao_sincronizados`.
 // Faz a ponte entre a UI React e os comandos Tauri em src-tauri/src/commands/clis.rs.
 // Tipos em camelCase pra refletir a serialização serde do backend.
 
@@ -75,7 +77,9 @@ export const CLI_CATALOG: ReadonlyArray<{
 }> = [
   { id: "claude",      label: "Claude Code",        description: "CLI oficial da Anthropic. Orquestra Claude Sonnet/Opus.",       homepage: "https://claude.ai/download",                  emoji: "🟠", vendor: "Anthropic",   tier: "official"  },
   { id: "codex",       label: "Codex",              description: "Agente de código da OpenAI (GPT-5).",                          homepage: "https://github.com/openai/codex",            emoji: "🟢", vendor: "OpenAI",      tier: "official"  },
-  { id: "opencode",    label: "OpenCode",          description: "CLI open-source compatível com múltiplos LLMs.",               homepage: "https://github.com/sst/opencode",            emoji: "🟣", vendor: "Community",  tier: "community" },
+  { id: "gemini",      label: "Gemini CLI",         description: "CLI do Google para Gemini 2.5 Pro.",                           homepage: "https://github.com/google-gemini/gemini-cli", emoji: "🔵", vendor: "Google",      tier: "official"  },
+  { id: "kimi",        label: "Kimi Code",          description: "CLI da Moonshot (Kimi K2). Fala ACP nativo.",                  homepage: "https://github.com/MoonshotAI/kimi-code",     emoji: "🌙", vendor: "Moonshot AI", tier: "official"  },
+  { id: "opencode",    label: "OpenCode",        description: "CLI open-source compatível com múltiplos LLMs.",               homepage: "https://github.com/sst/opencode",            emoji: "🟣", vendor: "Community",  tier: "community" },
   { id: "aider",       label: "Aider",             description: "Pair programmer open-source (git-aware, multi-LLM).",          homepage: "https://aider.chat",                         emoji: "🟡", vendor: "Community",  tier: "community" },
   { id: "crush",       label: "Crush",             description: "CLI de IA da Charm (TUI).",                                    homepage: "https://github.com/charmbracelet/crush",      emoji: "🟪", vendor: "Charm",       tier: "community" },
   { id: "antigravity", label: "Antigravity (AGY)",  description: "CLI experimental do Google.",                                  homepage: "https://github.com/google/antigravity",       emoji: "🟥", vendor: "Google",      tier: "community" },

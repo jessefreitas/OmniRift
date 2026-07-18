@@ -1,7 +1,7 @@
 // src-tauri/src/commands/clis.rs
 //
 // Gerência de CLIs de agentes de IA (Claude Code, Codex, OpenCode, Gemini,
-// Aider, Crush, Antigravity, Continue, Roo, Kilo, Amp). Detecta quais já
+// Kimi Code, Aider, Crush, Antigravity, Continue, Roo, Kilo, Amp). Detecta quais já
 // estão no PATH, instala via npm/pipx/curl-sh (multi-OS) e desinstala.
 // Progresso é emitido via evento Tauri `cli-install-progress` pra UI mostrar.
 //
@@ -477,6 +477,64 @@ mod tests {
                 _ => {}
             }
         }
+    }
+
+    #[test]
+    fn catalogo_rust_e_frontend_estao_sincronizados() {
+        use std::fs;
+        use std::path::Path;
+
+        // Esses catálogos são mantidos manualmente e já derivaram no passado
+        // (ex.: Gemini foi adicionado em um e esquecido no outro). Esse teste
+        // impede que a duplicação fique inconsistente silenciosamente.
+        let ts_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/clis-client.ts");
+
+        if !ts_path.exists() {
+            panic!(
+                "Arquivo do catálogo frontend não encontrado em {:?}. O layout de diretórios mudou.",
+                ts_path
+            );
+        }
+
+        let content = fs::read_to_string(&ts_path)
+            .unwrap_or_else(|e| panic!("Não foi possível ler {:?}: {}", ts_path, e));
+
+        let start = content
+            .find("CLI_CATALOG")
+            .expect("Não achou 'CLI_CATALOG' no arquivo TS.");
+        let chunk = &content[start..];
+        let end = chunk
+            .find("];")
+            .expect("Não achou o fechamento '];' do array no arquivo TS.");
+        let chunk = &chunk[..end + 2];
+
+        let mut ts_ids: Vec<String> = chunk
+            .split("id: \"")
+            .skip(1)
+            .filter_map(|piece| piece.find('"').map(|i| piece[..i].to_string()))
+            .collect();
+
+        assert!(
+            ts_ids.len() >= 5,
+            "parser extraíu apenas {} ids do TS; provável bug no corte do array",
+            ts_ids.len()
+        );
+
+        ts_ids.sort();
+
+        let mut rust_ids: Vec<String> = super::CATALOG.iter().map(|e| e.id.to_string()).collect();
+        rust_ids.sort();
+
+        let faltando_no_frontend: Vec<&String> =
+            rust_ids.iter().filter(|id| !ts_ids.contains(id)).collect();
+        let faltando_no_rust: Vec<&String> =
+            ts_ids.iter().filter(|id| !rust_ids.contains(id)).collect();
+
+        assert_eq!(
+            rust_ids, ts_ids,
+            "Catálogos Rust e frontend estão divergentes.\nFaltando no frontend: {:?}\nFaltando no Rust: {:?}",
+            faltando_no_frontend, faltando_no_rust
+        );
     }
 
     #[test]
