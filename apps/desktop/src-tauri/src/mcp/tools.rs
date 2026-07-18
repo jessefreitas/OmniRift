@@ -1264,6 +1264,29 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
             if name.is_empty() || cli.is_empty() {
                 return "❌ 'name' e 'cli' são obrigatórios".into();
             }
+            // GUARD (enforcement, não conselho): recusa spawn se já existe agente VIVO com
+            // este label. A descrição da tool já pedia "use quando nenhum existente serve",
+            // mas pedido em prosa não é garantia — na prática o orquestrador duplicou o time
+            // inteiro (Backend/Frontend/QA), e o registry (mapa por label) fez o clone
+            // SOBRESCREVER o original, deixando o agente real órfão dos dispatches.
+            if let Some(dup) = agent_snapshot(state)
+                .iter()
+                .find(|a| a.label.eq_ignore_ascii_case(&name) && !matches!(a.state, crate::pty::AgentState::Dead))
+            {
+                return format!(
+                    "❌ Spawn recusado: já existe @{} no canvas [{}]. Delegue a ELE com \
+                     orchestrator_dispatch / terminal_send_text em vez de criar um duplicado. \
+                     Se precisar mesmo de outro agente, use um nome DIFERENTE.",
+                    dup.label,
+                    match dup.state {
+                        crate::pty::AgentState::Idle => "idle",
+                        crate::pty::AgentState::Working => "working",
+                        crate::pty::AgentState::Blocked => "blocked",
+                        crate::pty::AgentState::Done => "done",
+                        crate::pty::AgentState::Dead => "dead",
+                    }
+                );
+            }
             // Emite evento pro frontend criar o nó no canvas
             let _ = state.app.emit("orchestrator://spawn-agent", json!({
                 "name": name,
