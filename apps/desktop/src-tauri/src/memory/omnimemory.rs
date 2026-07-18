@@ -185,6 +185,59 @@ impl MemoryProvider for OmniMemoryProvider {
             _ => AgentWiring::none(),
         }
     }
+
+/// 💤 Dream (grok 4.3): dispara decaimento de Ebbinghaus + consolidação no cérebro remoto.
+    /// Fail-soft: se o gateway não expuser a ação (404/erro), reporta no `detail` em vez de abortar
+    /// — o Dream é best-effort agendado por Routine, não pode derrubar o agendamento.
+    async fn dream(&self, project: Option<&str>) -> anyhow::Result<DreamReport> {
+        let base = self.base().ok_or_else(|| anyhow::anyhow!("sem endpoint"))?;
+        let mut notes: Vec<String> = Vec::new();
+
+        // 1) decaimento de Ebbinghaus — recalibra o heat_score de todas as memórias ativas.
+        let mut decay_ok = false;
+        let mut decayed: u64 = 0;
+        let decay_body = serde_json::json!({ "decay_rate": 0.35 });
+        match self
+            .post(format!("{base}/actions/omnimemory/v1/apply_ebbinghaus_decay"))
+            .json(&decay_body)
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => {
+                decay_ok = true;
+                let v: serde_json::Value = r.json().await.unwrap_or(serde_json::Value::Null);
+                decayed = v
+                    .get("updated")
+                    .and_then(|x| x.as_u64())
+                    .or_else(|| v.get("data").and_then(|d| d.get("updated")).and_then(|x| x.as_u64()))
+                    .unwrap_or(0);
+            }
+            Ok(r) => notes.push(format!("decay: status {}", r.status())),
+            Err(e) => notes.push(format!("decay: rede {e}")),
+        }
+
+        // 2) consolidação — merge de duplicatas + marca dormant. dry_run=false = aplica de verdade.
+        let mut consolidated = false;
+        let cons_body = serde_json::json!({ "dry_run": false, "project": project.unwrap_or("") });
+        match self
+            .post(format!("{base}/actions/omnimemory/v1/consolidate_memories"))
+            .json(&cons_body)
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => consolidated = true,
+            Ok(r) => notes.push(format!("consolidate: status {}", r.status())),
+            Err(e) => notes.push(format!("consolidate: rede {e}")),
+        }
+
+        let ran = decay_ok || consolidated;
+        let detail = if notes.is_empty() {
+            format!("decaimento recalibrou {decayed} memórias + consolidação aplicada")
+        } else {
+            format!("decaimento={decayed}, consolidação={consolidated} · avisos: {}", notes.join("; "))
+        };
+        Ok(DreamReport { ran, decayed, consolidated, detail })
+    }
 }
 
 #[cfg(test)]

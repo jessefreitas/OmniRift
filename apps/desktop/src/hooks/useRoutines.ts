@@ -14,7 +14,7 @@
 
 import { useEffect } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { loadRoutines, refreshRoutines, runRoutine, isFloorTrigger, isGateTrigger, ROUTINES_CHANGED } from "@/lib/routines";
+import { loadRoutines, refreshRoutines, runRoutine, dispatchRoutine, isFloorTrigger, isGateTrigger, ROUTINES_CHANGED } from "@/lib/routines";
 import { useCanvasStore } from "@/store/canvas-store";
 
 /** Payload dos eventos `parallel:created`/`parallel:deleted`. Duas origens:
@@ -47,7 +47,7 @@ export function useRoutines(): void {
       for (const r of loadRoutines()) {
         // Routines de floor/gate não agendam por intervalo (disparam no evento/Land).
         if (r.enabled && !isFloorTrigger(r) && !isGateTrigger(r) && r.intervalMin && r.intervalMin > 0) {
-          intervalTimers.push(window.setInterval(() => runRoutine(r), r.intervalMin * 60_000));
+          intervalTimers.push(window.setInterval(() => dispatchRoutine(r), r.intervalMin * 60_000));
         }
       }
     };
@@ -59,7 +59,7 @@ export function useRoutines(): void {
       for (const r of loadRoutines()) {
         if (r.enabled && !isFloorTrigger(r) && !isGateTrigger(r) && r.atTime && r.atTime === hhmm && lastDaily.get(r.id) !== ymd) {
           lastDaily.set(r.id, ymd);
-          runRoutine(r);
+          dispatchRoutine(r);
         }
       }
     };
