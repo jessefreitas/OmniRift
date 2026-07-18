@@ -679,6 +679,32 @@ fn floor_suffix(floor: &Option<String>) -> String {
     floor.as_deref().map(|f| format!(" @{f}")).unwrap_or_default()
 }
 
+/// Recusa o spawn quando JÁ EXISTE um agente vivo com este label.
+///
+/// É helper (e não check inline) DE PROPÓSITO: existem TRÊS caminhos de spawn
+/// (`terminal_spawn`, `terminal_spawn_on_floor`, `orchestrator_spawn_agent`) e guard
+/// em só um deles é exatamente o bug de paridade que a regra dura do contrato tinha —
+/// ela listava dois e esquecia o terceiro, então o orquestrador duplicou o time inteiro
+/// pela porta descoberta. Todo caminho novo de spawn DEVE chamar isto.
+fn duplicate_agent_refusal(state: &McpState, name: &str) -> Option<String> {
+    let dup = agent_snapshot(state)
+        .into_iter()
+        .find(|a| a.label.trim().eq_ignore_ascii_case(name.trim()) && !matches!(a.state, crate::pty::AgentState::Dead))?;
+    let st = match dup.state {
+        crate::pty::AgentState::Idle => "idle",
+        crate::pty::AgentState::Working => "working",
+        crate::pty::AgentState::Blocked => "blocked",
+        crate::pty::AgentState::Done => "done",
+        crate::pty::AgentState::Dead => "dead",
+    };
+    Some(format!(
+        "❌ Spawn recusado: já existe @{} no canvas [{}]. Delegue a ELE com \
+         orchestrator_dispatch / terminal_send_text em vez de criar um duplicado. \
+         Se precisar mesmo de outro agente, use um nome DIFERENTE.",
+        dup.label, st
+    ))
+}
+
 /// Despacha as tools `terminal_*`. Devolve o texto do envelope MCP.
 /// Devolve Some(erro) se já bateu o teto de agentes simultâneos.
 fn over_agent_cap(state: &McpState) -> Option<String> {
@@ -906,6 +932,9 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             if let Some(msg) = over_agent_cap(state) {
                 return msg;
             }
+            if let Some(msg) = duplicate_agent_refusal(state, &label) {
+                return msg;
+            }
             let role = arg_str(&args, "role");
             let cwd = args.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string());
             let position = args.get("position").cloned();
@@ -950,6 +979,9 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                 return "❌ 'branch', 'command' e 'label' são obrigatórios".into();
             }
             if let Some(msg) = over_agent_cap(state) {
+                return msg;
+            }
+            if let Some(msg) = duplicate_agent_refusal(state, &label) {
                 return msg;
             }
             let role = arg_str(&args, "role");
@@ -1264,28 +1296,8 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
             if name.is_empty() || cli.is_empty() {
                 return "❌ 'name' e 'cli' são obrigatórios".into();
             }
-            // GUARD (enforcement, não conselho): recusa spawn se já existe agente VIVO com
-            // este label. A descrição da tool já pedia "use quando nenhum existente serve",
-            // mas pedido em prosa não é garantia — na prática o orquestrador duplicou o time
-            // inteiro (Backend/Frontend/QA), e o registry (mapa por label) fez o clone
-            // SOBRESCREVER o original, deixando o agente real órfão dos dispatches.
-            if let Some(dup) = agent_snapshot(state)
-                .iter()
-                .find(|a| a.label.eq_ignore_ascii_case(&name) && !matches!(a.state, crate::pty::AgentState::Dead))
-            {
-                return format!(
-                    "❌ Spawn recusado: já existe @{} no canvas [{}]. Delegue a ELE com \
-                     orchestrator_dispatch / terminal_send_text em vez de criar um duplicado. \
-                     Se precisar mesmo de outro agente, use um nome DIFERENTE.",
-                    dup.label,
-                    match dup.state {
-                        crate::pty::AgentState::Idle => "idle",
-                        crate::pty::AgentState::Working => "working",
-                        crate::pty::AgentState::Blocked => "blocked",
-                        crate::pty::AgentState::Done => "done",
-                        crate::pty::AgentState::Dead => "dead",
-                    }
-                );
+            if let Some(msg) = duplicate_agent_refusal(state, &name) {
+                return msg;
             }
             // Emite evento pro frontend criar o nó no canvas
             let _ = state.app.emit("orchestrator://spawn-agent", json!({
