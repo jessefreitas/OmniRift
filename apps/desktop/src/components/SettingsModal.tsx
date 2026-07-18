@@ -17,6 +17,14 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { useLicenseStore } from "@/store/license-store";
 import { useI18n, useT, type Locale } from "@/lib/i18n";
+import {
+  loadShellPref,
+  saveShellPref,
+  currentPlatform,
+  shellRunThenStay,
+  type ShellId,
+  type ShellPref,
+} from "@/lib/shell";
 
 const PRICING_URL = "https://omnirift.omniforge.com.br/";
 
@@ -164,6 +172,70 @@ function AccountTab({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Seletor do shell dos terminais. As opções mudam por plataforma — no Windows entra
+ *  WSL/Git Bash/CMD; no Linux/macOS só bash + custom. Ver src/lib/shell.ts. */
+function ShellSection() {
+  const t = useT();
+  const [pref, setPref] = useState<ShellPref>(() => loadShellPref());
+  const platform = currentPlatform();
+
+  const options: { id: ShellId; label: string }[] =
+    platform === "windows"
+      ? [
+          { id: "auto", label: "PowerShell (padrão)" },
+          { id: "wsl", label: "WSL" },
+          { id: "gitbash", label: "Git Bash" },
+          { id: "cmd", label: "CMD" },
+          { id: "custom", label: t("shell.custom", "Personalizado…") },
+        ]
+      : [
+          { id: "auto", label: "bash (padrão)" },
+          { id: "custom", label: t("shell.custom", "Personalizado…") },
+        ];
+
+  function apply(next: ShellPref) {
+    setPref(next);
+    saveShellPref(next);
+  }
+
+  const preview = shellRunThenStay("npm test", pref.shell, platform, pref.custom);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] uppercase tracking-wider text-textMuted w-20">
+          {t("shell.label", "Terminal")}
+        </span>
+        <select
+          value={options.some((o) => o.id === pref.shell) ? pref.shell : "auto"}
+          onChange={(e) => apply({ ...pref, shell: e.target.value as ShellId })}
+          className="px-2 py-1 rounded text-[11px] bg-bg border border-border text-text focus:outline-none focus:border-brand"
+        >
+          {options.map((o) => (
+            <option key={o.id} value={o.id}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {pref.shell === "custom" && (
+        <input
+          value={pref.custom ?? ""}
+          onChange={(e) => apply({ ...pref, custom: e.target.value })}
+          placeholder={platform === "windows" ? "ex: C:/msys64/usr/bin/bash.exe" : "ex: /usr/bin/zsh"}
+          className="w-full px-2 py-1 rounded text-[11px] bg-bg border border-border text-text placeholder:text-textMuted focus:outline-none focus:border-brand font-mono"
+        />
+      )}
+
+      <p className="text-[10px] text-textMuted/80">
+        {t("shell.hint", "Vale pra terminais novos, hooks de floor e routines. Terminais já abertos não mudam.")}
+      </p>
+      <p className="text-[10px] text-textMuted/60 font-mono truncate" title={`${preview.command} ${preview.args.join(" ")}`}>
+        {preview.command} {preview.args.join(" ")}
+      </p>
+    </div>
+  );
+}
+
 function GeneralTab({ openTool }: { openTool: (tool: string) => void }) {
   const t = useT();
   const locale = useI18n((s) => s.locale);
@@ -184,6 +256,8 @@ function GeneralTab({ openTool }: { openTool: (tool: string) => void }) {
           </button>
         ))}
       </div>
+
+      <ShellSection />
 
       <button onClick={() => openTool("appearance")} className="flex items-center gap-2 w-full px-3 py-2 rounded-md border border-border text-left hover:border-brand transition-colors">
         <Palette size={14} className="text-brand shrink-0" />

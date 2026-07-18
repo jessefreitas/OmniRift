@@ -1,3 +1,4 @@
+import { currentShell } from "@/lib/shell";
 // src/lib/agent-roles.ts
 //
 // Biblioteca de papéis (personas) de agente. Cada role = nome + prompt, injetado
@@ -74,11 +75,6 @@ export interface CliCommandPreset {
   line: string;
 }
 
-/** Shell do SO (terminal puro, sem LLM) — pra roles que são só um terminal. */
-function detectShell(): string {
-  if (typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)) return "powershell.exe";
-  return "bash";
-}
 
 export const ROLE_CLIS: RoleCli[] = [
   { id: "claude", label: "Claude Code", command: "claude", role: "claude-code", systemPromptFlag: "--append-system-prompt" },
@@ -86,7 +82,7 @@ export const ROLE_CLIS: RoleCli[] = [
   { id: "opencode", label: "OpenCode", command: "opencode", role: "opencode" },
   { id: "antigravity", label: "Antigravity (agy)", command: "agy", role: "antigravity" },
   { id: "grok", label: "Grok", command: "grok", role: "grok" },
-  { id: "shell", label: "Shell (terminal puro)", command: detectShell(), role: "shell" },
+  { id: "shell", label: "Shell (terminal puro)", command: currentShell().command, role: "shell" },
 ];
 
 /**

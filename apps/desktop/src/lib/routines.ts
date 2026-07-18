@@ -8,6 +8,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { currentShellRunThenStay } from "@/lib/shell";
 import { parallelGitDiff } from "@/lib/git-client";
 import {
   omnigraphImpact,
@@ -214,12 +215,6 @@ export function saveRoutines(next: Routine[]): void {
   }
 }
 
-function detectShell(): string {
-  if (typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)) {
-    return "powershell.exe";
-  }
-  return "bash";
-}
 
 /** Registra um disparo no histórico. Fire-and-forget — não bloqueia nem quebra sem Tauri. */
 function recordRun(routineId: string, exitCode: number | null, status: string): void {
@@ -231,10 +226,12 @@ function recordRun(routineId: string, exitCode: number | null, status: string): 
  *  Precedência do floor: `targetFloor` explícito da routine > `eventFloorId` (floor do
  *  evento que disparou — ex: o paralelo recém-criado num trigger floor-created) > ativo. */
 export function runRoutine(r: Routine, opts?: { eventFloorId?: string }): void {
-  const sh = detectShell();
+  // Shell da preferência do usuário + args CORRETOS por shell (antes era `-lc` fixo,
+  // inválido no powershell/cmd do Windows). Ver src/lib/shell.ts.
+  const sh = currentShellRunThenStay(r.command);
   useCanvasStore.getState().addTerminal({
-    command: sh,
-    args: ["-lc", `${r.command}; exec ${sh}`],
+    command: sh.command,
+    args: sh.args,
     role: "shell",
     label: `routine: ${r.name}`,
     targetFloorId: r.targetFloor ?? opts?.eventFloorId ?? undefined, // undefined = floor ativo
