@@ -10,6 +10,14 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::broadcast;
 
+#[cfg(windows)]
+/// Separador de entradas da variável de ambiente PATH do sistema operacional. Atenção: usar ':' no Windows não gera erro visível; o Windows quebra a string por ';', então a primeira entrada vira um caminho concatenado inexistente, matando silenciosamente tanto o diretório de ferramentas do app quanto o system32.
+pub(crate) const PATH_SEP: &str = ";";
+
+#[cfg(not(windows))]
+/// Separador de entradas da variável de ambiente PATH do sistema operacional. Atenção: usar ':' no Windows não gera erro visível; o Windows quebra a string por ';', então a primeira entrada vira um caminho concatenado inexistente, matando silenciosamente tanto o diretório de ferramentas do app quanto o system32.
+pub(crate) const PATH_SEP: &str = ":";
+
 pub type SessionId = String;
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -500,7 +508,13 @@ fn build_command(cfg: &PtySpawnConfig) -> CommandBuilder {
             parts.push(process_path);
         }
         if !parts.is_empty() {
-            cmd.env("PATH", parts.join(":"));
+            // Separador de PATH é do SO: `:` no Unix, `;` no Windows. Usar `:` no
+            // Windows não dá erro — dá algo PIOR: o Windows quebra a string por `;`,
+            // então a 1ª entrada vira `C:\Users\x\.omnirift\tools\bin:C:\Windows\system32`,
+            // um caminho inexistente. Isso mata de uma vez o tools/bin do OmniRift E o
+            // system32, em silêncio (os CLIs em %APPDATA%\npm sobrevivem, o que faz o
+            // bug parecer "só alguns CLIs não abrem").
+            cmd.env("PATH", parts.join(PATH_SEP));
         }
     }
     for (k, v) in &cfg.env {
