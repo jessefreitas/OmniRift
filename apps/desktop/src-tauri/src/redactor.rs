@@ -101,6 +101,25 @@ fn rules() -> &'static [Rule] {
         // Cloudflare API token OmniForge (cfat_…).
         push(r"\bcfat_[A-Za-z0-9_\-]{8,}", "[REDACTED:cloudflare]");
 
+// xAI (Grok) — `xai-...`. O projeto fala com a API da xAI via OmniSwitch.
+        push(r"\bxai-[A-Za-z0-9_\-]{16,}", "[REDACTED:xai]");
+
+        // --- 2b. Credencial embutida em URL ---
+        // Userinfo `scheme://usuario:senha@host`: preserva o esquema, mata o par
+        // usuario:senha. Sem isto uma connstring de Postgres/Redis colada num prompt
+        // ia inteira pro relay.
+        push(
+            r"(?i)\b([a-z][a-z0-9+.\-]*://)[^/\s:@]+:[^/\s@]+@",
+            "${1}[REDACTED:url-credential]@",
+        );
+
+        // Query string com parâmetro sensível. Preserva o NOME (útil pra diagnóstico)
+        // e redige só o valor. O `#` está na classe negada pra não engolir o fragmento.
+        push(
+            r"(?i)([?&](?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|client[_-]?secret|credential|token|secret|password|passwd|pwd|signature|sig)=)[^&\s\x22'#]+",
+            "${1}[REDACTED:url-param]",
+        );
+
         // --- 3. Authorization: Bearer <token> em headers ---
         // Preserva o esquema, redige o token. Case-insensitive no "bearer".
         push(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{8,}", "Bearer [REDACTED:bearer-token]");
@@ -306,6 +325,70 @@ mod tests {
         let out = redact("CF token cfat_AbCdEf1234567890XyZ here");
         assert!(out.contains("[REDACTED:cloudflare]"), "got: {out}");
         assert!(!out.contains("cfat_AbCdEf"), "got: {out}");
+    }
+
+#[test]
+    fn redige_chave_xai() {
+        let out = redact("key xai-AbCdEf1234567890XyZwVu here");
+        assert!(out.contains("[REDACTED:xai]"), "got: {out}");
+        assert!(!out.contains("xai-AbCdEf"), "got: {out}");
+    }
+
+    #[test]
+    fn redige_credencial_em_connstring() {
+        // Connstring colada num prompt ia INTEIRA pro relay antes disto.
+        let out = redact("psql postgres://admin:s3nh4Sup3r@db.interno:5432/prod");
+        assert!(out.contains("[REDACTED:url-credential]"), "got: {out}");
+        assert!(!out.contains("s3nh4Sup3r"), "senha vazou: {out}");
+        // Esquema e host seguem legíveis (diagnóstico não morre).
+        assert!(out.contains("postgres://"), "got: {out}");
+        assert!(out.contains("db.interno:5432"), "got: {out}");
+    }
+
+    #[test]
+    fn redige_token_em_query_preservando_nome_e_fragmento() {
+        let out = redact("GET https://api.x.com/v1/me?api_key=SUPERSECRETO123&page=2#top");
+        assert!(out.contains("[REDACTED:url-param]"), "got: {out}");
+        assert!(!out.contains("SUPERSECRETO123"), "token vazou: {out}");
+        assert!(out.contains("api_key="), "nome do parametro deve sobreviver: {out}");
+        assert!(out.contains("page=2"), "parametro inocente nao pode ser tocado: {out}");
+        assert!(out.contains("#top"), "fragmento nao pode ser engolido: {out}");
+    }
+
+    /// CANÁRIO SISTEMÁTICO: monta um blob com um valor único por tipo de segredo e
+    /// afirma que NENHUM sobrevive à redação. Se alguém adicionar um sink novo (ou
+    /// quebrar uma regra), este teste cai — é a rede que a spec pediu.
+    #[test]
+    fn nenhum_canario_sobrevive_ao_redact() {
+        let canarios = [
+            "sk-ant-CANARYaaaaaaaaaaaaaaaa",
+            "sk-CANARYbbbbbbbbbbbbbbbbbbbb",
+            "ghp_CANARYcccccccccccccccccc",
+            "github_pat_CANARYdddddddddddddddddddddd",
+            "glpat-CANARYeeeeeeeeeeeeeeeeeeee",
+            "AIzaCANARYfffffffffffffffffffffffffffffff",
+            "xoxb-CANARYgggggggg",
+            "AKIACANARYHHHHHHHHHH",
+            "cfat_CANARYiiiiiiii",
+            "xai-CANARYjjjjjjjjjjjjjjjj",
+        ];
+        let blob = format!(
+            "{{\"log\":\"{}\",\"url\":\"https://u:CANARYpwd@host/p?token=CANARYqry\"}}",
+            canarios.join(" ")
+        );
+        let out = redact(&blob);
+        for c in canarios {
+            assert!(!out.contains(c), "canario VAZOU: {c}\nblob redigido: {out}");
+        }
+        assert!(!out.contains("CANARYpwd"), "senha de URL vazou: {out}");
+        assert!(!out.contains("CANARYqry"), "token de query vazou: {out}");
+    }
+
+    #[test]
+    fn redact_de_url_e_idempotente() {
+        let once = redact("postgres://admin:senha@host/db?token=abc123def456");
+        let twice = redact(&once);
+        assert_eq!(once, twice, "redigir 2x nao pode mudar o resultado");
     }
 
     // Monta o marcador PEM ("-----BEGIN <kind>PRIVATE KEY-----" ou END) sem que o
