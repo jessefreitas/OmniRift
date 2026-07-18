@@ -41,6 +41,29 @@ CREATE TABLE IF NOT EXISTS session_events (
 CREATE INDEX IF NOT EXISTS idx_events_session ON session_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_started ON agent_sessions(started_at DESC);
 
+-- Ledger append-only de eventos de execução (observabilidade Fase A). IDs nativos
+-- preservados; dedup por (session_id, source, native_event_id) quando há id nativo.
+CREATE TABLE IF NOT EXISTS run_events (
+    id              TEXT PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    node_id         TEXT,
+    turn_id         TEXT,
+    native_event_id TEXT,
+    native_call_id  TEXT,
+    runtime         TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    confidence      TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    occurred_at_ms  INTEGER NOT NULL,
+    monotonic_seq   INTEGER NOT NULL,
+    duration_ms     INTEGER,
+    payload_json    TEXT NOT NULL DEFAULT '{}'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_run_events_dedup
+    ON run_events(session_id, source, native_event_id) WHERE native_event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_run_events_timeline
+    ON run_events(session_id, occurred_at_ms, monotonic_seq);
+
 CREATE TABLE IF NOT EXISTS agent_memory (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     scope       TEXT,

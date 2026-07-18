@@ -13,6 +13,7 @@ pub mod llm_router;
 pub mod mcp;
 pub mod memory;
 pub mod metrics;
+pub mod observability;
 // OmniFS (F1+F2): detecção do binário `omnifs-mcp`, cliente JSON-RPC pro daemon
 // (unix socket), daemon gerenciado + provisão da Pasta de Projetos e guard
 // pré-spawn (cwd em mount FUSE morto → erro claro em vez de agente ENOTCONN).
@@ -73,6 +74,9 @@ use commands::review_cfg::{
     review_suppress_write,
 };
 use commands::review_history::{review_history_add, review_history_list};
+use commands::observability::{
+    observability_count, observability_record, observability_record_batch, observability_timeline,
+};
 use commands::role_import::{role_import_file, role_template, role_template_save};
 use commands::routines::{
     routines_delete, routines_list, routines_record_run, routines_runs, routines_upsert,
@@ -553,6 +557,10 @@ pub fn run() {
             review_pathrules_write,
             review_history_add,
             review_history_list,
+            observability_record,
+            observability_record_batch,
+            observability_timeline,
+            observability_count,
             code_open,
             code_save,
             code_watch,
