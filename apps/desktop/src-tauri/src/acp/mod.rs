@@ -366,6 +366,12 @@ struct AcpSession {
     /// ao nó que acabou de re-spawnar pelo MESMO id e o marcaria dead (stale-exit race —
     /// o mesmo problema do reconnect PTY, GLM-audit #1).
     killed: AtomicBool,
+    /// Turno em voo. O id JSON-RPC do `session/prompt` é FIXO (=3), então dois prompts
+    /// simultâneos na MESMA sessão colidem: a resposta do 1º fecha o turno do 2º. A UI já
+    /// serializa (`status != "ready"`), mas o `acp.prompt` do relay (steering do mobile)
+    /// chama o manager DIRETO, sem passar por esse guard — este flag fecha esse buraco.
+    /// Some o dia que o passo 1 da spec (contador de id + `id→oneshot`) entrar.
+    turn_in_flight: AtomicBool,
 }
 
 #[derive(Default)]
@@ -453,6 +459,7 @@ impl AcpManager {
             child: Arc::new(AsyncMutex::new(child)),
             observed: Arc::new(parking_lot::Mutex::new(SessionObserved::default())),
             killed: AtomicBool::new(false),
+            turn_in_flight: AtomicBool::new(false),
         });
         self.sessions.insert(id.clone(), session.clone());
 
@@ -499,7 +506,7 @@ impl AcpManager {
         // corpo do agente). Best-effort: só avisa, não bloqueia — o agente ainda roda com as
         // tools nativas do adapter. Emitido aqui (fora do async move) enquanto `app`/`id` vivem.
         if !npx_available() {
-            let _ = app.emit("acp://mcp-warning", GenericEvent {
+            app.emit_typed("acp://mcp-warning", GenericEvent {
                 session_id: id.clone(),
                 seq: 0,
                 data: json!({
@@ -515,7 +522,11 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                 "jsonrpc": "2.0", "id": 1, "method": "initialize",
                 "params": {
                     "protocolVersion": 1,
-                    "clientCapabilities": { "fs": { "readTextFile": true, "writeTextFile": true }, "terminal": true },
+                    // HONESTIDADE DE CAPABILITY: só anunciamos o que o read-loop REALMENTE trata
+                    // (hoje: session/request_permission). Anunciar fs/terminal sem implementar
+                    // fazia o adapter mandar fs/read_text_file e TRAVAR esperando resposta.
+                    // O adapter usa as próprias tools de fs/terminal quando o client não oferece.
+                    "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
                     "clientInfo": { "name": "omnirift", "version": "0.1.0" }
                 }
             });
@@ -528,7 +539,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             while let Ok(Some(line)) = lines.next_line().await {
                 // `acp://raw` NÃO entra no event_log (debug puro, duplicaria os updates) —
                 // a spec F1 loga só os eventos de sessão (ready/update/permission/…).
-                let _ = app.emit("acp://raw", RawEvent { session_id: sid.clone(), line: line.clone() });
+                app.emit_typed("acp://raw", RawEvent { session_id: sid.clone(), line: line.clone() });
                 let msg: Value = match serde_json::from_str(&line) {
                     Ok(v) => v,
                     Err(_) => continue, // linha não-JSON (ruído) → ignora
@@ -565,7 +576,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                         } else if needs_auth {
                             let methods = result.get("authMethods").cloned().unwrap_or(Value::Null);
                             let seq = sess.observed.lock().record("auth-required", methods.clone());
-                            let _ = app.emit("acp://auth-required", GenericEvent {
+                            app.emit_typed("acp://auth-required", GenericEvent {
                                 session_id: sid.clone(),
                                 seq,
                                 data: methods,
@@ -595,7 +606,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                         }
                         log::info!("[acp {sid}] session/new OK — MCP de orquestracao injetado");
                         let seq = sess.observed.lock().record("ready", result.clone());
-                        let _ = app.emit("acp://ready", GenericEvent { session_id: sid.clone(), seq, data: result.clone() });
+                        app.emit_typed("acp://ready", GenericEvent { session_id: sid.clone(), seq, data: result.clone() });
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] session/new falhou: {err}");
                     }
@@ -612,7 +623,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                         log::info!("[acp {sid}] session/load OK — sessao resumida (conversa mantida)");
                         let ready = msg.get("result").cloned().unwrap_or(Value::Null);
                         let seq = sess.observed.lock().record("ready", ready.clone());
-                        let _ = app.emit("acp://ready", GenericEvent {
+                        app.emit_typed("acp://ready", GenericEvent {
                             session_id: sid.clone(),
                             seq,
                             data: ready,
@@ -639,15 +650,16 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] authenticate falhou: {err}");
                         let seq = sess.observed.lock().record("auth-failed", err.clone());
-                        let _ = app.emit("acp://auth-failed", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
+                        app.emit_typed("acp://auth-failed", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
                     }
                     continue;
                 }
 
                 // Resposta do prompt (id=3) → fim de turno.
                 if id_num == Some(3) {
+                    sess.turn_in_flight.store(false, Ordering::SeqCst); // turno acabou → libera
                     let seq = sess.observed.lock().record("turn-done", msg.clone());
-                    let _ = app.emit("acp://turn-done", GenericEvent { session_id: sid.clone(), seq, data: msg.clone() });
+                    app.emit_typed("acp://turn-done", GenericEvent { session_id: sid.clone(), seq, data: msg.clone() });
                     continue;
                 }
 
@@ -659,7 +671,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                     if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] set_model/set_config_option (id={id_num:?}) recusado: {err}");
                         let seq = sess.observed.lock().record("model-rejected", err.clone());
-                        let _ = app.emit("acp://model-rejected", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
+                        app.emit_typed("acp://model-rejected", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
                     } else {
                         log::info!("[acp {sid}] set_model/set_config_option (id={id_num:?}) OK");
                     }
@@ -670,7 +682,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                 if method == Some("session/update") {
                     let update = msg.get("params").and_then(|p| p.get("update")).cloned().unwrap_or(Value::Null);
                     let seq = sess.observed.lock().record("update", update.clone());
-                    let _ = app.emit("acp://update", GenericEvent { session_id: sid.clone(), seq, data: update });
+                    app.emit_typed("acp://update", GenericEvent { session_id: sid.clone(), seq, data: update });
                     continue;
                 }
 
@@ -683,7 +695,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                         .observed
                         .lock()
                         .record("permission", json!({ "reqId": req_id.clone(), "params": params.clone() }));
-                    let _ = app.emit("acp://permission", PermissionEvent {
+                    app.emit_typed("acp://permission", PermissionEvent {
                         session_id: sid.clone(),
                         seq,
                         req_id,
@@ -692,17 +704,24 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                     continue;
                 }
 
-                // Outros requests do adapter (fs/read, terminal, …) — fora do spike: loga.
-                if method.is_some() && msg.get("id").is_some() {
-                    log::info!("[acp {sid}] request do adapter: {method:?}");
+                // Qualquer OUTRO request do adapter (COM id) PRECISA de resposta — senão ele
+                // trava esperando pra sempre. Antes só logava (bug latente). Agora responde o
+                // erro JSON-RPC padrão -32601; o adapter trata e segue o turno.
+                if let (Some(m), Some(req_id)) = (method, msg.get("id").cloned()) {
+                    log::info!("[acp {sid}] request não implementado: {m} → respondendo -32601");
+                    let err = method_not_found_response(req_id, m);
+                    if let Err(e) = write_line(&sess.stdin, &err).await {
+                        log::warn!("[acp {sid}] falha ao responder {m}: {e}");
+                    }
                 }
             }
             // EOF do adapter. Kill INTENCIONAL (cancel/gc/reload — flag `killed`) fica mudo:
             // a entry já saiu do mapa e um exit póstumo poluiria o nó re-spawnado pelo mesmo
             // id (F2). Morte REAL: registra + marca Dead (buffer fica p/ post-mortem).
+            sess.turn_in_flight.store(false, Ordering::SeqCst); // EOF → nenhum turno sobrevive
             if !sess.killed.load(Ordering::SeqCst) {
                 let seq = sess.observed.lock().record("exit", Value::Null);
-                let _ = app.emit("acp://exit", GenericEvent { session_id: sid.clone(), seq, data: Value::Null });
+                app.emit_typed("acp://exit", GenericEvent { session_id: sid.clone(), seq, data: Value::Null });
             }
         });
 
@@ -718,11 +737,25 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             .lock()
             .clone()
             .ok_or_else(|| anyhow!("sessão acp {id} ainda não inicializada (aguarde acp://ready)"))?;
+        // Guard de concorrência: 1 turno por sessão (o id JSON-RPC do prompt é FIXO = 3).
+        // REJEITA em vez de enfileirar — fila mascararia a origem do prompt e poderia
+        // reordenar turnos. Fecha o buraco do `acp.prompt` do relay (steering do mobile),
+        // que chama este manager direto, sem o guard `status != "ready"` da UI.
+        if sess.turn_in_flight.swap(true, Ordering::SeqCst) {
+            return Err(anyhow!(
+                "sessão acp {id} já tem um turno em andamento — aguarde terminar (prompt concorrente não é suportado)"
+            ));
+        }
         let req = json!({
             "jsonrpc": "2.0", "id": 3, "method": "session/prompt",
             "params": { "sessionId": acp_sid, "prompt": [{ "type": "text", "text": text }] }
         });
-        write_line(&sess.stdin, &req).await
+        let sent = write_line(&sess.stdin, &req).await;
+        if sent.is_err() {
+            // Não conseguimos nem enviar → o turno não começou: libera pra não travar a sessão.
+            sess.turn_in_flight.store(false, Ordering::SeqCst);
+        }
+        sent
     }
 
     /// Envia o método ACP `authenticate` com o methodId escolhido pelo usuário (ex: Codex/ChatGPT).
@@ -791,6 +824,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
     pub async fn cancel(&self, id: &str) -> Result<()> {
         if let Some((_, sess)) = self.sessions.remove(id) {
             sess.killed.store(true, Ordering::SeqCst);
+            sess.turn_in_flight.store(false, Ordering::SeqCst); // turno abortado
             // Clona o sessionId e SOLTA o guard parking_lot antes de qualquer await:
             // um guard no scrutinee de `if let` viveria o bloco todo → future !Send.
             let acp_sid = sess.acp_session_id.lock().clone();
@@ -870,6 +904,20 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
 }
 
 /// Escreve um valor JSON como uma linha (newline-delimited) no stdin do adapter.
+/// Resposta JSON-RPC padrão pra request que o client NÃO implementa (-32601 method not found).
+/// Pura → testável. Responder é OBRIGATÓRIO: sem isso o adapter TRAVA esperando pra sempre
+/// (era o bug latente — o fallback do read-loop só logava e nunca respondia).
+pub(crate) fn method_not_found_response(req_id: Value, method: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "error": {
+            "code": -32601,
+            "message": format!("method not implemented by omnirift client: {method}")
+        }
+    })
+}
+
 async fn write_line(stdin: &Arc<AsyncMutex<ChildStdin>>, value: &Value) -> Result<()> {
     let mut buf = serde_json::to_vec(value)?;
     buf.push(b'\n');
@@ -877,6 +925,37 @@ async fn write_line(stdin: &Arc<AsyncMutex<ChildStdin>>, value: &Value) -> Resul
     guard.write_all(&buf).await?;
     guard.flush().await?;
     Ok(())
+}
+
+/// Destino dos eventos do read-loop ACP. Existe pra DESACOPLAR o loop do Tauri:
+/// em produção é o `AppHandle`; em teste, um dublê que grava os eventos numa lista.
+/// Sem isso o loop é intestável (o `AppHandle` real exige runtime gráfico, e o
+/// `MockRuntime` do Tauri é um TIPO diferente — `AppHandle<MockRuntime>` != `AppHandle<Wry>`).
+/// Object-safe de propósito (`emit_typed` tem `where Self: Sized`) pra permitir `dyn EventSink`.
+pub(crate) trait EventSink: Send + Sync + 'static {
+    /// Emite um payload já serializado.
+    fn emit_json(&self, event: &str, payload: Value);
+
+    /// Conveniência: serializa a struct tipada. Produz o MESMO JSON que o `emit` do
+    /// Tauri produzia (mesma impl `Serialize`) — o contrato com o front não muda.
+    fn emit_typed<T: Serialize>(&self, event: &str, payload: T)
+    where
+        Self: Sized,
+    {
+        match serde_json::to_value(payload) {
+            Ok(v) => self.emit_json(event, v),
+            // Melhor logar que emitir `null` silencioso (confundiria o front).
+            Err(e) => log::warn!("[acp] falha ao serializar payload de {event}: {e}"),
+        }
+    }
+}
+
+impl EventSink for AppHandle {
+    fn emit_json(&self, event: &str, payload: Value) {
+        // Falha de emit é best-effort (front pode não estar ouvindo) — mesmo
+        // comportamento do `let _ = app.emit(...)` anterior.
+        let _ = Emitter::emit(self, event, payload);
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -912,6 +991,71 @@ struct PermissionEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Dois prompts INTERCALADOS (`tokio::join!` = concorrência cooperativa num único
+    /// task, NÃO paralelismo real) — exatamente 1 passa. A atomicidade em si vem do TIPO
+    /// (`AtomicBool::swap` troca-e-devolve num passo), não deste teste; o que ele cobre é
+    /// o comportamento observável do guard quando dois prompts se intercalam.
+    #[tokio::test]
+    async fn prompt_concorrente_cooperativo_so_um_passa() {
+        let mgr = AcpManager::new();
+        let sess = dummy_session().await;
+        *sess.acp_session_id.lock() = Some("acp-1".into());
+        mgr.sessions.insert("n1".to_string(), sess.clone());
+
+        let (a, b) = tokio::join!(
+            mgr.prompt("n1", "A".into()),
+            mgr.prompt("n1", "B".into()),
+        );
+
+        let passaram = [a.is_ok(), b.is_ok()].iter().filter(|ok| **ok).count();
+        assert_eq!(passaram, 1, "exatamente 1 prompt deve passar; o outro é rejeitado");
+        assert!(sess.turn_in_flight.load(Ordering::SeqCst), "o turno vencedor fica em voo");
+    }
+
+    /// Fecha o buraco do `acp.prompt` do relay (steering do mobile), que chama o manager
+    /// DIRETO, sem o guard `status != "ready"` da UI. Com o id JSON-RPC do prompt fixo (=3),
+    /// dois prompts simultâneos colidiriam: a resposta do 1º fecharia o turno do 2º.
+    #[tokio::test]
+    async fn prompt_rejeita_turno_concorrente() {
+        let mgr = AcpManager::new();
+        let sess = dummy_session().await;
+        // Simula o session/new já respondido (senão o prompt aborta antes de chegar no guard).
+        *sess.acp_session_id.lock() = Some("acp-1".into());
+        mgr.sessions.insert("n1".to_string(), sess.clone());
+
+        // 1º prompt: passa e marca o turno em voo.
+        mgr.prompt("n1", "primeiro".into()).await.expect("1o prompt deve passar");
+        assert!(sess.turn_in_flight.load(Ordering::SeqCst), "turno deveria ficar em voo");
+
+        // 2º prompt CONCORRENTE: rejeitado.
+        let err = mgr.prompt("n1", "segundo".into()).await.unwrap_err();
+        assert!(err.to_string().contains("turno em andamento"), "erro inesperado: {err}");
+
+        // Fim de turno (o read-loop faz isso na resposta id=3) → libera o próximo.
+        sess.turn_in_flight.store(false, Ordering::SeqCst);
+        mgr.prompt("n1", "terceiro".into()).await.expect("apos o turno, deve passar");
+    }
+
+
+    #[test]
+    fn method_not_found_preserva_id_e_codigo() {
+        let r = method_not_found_response(json!(7), "fs/read_text_file");
+        assert_eq!(r["jsonrpc"], json!("2.0"));
+        assert_eq!(r["id"], json!(7));
+        assert_eq!(r["error"]["code"], json!(-32601));
+        assert!(r["error"]["message"].as_str().unwrap().contains("fs/read_text_file"));
+        assert!(r.get("result").is_none(), "resposta de erro nunca traz result");
+    }
+
+    #[test]
+    fn method_not_found_aceita_id_string_e_null() {
+        let s = method_not_found_response(json!("abc"), "terminal/create");
+        assert_eq!(s["id"], json!("abc"));
+        let n = method_not_found_response(Value::Null, "terminal/output");
+        assert_eq!(n["id"], Value::Null);
+        assert_eq!(n["error"]["code"], json!(-32601));
+    }
 
     fn chunk(text: &str) -> Value {
         json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": text } })
@@ -1099,6 +1243,7 @@ mod tests {
             child: Arc::new(AsyncMutex::new(child)),
             observed: Arc::new(parking_lot::Mutex::new(SessionObserved::default())),
             killed: AtomicBool::new(false),
+            turn_in_flight: AtomicBool::new(false),
         })
     }
 

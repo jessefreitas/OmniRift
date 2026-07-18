@@ -114,6 +114,30 @@ export const FLAGS: FlagDef[] = [
     stage: "experimental",
   },
   {
+    key: "laziness-check",
+    label: "Classificador de preguiça",
+    description:
+      "Ao fim de cada turno SEM Goal ativo, um juiz LLM (o mesmo do OmniPartner/review) cruza o que o agente DISSE com as tool calls que ele REALMENTE fez e sinaliza 'possível parada prematura' quando ele declara vitória sem verificar. Experimental — kill-switch. Precisa de um LLM configurado em Ferramentas.",
+    default: false,
+    stage: "experimental",
+  },
+  {
+    key: "run-ledger",
+    label: "Ledger de execução (observabilidade)",
+    description:
+      "Grava eventos estruturados de cada turno do agente (tool calls, fim de turno) num ledger append-only local (SQLite), preservando IDs nativos. Fundação do Inspector de Execução que fecha a lacuna de visibilidade dos workers PTY. Experimental — só grava; a UI do Inspector vem depois.",
+    default: false,
+    stage: "experimental",
+  },
+  {
+    key: "speculative-compact",
+    label: "Compactação especulativa (2-pass)",
+    description:
+      "Quando a ocupação do contexto passa de ~75%, resume o começo da conversa em segundo plano (via LLM configurado, sem gastar um turno do agente) e substitui a view pelo resumo — 2-pass funde com o resumo anterior pra não crescer. Compacta a VIEW do OmniRift + gera um histórico em .omnirift/history; NÃO encolhe o contexto interno do agente (ele gerencia o dele). Experimental — precisa de um LLM em Ferramentas.",
+    default: false,
+    stage: "experimental",
+  },
+  {
     key: "omnifs-auto-checkpoint",
     label: "Checkpoint automático (OmniFS)",
     description:
@@ -159,6 +183,14 @@ export const FLAGS: FlagDef[] = [
     description:
       "Aponta os agentes pro roteador interno de chave (fallback + rotação): as BASE_URL do agente vão pro router local e o token do router vira a 'API key' dele. Experimental — kill-switch: mantenha desligado até validar ponta-a-ponta. Com a flag OFF o spawn é idêntico ao atual.",
     default: false,
+    stage: "experimental",
+  },
+  {
+    key: "boot-intro",
+    label: "Intro FRIDAY (boot animado)",
+    description:
+      "Uma intro estilo assistente de voz sci-fi (esfera FRIDAY em Canvas 2D) na abertura do app: som de boot sintetizado + voz TTS + a sequência de inicialização REAL (provedores, sessões, snapshots) acendendo linha a linha. Fica na tela até você clicar/teclar pra entrar. Personalizável. Kill-switch: desligue pra abrir direto no canvas. (MVP default:true pra teste — vira false no release.)",
+    default: true,
     stage: "experimental",
   },
 ];

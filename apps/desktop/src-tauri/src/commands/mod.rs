@@ -35,6 +35,7 @@ pub mod providers;
 pub mod pty;
 pub mod review_cfg;
 pub mod review_history;
+pub mod observability;
 pub mod role_import;
 pub mod routines;
 pub mod scheduler;

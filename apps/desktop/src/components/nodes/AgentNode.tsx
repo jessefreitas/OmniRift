@@ -59,6 +59,11 @@ import {
 } from "@/lib/acp-client";
 import { scheduleReindex, omnifsIsManagedCwd, omnifsSnapshotNow } from "@/lib/omnifs-client";
 import { getFlag, useFlag } from "@/lib/feature-flags";
+import { runLazinessCheck } from "@/lib/laziness-check";
+import { isUnproductiveTurn, nextUnproductiveStreak, evaluateGoalLimits } from "@/lib/goal-budget";
+import { shouldSpeculativelyCompact, selectCompactionPrefix, applySpeculativeSummary, runSpeculativeSummary, SPECULATIVE_KEEP_RECENT } from "@/lib/speculative-compact";
+import { recordRunEvent } from "@/lib/observability-client";
+import { ExecutionInspector } from "@/components/ExecutionInspector";
 import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
 import { communityForPath } from "@/lib/omnigraph-graph";
 import { useAgentCheckpoints } from "@/lib/agent-checkpoints";
@@ -239,17 +244,32 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // 🧹 compactação em curso: path do histórico já gravado (null = nenhuma). Ref, não state —
   // o closure do turn-done lê o valor ATUAL sem stale state (padrão goalRef/personaSentRef).
   const compactRef = useRef<string | null>(null);
+  // 🧹 Compactação especulativa 2-pass (grok cap 2): resumo corrente (fundido) + guard anti-concorrência.
+  // usageRef/msgsRef espelham usage/msgs pro closure do turn-done (registrado 1×) ler o valor ATUAL.
+  const specSummaryRef = useRef<string>("");
+  const specCompactingRef = useRef(false);
+  const usageRef = useRef<Usage>({});
+  const msgsRef = useRef<Msg[]>([]);
+  useEffect(() => { usageRef.current = usage; }, [usage]);
+  useEffect(() => { msgsRef.current = msgs; }, [msgs]);
   // 🎯 Goal (loop autônomo por-agente) + 🔁 Loop (timer). Os refs guardam o run ATIVO (estáveis
   // no closure do turn-done, sem stale state); goalRun alimenta o badge no header.
-  const goalRef = useRef<{ objective: string; condition: string; maxIter: number } | null>(null);
+  const goalRef = useRef<{ objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number } | null>(null);
   const goalStatusRef = useRef<"running" | "done" | "stopped" | "fail" | null>(null);
   const goalIterRef = useRef(0);
+  // 🎯 Orçamento do goal (grok 4.10): tokens usados no início (p/ delta) + turnos improdutivos seguidos.
+  const goalTokenBaselineRef = useRef(0);
+  const goalUnproductiveRef = useRef(0);
   // Saída da condição na iteração anterior — se repetir idêntica, o agente está preso num
   // raciocínio circular (aplicou o mesmo fix que não muda nada) → aborta (detecção de estagnação).
   const goalLastOutRef = useRef<string | null>(null);
+  // 🕵️ Classificador de preguiça (grok 4.2): tool calls REAIS do turno + teto de auto-nudges.
+  const turnToolsRef = useRef<{ count: number; names: string[] }>({ count: 0, names: [] });
+  const lazinessNudgeRef = useRef(0);
   const statusRef = useRef<Status>("starting");
   const [goalRun, setGoalRun] = useState<{ iter: number; status: "running" | "done" | "stopped" | "fail" } | null>(null);
   const [panel, setPanel] = useState<"none" | "goal" | "loop">("none");
+  const [showInspector, setShowInspector] = useState(false); // 🔭 Inspector de Execução (ledger)
   const reciteFlag = useFlag("recitation"); // 📿 gate global da recitação (reativo p/ o botão)
   // LOD por zoom: abaixo de 35% a conversa é ilegível — o corpo vira label grande (ver render).
   // Selector booleano → re-render só ao cruzar o limiar.
@@ -507,6 +527,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         const title = up.title as string | undefined;
         const tk = up.kind as string | undefined;
         const st = up.status as string | undefined;
+        if (kind === "tool_call") { turnToolsRef.current.count += 1; if (title) turnToolsRef.current.names.push(title); }
         // Fase 2a — captura o DIFF do tool_call (content[].type === "diff") pra virar payload
         // estruturado na linha. ACP dá {path, oldText, newText} (ou um patch pronto).
         const content = up.content as Array<Record<string, unknown>> | undefined;
@@ -673,6 +694,23 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           // Gêmeo estrutural do reindex temporal; gate barato + no-op no backend se não há grafo.
           scheduleGraphRebuild(turnCwd);
           const reply = lastReplyRef.current.trim();
+          const turnTools = { ...turnToolsRef.current };
+          turnToolsRef.current = { count: 0, names: [] };
+          // 🔭 Ledger de execução (Fase A): grava um turn.completed estruturado (best-effort,
+          // nunca trava o turno). ID nativo = <sessão>:turn:<seq> → dedup determinística.
+          if (getFlag("run-ledger")) {
+            const ledgerSid = sessionRef.current;
+            if (ledgerSid) {
+              void recordRunEvent({
+                sessionId: ledgerSid,
+                nodeId: data.id,
+                nativeEventId: `${ledgerSid}:turn:${seq ?? turnCounterRef.current}`,
+                kind: "turn.completed",
+                monotonicSeq: seq ?? turnCounterRef.current,
+                payload: { toolCount: turnTools.count, toolNames: turnTools.names, replyLen: reply.length },
+              });
+            }
+          }
           // 🧹 turno de COMPACTAÇÃO: a resposta É o resumo → substitui a conversa por
           // [system marcador + assistant resumo]. Turno interno de manutenção: não emite
           // saída na linha nem roda o Goal.
@@ -715,6 +753,47 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
                 /* checkpoint é best-effort — nunca trava/quebra o turno */
               }
             })();
+          }
+          // 🧹 Compactação especulativa 2-pass (grok cap 2): a OCUPAÇÃO do contexto passou de ~75%
+          // → resume o PREFIXO da view em segundo plano (out-of-band via llmChat, SEM gastar turno
+          // do agente, ao contrário do botão 🧹). Compacta só a VIEW do OmniRift + grava histórico;
+          // NÃO encolhe o contexto interno do agente (backend-owned). Best-effort, nunca trava o turno.
+          if (getFlag("speculative-compact") && !specCompactingRef.current) {
+            const u = usageRef.current;
+            const curMsgs = msgsRef.current;
+            if (shouldSpeculativelyCompact(u.used ?? 0, u.size ?? 0, curMsgs.length)) {
+              specCompactingRef.current = true;
+              const scLabel = data.label ?? "OmniAgent";
+              const scCwd = turnCwd;
+              void (async () => {
+                try {
+                  const { prefixCount } = selectCompactionPrefix(curMsgs, SPECULATIVE_KEEP_RECENT);
+                  if (prefixCount === 0) return;
+                  const prefixMsgs = curMsgs.slice(0, prefixCount);
+                  const cwd = scCwd || useCanvasStore.getState().currentCwd || "";
+                  let path = "";
+                  if (cwd) {
+                    const slug = agentsMdSlug(scLabel) || "agente";
+                    const histDir = `${cwd}/.omnirift/history`;
+                    const n = await nextHistoryIndex(histDir, slug);
+                    path = `${histDir}/${slug}-${n}.md`;
+                    await writeHistoryFile(cwd, path, serializeConversation(scLabel, prefixMsgs));
+                  }
+                  const summary = await runSpeculativeSummary(
+                    specSummaryRef.current,
+                    serializeConversation(scLabel, prefixMsgs),
+                    { project: cwd },
+                  );
+                  if (!summary) return;
+                  specSummaryRef.current = summary;
+                  setMsgs((m) => applySpeculativeSummary(m, summary, prefixCount, path) as Msg[]);
+                } catch {
+                  /* especulativo — nunca trava/quebra o turno */
+                } finally {
+                  specCompactingRef.current = false;
+                }
+              })();
+            }
           }
           if (diff) {
             // Fase 2a: um diff produzido no turno vira payload "diff" na linha (não só texto).
@@ -762,6 +841,28 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
               pushSys(`🎯 Goal concluído — \`${g.condition}\` passou (exit 0). Revise o diff e commite.`);
             } else {
               const out = res.output.slice(0, 2000);
+              // 🎯 Orçamento do goal (grok 4.10): turno improdutivo = 0 tool calls E a condição não
+              // avançou. Calcula ANTES de sobrescrever goalLastOutRef; o teto para o loop antes de
+              // queimar tokens/turnos à toa. Limites ausentes/0 = desligados (retrocompat total).
+              const outputChanged = goalLastOutRef.current === null || out !== goalLastOutRef.current;
+              goalUnproductiveRef.current = nextUnproductiveStreak(
+                goalUnproductiveRef.current,
+                isUnproductiveTurn(turnTools.count, outputChanged),
+              );
+              const limit = evaluateGoalLimits(
+                { tokenBudget: g.tokenBudget, maxUnproductive: g.maxUnproductive },
+                {
+                  tokensUsed: useFleetUsage.getState().tokensByNode[data.id] ?? 0,
+                  tokensBaseline: goalTokenBaselineRef.current,
+                  unproductiveStreak: goalUnproductiveRef.current,
+                },
+              );
+              if (limit.stop) {
+                goalStatusRef.current = "stopped";
+                setGoalRun((r) => (r ? { ...r, status: "stopped" } : r));
+                pushSys(`🎯 Goal parou — ${limit.reason}.`);
+                return;
+              }
               // Detecção de estagnação (ponto do Jessé): a condição falhou EXATAMENTE igual à
               // iteração anterior → o agente está preso (mesmo fix que não muda nada). Aborta —
               // é mais barato que rodar até maxIter num loop circular.
@@ -799,6 +900,16 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
                 );
               }
             }
+          } else if (getFlag("laziness-check")) {
+            // grok 4.2 — sem Goal ativo: classificador de preguiça só SINALIZA parada prematura
+            // (auto-nudge fica pro Goal, que tem limite objetivo). Best-effort, nunca trava o turno.
+            const claim = { reply, toolCallCount: turnTools.count, toolNames: turnTools.names, goal: g?.objective };
+            void (async () => {
+              try {
+                const r = await runLazinessCheck(claim, { hasGoal: false, nudgeCount: lazinessNudgeRef.current, maxNudges: 2, project: data.cwd || "" });
+                if (r.action === "signal") pushSys(`⚠️ ${r.message}`);
+              } catch { /* best-effort */ }
+            })();
           }
         })),
         // acp://exit agora é só morte REAL (kill intencional — cancel/gc/reload — não emite).
@@ -894,6 +1005,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             } : {}),
           });
           resumeRef.current = null; // consumido
+          // Primeiro spawn desta vida do nó → marca no store: é o sinal que o
+          // FloorCanvas usa pra soltar a virtualização de volta (time do Montar
+          // fora do viewport monta uma vez, spawna, e o floor volta ao normal).
+          if (!data.spawnedOnce) patchNode(data.id, { spawnedOnce: true });
         } catch (e) {
           pushSys(`erro ao iniciar: ${e}`);
           setStatus("dead");
@@ -1053,12 +1168,15 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   }
 
   // 🎯 Inicia um Goal: persiste a config, arma os refs e manda o 1º prompt (objetivo + condição).
-  function startGoal(cfg: { objective: string; condition: string; maxIter: number }) {
+  function startGoal(cfg: { objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number }) {
     patchNode(data.id, { goal: cfg });
     goalRef.current = cfg;
     goalStatusRef.current = "running";
     goalIterRef.current = 1;
     goalLastOutRef.current = null;
+    // 🎯 orçamento: baseline de tokens no arranque (delta é medido a partir daqui) + zera streak.
+    goalTokenBaselineRef.current = useFleetUsage.getState().tokensByNode[data.id] ?? 0;
+    goalUnproductiveRef.current = 0;
     setGoalRun({ iter: 1, status: "running" });
     setPanel("none");
     void sendText(
@@ -1074,6 +1192,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     goalRef.current = null;
     goalStatusRef.current = null;
     goalLastOutRef.current = null;
+    goalUnproductiveRef.current = 0;
     setGoalRun(null);
   }
 
@@ -1213,6 +1332,16 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         >
           🧹
         </button>
+        {getFlag("run-ledger") && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowInspector(true); }}
+            className="nodrag p-0.5 rounded text-[11px] leading-none text-text/50 hover:bg-white/10 hover:text-text transition-colors"
+            title={t("agent.inspector", "Inspector de Execução — timeline dos eventos do ledger desta sessão")}
+            aria-label={t("agent.inspectorShort", "Inspector de Execução")}
+          >
+            🔭
+          </button>
+        )}
         {usage.used != null && (
           <Badge title={t("agent.context", "contexto usado")}>
             {fmtTokens(usage.used)}
@@ -1373,6 +1502,13 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             onSave={(cfg) => { patchNode(data.id, { loop: cfg }); setPanel("none"); }}
             onStop={() => { patchNode(data.id, { loop: { prompt: data.loop?.prompt ?? "", everyMin: data.loop?.everyMin ?? 10, active: false } }); }}
             onCancel={() => setPanel("none")}
+          />
+        )}
+        {showInspector && sessionRef.current && (
+          <ExecutionInspector
+            sessionId={sessionRef.current}
+            label={data.label}
+            onClose={() => setShowInspector(false)}
           />
         )}
         {status === "starting" && (
@@ -1616,14 +1752,17 @@ function GoalForm({
   onStart,
   onCancel,
 }: {
-  initial?: { objective: string; condition: string; maxIter: number };
-  onStart: (cfg: { objective: string; condition: string; maxIter: number }) => void;
+  initial?: { objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number };
+  onStart: (cfg: { objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number }) => void;
   onCancel: () => void;
 }) {
   const t = useT();
   const [objective, setObjective] = useState(initial?.objective ?? "");
   const [condition, setCondition] = useState(initial?.condition ?? "");
   const [maxIter, setMaxIter] = useState(initial?.maxIter ?? 8);
+  // 🎯 orçamento (grok 4.10): 0 = desligado (sem limite). tokenBudget em milhares na UI.
+  const [tokenBudgetK, setTokenBudgetK] = useState(Math.round((initial?.tokenBudget ?? 0) / 1000));
+  const [maxUnproductive, setMaxUnproductive] = useState(initial?.maxUnproductive ?? 0);
   const ok = objective.trim() !== "" && condition.trim() !== "";
   return (
     <div className="space-y-1.5 rounded border border-cyan-500/30 bg-cyan-500/5 p-2.5">
@@ -1651,18 +1790,44 @@ function GoalForm({
           onChange={(e) => setMaxIter(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
           className="w-14 rounded bg-white/5 px-2 py-1 text-text outline-none"
         />
-        <div className="ml-auto flex gap-1.5">
-          <button onClick={onCancel} className="rounded bg-white/5 px-2 py-1 text-text/70 hover:bg-white/10">
-            {t("common.cancel", "Cancelar")}
-          </button>
-          <button
-            disabled={!ok}
-            onClick={() => onStart({ objective: objective.trim(), condition: condition.trim(), maxIter })}
-            className="rounded bg-cyan-500/20 px-2.5 py-1 text-cyan-200 hover:bg-cyan-500/30 disabled:opacity-50"
-          >
-            {t("agent.goalStart", "Iniciar")}
-          </button>
-        </div>
+        <label className="text-[11px] text-text/60" title="orçamento de tokens em milhares (0 = sem limite)">{t("agent.goalTokenBudget", "tokens (k)")}</label>
+        <input
+          type="number"
+          min={0}
+          max={9999}
+          value={tokenBudgetK}
+          onChange={(e) => setTokenBudgetK(Math.max(0, Math.min(9999, Number(e.target.value) || 0)))}
+          className="w-16 rounded bg-white/5 px-2 py-1 text-text outline-none"
+        />
+        <label className="text-[11px] text-text/60" title="para após N turnos sem tool calls (0 = desligado)">{t("agent.goalMaxIdle", "ociosos")}</label>
+        <input
+          type="number"
+          min={0}
+          max={99}
+          value={maxUnproductive}
+          onChange={(e) => setMaxUnproductive(Math.max(0, Math.min(99, Number(e.target.value) || 0)))}
+          className="w-14 rounded bg-white/5 px-2 py-1 text-text outline-none"
+        />
+      </div>
+      <div className="flex justify-end gap-1.5">
+        <button onClick={onCancel} className="rounded bg-white/5 px-2 py-1 text-text/70 hover:bg-white/10">
+          {t("common.cancel", "Cancelar")}
+        </button>
+        <button
+          disabled={!ok}
+          onClick={() =>
+            onStart({
+              objective: objective.trim(),
+              condition: condition.trim(),
+              maxIter,
+              tokenBudget: tokenBudgetK > 0 ? tokenBudgetK * 1000 : undefined,
+              maxUnproductive: maxUnproductive > 0 ? maxUnproductive : undefined,
+            })
+          }
+          className="rounded bg-cyan-500/20 px-2.5 py-1 text-cyan-200 hover:bg-cyan-500/30 disabled:opacity-50"
+        >
+          {t("agent.goalStart", "Iniciar")}
+        </button>
       </div>
       <p className="text-[10px] text-text/40">
         {t("agent.goalHint", "o agente tenta, roda a condição e corrige até exit 0. Sem commit automático — você revisa.")}
@@ -1670,7 +1835,6 @@ function GoalForm({
     </div>
   );
 }
-
 /** Form do 🔁 Loop: prompt recorrente a cada N min. */
 function LoopForm({
   initial,

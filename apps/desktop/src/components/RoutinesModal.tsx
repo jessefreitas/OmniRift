@@ -13,7 +13,8 @@ import {
   saveRoutines,
   refreshRoutines,
   routineRuns,
-  runRoutine,
+  dispatchRoutine,
+  isDreamTrigger,
   effectiveTrigger,
   ROUTINE_TEMPLATES,
   ROUTINE_CATEGORIES,
@@ -47,6 +48,8 @@ export function RoutinesModal({ onClose, cwd }: Props) {
     if (s.trigger === "floor-deleted") return t("routines.onFloorDeleted", "ao deletar floor");
     if (s.trigger === "gate:land") return t("routines.onGateLand", "gate de Land");
     if (s.trigger === "gate:graph") return t("routines.onGateGraph", "gate estrutural");
+    if (s.trigger === "dream" && s.atTime) return `💤 ${t("routines.at", "às")} ${s.atTime}`;
+    if (s.trigger === "dream") return `💤 ${t("routines.every", "a cada")} ${s.intervalMin ?? "—"} ${t("routines.min", "min")}`;
     if (s.atTime) return `${t("routines.at", "às")} ${s.atTime}`;
     if (s.intervalMin) return `${t("routines.every", "a cada")} ${s.intervalMin} ${t("routines.min", "min")}`;
     return t("routines.manual", "manual");
@@ -101,7 +104,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
 
   /** Roda e atualiza o chip de histórico (otimista + reconcilia com o backend). */
   function run(r: Routine) {
-    runRoutine(r);
+    dispatchRoutine(r);
     setLastRuns((prev) => ({ ...prev, [r.id]: Math.floor(Date.now() / 1000) }));
     setTimeout(() => void refreshLastRuns([r]), 300);
   }
@@ -233,7 +236,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                   />
                   <button
                     onClick={() => run(r)}
-                    disabled={!r.command.trim()}
+                    disabled={!isDreamTrigger(r) && !r.command.trim()}
                     title={t("routines.runNow", "Rodar agora")}
                     className="flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-surface2 text-text hover:text-brand border border-border disabled:opacity-40"
                   >
@@ -282,9 +285,12 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                         <option value="gate:land">{t("routines.trigGateLand", "Gate de Land (shell)")}</option>
                         <option value="gate:graph">{t("routines.trigGateGraph", "Gate estrutural (OmniGraph)")}</option>
                       </optgroup>
+                      <optgroup label={t("routines.trigGroupMemory", "Memória (embutido, agendado)")}>
+                        <option value="dream">{t("routines.trigDream", "💤 Dream de memória (decaimento + consolidação)")}</option>
+                      </optgroup>
                     </select>
                   </label>
-                  {effectiveTrigger(r) === "interval" && (
+                  {(effectiveTrigger(r) === "interval" || isDreamTrigger(r)) && (
                     <label className="flex items-center gap-1.5">
                       {t("routines.every", "a cada")}
                       <input
@@ -298,7 +304,7 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                       {t("routines.min", "min")}
                     </label>
                   )}
-                  {effectiveTrigger(r) === "atTime" && (
+                  {(effectiveTrigger(r) === "atTime" || isDreamTrigger(r)) && (
                     <label className="flex items-center gap-1.5">
                       <Clock size={11} className="opacity-70" /> {t("routines.at", "às")}
                       <input
@@ -321,8 +327,14 @@ export function RoutinesModal({ onClose, cwd }: Props) {
                     <span className="text-[10px] text-textMuted opacity-70">
                       {t("routines.graphGateHint", "gate estrutural do OmniGraph (sem LLM) — roda no Land; ação configurada na política de Review (padrão: só avisa)")}
                     </span>
-                  ) : (
-                    <label className="flex items-center gap-1.5">
+) : isDreamTrigger(r) ? (
+                    // Dream embutido (grok 4.3): chama memory_dream no provider ativo — decaimento
+                    // de Ebbinghaus + consolidação. No-op honesto no provider Local (só o cérebro
+                    // OmniMemory tem essa camada). Sem comando shell, sem floor alvo.
+                    <span className="text-[10px] text-textMuted opacity-70">
+                      {t("routines.dreamHint", "consolida + decai a memória do provider ativo (OmniMemory). Sem efeito no provider Local — conecte um cérebro em Ferramentas › Memória")}
+                    </span>
+                  ) : (                    <label className="flex items-center gap-1.5">
                       {t("routines.runIn", "rodar em")}
                       <select
                         value={r.targetFloor ?? ""}

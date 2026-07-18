@@ -27,6 +27,7 @@ import {
 import { kanbanCardCreate } from "@/lib/kanban-client";
 import { omnifsIsManagedCwd, omnifsSnapshotNow } from "@/lib/omnifs-client";
 import { PIPELINE_TEMPLATES } from "@/lib/pipeline-templates";
+import { fitActiveFloor } from "@/lib/canvas-focus";
 import { useT } from "@/lib/i18n";
 
 const MODEL_COLORS: Record<string, string> = {
@@ -67,7 +68,10 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   const builtLabels = useMemo(() => builtLabelsKey.split("\u0000").filter(Boolean), [builtLabelsKey]);
 
   const [providers, setProviders] = useState<LlmProvider[]>([]);
-  const [mountAs, setMountAs] = useState<"agent" | "terminal">("agent");
+  // Híbrido (default): líder = OmniAgent ACP (orquestrador — nasce com tools de execução
+  // bloqueadas por design, só delega); executores = terminais claude com role nativo.
+  // Time 100% ACP era o default antigo e produzia N coordenadores sem NINGUÉM que executa.
+  const [mountAs, setMountAs] = useState<"agent" | "terminal" | "hybrid">("hybrid");
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [desc, setDesc] = useState("");
@@ -199,7 +203,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
       plan.connections.filter((c) => c.from.toLowerCase() === role.toLowerCase()).map((c) => c.to);
 
     // Terminal-com-role: o perfil MCP de dev é um só (resolve 1x); settings é por-agente.
-    const mcpPath = mountAs === "terminal" ? await agentMcpConfig().catch(() => null) : null;
+    const mcpPath = mountAs !== "agent" ? await agentMcpConfig().catch(() => null) : null;
 
     const idByRole = new Map<string, string>();
     const floorByRole = new Map<string, string | undefined>();
@@ -261,7 +265,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
           : `Prepare sua fatia agora lendo ${repoHint}; execute quando ${ups.join(", ")} te entregar o trabalho.`);
 
       let nodeId: string;
-      if (mountAs === "terminal") {
+      if (mountAs === "terminal" || (mountAs === "hybrid" && !isLeader)) {
         // Terminal claude NATIVO: persona vira system prompt real (--append-system-prompt,
         // dentro do contrato dev) + modelo do plano via --model (o CLI aceita haiku/sonnet/opus).
         const settingsPath = await agentSettingsConfig(a.role).catch(() => null);
@@ -358,6 +362,9 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
       `[pipeline] Montar: ${idByRole.size} agentes (${mountAs}), ${createdFloors} paralelo(s) criado(s), ` +
       `${skippedCross} conexão(ões) cross-floor pulada(s), ${skippedByLimit} agente(s) barrado(s) por licença`,
     );
+    // Enquadra o time recém-montado: sem isto, agente fora do viewport ficava invisível
+    // (e, antes do gate spawnedOnce no FloorCanvas, nem chegava a spawnar).
+    fitActiveFloor();
     onClose();
   }
 
@@ -571,10 +578,11 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
           <footer className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
             <select
               value={mountAs}
-              onChange={(e) => setMountAs(e.target.value as "agent" | "terminal")}
-              title={t("pipe.mountAsT", "OmniAgent = nó ACP (persona por priming). Terminal = claude nativo com role via --append-system-prompt + --model do plano.")}
+              onChange={(e) => setMountAs(e.target.value as "agent" | "terminal" | "hybrid")}
+              title={t("pipe.mountAsT", "Híbrido = líder OmniAgent (ACP, orquestra) + executores terminal claude. OmniAgent = nó ACP (só coordena — tools de execução bloqueadas). Terminal = claude nativo com role via --append-system-prompt + --model do plano.")}
               className={`${sel} text-[11px]`}
             >
+              <option value="hybrid">{t("pipe.asHybrid", "montar híbrido (líder ACP + executores terminal)")}</option>
               <option value="agent">{t("pipe.asAgent", "montar como OmniAgent (ACP)")}</option>
               <option value="terminal">{t("pipe.asTerminal", "montar como terminal claude (role nativo)")}</option>
             </select>

@@ -457,6 +457,12 @@ fn build_command(cfg: &PtySpawnConfig) -> CommandBuilder {
         }
     };
 
+    // [sandbox] Linux: envelopa o comando com bwrap quando OMNIRIFT_SANDBOX=workspace e bwrap
+    // está no PATH (fail-open: off/remoto/sem-bwrap → comando cru, zero regressão). Contém o
+    // EXECUTOR real (workers PTY), não o processo Tauri — o ponto onde bash/edit/rm rodam.
+    #[cfg(target_os = "linux")]
+    let (program, args) = crate::sandbox::maybe_wrap(program, args, cfg.cwd.as_deref(), host.is_remote());
+
     let mut cmd = build_program(&program, &args);
 
     // O `cwd` LOCAL só se aplica ao processo local. Em SSH, o cwd já foi embutido no

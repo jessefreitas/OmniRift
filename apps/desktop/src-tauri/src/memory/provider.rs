@@ -25,6 +25,18 @@ pub trait MemoryProvider: Send + Sync {
     fn agent_wiring(&self) -> AgentWiring {
         AgentWiring::none()
     }
+
+    /// 💤 "Dream" (grok 4.3): ciclo sleep-like de consolidação + decaimento de memória,
+    /// agendável por Routine (Fase 6). Default = no-op honesto — só um cérebro com
+    /// decaimento/consolidação (OmniMemory) sobrescreve; Local não tem essa camada.
+    async fn dream(&self, _project: Option<&str>) -> anyhow::Result<DreamReport> {
+        Ok(DreamReport {
+            ran: false,
+            decayed: 0,
+            consolidated: false,
+            detail: "provider ativo não tem decaimento/consolidação (só o cérebro OmniMemory)".into(),
+        })
+    }
 }
 
 #[cfg(test)]

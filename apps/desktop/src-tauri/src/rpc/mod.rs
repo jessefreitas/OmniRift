@@ -218,12 +218,17 @@ mod tests {
     #[test]
     fn build_registry_has_readonly_and_write_methods() {
         let reg = build_registry();
-        // #8A read-only (3) + Fase 2 escrita (3) + mobile #9 (4) = 10.
-        assert_eq!(reg.len(), 10, "3 read-only (#8A) + 3 escrita (Fase 2) + 4 mobile (#9)");
+        // #8A read-only (3) + Fase 2 escrita (3) + mobile #9 (4) + ACP (4) = 14.
+        assert_eq!(reg.len(), 14, "3 read-only (#8A) + 3 escrita + 4 mobile (#9) + 4 ACP");
         // Read-only (#8A).
         assert!(reg.get("status").is_some());
         assert!(reg.get("agents.list").is_some());
         assert!(reg.get("pty.snapshot").is_some());
+        // ACP (OmniAgents): list/snapshot read-only + prompt/cancel steer.
+        assert!(reg.get("acp.list").is_some());
+        assert!(reg.get("acp.snapshot").is_some());
+        assert!(reg.get("acp.prompt").is_some());
+        assert!(reg.get("acp.cancel").is_some());
         // Escrita (Fase 2 — registradas no Registry, mas FORA da allowlist mobile).
         assert!(reg.get("agent.spawn").is_some());
         assert!(reg.get("agent.send").is_some());

@@ -19,6 +19,18 @@ export function registerFloorInstance(floorId: string, inst: ReactFlowInstance |
   else instances.delete(floorId);
 }
 
+/**
+ * Enquadra TODOS os nós do floor ativo (Montar do Arquiteto: o time nasce espalhado
+ * e parte cai fora do viewport — sem isso o usuário não vê o que foi criado).
+ * Delay: dá tempo do ReactFlow montar os nós recém-inseridos antes de medir.
+ */
+export function fitActiveFloor(): void {
+  const floorId = useCanvasStore.getState().activeParallelId;
+  setTimeout(() => {
+    instances.get(floorId)?.fitView({ padding: 0.15, duration: 400, maxZoom: 1 });
+  }, 120);
+}
+
 /** Centraliza a câmera no nó — trocando de paralelo antes, se ele vive em outro. */
 export function focusNode(nodeId: string): void {
   const s = useCanvasStore.getState();

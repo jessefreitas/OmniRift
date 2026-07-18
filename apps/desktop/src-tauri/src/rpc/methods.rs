@@ -70,6 +70,11 @@ pub fn register_methods(registry: &mut Registry) {
     registry.register("permission.respond", permission_respond as Handler);
     registry.register("kanban.list", kanban_list as Handler);
     registry.register("kanban.move", kanban_move as Handler);
+    // ACP (OmniAgents) — list/snapshot read-only na allowlist mobile; prompt/cancel via steer.
+    registry.register("acp.list", acp_list as Handler);
+    registry.register("acp.snapshot", acp_snapshot as Handler);
+    registry.register("acp.prompt", acp_prompt as Handler);
+    registry.register("acp.cancel", acp_cancel as Handler);
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +212,11 @@ fn pty_snapshot(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
     let snap = pty
         .snapshot(&parsed.session_id, rows)
         .map_err(|e| RpcError::not_found(format!("{e:#}")))?;
-    serde_json::to_value(snap).map_err(|e| RpcError::internal(e.to_string()))
+    // [segurança] Redige segredos antes de espelhar o VT pro mobile (o device pareado decifra
+    // o e2ee e veria `sk-…`/`ghp_…` na tela). O xterm LOCAL usa outro caminho (comando Tauri).
+    let mut val = serde_json::to_value(snap).map_err(|e| RpcError::internal(e.to_string()))?;
+    crate::redactor::redact_json(&mut val);
+    Ok(val)
 }
 
 // ===========================================================================
@@ -626,6 +635,129 @@ fn kanban_move(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
     }
     db.kanban_move(p.card_id, &p.col).map_err(|e| RpcError::internal(format!("{e:#}")))?;
     let _ = ctx.app.emit("kanban://changed", ());
+    Ok(json!({ "ok": true }))
+}
+
+// MÉTODOS ACP (OmniAgents): espelha pros agentes ACP o controle que agent.send/pty.snapshot
+// já dão pros terminais shell/CLI. list/snapshot = read-only; prompt/cancel = via steering.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct AcpPromptParams {
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    input: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct AcpSessionParams {
+    #[serde(rename = "sessionId")]
+    session_id: String,
+}
+
+fn parse_acp_prompt_params(params: Value) -> Result<AcpPromptParams, RpcError> {
+    if params.is_null() {
+        return Err(RpcError::invalid_argument(
+            "acp.prompt exige params {sessionId, input}",
+        ));
+    }
+    serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_argument(e.to_string()))
+}
+
+fn parse_acp_session_params(params: Value) -> Result<AcpSessionParams, RpcError> {
+    if params.is_null() {
+        return Err(RpcError::invalid_argument(
+            "exige params {sessionId}",
+        ));
+    }
+    serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_argument(e.to_string()))
+}
+
+fn acp_list(_params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
+    let Some(manager) = ctx.app.try_state::<Arc<AcpManager>>() else {
+        return Ok(json!({ "agents": [] }));
+    };
+
+    let agents = manager
+        .labels_list()
+        .into_iter()
+        .map(|(label, id, ready)| {
+            json!({
+                "sessionId": id,
+                "label": label,
+                "ready": ready
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(json!({ "agents": agents }))
+}
+
+fn acp_snapshot(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
+    let p = parse_acp_session_params(params)?;
+    let Some(manager) = ctx.app.try_state::<Arc<AcpManager>>() else {
+        return Err(RpcError::not_found("AcpManager indisponível"));
+    };
+
+    let snapshot = manager
+        .attach(&p.session_id)
+        .map_err(|e| RpcError::not_found(format!("{e:#}")))?;
+
+    // [segurança] acp.snapshot está na allowlist mobile → redige os payloads antes do relay.
+    let mut val = serde_json::to_value(snapshot).map_err(|e| RpcError::internal(e.to_string()))?;
+    crate::redactor::redact_json(&mut val);
+    Ok(val)
+}
+
+fn acp_prompt(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
+    let p = parse_acp_prompt_params(params)?;
+    let Some(manager) = ctx.app.try_state::<Arc<AcpManager>>() else {
+        return Err(RpcError::internal("AcpManager indisponível"));
+    };
+
+    // Validação síncrona: garante que o id existe antes de disparar a tarefa async.
+    let exists = manager
+        .labels_list()
+        .iter()
+        .any(|(_, id, _)| id.to_string() == p.session_id);
+
+    if !exists {
+        return Err(RpcError::not_found(format!(
+            "sessão ACP '{}' não encontrada",
+            p.session_id
+        )));
+    }
+
+    // Fire-and-forget: o handler responde imediatamente enquanto a tarefa async continua no runtime.
+    let session_id = p.session_id;
+    let input = p.input;
+    let manager = Arc::clone(&manager);
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = manager.prompt(&session_id, input).await {
+            log::warn!("acp.prompt falhou para {}: {:#}", session_id, e);
+        }
+    });
+
+    Ok(json!({ "ok": true }))
+}
+
+fn acp_cancel(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
+    let p = parse_acp_session_params(params)?;
+    let Some(manager) = ctx.app.try_state::<Arc<AcpManager>>() else {
+        return Err(RpcError::internal("AcpManager indisponível"));
+    };
+
+    // Fire-and-forget: cancelamento executa em background sem bloquear a resposta RPC.
+    let session_id = p.session_id;
+    let manager = Arc::clone(&manager);
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = manager.cancel(&session_id).await {
+            log::warn!("acp.cancel falhou para {}: {:#}", session_id, e);
+        }
+    });
+
     Ok(json!({ "ok": true }))
 }
 

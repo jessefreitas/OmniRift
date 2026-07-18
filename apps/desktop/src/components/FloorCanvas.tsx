@@ -126,6 +126,11 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
   // (o ptyWrite pro terminal alvo não é batchado pelo React: escrevia o texto N vezes).
   // Vive no Canvas, que monta 1x. Ver Canvas.tsx.
   const floor = useCanvasStore((s) => s.parallels.find((f) => f.id === floorId));
+  // Agente ACP que NUNCA spawnou (recém-criado, ex: time do Montar fora do viewport):
+  // o spawn inicial só acontece no mount do AgentNode → com virtualização ligada ele
+  // nunca montaria e ficava "não iniciado" pra sempre. Enquanto houver um assim no
+  // floor, desliga a virtualização (tudo monta 1x, spawna, marca spawnedOnce e ela volta).
+  const hasUnbornAgents = !!floor?.nodes.some((n) => n.kind === "agent" && !n.spawnedOnce);
   const updateNodePosition = useCanvasStore((s) => s.updateNodePosition);
   const updateNodeSize = useCanvasStore((s) => s.updateNodeSize);
   const addEdge = useCanvasStore((s) => s.addEdge);
@@ -407,7 +412,7 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
       // arbitrários, inclusive o terminal do Orquestrador que o OrchestratorDock
       // exibe montado de OUTRO floor (o xterm é relocado via appendChild). Floors
       // inativos seguem montando tudo (comportamento antigo).
-      onlyRenderVisibleElements={active}
+      onlyRenderVisibleElements={active && !hasUnbornAgents}
       proOptions={{ hideAttribution: true }}
       minZoom={0.15}
       maxZoom={2.5}

@@ -21,7 +21,7 @@
 
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Network, Loader2, Sparkles, ChevronDown, Share2, Boxes, Flame, GitCompare, Eraser } from "lucide-react";
+import { Network, Loader2, Sparkles, ChevronDown, Share2, Boxes, Flame, GitCompare, Eraser, GripVertical } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { omnigraphGraphJson, omnigraphReport } from "@/lib/pipeline-client";
@@ -33,6 +33,7 @@ import { notify } from "@/lib/notify";
 import { useFlag } from "@/lib/feature-flags";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { useDraggable } from "@/lib/use-draggable";
 
 /** Máx. de arestas AMBIGUOUS que viram sub-task num subagente só (as top por "surpresa"). */
 const AMBIGUOUS_TOP_K = 8;
@@ -75,6 +76,8 @@ export function GraphImportButton() {
   const patchNode = useCanvasStore((s) => s.patchNode);
   const clearTaggedNodes = useCanvasStore((s) => s.clearTaggedNodes);
   const t = useT();
+  // Painel flutuante: arrastável pelo grip, posição salva. Sem posição → default top-3 right-3.
+  const drag = useDraggable("omnirift-graph-panel-pos");
   const [busy, setBusy] = useState(false);
   const [busyClean, setBusyClean] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -350,7 +353,19 @@ export function GraphImportButton() {
   if (!omnigraphEnabled) return null;
 
   return (
-    <div className="absolute top-3 right-3 z-30 flex items-center gap-1.5">
+    <div
+      ref={drag.ref}
+      style={drag.style}
+      className={cn("absolute z-30 flex items-center gap-1.5", !drag.floating && "top-3 right-3")}
+    >
+      {/* Grip de arraste (flutuante): segura e solta onde não atrapalha a barra de ícones. */}
+      <button
+        onPointerDown={drag.onPointerDown}
+        title={t("graph.dragHandle", "Arrastar este painel")}
+        className="flex cursor-move items-center rounded-md border border-border bg-surface1/90 px-1 py-1 text-textMuted backdrop-blur hover:text-text"
+      >
+        <GripVertical size={13} />
+      </button>
       {/* Dropdown de VISÕES (F5): corpo repete a última; a seta abre as 4. */}
       <div className="relative">
         <div className="flex items-stretch">

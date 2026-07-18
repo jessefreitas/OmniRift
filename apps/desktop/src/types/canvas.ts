@@ -229,7 +229,7 @@ export interface AgentNode extends BaseCanvasNode {
    * passar (ou `maxIter`). Reusa o motor do TURBO (`run_check`). Persiste a ÚLTIMA config; o estado
    * do run (iteração/status) é em memória.
    */
-  goal?: { objective: string; condition: string; maxIter: number };
+  goal?: { objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number };
   /**
    * 🔁 Loop (recorrente por-agente): re-manda `prompt` a cada `everyMin` minutos (se ready e ocioso).
    * `active` liga/desliga. Reusa `acp_prompt`. Persiste a config.
@@ -248,6 +248,13 @@ export interface AgentNode extends BaseCanvasNode {
    * (patchNode); limpo quando o resume falha (exit-129) ou ao trocar de provider.
    */
   acpSessionId?: string;
+  /**
+   * O nó já disparou seu PRIMEIRO acp_spawn nesta vida. Enquanto algum agente do floor
+   * não tiver, o FloorCanvas segura a virtualização (F3) — nó recém-criado fora do
+   * viewport (ex: time do Montar) nunca montaria e o spawn inicial só vive no mount.
+   * Persistido: no restore volta true → boot continua lazy (attach/resume sob demanda).
+   */
+  spawnedOnce?: boolean;
   /** Epoch ms de criação. */
   createdAt?: number;
 }
@@ -406,12 +413,14 @@ export interface CanvasNodePatch {
   tag?: string;
   providerConfig?: { provider: string; model: string };
   provider?: "claude" | "codex" | "hermes";
-  goal?: { objective: string; condition: string; maxIter: number };
+  goal?: { objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number };
   loop?: { prompt: string; everyMin: number; active: boolean };
   /** 📿 Recitação (Manus): reinjeta o foco no loop. Ausente/true = ligado; false = desligado. */
   recite?: boolean;
   /** F2 backend-owned: sessionId do adapter ACP a persistir (resume pós-restart). */
   acpSessionId?: string;
+  /** Primeiro acp_spawn já disparado (solta a virtualização do floor — ver AgentNode). */
+  spawnedOnce?: boolean;
   model?: string;
   prompt?: string;
 }

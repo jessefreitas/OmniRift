@@ -8,6 +8,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { currentShellRunThenStay } from "@/lib/shell";
 import { parallelGitDiff } from "@/lib/git-client";
 import {
   omnigraphImpact,
@@ -29,7 +30,8 @@ export type RoutineTrigger =
   | "floor-created"
   | "floor-deleted"
   | "gate:land"
-  | "gate:graph";
+  | "gate:graph"
+  | "dream";
 
 export interface Routine {
   id: string;
@@ -213,12 +215,6 @@ export function saveRoutines(next: Routine[]): void {
   }
 }
 
-function detectShell(): string {
-  if (typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)) {
-    return "powershell.exe";
-  }
-  return "bash";
-}
 
 /** Registra um disparo no histórico. Fire-and-forget — não bloqueia nem quebra sem Tauri. */
 function recordRun(routineId: string, exitCode: number | null, status: string): void {
@@ -230,16 +226,54 @@ function recordRun(routineId: string, exitCode: number | null, status: string): 
  *  Precedência do floor: `targetFloor` explícito da routine > `eventFloorId` (floor do
  *  evento que disparou — ex: o paralelo recém-criado num trigger floor-created) > ativo. */
 export function runRoutine(r: Routine, opts?: { eventFloorId?: string }): void {
-  const sh = detectShell();
+  // Shell da preferência do usuário + args CORRETOS por shell (antes era `-lc` fixo,
+  // inválido no powershell/cmd do Windows). Ver src/lib/shell.ts.
+  const sh = currentShellRunThenStay(r.command);
   useCanvasStore.getState().addTerminal({
-    command: sh,
-    args: ["-lc", `${r.command}; exec ${sh}`],
+    command: sh.command,
+    args: sh.args,
     role: "shell",
     label: `routine: ${r.name}`,
     targetFloorId: r.targetFloor ?? opts?.eventFloorId ?? undefined, // undefined = floor ativo
   });
   // Histórico (MVP): o exit do terminal não é capturável fácil daqui, então "started" basta.
   recordRun(r.id, null, "started");
+}
+
+/** 💤 Relatório de um ciclo de Dream (espelha o DreamReport do backend Rust). */
+export interface DreamReport {
+  ran: boolean;
+  decayed: number;
+  consolidated: boolean;
+  detail: string;
+}
+
+/** true se a routine é do tipo Dream (ação embutida de memória, não shell). */
+export function isDreamTrigger(r: Pick<Routine, "trigger">): boolean {
+  return r.trigger === "dream";
+}
+
+/** 💤 Dream de memória (grok 4.3): dispara consolidação + decaimento no provider ativo
+ *  via comando embutido `memory_dream` (NÃO abre terminal, ao contrário de runRoutine).
+ *  No-op honesto quando o provider é o Local. Registra no histórico da routine. */
+export async function runDreamRoutine(r: Routine): Promise<void> {
+  if (!hasTauri()) return;
+  try {
+    const rep = await invoke<DreamReport>("memory_dream", { project: null });
+    recordRun(r.id, 0, rep.ran ? "dream-ok" : "dream-noop");
+  } catch {
+    recordRun(r.id, 1, "dream-fail");
+  }
+}
+
+/** Despacha uma routine agendada pro executor certo: Dream → ação embutida de memória;
+ *  qualquer outra → comando shell num terminal (runRoutine). */
+export function dispatchRoutine(r: Routine, opts?: { eventFloorId?: string }): void {
+  if (isDreamTrigger(r)) {
+    void runDreamRoutine(r);
+    return;
+  }
+  runRoutine(r, opts);
 }
 
 /** Resultado do GATE de Land: `ok` = todos os gates passaram (ou não há gates). */

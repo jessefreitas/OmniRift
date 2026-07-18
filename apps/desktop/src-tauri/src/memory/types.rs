@@ -45,6 +45,19 @@ impl ProviderHealth {
     }
 }
 
+/// 💤 Resultado de um ciclo de "Dream" (consolidação + decaimento sleep-like, grok 4.3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DreamReport {
+    /// false = provider sem cérebro de consolidação (no-op honesto).
+    pub ran: bool,
+    /// Memórias recalibradas pelo decaimento de Ebbinghaus.
+    pub decayed: u64,
+    /// Rodou o ciclo de consolidação (merge de duplicatas + dormant).
+    pub consolidated: bool,
+    /// Resumo humano do que aconteceu (pra linha do sistema / log da routine).
+    pub detail: String,
+}
+
 /// Como conectar um agente recém-spawnado a ESTE provider.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentWiring {

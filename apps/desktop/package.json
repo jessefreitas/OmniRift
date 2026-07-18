@@ -1,7 +1,7 @@
 {
   "name": "@omnirift/desktop",
   "private": true,
-  "version": "0.1.133",
+  "version": "0.1.134",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,11 @@
     "tauri:dev": "GTK_MODULES= LD_PRELOAD=/lib/x86_64-linux-gnu/libpthread.so.0 PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
     "tauri:build": "tauri build",
     "tauri:build:dev-app": "tauri build --config src-tauri/tauri.dev-install.conf.json --bundles app",
-    "test:grab": "node scripts/run-grab-tests.mjs"
+    "test:grab": "node scripts/run-grab-tests.mjs",
+    "test:laziness": "node scripts/run-laziness-tests.mjs",
+    "test:goal-budget": "node scripts/run-goal-budget-tests.mjs",
+    "test:speculative-compact": "node scripts/run-speculative-compact-tests.mjs",
+    "test:shell": "node scripts/run-shell-tests.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

@@ -462,6 +462,13 @@ fn handle_rpc_frame(
     // Dispatch normal pelo MESMO Registry do #8A (status / agents.list / pty.snapshot).
     let resp = dispatch(registry, req, ctx);
     let wire = serde_json::to_string(&resp).ok()?;
+    // [segurança] Redige segredos ANTES de cifrar. O relay é saída de REDE: o E2EE protege
+    // contra o operador do relay, NÃO contra secrets que apareceram na tela do agente — o
+    // device pareado decifra e vê tudo. `pty.snapshot` carrega o VT cru, então uma API key
+    // (`sk-…`, `ghp_…`) na tela ia pro celular em claro. Aplica a TODA resposta do relay
+    // (o `[REDACTED:…]` é JSON-safe dentro das strings; chaves JSON não casam padrão de
+    // secret). O terminal LOCAL (xterm) segue cru — só a cópia que cruza a rede é higienizada.
+    let wire = crate::redactor::redact(&wire);
     channel.encrypt_frame(wire.as_bytes()).ok()
 }
 

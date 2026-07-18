@@ -60,6 +60,7 @@ import {
 import { nanoid } from "nanoid";
 
 import { useCanvasStore } from "@/store/canvas-store";
+import { currentShell, currentShellRunThenStay } from "@/lib/shell";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { folderCanvasSave, folderCanvasLoad } from "@/lib/folder-canvas-client";
 import { snapshotCreate } from "@/lib/snapshot-client";
@@ -339,7 +340,7 @@ const PRESETS: AgentPreset[] = [
   {
     id: "shell",
     label: "Shell",
-    command: detectShell(),
+    command: currentShell().command,
     role: "shell",
     icon: TerminalSquare,
     description: "Terminal puro do sistema",
@@ -387,12 +388,6 @@ const PRESETS: AgentPreset[] = [
   },
 ];
 
-function detectShell(): string {
-  if (typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)) {
-    return "powershell.exe";
-  }
-  return "bash";
-}
 
 // ── Identidade do nó no canal MCP ─────────────────────────────────────────────
 // O link MCP é keyado pelo `sid` EFÊMERO (regenerado a cada spawn/restore) — por isso
@@ -1082,7 +1077,7 @@ export function Sidebar() {
       const next = new Set(mcpAgents);
       next.delete(sessionId);
       setMcpAgents(next);
-      mcpUnregisterAgent(label).catch(console.warn);
+      mcpUnregisterAgent(label, sessionId).catch(console.warn);
     } else {
       const description = agentDescriptions[sessionId] ?? `Agente ${label} disponível para tarefas.`;
       const next = new Set([...mcpAgents, sessionId]);
@@ -1229,9 +1224,12 @@ export function Sidebar() {
       // Hook onCreate: roda num terminal no floor novo (worktree limpo).
       const hooks = loadHooks();
       if (hooks.onCreate) {
+        // Shell da preferência + args CORRETOS por shell. Antes era `-lc` fixo, que no
+        // Windows virava `powershell.exe -lc` (inválido) → hook de floor quebrado lá.
+        const hookSh = currentShellRunThenStay(hooks.onCreate);
         addTerminal({
-          command: detectShell(),
-          args: ["-lc", `${hooks.onCreate}; exec ${detectShell()}`],
+          command: hookSh.command,
+          args: hookSh.args,
           role: "shell",
           label: "hook: create",
         });
