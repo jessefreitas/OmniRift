@@ -186,7 +186,7 @@ const CATALOG: &[CatalogEntry] = &[
     CatalogEntry { id: "continue",     label: "Continue",          description: "CLI do Continue.dev (JetBrains/VS Code pair programmer).",                             homepage: "https://continue.dev",                                binary: "continue", installer: "npm",     installer_hint: Some("npm install -g @continuedev/cli") },
     CatalogEntry { id: "roo",          label: "Roo Code (CLI)",    description: "CLI do Roo Code.",                                                                   homepage: "https://github.com/RooCodeInc/Roo-Code",              binary: "roo-cli",   installer: "npm",     installer_hint: Some("npm install -g roo-cli") },
     CatalogEntry { id: "kilo",         label: "Kilo Code",         description: "CLI do Kilo Code (fork do Roo).",                                                    homepage: "https://kilocode.ai",                                 binary: "kilo",     installer: "npm",     installer_hint: Some("npm install -g @kilocode/cli") },
-    CatalogEntry { id: "kimi",         label: "Kimi Code",         description: "CLI da Moonshot (Kimi K2) — fala ACP nativo via `kimi acp`. Requer Node 22.19+.", homepage: "https://github.com/MoonshotAI/kimi-cli",              binary: "kimi",     installer: "npm",     installer_hint: Some("npm install -g @moonshot-ai/kimi-code") },
+    CatalogEntry { id: "kimi",         label: "Kimi Code",         description: "CLI da Moonshot (Kimi K2) — fala ACP nativo via `kimi acp`. Requer Node 22.19+.", homepage: "https://github.com/MoonshotAI/kimi-code",             binary: "kimi",     installer: "npm",     installer_hint: Some("npm install -g @moonshot-ai/kimi-code") },
     CatalogEntry { id: "amp",          label: "Amp",             description: "CLI da Sourcegraph (Cody-derivado).",                                                homepage: "https://github.com/sourcegraph/amp",                  binary: "amp",      installer: "curl-sh", installer_hint: Some("curl -fsSL https://amp.sourcegraph.com/install.sh | bash") },
 ];
 
@@ -464,6 +464,13 @@ mod tests {
         assert_eq!(e.installer, "npm");
         // Trava anti-typosquat: `kimi-code`/`kimi-cli` unscoped são de terceiros.
         assert_eq!(npm_pkg("kimi"), "@moonshot-ai/kimi-code");
+        // A Moonshot mantém DOIS projetos de nome parecido e o homepage precisa
+        // apontar pro que a gente instala de fato:
+        //   - `kimi-code`  → Node, npm `@moonshot-ai/kimi-code`, binário `kimi`  ← ESTE
+        //   - `kimi-cli`   → Python, PyPI `kimi-cli`, instalado via uv/pipx
+        // Apontar pro repo errado manda o usuário instalar por outro caminho e
+        // acabar com um binário `kimi` que não é o que o catálogo detecta.
+        assert_eq!(e.homepage, "https://github.com/MoonshotAI/kimi-code");
     }
 
     /// Invariante: todo entry npm/pipx precisa do pacote mapeado, senão o install
