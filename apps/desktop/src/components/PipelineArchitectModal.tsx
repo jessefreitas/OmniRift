@@ -43,6 +43,19 @@ const CLI_DEFAULT = `${CLI_PREFIX}claude`;
 
 // Preferência do toggle "ancorar na arquitetura real (OmniGraph)" — persistida entre sessões.
 const ANCHOR_KEY = "omnirift-pipe-anchor-arch";
+/** Como montar o time. Default `terminal` (claude nativo): o modo ACP bloqueia as tools
+ * de execução por design, então serve pra líder que coordena — não pro time inteiro.
+ * Quem não sabe disso monta em ACP e vê agentes que não executam nada. Pedido de beta
+ * tester (Eric, 18/07): "esqueço sempre que o modo ACP não é ideal pra todo o time". */
+const MOUNT_AS_KEY = "omnirift-pipe-mount-as";
+type MountAs = "agent" | "terminal" | "hybrid";
+function loadMountAs(): MountAs {
+  try {
+    const v = localStorage.getItem(MOUNT_AS_KEY);
+    if (v === "agent" || v === "terminal" || v === "hybrid") return v;
+  } catch { /* localStorage off */ }
+  return "terminal";
+}
 
 export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -71,7 +84,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   // Híbrido (default): líder = OmniAgent ACP (orquestrador — nasce com tools de execução
   // bloqueadas por design, só delega); executores = terminais claude com role nativo.
   // Time 100% ACP era o default antigo e produzia N coordenadores sem NINGUÉM que executa.
-  const [mountAs, setMountAs] = useState<"agent" | "terminal" | "hybrid">("hybrid");
+  const [mountAs, setMountAs] = useState<MountAs>(loadMountAs);
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [desc, setDesc] = useState("");
@@ -578,13 +591,18 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
           <footer className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
             <select
               value={mountAs}
-              onChange={(e) => setMountAs(e.target.value as "agent" | "terminal" | "hybrid")}
-              title={t("pipe.mountAsT", "Híbrido = líder OmniAgent (ACP, orquestra) + executores terminal claude. OmniAgent = nó ACP (só coordena — tools de execução bloqueadas). Terminal = claude nativo com role via --append-system-prompt + --model do plano.")}
+              onChange={(e) => {
+                const v = e.target.value as MountAs;
+                setMountAs(v);
+                // Lembra a escolha: quem troca de propósito não deve reconfigurar toda vez.
+                try { localStorage.setItem(MOUNT_AS_KEY, v); } catch { /* localStorage off */ }
+              }}
+              title={t("pipe.mountAsT", "Terminal (padrão) = claude nativo com role via --append-system-prompt + --model do plano; executa de verdade. Híbrido = líder OmniAgent (ACP, orquestra) + executores terminal claude. OmniAgent = nó ACP: só coordena — as tools de execução são bloqueadas por design, então NÃO use pro time inteiro.")}
               className={`${sel} text-[11px]`}
             >
+              <option value="terminal">{t("pipe.asTerminal", "montar como terminal claude (role nativo) — padrão")}</option>
               <option value="hybrid">{t("pipe.asHybrid", "montar híbrido (líder ACP + executores terminal)")}</option>
-              <option value="agent">{t("pipe.asAgent", "montar como OmniAgent (ACP)")}</option>
-              <option value="terminal">{t("pipe.asTerminal", "montar como terminal claude (role nativo)")}</option>
+              <option value="agent">{t("pipe.asAgent", "montar como OmniAgent (ACP) — só coordena, não executa")}</option>
             </select>
             <button onClick={() => void save()} className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-text hover:bg-surface2">
               <Save size={13} /> {t("pipe.saveBtn", "Salvar plano")}
