@@ -679,29 +679,34 @@ fn floor_suffix(floor: &Option<String>) -> String {
     floor.as_deref().map(|f| format!(" @{f}")).unwrap_or_default()
 }
 
-/// Recusa o spawn quando JÁ EXISTE um agente vivo com este label.
+/// Recusa o spawn SÓ quando já existe um agente com este label que está DISPONÍVEL
+/// (idle/done) — isto é, que poderia simplesmente receber a tarefa.
+///
+/// Se o homônimo está OCUPADO (working/blocked), o spawn PASSA: precisar de um segundo
+/// Frontend enquanto o primeiro trabalha noutra parte do sistema é legítimo, e barrar
+/// isso quebraria o paralelismo que o orquestrador existe pra fazer. Nesse caso o
+/// `register()` sufixa o label (" 2", " 3"…), então os dois seguem endereçáveis e
+/// ninguém é sobrescrito.
 ///
 /// É helper (e não check inline) DE PROPÓSITO: existem TRÊS caminhos de spawn
 /// (`terminal_spawn`, `terminal_spawn_on_floor`, `orchestrator_spawn_agent`) e guard
-/// em só um deles é exatamente o bug de paridade que a regra dura do contrato tinha —
-/// ela listava dois e esquecia o terceiro, então o orquestrador duplicou o time inteiro
-/// pela porta descoberta. Todo caminho novo de spawn DEVE chamar isto.
+/// em só um deles é o bug de paridade que a regra dura do contrato tinha — ela listava
+/// dois e esquecia o terceiro. Todo caminho novo de spawn DEVE chamar isto.
 fn duplicate_agent_refusal(state: &McpState, name: &str) -> Option<String> {
-    let dup = agent_snapshot(state)
-        .into_iter()
-        .find(|a| a.label.trim().eq_ignore_ascii_case(name.trim()) && !matches!(a.state, crate::pty::AgentState::Dead))?;
+    let dup = agent_snapshot(state).into_iter().find(|a| {
+        a.label.trim().eq_ignore_ascii_case(name.trim())
+            && matches!(a.state, crate::pty::AgentState::Idle | crate::pty::AgentState::Done)
+    })?;
     let st = match dup.state {
-        crate::pty::AgentState::Idle => "idle",
-        crate::pty::AgentState::Working => "working",
-        crate::pty::AgentState::Blocked => "blocked",
         crate::pty::AgentState::Done => "done",
-        crate::pty::AgentState::Dead => "dead",
+        _ => "idle",
     };
     Some(format!(
-        "❌ Spawn recusado: já existe @{} no canvas [{}]. Delegue a ELE com \
-         orchestrator_dispatch / terminal_send_text em vez de criar um duplicado. \
-         Se precisar mesmo de outro agente, use um nome DIFERENTE.",
-        dup.label, st
+        "❌ Spawn recusado: já existe @{} no canvas e ele está {} — ou seja, LIVRE pra \
+         pegar esta tarefa. Delegue a ELE com orchestrator_dispatch / terminal_send_text. \
+         (Se o trabalho for mesmo paralelo e simultâneo, use um nome DIFERENTE, ex: \
+         '{} Admin' — aí os dois coexistem.)",
+        dup.label, st, dup.label
     ))
 }
 
