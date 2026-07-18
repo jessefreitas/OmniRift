@@ -515,7 +515,11 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                 "jsonrpc": "2.0", "id": 1, "method": "initialize",
                 "params": {
                     "protocolVersion": 1,
-                    "clientCapabilities": { "fs": { "readTextFile": true, "writeTextFile": true }, "terminal": true },
+                    // HONESTIDADE DE CAPABILITY: só anunciamos o que o read-loop REALMENTE trata
+                    // (hoje: session/request_permission). Anunciar fs/terminal sem implementar
+                    // fazia o adapter mandar fs/read_text_file e TRAVAR esperando resposta.
+                    // O adapter usa as próprias tools de fs/terminal quando o client não oferece.
+                    "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
                     "clientInfo": { "name": "omnirift", "version": "0.1.0" }
                 }
             });
@@ -692,9 +696,15 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                     continue;
                 }
 
-                // Outros requests do adapter (fs/read, terminal, …) — fora do spike: loga.
-                if method.is_some() && msg.get("id").is_some() {
-                    log::info!("[acp {sid}] request do adapter: {method:?}");
+                // Qualquer OUTRO request do adapter (COM id) PRECISA de resposta — senão ele
+                // trava esperando pra sempre. Antes só logava (bug latente). Agora responde o
+                // erro JSON-RPC padrão -32601; o adapter trata e segue o turno.
+                if let (Some(m), Some(req_id)) = (method, msg.get("id").cloned()) {
+                    log::info!("[acp {sid}] request não implementado: {m} → respondendo -32601");
+                    let err = method_not_found_response(req_id, m);
+                    if let Err(e) = write_line(&sess.stdin, &err).await {
+                        log::warn!("[acp {sid}] falha ao responder {m}: {e}");
+                    }
                 }
             }
             // EOF do adapter. Kill INTENCIONAL (cancel/gc/reload — flag `killed`) fica mudo:
@@ -870,6 +880,20 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
 }
 
 /// Escreve um valor JSON como uma linha (newline-delimited) no stdin do adapter.
+/// Resposta JSON-RPC padrão pra request que o client NÃO implementa (-32601 method not found).
+/// Pura → testável. Responder é OBRIGATÓRIO: sem isso o adapter TRAVA esperando pra sempre
+/// (era o bug latente — o fallback do read-loop só logava e nunca respondia).
+pub(crate) fn method_not_found_response(req_id: Value, method: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "error": {
+            "code": -32601,
+            "message": format!("method not implemented by omnirift client: {method}")
+        }
+    })
+}
+
 async fn write_line(stdin: &Arc<AsyncMutex<ChildStdin>>, value: &Value) -> Result<()> {
     let mut buf = serde_json::to_vec(value)?;
     buf.push(b'\n');
@@ -912,6 +936,25 @@ struct PermissionEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn method_not_found_preserva_id_e_codigo() {
+        let r = method_not_found_response(json!(7), "fs/read_text_file");
+        assert_eq!(r["jsonrpc"], json!("2.0"));
+        assert_eq!(r["id"], json!(7));
+        assert_eq!(r["error"]["code"], json!(-32601));
+        assert!(r["error"]["message"].as_str().unwrap().contains("fs/read_text_file"));
+        assert!(r.get("result").is_none(), "resposta de erro nunca traz result");
+    }
+
+    #[test]
+    fn method_not_found_aceita_id_string_e_null() {
+        let s = method_not_found_response(json!("abc"), "terminal/create");
+        assert_eq!(s["id"], json!("abc"));
+        let n = method_not_found_response(Value::Null, "terminal/output");
+        assert_eq!(n["id"], Value::Null);
+        assert_eq!(n["error"]["code"], json!(-32601));
+    }
 
     fn chunk(text: &str) -> Value {
         json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": text } })
