@@ -1077,7 +1077,7 @@ export function Sidebar() {
       const next = new Set(mcpAgents);
       next.delete(sessionId);
       setMcpAgents(next);
-      mcpUnregisterAgent(label).catch(console.warn);
+      mcpUnregisterAgent(label, sessionId).catch(console.warn);
     } else {
       const description = agentDescriptions[sessionId] ?? `Agente ${label} disponível para tarefas.`;
       const next = new Set([...mcpAgents, sessionId]);

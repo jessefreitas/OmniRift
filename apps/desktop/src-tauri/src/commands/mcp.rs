@@ -14,12 +14,23 @@ pub fn mcp_register_agent(
     registry.register(label, session_id, description, floor);
 }
 
+/// Desregistra um agente. Prefira SEMPRE mandar o `session_id`: o label pode ter sido
+/// SUFIXADO no registro (quando outra sessão viva já ocupava o nome), e desregistrar pelo
+/// label original removeria a entrada do OUTRO agente. Sem session_id, cai no label (legado).
 #[tauri::command]
 pub fn mcp_unregister_agent(
     label: String,
+    session_id: Option<String>,
     registry: State<'_, std::sync::Arc<AgentRegistry>>,
 ) {
-    registry.unregister(&label);
+    match session_id {
+        Some(sid) if !sid.is_empty() => {
+            registry.unregister_by_session(&sid);
+        }
+        _ => {
+            registry.unregister(&label);
+        }
+    }
 }
 
 #[tauri::command]
