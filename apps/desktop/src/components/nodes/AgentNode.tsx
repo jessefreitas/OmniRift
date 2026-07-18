@@ -60,6 +60,7 @@ import {
 import { scheduleReindex, omnifsIsManagedCwd, omnifsSnapshotNow } from "@/lib/omnifs-client";
 import { getFlag, useFlag } from "@/lib/feature-flags";
 import { runLazinessCheck } from "@/lib/laziness-check";
+import { isUnproductiveTurn, nextUnproductiveStreak, evaluateGoalLimits } from "@/lib/goal-budget";
 import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
 import { communityForPath } from "@/lib/omnigraph-graph";
 import { useAgentCheckpoints } from "@/lib/agent-checkpoints";
@@ -242,9 +243,12 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const compactRef = useRef<string | null>(null);
   // 🎯 Goal (loop autônomo por-agente) + 🔁 Loop (timer). Os refs guardam o run ATIVO (estáveis
   // no closure do turn-done, sem stale state); goalRun alimenta o badge no header.
-  const goalRef = useRef<{ objective: string; condition: string; maxIter: number } | null>(null);
+  const goalRef = useRef<{ objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number } | null>(null);
   const goalStatusRef = useRef<"running" | "done" | "stopped" | "fail" | null>(null);
   const goalIterRef = useRef(0);
+  // 🎯 Orçamento do goal (grok 4.10): tokens usados no início (p/ delta) + turnos improdutivos seguidos.
+  const goalTokenBaselineRef = useRef(0);
+  const goalUnproductiveRef = useRef(0);
   // Saída da condição na iteração anterior — se repetir idêntica, o agente está preso num
   // raciocínio circular (aplicou o mesmo fix que não muda nada) → aborta (detecção de estagnação).
   const goalLastOutRef = useRef<string | null>(null);
@@ -769,6 +773,28 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
               pushSys(`🎯 Goal concluído — \`${g.condition}\` passou (exit 0). Revise o diff e commite.`);
             } else {
               const out = res.output.slice(0, 2000);
+              // 🎯 Orçamento do goal (grok 4.10): turno improdutivo = 0 tool calls E a condição não
+              // avançou. Calcula ANTES de sobrescrever goalLastOutRef; o teto para o loop antes de
+              // queimar tokens/turnos à toa. Limites ausentes/0 = desligados (retrocompat total).
+              const outputChanged = goalLastOutRef.current === null || out !== goalLastOutRef.current;
+              goalUnproductiveRef.current = nextUnproductiveStreak(
+                goalUnproductiveRef.current,
+                isUnproductiveTurn(turnTools.count, outputChanged),
+              );
+              const limit = evaluateGoalLimits(
+                { tokenBudget: g.tokenBudget, maxUnproductive: g.maxUnproductive },
+                {
+                  tokensUsed: useFleetUsage.getState().tokensByNode[data.id] ?? 0,
+                  tokensBaseline: goalTokenBaselineRef.current,
+                  unproductiveStreak: goalUnproductiveRef.current,
+                },
+              );
+              if (limit.stop) {
+                goalStatusRef.current = "stopped";
+                setGoalRun((r) => (r ? { ...r, status: "stopped" } : r));
+                pushSys(`🎯 Goal parou — ${limit.reason}.`);
+                return;
+              }
               // Detecção de estagnação (ponto do Jessé): a condição falhou EXATAMENTE igual à
               // iteração anterior → o agente está preso (mesmo fix que não muda nada). Aborta —
               // é mais barato que rodar até maxIter num loop circular.
@@ -1074,12 +1100,15 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   }
 
   // 🎯 Inicia um Goal: persiste a config, arma os refs e manda o 1º prompt (objetivo + condição).
-  function startGoal(cfg: { objective: string; condition: string; maxIter: number }) {
+  function startGoal(cfg: { objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number }) {
     patchNode(data.id, { goal: cfg });
     goalRef.current = cfg;
     goalStatusRef.current = "running";
     goalIterRef.current = 1;
     goalLastOutRef.current = null;
+    // 🎯 orçamento: baseline de tokens no arranque (delta é medido a partir daqui) + zera streak.
+    goalTokenBaselineRef.current = useFleetUsage.getState().tokensByNode[data.id] ?? 0;
+    goalUnproductiveRef.current = 0;
     setGoalRun({ iter: 1, status: "running" });
     setPanel("none");
     void sendText(
@@ -1095,6 +1124,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     goalRef.current = null;
     goalStatusRef.current = null;
     goalLastOutRef.current = null;
+    goalUnproductiveRef.current = 0;
     setGoalRun(null);
   }
 
@@ -1637,14 +1667,17 @@ function GoalForm({
   onStart,
   onCancel,
 }: {
-  initial?: { objective: string; condition: string; maxIter: number };
-  onStart: (cfg: { objective: string; condition: string; maxIter: number }) => void;
+  initial?: { objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number };
+  onStart: (cfg: { objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number }) => void;
   onCancel: () => void;
 }) {
   const t = useT();
   const [objective, setObjective] = useState(initial?.objective ?? "");
   const [condition, setCondition] = useState(initial?.condition ?? "");
   const [maxIter, setMaxIter] = useState(initial?.maxIter ?? 8);
+  // 🎯 orçamento (grok 4.10): 0 = desligado (sem limite). tokenBudget em milhares na UI.
+  const [tokenBudgetK, setTokenBudgetK] = useState(Math.round((initial?.tokenBudget ?? 0) / 1000));
+  const [maxUnproductive, setMaxUnproductive] = useState(initial?.maxUnproductive ?? 0);
   const ok = objective.trim() !== "" && condition.trim() !== "";
   return (
     <div className="space-y-1.5 rounded border border-cyan-500/30 bg-cyan-500/5 p-2.5">
@@ -1672,18 +1705,44 @@ function GoalForm({
           onChange={(e) => setMaxIter(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
           className="w-14 rounded bg-white/5 px-2 py-1 text-text outline-none"
         />
-        <div className="ml-auto flex gap-1.5">
-          <button onClick={onCancel} className="rounded bg-white/5 px-2 py-1 text-text/70 hover:bg-white/10">
-            {t("common.cancel", "Cancelar")}
-          </button>
-          <button
-            disabled={!ok}
-            onClick={() => onStart({ objective: objective.trim(), condition: condition.trim(), maxIter })}
-            className="rounded bg-cyan-500/20 px-2.5 py-1 text-cyan-200 hover:bg-cyan-500/30 disabled:opacity-50"
-          >
-            {t("agent.goalStart", "Iniciar")}
-          </button>
-        </div>
+        <label className="text-[11px] text-text/60" title="orçamento de tokens em milhares (0 = sem limite)">{t("agent.goalTokenBudget", "tokens (k)")}</label>
+        <input
+          type="number"
+          min={0}
+          max={9999}
+          value={tokenBudgetK}
+          onChange={(e) => setTokenBudgetK(Math.max(0, Math.min(9999, Number(e.target.value) || 0)))}
+          className="w-16 rounded bg-white/5 px-2 py-1 text-text outline-none"
+        />
+        <label className="text-[11px] text-text/60" title="para após N turnos sem tool calls (0 = desligado)">{t("agent.goalMaxIdle", "ociosos")}</label>
+        <input
+          type="number"
+          min={0}
+          max={99}
+          value={maxUnproductive}
+          onChange={(e) => setMaxUnproductive(Math.max(0, Math.min(99, Number(e.target.value) || 0)))}
+          className="w-14 rounded bg-white/5 px-2 py-1 text-text outline-none"
+        />
+      </div>
+      <div className="flex justify-end gap-1.5">
+        <button onClick={onCancel} className="rounded bg-white/5 px-2 py-1 text-text/70 hover:bg-white/10">
+          {t("common.cancel", "Cancelar")}
+        </button>
+        <button
+          disabled={!ok}
+          onClick={() =>
+            onStart({
+              objective: objective.trim(),
+              condition: condition.trim(),
+              maxIter,
+              tokenBudget: tokenBudgetK > 0 ? tokenBudgetK * 1000 : undefined,
+              maxUnproductive: maxUnproductive > 0 ? maxUnproductive : undefined,
+            })
+          }
+          className="rounded bg-cyan-500/20 px-2.5 py-1 text-cyan-200 hover:bg-cyan-500/30 disabled:opacity-50"
+        >
+          {t("agent.goalStart", "Iniciar")}
+        </button>
       </div>
       <p className="text-[10px] text-text/40">
         {t("agent.goalHint", "o agente tenta, roda a condição e corrige até exit 0. Sem commit automático — você revisa.")}
@@ -1691,7 +1750,6 @@ function GoalForm({
     </div>
   );
 }
-
 /** Form do 🔁 Loop: prompt recorrente a cada N min. */
 function LoopForm({
   initial,

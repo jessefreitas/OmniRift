@@ -229,7 +229,7 @@ export interface AgentNode extends BaseCanvasNode {
    * passar (ou `maxIter`). Reusa o motor do TURBO (`run_check`). Persiste a ÚLTIMA config; o estado
    * do run (iteração/status) é em memória.
    */
-  goal?: { objective: string; condition: string; maxIter: number };
+  goal?: { objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number };
   /**
    * 🔁 Loop (recorrente por-agente): re-manda `prompt` a cada `everyMin` minutos (se ready e ocioso).
    * `active` liga/desliga. Reusa `acp_prompt`. Persiste a config.
@@ -413,7 +413,7 @@ export interface CanvasNodePatch {
   tag?: string;
   providerConfig?: { provider: string; model: string };
   provider?: "claude" | "codex" | "hermes";
-  goal?: { objective: string; condition: string; maxIter: number };
+  goal?: { objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number };
   loop?: { prompt: string; everyMin: number; active: boolean };
   /** 📿 Recitação (Manus): reinjeta o foco no loop. Ausente/true = ligado; false = desligado. */
   recite?: boolean;
