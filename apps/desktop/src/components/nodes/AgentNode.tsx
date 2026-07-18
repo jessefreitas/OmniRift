@@ -62,6 +62,7 @@ import { getFlag, useFlag } from "@/lib/feature-flags";
 import { runLazinessCheck } from "@/lib/laziness-check";
 import { isUnproductiveTurn, nextUnproductiveStreak, evaluateGoalLimits } from "@/lib/goal-budget";
 import { shouldSpeculativelyCompact, selectCompactionPrefix, applySpeculativeSummary, runSpeculativeSummary, SPECULATIVE_KEEP_RECENT } from "@/lib/speculative-compact";
+import { recordRunEvent } from "@/lib/observability-client";
 import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
 import { communityForPath } from "@/lib/omnigraph-graph";
 import { useAgentCheckpoints } from "@/lib/agent-checkpoints";
@@ -693,6 +694,21 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
           const reply = lastReplyRef.current.trim();
           const turnTools = { ...turnToolsRef.current };
           turnToolsRef.current = { count: 0, names: [] };
+          // 🔭 Ledger de execução (Fase A): grava um turn.completed estruturado (best-effort,
+          // nunca trava o turno). ID nativo = <sessão>:turn:<seq> → dedup determinística.
+          if (getFlag("run-ledger")) {
+            const ledgerSid = sessionRef.current;
+            if (ledgerSid) {
+              void recordRunEvent({
+                sessionId: ledgerSid,
+                nodeId: data.id,
+                nativeEventId: `${ledgerSid}:turn:${seq ?? turnCounterRef.current}`,
+                kind: "turn.completed",
+                monotonicSeq: seq ?? turnCounterRef.current,
+                payload: { toolCount: turnTools.count, toolNames: turnTools.names, replyLen: reply.length },
+              });
+            }
+          }
           // 🧹 turno de COMPACTAÇÃO: a resposta É o resumo → substitui a conversa por
           // [system marcador + assistant resumo]. Turno interno de manutenção: não emite
           // saída na linha nem roda o Goal.

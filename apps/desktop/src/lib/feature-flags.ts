@@ -122,6 +122,14 @@ export const FLAGS: FlagDef[] = [
     stage: "experimental",
   },
   {
+    key: "run-ledger",
+    label: "Ledger de execução (observabilidade)",
+    description:
+      "Grava eventos estruturados de cada turno do agente (tool calls, fim de turno) num ledger append-only local (SQLite), preservando IDs nativos. Fundação do Inspector de Execução que fecha a lacuna de visibilidade dos workers PTY. Experimental — só grava; a UI do Inspector vem depois.",
+    default: false,
+    stage: "experimental",
+  },
+  {
     key: "speculative-compact",
     label: "Compactação especulativa (2-pass)",
     description:
