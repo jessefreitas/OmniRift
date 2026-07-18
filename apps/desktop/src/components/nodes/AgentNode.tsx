@@ -63,6 +63,7 @@ import { runLazinessCheck } from "@/lib/laziness-check";
 import { isUnproductiveTurn, nextUnproductiveStreak, evaluateGoalLimits } from "@/lib/goal-budget";
 import { shouldSpeculativelyCompact, selectCompactionPrefix, applySpeculativeSummary, runSpeculativeSummary, SPECULATIVE_KEEP_RECENT } from "@/lib/speculative-compact";
 import { recordRunEvent } from "@/lib/observability-client";
+import { ExecutionInspector } from "@/components/ExecutionInspector";
 import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
 import { communityForPath } from "@/lib/omnigraph-graph";
 import { useAgentCheckpoints } from "@/lib/agent-checkpoints";
@@ -268,6 +269,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const statusRef = useRef<Status>("starting");
   const [goalRun, setGoalRun] = useState<{ iter: number; status: "running" | "done" | "stopped" | "fail" } | null>(null);
   const [panel, setPanel] = useState<"none" | "goal" | "loop">("none");
+  const [showInspector, setShowInspector] = useState(false); // 🔭 Inspector de Execução (ledger)
   const reciteFlag = useFlag("recitation"); // 📿 gate global da recitação (reativo p/ o botão)
   // LOD por zoom: abaixo de 35% a conversa é ilegível — o corpo vira label grande (ver render).
   // Selector booleano → re-render só ao cruzar o limiar.
@@ -1330,6 +1332,16 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         >
           🧹
         </button>
+        {getFlag("run-ledger") && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowInspector(true); }}
+            className="nodrag p-0.5 rounded text-[11px] leading-none text-text/50 hover:bg-white/10 hover:text-text transition-colors"
+            title={t("agent.inspector", "Inspector de Execução — timeline dos eventos do ledger desta sessão")}
+            aria-label={t("agent.inspectorShort", "Inspector de Execução")}
+          >
+            🔭
+          </button>
+        )}
         {usage.used != null && (
           <Badge title={t("agent.context", "contexto usado")}>
             {fmtTokens(usage.used)}
@@ -1490,6 +1502,13 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             onSave={(cfg) => { patchNode(data.id, { loop: cfg }); setPanel("none"); }}
             onStop={() => { patchNode(data.id, { loop: { prompt: data.loop?.prompt ?? "", everyMin: data.loop?.everyMin ?? 10, active: false } }); }}
             onCancel={() => setPanel("none")}
+          />
+        )}
+        {showInspector && sessionRef.current && (
+          <ExecutionInspector
+            sessionId={sessionRef.current}
+            label={data.label}
+            onClose={() => setShowInspector(false)}
           />
         )}
         {status === "starting" && (
