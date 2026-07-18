@@ -14,7 +14,8 @@
     "tauri:build:dev-app": "tauri build --config src-tauri/tauri.dev-install.conf.json --bundles app",
     "test:grab": "node scripts/run-grab-tests.mjs",
     "test:laziness": "node scripts/run-laziness-tests.mjs",
-    "test:goal-budget": "node scripts/run-goal-budget-tests.mjs"
+    "test:goal-budget": "node scripts/run-goal-budget-tests.mjs",
+    "test:speculative-compact": "node scripts/run-speculative-compact-tests.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

@@ -61,6 +61,7 @@ import { scheduleReindex, omnifsIsManagedCwd, omnifsSnapshotNow } from "@/lib/om
 import { getFlag, useFlag } from "@/lib/feature-flags";
 import { runLazinessCheck } from "@/lib/laziness-check";
 import { isUnproductiveTurn, nextUnproductiveStreak, evaluateGoalLimits } from "@/lib/goal-budget";
+import { shouldSpeculativelyCompact, selectCompactionPrefix, applySpeculativeSummary, runSpeculativeSummary, SPECULATIVE_KEEP_RECENT } from "@/lib/speculative-compact";
 import { scheduleGraphRebuild } from "@/lib/omnigraph-client";
 import { communityForPath } from "@/lib/omnigraph-graph";
 import { useAgentCheckpoints } from "@/lib/agent-checkpoints";
@@ -241,6 +242,14 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // 🧹 compactação em curso: path do histórico já gravado (null = nenhuma). Ref, não state —
   // o closure do turn-done lê o valor ATUAL sem stale state (padrão goalRef/personaSentRef).
   const compactRef = useRef<string | null>(null);
+  // 🧹 Compactação especulativa 2-pass (grok cap 2): resumo corrente (fundido) + guard anti-concorrência.
+  // usageRef/msgsRef espelham usage/msgs pro closure do turn-done (registrado 1×) ler o valor ATUAL.
+  const specSummaryRef = useRef<string>("");
+  const specCompactingRef = useRef(false);
+  const usageRef = useRef<Usage>({});
+  const msgsRef = useRef<Msg[]>([]);
+  useEffect(() => { usageRef.current = usage; }, [usage]);
+  useEffect(() => { msgsRef.current = msgs; }, [msgs]);
   // 🎯 Goal (loop autônomo por-agente) + 🔁 Loop (timer). Os refs guardam o run ATIVO (estáveis
   // no closure do turn-done, sem stale state); goalRun alimenta o badge no header.
   const goalRef = useRef<{ objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number } | null>(null);
@@ -726,6 +735,47 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
                 /* checkpoint é best-effort — nunca trava/quebra o turno */
               }
             })();
+          }
+          // 🧹 Compactação especulativa 2-pass (grok cap 2): a OCUPAÇÃO do contexto passou de ~75%
+          // → resume o PREFIXO da view em segundo plano (out-of-band via llmChat, SEM gastar turno
+          // do agente, ao contrário do botão 🧹). Compacta só a VIEW do OmniRift + grava histórico;
+          // NÃO encolhe o contexto interno do agente (backend-owned). Best-effort, nunca trava o turno.
+          if (getFlag("speculative-compact") && !specCompactingRef.current) {
+            const u = usageRef.current;
+            const curMsgs = msgsRef.current;
+            if (shouldSpeculativelyCompact(u.used ?? 0, u.size ?? 0, curMsgs.length)) {
+              specCompactingRef.current = true;
+              const scLabel = data.label ?? "OmniAgent";
+              const scCwd = turnCwd;
+              void (async () => {
+                try {
+                  const { prefixCount } = selectCompactionPrefix(curMsgs, SPECULATIVE_KEEP_RECENT);
+                  if (prefixCount === 0) return;
+                  const prefixMsgs = curMsgs.slice(0, prefixCount);
+                  const cwd = scCwd || useCanvasStore.getState().currentCwd || "";
+                  let path = "";
+                  if (cwd) {
+                    const slug = agentsMdSlug(scLabel) || "agente";
+                    const histDir = `${cwd}/.omnirift/history`;
+                    const n = await nextHistoryIndex(histDir, slug);
+                    path = `${histDir}/${slug}-${n}.md`;
+                    await writeHistoryFile(cwd, path, serializeConversation(scLabel, prefixMsgs));
+                  }
+                  const summary = await runSpeculativeSummary(
+                    specSummaryRef.current,
+                    serializeConversation(scLabel, prefixMsgs),
+                    { project: cwd },
+                  );
+                  if (!summary) return;
+                  specSummaryRef.current = summary;
+                  setMsgs((m) => applySpeculativeSummary(m, summary, prefixCount, path) as Msg[]);
+                } catch {
+                  /* especulativo — nunca trava/quebra o turno */
+                } finally {
+                  specCompactingRef.current = false;
+                }
+              })();
+            }
           }
           if (diff) {
             // Fase 2a: um diff produzido no turno vira payload "diff" na linha (não só texto).

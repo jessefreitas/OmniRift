@@ -122,6 +122,14 @@ export const FLAGS: FlagDef[] = [
     stage: "experimental",
   },
   {
+    key: "speculative-compact",
+    label: "Compactação especulativa (2-pass)",
+    description:
+      "Quando a ocupação do contexto passa de ~75%, resume o começo da conversa em segundo plano (via LLM configurado, sem gastar um turno do agente) e substitui a view pelo resumo — 2-pass funde com o resumo anterior pra não crescer. Compacta a VIEW do OmniRift + gera um histórico em .omnirift/history; NÃO encolhe o contexto interno do agente (ele gerencia o dele). Experimental — precisa de um LLM em Ferramentas.",
+    default: false,
+    stage: "experimental",
+  },
+  {
     key: "omnifs-auto-checkpoint",
     label: "Checkpoint automático (OmniFS)",
     description:
