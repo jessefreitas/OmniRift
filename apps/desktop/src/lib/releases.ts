@@ -24,6 +24,66 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.136",
+    date: "2026-07-18",
+    title: "Edite o time antes de montar, terminal nativo como padrão, modo Debug e mais",
+    highlights: [
+      "No Arquiteto de Pipeline agora dá para editar o time antes de montar: mudar nome, modelo, paralelo e descrição de cada agente, remover quem sobrou e adicionar um novo em qualquer onda",
+      "Renomear um agente atualiza junto as conexões, os subagentes e o caminho crítico",
+      "O Arquiteto passa a montar em terminal nativo por padrão; a escolha fica salva para a próxima vez",
+      "Novo Modo Debug em Configurações › Geral: liga a coleta detalhada de log e gera um arquivo de diagnóstico em texto puro para anexar ao suporte",
+      "Corrigido: colar a chave de licença junto com o número da lista (ex: \"04 lic_abc123\") não dá mais \"licença inválida\" — a chave é extraída do texto colado",
+      "O orquestrador não consegue mais duplicar agente trocando o nome: se já existe alguém livre naquele papel, o sistema recusa, mostra quem está disponível e manda delegar",
+      "Corrigido no Windows: a lista de programas (PATH) era montada com o separador do Linux, o que apagava silenciosamente a pasta de ferramentas do OmniRift e a do sistema",
+      "Kimi Code entrou no catálogo de instalação de CLIs",
+    ],
+    tag: "feature",
+  },
+  {
+    version: "0.1.135",
+    date: "2026-07-18",
+    title: "Guard anti-duplicata no orquestrador",
+    highlights: [
+      "O orquestrador parou de abrir agentes repetidos: se já existe alguém com aquele nome e livre no canvas, o sistema recusa e manda delegar para ele",
+      "A recusa só acontece quando o agente homônimo está parado; se ele está trabalhando, o segundo é permitido, então trabalho paralelo de verdade continua liberado",
+    ],
+    tag: "fix",
+  },
+  {
+    version: "0.1.134",
+    date: "2026-07-18",
+    title: "Orçamento de tokens, compactação de conversas e observabilidade",
+    highlights: [
+      "O /goal agora aceita orçamento de tokens e para sozinho depois de N turnos sem progresso, em vez de queimar contexto à toa",
+      "Conversas longas passam a ser resumidas em segundo plano antes de encher, sem travar o que você está fazendo",
+      "Novo Inspetor de Execução: uma linha do tempo do que cada agente realmente fez",
+      "Chegou a configuração de shell no Windows, incluindo WSL",
+      "Corrigido: mandar dois pedidos ao mesmo agente ao mesmo tempo (pelo celular ou pelo canvas) não embaralha mais a conversa",
+    ],
+    tag: "feature",
+  },
+  {
+    version: "0.1.133",
+    date: "2026-07-16",
+    title: "Correções no canvas",
+    highlights: [
+      "Corrigido: pegar um nó pelas bordas voltou a funcionar",
+      "Corrigido: os floors não re-renderizam mais várias vezes ao trocar de aba",
+    ],
+    tag: "fix",
+  },
+  {
+    version: "0.1.132",
+    date: "2026-07-15",
+    title: "Rotinas, OmniSwitch e build macOS",
+    highlights: [
+      "Na tela de Rotinas, gatilhos por condição agora aparecem separados dos agendados",
+      "O OmniSwitch passou a usar o relógio real para liberar uma chave em espera",
+      "Corrigido o empacotamento do aplicativo no macOS",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.131",
     date: "2026-07-08",
     title: "Virar um agente em outro papel/modelo + fim do travamento do canvas",
