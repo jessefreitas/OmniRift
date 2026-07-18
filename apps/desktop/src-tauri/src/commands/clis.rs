@@ -186,7 +186,8 @@ const CATALOG: &[CatalogEntry] = &[
     CatalogEntry { id: "continue",     label: "Continue",          description: "CLI do Continue.dev (JetBrains/VS Code pair programmer).",                             homepage: "https://continue.dev",                                binary: "continue", installer: "npm",     installer_hint: Some("npm install -g @continuedev/cli") },
     CatalogEntry { id: "roo",          label: "Roo Code (CLI)",    description: "CLI do Roo Code.",                                                                   homepage: "https://github.com/RooCodeInc/Roo-Code",              binary: "roo-cli",   installer: "npm",     installer_hint: Some("npm install -g roo-cli") },
     CatalogEntry { id: "kilo",         label: "Kilo Code",         description: "CLI do Kilo Code (fork do Roo).",                                                    homepage: "https://kilocode.ai",                                 binary: "kilo",     installer: "npm",     installer_hint: Some("npm install -g @kilocode/cli") },
-    CatalogEntry { id: "amp",          label: "Amp",               description: "CLI da Sourcegraph (Cody-derivado).",                                                homepage: "https://github.com/sourcegraph/amp",                  binary: "amp",      installer: "curl-sh", installer_hint: Some("curl -fsSL https://amp.sourcegraph.com/install.sh | bash") },
+    CatalogEntry { id: "kimi",         label: "Kimi Code",         description: "CLI da Moonshot (Kimi K2) — fala ACP nativo via `kimi acp`. Requer Node 22.19+.", homepage: "https://github.com/MoonshotAI/kimi-cli",              binary: "kimi",     installer: "npm",     installer_hint: Some("npm install -g @moonshot-ai/kimi-code") },
+    CatalogEntry { id: "amp",          label: "Amp",             description: "CLI da Sourcegraph (Cody-derivado).",                                                homepage: "https://github.com/sourcegraph/amp",                  binary: "amp",      installer: "curl-sh", installer_hint: Some("curl -fsSL https://amp.sourcegraph.com/install.sh | bash") },
 ];
 
 /// Mapa id → nome do pacote npm (quando installer == "npm").
@@ -200,6 +201,9 @@ fn npm_pkg(id: &str) -> &str {
         "continue" => "@continuedev/cli",
         "roo"      => "roo-cli",
         "kilo"     => "@kilocode/cli",
+        // Scoped na org oficial: existem `kimi-code`/`kimi-cli` unscoped de TERCEIROS
+        // que instalam um binário `kimi` homônimo. Nunca trocar pelo nome curto.
+        "kimi"     => "@moonshot-ai/kimi-code",
         _          => "",
     }
 }
@@ -443,6 +447,46 @@ fn resolve_binary(binary: &str) -> Option<std::path::PathBuf> {
 
 fn is_binary_on_path(binary: &str) -> bool {
     resolve_binary(binary).is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(id: &str) -> &'static CatalogEntry {
+        CATALOG.iter().find(|e| e.id == id).expect("id ausente no catálogo")
+    }
+
+    #[test]
+    fn kimi_esta_no_catalogo_com_binario_kimi() {
+        let e = entry("kimi");
+        assert_eq!(e.binary, "kimi");
+        assert_eq!(e.installer, "npm");
+        // Trava anti-typosquat: `kimi-code`/`kimi-cli` unscoped são de terceiros.
+        assert_eq!(npm_pkg("kimi"), "@moonshot-ai/kimi-code");
+    }
+
+    /// Invariante: todo entry npm/pipx precisa do pacote mapeado, senão o install
+    /// só falha em runtime com "pacote não mapeado".
+    #[test]
+    fn todo_installer_de_pacote_tem_pacote_mapeado() {
+        for e in CATALOG {
+            match e.installer {
+                "npm" => assert!(!npm_pkg(e.id).is_empty(), "npm_pkg vazio pra '{}'", e.id),
+                "pipx" => assert!(!pipx_pkg(e.id).is_empty(), "pipx_pkg vazio pra '{}'", e.id),
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn ids_do_catalogo_sao_unicos() {
+        let mut ids: Vec<_> = CATALOG.iter().map(|e| e.id).collect();
+        ids.sort_unstable();
+        let total = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), total, "id duplicado no catálogo");
+    }
 }
 
 /// `<binary> --version` (Windows via `cmd /C`). Primeira linha não-vazia, trimmed.
