@@ -366,6 +366,12 @@ struct AcpSession {
     /// ao nó que acabou de re-spawnar pelo MESMO id e o marcaria dead (stale-exit race —
     /// o mesmo problema do reconnect PTY, GLM-audit #1).
     killed: AtomicBool,
+    /// Turno em voo. O id JSON-RPC do `session/prompt` é FIXO (=3), então dois prompts
+    /// simultâneos na MESMA sessão colidem: a resposta do 1º fecha o turno do 2º. A UI já
+    /// serializa (`status != "ready"`), mas o `acp.prompt` do relay (steering do mobile)
+    /// chama o manager DIRETO, sem passar por esse guard — este flag fecha esse buraco.
+    /// Some o dia que o passo 1 da spec (contador de id + `id→oneshot`) entrar.
+    turn_in_flight: AtomicBool,
 }
 
 #[derive(Default)]
@@ -453,6 +459,7 @@ impl AcpManager {
             child: Arc::new(AsyncMutex::new(child)),
             observed: Arc::new(parking_lot::Mutex::new(SessionObserved::default())),
             killed: AtomicBool::new(false),
+            turn_in_flight: AtomicBool::new(false),
         });
         self.sessions.insert(id.clone(), session.clone());
 
@@ -650,6 +657,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
 
                 // Resposta do prompt (id=3) → fim de turno.
                 if id_num == Some(3) {
+                    sess.turn_in_flight.store(false, Ordering::SeqCst); // turno acabou → libera
                     let seq = sess.observed.lock().record("turn-done", msg.clone());
                     app.emit_typed("acp://turn-done", GenericEvent { session_id: sid.clone(), seq, data: msg.clone() });
                     continue;
@@ -710,6 +718,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             // EOF do adapter. Kill INTENCIONAL (cancel/gc/reload — flag `killed`) fica mudo:
             // a entry já saiu do mapa e um exit póstumo poluiria o nó re-spawnado pelo mesmo
             // id (F2). Morte REAL: registra + marca Dead (buffer fica p/ post-mortem).
+            sess.turn_in_flight.store(false, Ordering::SeqCst); // EOF → nenhum turno sobrevive
             if !sess.killed.load(Ordering::SeqCst) {
                 let seq = sess.observed.lock().record("exit", Value::Null);
                 app.emit_typed("acp://exit", GenericEvent { session_id: sid.clone(), seq, data: Value::Null });
@@ -728,11 +737,25 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             .lock()
             .clone()
             .ok_or_else(|| anyhow!("sessão acp {id} ainda não inicializada (aguarde acp://ready)"))?;
+        // Guard de concorrência: 1 turno por sessão (o id JSON-RPC do prompt é FIXO = 3).
+        // REJEITA em vez de enfileirar — fila mascararia a origem do prompt e poderia
+        // reordenar turnos. Fecha o buraco do `acp.prompt` do relay (steering do mobile),
+        // que chama este manager direto, sem o guard `status != "ready"` da UI.
+        if sess.turn_in_flight.swap(true, Ordering::SeqCst) {
+            return Err(anyhow!(
+                "sessão acp {id} já tem um turno em andamento — aguarde terminar (prompt concorrente não é suportado)"
+            ));
+        }
         let req = json!({
             "jsonrpc": "2.0", "id": 3, "method": "session/prompt",
             "params": { "sessionId": acp_sid, "prompt": [{ "type": "text", "text": text }] }
         });
-        write_line(&sess.stdin, &req).await
+        let sent = write_line(&sess.stdin, &req).await;
+        if sent.is_err() {
+            // Não conseguimos nem enviar → o turno não começou: libera pra não travar a sessão.
+            sess.turn_in_flight.store(false, Ordering::SeqCst);
+        }
+        sent
     }
 
     /// Envia o método ACP `authenticate` com o methodId escolhido pelo usuário (ex: Codex/ChatGPT).
@@ -801,6 +824,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
     pub async fn cancel(&self, id: &str) -> Result<()> {
         if let Some((_, sess)) = self.sessions.remove(id) {
             sess.killed.store(true, Ordering::SeqCst);
+            sess.turn_in_flight.store(false, Ordering::SeqCst); // turno abortado
             // Clona o sessionId e SOLTA o guard parking_lot antes de qualquer await:
             // um guard no scrutinee de `if let` viveria o bloco todo → future !Send.
             let acp_sid = sess.acp_session_id.lock().clone();
@@ -967,6 +991,52 @@ struct PermissionEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Dois prompts INTERCALADOS (`tokio::join!` = concorrência cooperativa num único
+    /// task, NÃO paralelismo real) — exatamente 1 passa. A atomicidade em si vem do TIPO
+    /// (`AtomicBool::swap` troca-e-devolve num passo), não deste teste; o que ele cobre é
+    /// o comportamento observável do guard quando dois prompts se intercalam.
+    #[tokio::test]
+    async fn prompt_concorrente_cooperativo_so_um_passa() {
+        let mgr = AcpManager::new();
+        let sess = dummy_session().await;
+        *sess.acp_session_id.lock() = Some("acp-1".into());
+        mgr.sessions.insert("n1".to_string(), sess.clone());
+
+        let (a, b) = tokio::join!(
+            mgr.prompt("n1", "A".into()),
+            mgr.prompt("n1", "B".into()),
+        );
+
+        let passaram = [a.is_ok(), b.is_ok()].iter().filter(|ok| **ok).count();
+        assert_eq!(passaram, 1, "exatamente 1 prompt deve passar; o outro é rejeitado");
+        assert!(sess.turn_in_flight.load(Ordering::SeqCst), "o turno vencedor fica em voo");
+    }
+
+    /// Fecha o buraco do `acp.prompt` do relay (steering do mobile), que chama o manager
+    /// DIRETO, sem o guard `status != "ready"` da UI. Com o id JSON-RPC do prompt fixo (=3),
+    /// dois prompts simultâneos colidiriam: a resposta do 1º fecharia o turno do 2º.
+    #[tokio::test]
+    async fn prompt_rejeita_turno_concorrente() {
+        let mgr = AcpManager::new();
+        let sess = dummy_session().await;
+        // Simula o session/new já respondido (senão o prompt aborta antes de chegar no guard).
+        *sess.acp_session_id.lock() = Some("acp-1".into());
+        mgr.sessions.insert("n1".to_string(), sess.clone());
+
+        // 1º prompt: passa e marca o turno em voo.
+        mgr.prompt("n1", "primeiro".into()).await.expect("1o prompt deve passar");
+        assert!(sess.turn_in_flight.load(Ordering::SeqCst), "turno deveria ficar em voo");
+
+        // 2º prompt CONCORRENTE: rejeitado.
+        let err = mgr.prompt("n1", "segundo".into()).await.unwrap_err();
+        assert!(err.to_string().contains("turno em andamento"), "erro inesperado: {err}");
+
+        // Fim de turno (o read-loop faz isso na resposta id=3) → libera o próximo.
+        sess.turn_in_flight.store(false, Ordering::SeqCst);
+        mgr.prompt("n1", "terceiro".into()).await.expect("apos o turno, deve passar");
+    }
+
 
     #[test]
     fn method_not_found_preserva_id_e_codigo() {
@@ -1173,6 +1243,7 @@ mod tests {
             child: Arc::new(AsyncMutex::new(child)),
             observed: Arc::new(parking_lot::Mutex::new(SessionObserved::default())),
             killed: AtomicBool::new(false),
+            turn_in_flight: AtomicBool::new(false),
         })
     }
 
