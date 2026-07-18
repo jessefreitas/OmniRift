@@ -47,8 +47,24 @@ function isEntitlement(k: string): boolean {
  * - **entitlement** colado direto (`payload.sig`) → grava/verifica offline (compat).
  * A verificação final é sempre no Rust (Ed25519 offline).
  */
+/**
+ * Extrai a chave de dentro do que a pessoa colou. Licenças circulam em listas
+ * numeradas ("04 lic_o6Fh…"), e-mails e mensagens — colar a linha inteira é o caso
+ * COMUM, não o excepcional. Antes só havia `.trim()`, então o "04 " ia junto e o
+ * worker devolvia 404 "licença inválida": erro que parece licença furada e é só
+ * texto extra. Sem match reconhecível, devolve o trim (deixa o servidor decidir).
+ */
+export function normalizePastedKey(raw: string): string {
+  const t = raw.trim();
+  const lic = t.match(/lic_[A-Za-z0-9_-]{8,}/);
+  if (lic) return lic[0];
+  const ent = t.match(/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/);
+  if (ent) return ent[0];
+  return t;
+}
+
 export async function licenseActivate(key: string): Promise<LicenseStatus> {
-  const k = key.trim();
+  const k = normalizePastedKey(key);
   let entitlement = k;
   let licenseKey: string | null = null;
   if (!isEntitlement(k)) {
