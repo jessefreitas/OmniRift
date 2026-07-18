@@ -35,6 +35,12 @@ export const ORCHESTRATOR_CONTRACT =
   "(ou terminal_list) e VEJA quem já está no canvas. Se já existe um agente com o papel que você precisa, " +
   "DESPACHE PRA ELE (orchestrator_dispatch / terminal_send_text) — não crie outro. Criar um 'Backend 2' " +
   "quando já há um Backend duplica custo, divide o contexto e o sistema RECUSA o spawn.\n" +
+  "NÃO ADIANTA TROCAR O NOME: o sistema recusa por PAPEL também. Abrir 'UI Dev' quando já existe um " +
+  "'Frontend' livre é o MESMO erro — o guard casa pelo papel e recusa igual. Se a recusa vier, ela lista " +
+  "os agentes livres com seus papéis: escolha um da lista e despache. Só use nome E papel diferentes se o " +
+  "trabalho for genuinamente paralelo e simultâneo.\n" +
+  "SEMPRE declare `role=` ao spawnar (role='frontend', 'backend', 'qa'…). É esse campo que o sistema usa " +
+  "pra detectar duplicata por papel; sem ele, o agente nasce fora dessa proteção.\n" +
   "ABERTURA DE AGENTES (regra dura): ANTES de spawnar qualquer agente (terminal_spawn / " +
   "terminal_spawn_on_floor / orchestrator_spawn_agent), PROPONHA o plano ao usuário e ESPERE a confirmação: diga QUANTOS agentes, " +
   "QUAIS papéis e em QUAIS floors/branches. Ex.: 'Preciso de 3 agentes: Backend (floor feat/api), DBA " +

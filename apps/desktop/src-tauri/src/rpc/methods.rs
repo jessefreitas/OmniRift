@@ -303,7 +303,9 @@ fn agent_spawn(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
     // (mesmo caminho do spawn via MCP em tools.rs). Sem isto o PTY roda mas fica invisível pra
     // `omnirift agents`. floor=None (CLI não nasce num floor); description = o command.
     if let Some(reg) = ctx.app.try_state::<Arc<AgentRegistry>>() {
-        reg.register(label.clone(), session_id.clone(), p.command.clone(), None);
+        // role=None: o spawn pela CLI não declara papel, então este agente fica fora do
+        // casamento por papel do guard anti-duplicata (só o por-nome vale pra ele).
+        reg.register(label.clone(), session_id.clone(), p.command.clone(), None, None);
     }
 
     // Avisa o frontend pra attachar um TerminalNode na sessão JÁ spawnada (não re-spawna).

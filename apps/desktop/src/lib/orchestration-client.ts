@@ -209,7 +209,11 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
           )
         : undefined;
     s.addTerminal({ id, command: cliDef.command, args, label: p.name, role: cliDef.role });
-    mcpRegisterAgent(p.name, id, persona.slice(0, 120) || `Agente ${p.name}`, undefined).catch(console.warn);
+    // `p.role` (papel declarado no plano: Frontend/Backend/QA…) alimenta o guard
+    // anti-duplicata do backend, que casa por PAPEL além do nome — é o que impede o
+    // Arquiteto de abrir um "UI Dev" quando já tem um "Frontend" livre no canvas.
+    // Cuidado: `cliDef.role` acima é outra coisa (o tipo de CLI, ex: "claude-code").
+    mcpRegisterAgent(p.name, id, persona.slice(0, 120) || `Agente ${p.name}`, undefined, p.role).catch(console.warn);
     const orchSid = s.orchestratorSid;
     if (orchSid && orchSid !== id) s.addEdge(orchSid, id, "generic");
     // Sincroniza o checkbox "MCP AGENTS" do Sidebar (estado local do componente).

@@ -13,8 +13,9 @@ export async function mcpRegisterAgent(
   sessionId: string,
   description: string,
   floor?: string,
+  role?: string,
 ): Promise<void> {
-  await invoke("mcp_register_agent", { label, sessionId, description, floor: floor ?? null });
+  await invoke("mcp_register_agent", { label, sessionId, description, floor: floor ?? null, role: role ?? null });
 }
 
 /** Remove um agente do registry (terminal fechado/renomeado). */

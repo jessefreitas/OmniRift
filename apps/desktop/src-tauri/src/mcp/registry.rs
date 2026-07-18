@@ -9,6 +9,8 @@ pub struct AgentEntry {
     /// Nome do floor onde o agente vive — dá ao Orquestrador a topologia
     /// cross-floor (quem está em qual branch). `None` = floor desconhecido.
     pub floor: Option<String>,
+    /// Role declarado no spawn; None = desconhecido.
+    pub role: Option<String>,
 }
 
 /// Mapeia label de agente → (session_id PTY, description, floor).
@@ -39,6 +41,7 @@ impl AgentRegistry {
         session_id: SessionId,
         description: String,
         floor: Option<String>,
+        role: Option<String>,
     ) -> String {
         use dashmap::mapref::entry::Entry;
         let mut effective = label.clone();
@@ -46,12 +49,12 @@ impl AgentRegistry {
         loop {
             match self.0.entry(effective.clone()) {
                 Entry::Vacant(v) => {
-                    v.insert(AgentEntry { session_id: session_id.clone(), description: description.clone(), floor: floor.clone() });
+                    v.insert(AgentEntry { session_id: session_id.clone(), description: description.clone(), floor: floor.clone(), role: role.clone() });
                     break;
                 }
                 Entry::Occupied(mut o) if o.get().session_id == session_id => {
                     // Mesma sessão: re-registro (rename/reload) → atualiza metadados.
-                    o.insert(AgentEntry { session_id: session_id.clone(), description: description.clone(), floor: floor.clone() });
+                    o.insert(AgentEntry { session_id: session_id.clone(), description: description.clone(), floor: floor.clone(), role: role.clone() });
                     break;
                 }
                 Entry::Occupied(_) => {
@@ -128,10 +131,10 @@ mod tests {
     fn label_duplicado_de_outra_sessao_sufixa_e_preserva_o_original() {
         let reg = AgentRegistry::default();
 
-        let a = reg.register("Backend".into(), "sess-original".into(), "API".into(), None);
+        let a = reg.register("Backend".into(), "sess-original".into(), "API".into(), None, None);
         assert_eq!(a, "Backend");
 
-        let b = reg.register("Backend".into(), "sess-clone".into(), "API".into(), None);
+        let b = reg.register("Backend".into(), "sess-clone".into(), "API".into(), None, None);
         assert_eq!(b, "Backend 2", "o clone NAO pode roubar o label");
 
         assert_eq!(reg.0.get("Backend").unwrap().session_id, "sess-original");
@@ -143,8 +146,8 @@ mod tests {
     #[test]
     fn mesma_sessao_reregistra_no_mesmo_label() {
         let reg = AgentRegistry::default();
-        reg.register("QA".into(), "sess-1".into(), "testes".into(), None);
-        let again = reg.register("QA".into(), "sess-1".into(), "testes e2e".into(), Some("feat/x".into()));
+        reg.register("QA".into(), "sess-1".into(), "testes".into(), None, None);
+        let again = reg.register("QA".into(), "sess-1".into(), "testes e2e".into(), Some("feat/x".into()), None);
 
         assert_eq!(again, "QA");
         assert_eq!(reg.0.len(), 1, "nao pode duplicar a propria sessao");
@@ -157,9 +160,9 @@ mod tests {
     #[test]
     fn terceira_sessao_vira_label_3() {
         let reg = AgentRegistry::default();
-        reg.register("Frontend".into(), "s1".into(), "ui".into(), None);
-        reg.register("Frontend".into(), "s2".into(), "ui".into(), None);
-        let c = reg.register("Frontend".into(), "s3".into(), "ui".into(), None);
+        reg.register("Frontend".into(), "s1".into(), "ui".into(), None, None);
+        reg.register("Frontend".into(), "s2".into(), "ui".into(), None, None);
+        let c = reg.register("Frontend".into(), "s3".into(), "ui".into(), None, None);
         assert_eq!(c, "Frontend 3");
         assert_eq!(reg.0.len(), 3);
     }

@@ -9,9 +9,13 @@ pub fn mcp_register_agent(
     session_id: String,
     description: String,
     floor: Option<String>,
+    // Papel do agente (Frontend/Backend/QA…). O guard anti-duplicata casa por papel
+    // além do nome, então quem registra sem role fica fora dessa proteção — aceitável
+    // pra nós criados à mão, mas o caminho do orquestrador SEMPRE deve mandar.
+    role: Option<String>,
     registry: State<'_, std::sync::Arc<AgentRegistry>>,
 ) {
-    registry.register(label, session_id, description, floor);
+    registry.register(label, session_id, description, floor, role);
 }
 
 /// Desregistra um agente. Prefira SEMPRE mandar o `session_id`: o label pode ter sido

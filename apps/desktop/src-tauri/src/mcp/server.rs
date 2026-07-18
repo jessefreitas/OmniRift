@@ -747,7 +747,7 @@ mod tests {
     #[test]
     fn resolve_hook_target_known_label_returns_session_and_name() {
         let reg = AgentRegistry::new();
-        reg.register("Backend".into(), "sess-abc-123".into(), "API".into(), None);
+        reg.register("Backend".into(), "sess-abc-123".into(), "API".into(), None, None);
         let (sid, name) = resolve_hook_target(&reg, "Backend").expect("label registrado");
         assert_eq!(sid, "sess-abc-123");
         assert_eq!(name, "Backend");
@@ -758,7 +758,7 @@ mod tests {
         // Reproduz o que o handler monta (sem subir o axum): resolve label →
         // session_id + monta o AgentStatusEvent com o mesmo shape do detector.
         let reg = AgentRegistry::new();
-        reg.register("DBA".into(), "sess-xyz".into(), "schema".into(), None);
+        reg.register("DBA".into(), "sess-xyz".into(), "schema".into(), None, None);
         let state = map_state("done").expect("done é válido");
         let (session_id, agent) =
             resolve_hook_target(&reg, "DBA").expect("DBA registrado");

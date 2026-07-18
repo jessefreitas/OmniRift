@@ -679,34 +679,83 @@ fn floor_suffix(floor: &Option<String>) -> String {
     floor.as_deref().map(|f| format!(" @{f}")).unwrap_or_default()
 }
 
-/// Recusa o spawn SÓ quando já existe um agente com este label que está DISPONÍVEL
-/// (idle/done) — isto é, que poderia simplesmente receber a tarefa.
-///
-/// Se o homônimo está OCUPADO (working/blocked), o spawn PASSA: precisar de um segundo
-/// Frontend enquanto o primeiro trabalha noutra parte do sistema é legítimo, e barrar
-/// isso quebraria o paralelismo que o orquestrador existe pra fazer. Nesse caso o
-/// `register()` sufixa o label (" 2", " 3"…), então os dois seguem endereçáveis e
-/// ninguém é sobrescrito.
-///
-/// É helper (e não check inline) DE PROPÓSITO: existem TRÊS caminhos de spawn
-/// (`terminal_spawn`, `terminal_spawn_on_floor`, `orchestrator_spawn_agent`) e guard
-/// em só um deles é o bug de paridade que a regra dura do contrato tinha — ela listava
-/// dois e esquecia o terceiro. Todo caminho novo de spawn DEVE chamar isto.
-fn duplicate_agent_refusal(state: &McpState, name: &str) -> Option<String> {
-    let dup = agent_snapshot(state).into_iter().find(|a| {
-        a.label.trim().eq_ignore_ascii_case(name.trim())
-            && matches!(a.state, crate::pty::AgentState::Idle | crate::pty::AgentState::Done)
-    })?;
+/// Detecta tentativa de spawn duplicado e devolve mensagem de recusa consultando o estado MCP.
+fn duplicate_agent_refusal(state: &McpState, name: &str, role: Option<&str>) -> Option<String> {
+    duplicate_refusal_from_roster(&agent_snapshot(state), name, role)
+}
+
+/// Decisão PURA do guard de duplicado: separada de `McpState` (que carrega um
+/// `tauri::AppHandle` e por isso não é construível em teste).
+fn duplicate_refusal_from_roster(agents: &[crate::mcp::AgentInfo], name: &str, role: Option<&str>) -> Option<String> {
+    let livres: Vec<_> = agents
+        .iter()
+        .filter(|a| matches!(a.state, crate::pty::AgentState::Idle | crate::pty::AgentState::Done))
+        .cloned()
+        .collect();
+
+    let target_role = role.map(|r| r.trim()).filter(|r| !r.is_empty());
+
+    // Ordem de prioridade: nome exato primeiro, papel depois. O casamento por PAPEL
+    // é o que fecha o buraco real — o orquestrador raramente reusa o mesmo nome quando
+    // duplica; ele inventa um sinônimo ("Frontend" existe → abre "UI Dev"). Casar só
+    // por label deixava esse caso passar batido.
+    let dup = livres
+        .iter()
+        .find(|a| a.label.trim().eq_ignore_ascii_case(name.trim()))
+        .or_else(|| {
+            target_role.and_then(|tr| {
+                livres.iter().find(|a| {
+                    a.role.as_deref()
+                        .map(|r| !r.trim().is_empty() && r.trim().eq_ignore_ascii_case(tr))
+                        .unwrap_or(false)
+                })
+            })
+        })?;
+
     let st = match dup.state {
         crate::pty::AgentState::Done => "done",
         _ => "idle",
     };
+
+    let motivo = if dup.label.trim().eq_ignore_ascii_case(name.trim()) {
+        "mesmo nome"
+    } else {
+        "mesmo papel"
+    };
+
+    // Listar o time livre junto da recusa é metade do valor desta função: sem isso o
+    // LLM só sabe que falhou, não PRA QUEM delegar, e a reação típica é tentar outro
+    // nome. Com a lista, o próximo passo óbvio vira o dispatch.
+    let lista = livres
+        .iter()
+        .map(|a| {
+            let papel = a
+                .role
+                .as_deref()
+                .and_then(|r| {
+                    let rt = r.trim();
+                    if rt.is_empty() {
+                        None
+                    } else {
+                        Some(format!("({})", rt))
+                    }
+                })
+                .unwrap_or_else(|| "(papel não declarado)".to_string());
+            let a_st = match a.state {
+                crate::pty::AgentState::Done => "done",
+                _ => "idle",
+            };
+            format!("  • @{} {} — {}", a.label, papel, a_st)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
     Some(format!(
-        "❌ Spawn recusado: já existe @{} no canvas e ele está {} — ou seja, LIVRE pra \
-         pegar esta tarefa. Delegue a ELE com orchestrator_dispatch / terminal_send_text. \
-         (Se o trabalho for mesmo paralelo e simultâneo, use um nome DIFERENTE, ex: \
-         '{} Admin' — aí os dois coexistem.)",
-        dup.label, st, dup.label
+        "❌ Spawn recusado: já existe @{} no canvas e ele está {} (conflito por: {}). \
+         Delegue a ELE com orchestrator_dispatch / terminal_send_text.\n\n\
+         Agentes livres disponíveis:\n{}\n\n\
+         Se o trabalho for mesmo paralelo e simultâneo, use um nome E um papel DIFERENTES.",
+        dup.label, st, motivo, lista
     ))
 }
 
@@ -937,10 +986,10 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             if let Some(msg) = over_agent_cap(state) {
                 return msg;
             }
-            if let Some(msg) = duplicate_agent_refusal(state, &label) {
+            let role = arg_str(&args, "role");
+            if let Some(msg) = duplicate_agent_refusal(state, &label, Some(&role)) {
                 return msg;
             }
-            let role = arg_str(&args, "role");
             let cwd = args.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string());
             let position = args.get("position").cloned();
             let id = uuid::Uuid::new_v4().to_string();
@@ -968,7 +1017,8 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             state.app.unlisten(listener_id);
 
             let floor = active_floor_name(state);
-            state.agent_registry.register(label.clone(), id.clone(), command.clone(), floor);
+            let role_reg = if role.trim().is_empty() { None } else { Some(role.clone()) };
+            state.agent_registry.register(label.clone(), id.clone(), command.clone(), floor, role_reg);
 
             if acked {
                 format!("criado: {label} (id {id})")
@@ -986,10 +1036,10 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             if let Some(msg) = over_agent_cap(state) {
                 return msg;
             }
-            if let Some(msg) = duplicate_agent_refusal(state, &label) {
+            let role = arg_str(&args, "role");
+            if let Some(msg) = duplicate_agent_refusal(state, &label, Some(&role)) {
                 return msg;
             }
-            let role = arg_str(&args, "role");
             let task = arg_str(&args, "task");
             let git = args.get("git").and_then(|v| v.as_bool()).unwrap_or(true);
             let id = uuid::Uuid::new_v4().to_string();
@@ -1019,7 +1069,8 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             state.app.unlisten(listener_id);
 
             // Registra com floor = branch (topologia cross-floor pro Orquestrador).
-            state.agent_registry.register(label.clone(), id.clone(), command.clone(), Some(branch.clone()));
+            let role_reg = if role.trim().is_empty() { None } else { Some(role.clone()) };
+            state.agent_registry.register(label.clone(), id.clone(), command.clone(), Some(branch.clone()), role_reg);
 
             // Injeta a tarefa depois que o agente sobe (deixa a TUI assentar).
             if acked && !task.is_empty() {
@@ -1096,15 +1147,19 @@ fn agent_snapshot(state: &McpState) -> Vec<crate::mcp::AgentInfo> {
         .list()
         .into_iter()
         .map(|(label, entry)| {
+            // move `role` e `floor` antes de emprestar/mover session_id
+            let role = entry.role.clone();
+            let floor = entry.floor;
+            let session_id = entry.session_id.clone();
             let st = state
                 .pty_manager
-                .agent_state(&entry.session_id)
+                .agent_state(&session_id)
                 .unwrap_or(crate::pty::AgentState::Idle);
             crate::mcp::AgentInfo {
-                session_id: entry.session_id,
+                session_id,
                 label,
-                role: None,
-                floor: entry.floor,
+                role,
+                floor,
                 state: st,
             }
         })
@@ -1301,7 +1356,7 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
             if name.is_empty() || cli.is_empty() {
                 return "❌ 'name' e 'cli' são obrigatórios".into();
             }
-            if let Some(msg) = duplicate_agent_refusal(state, &name) {
+            if let Some(msg) = duplicate_agent_refusal(state, &name, Some(&role)) {
                 return msg;
             }
             // Emite evento pro frontend criar o nó no canvas
@@ -2421,5 +2476,93 @@ mod tests {
     fn code_chunks_tool_errors_clean_on_missing_path() {
         let out = super::code_chunks_dispatch(serde_json::json!({}));
         assert!(out.contains("path"), "erro deve mencionar path: {out}");
+    }
+
+    fn ag(label: &str, role: Option<&str>, state: crate::pty::AgentState) -> crate::mcp::AgentInfo {
+        crate::mcp::AgentInfo {
+            session_id: format!("sess-{label}"),
+            label: label.to_string(),
+            role: role.map(|r| r.to_string()),
+            floor: None,
+            state,
+        }
+    }
+
+    #[test]
+    fn nome_igual_com_agente_livre_recusa() {
+        let roster = vec![ag("Backend", Some("backend"), crate::pty::AgentState::Idle)];
+        let msg = duplicate_refusal_from_roster(&roster, "Backend", Some("backend"))
+            .expect("deveria recusar porque há agente livre com mesmo nome");
+        assert!(msg.contains("mesmo nome"), "a recusa deveria citar conflito por mesmo nome");
+    }
+
+    #[test]
+    fn papel_igual_com_nome_diferente_recusa() {
+        let roster = vec![ag("Frontend", Some("frontend"), crate::pty::AgentState::Idle)];
+        let msg = duplicate_refusal_from_roster(&roster, "UI Dev", Some("frontend"))
+            .expect("deveria recusar pelo papel mesmo com nome diferente (regressão do sinônimo)");
+        assert!(msg.contains("mesmo papel"), "a recusa deveria citar conflito por mesmo papel");
+        assert!(msg.contains("@Frontend"), "a mensagem deveria apontar o agente existente @Frontend");
+    }
+
+    #[test]
+    fn agente_working_nao_bloqueia() {
+        let roster = vec![ag("Backend", Some("backend"), crate::pty::AgentState::Working)];
+        assert!(
+            duplicate_refusal_from_roster(&roster, "Backend", Some("backend")).is_none(),
+            "agente ocupado (Working) não deve bloquear novo spawn"
+        );
+    }
+
+    #[test]
+    fn papel_diferente_passa() {
+        let roster = vec![ag("Frontend", Some("frontend"), crate::pty::AgentState::Idle)];
+        assert!(
+            duplicate_refusal_from_roster(&roster, "DBA", Some("dba")).is_none(),
+            "papel diferente não deve ser considerado duplicado"
+        );
+    }
+
+    #[test]
+    fn sem_papel_declarado_so_casa_por_nome() {
+        let roster = vec![ag("Frontend", None, crate::pty::AgentState::Idle)];
+        assert!(
+            duplicate_refusal_from_roster(&roster, "UI Dev", Some("frontend")).is_none(),
+            "sem papel declarado, não é possível casar por papel"
+        );
+        let msg = duplicate_refusal_from_roster(&roster, "Frontend", None)
+            .expect("deveria recusar pelo nome quando não há papel");
+        assert!(msg.contains("mesmo nome"), "a recusa deveria ser por mesmo nome");
+    }
+
+    #[test]
+    fn recusa_lista_todos_os_livres() {
+        let roster = vec![
+            ag("Frontend", Some("frontend"), crate::pty::AgentState::Idle),
+            ag("DBA", None, crate::pty::AgentState::Done),
+            ag("Backend", Some("backend"), crate::pty::AgentState::Working),
+        ];
+        let msg = duplicate_refusal_from_roster(&roster, "Frontend", None)
+            .expect("deveria recusar porque Frontend está livre");
+        assert!(msg.contains("@DBA"), "a lista de livres deveria incluir @DBA");
+        assert!(msg.contains("(papel não declarado)"), "a lista deveria mostrar DBA sem papel declarado");
+        assert!(!msg.contains("@Backend"), "agente Working não deve aparecer na lista de livres");
+    }
+
+    #[test]
+    fn roster_vazio_passa() {
+        let roster: Vec<crate::mcp::AgentInfo> = vec![];
+        assert!(
+            duplicate_refusal_from_roster(&roster, "Backend", Some("backend")).is_none(),
+            "roster vazio não deve gerar recusa"
+        );
+    }
+
+    #[test]
+    fn papel_casa_ignorando_caixa_e_espaco() {
+        let roster = vec![ag("Frontend", Some("  FrontEnd "), crate::pty::AgentState::Idle)];
+        let msg = duplicate_refusal_from_roster(&roster, "X", Some("frontend"))
+            .expect("deveria casar papel ignorando caixa e espaços");
+        assert!(msg.contains("mesmo papel"), "a recusa deveria ser por mesmo papel");
     }
 }
