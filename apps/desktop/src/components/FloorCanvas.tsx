@@ -150,12 +150,22 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
   const nodes = useMemo(() => floor?.nodes ?? [], [floor]);
   const edges = useMemo(() => floor?.edges ?? [], [floor]);
 
-  const rfNodes: Node[] = useMemo(
-    () =>
-      // Grupos primeiro: o React Flow exige o pai antes dos filhos (e fica atrás).
-      [...nodes]
-        .sort((a, b) => Number(b.kind === "group") - Number(a.kind === "group"))
-        .map((n) => ({
+  const nodeCacheRef = useRef<Map<string, { src: CanvasNode; rf: Node }>>(new Map());
+  // Preserva a identidade dos objetos Node dos nós intocados, evitando
+  // re-renderizações desnecessárias dos cards pesados (xterm.js, iframe, tldraw)
+  // a cada mousemove durante o arrasto.
+
+  const rfNodes: Node[] = useMemo(() => {
+    // Grupos primeiro: o React Flow exige o pai antes dos filhos (e fica atrás).
+    const result: Node[] = [...nodes]
+      .sort((a, b) => Number(b.kind === "group") - Number(a.kind === "group"))
+      .map((n) => {
+        const hit = nodeCacheRef.current.get(n.id);
+        if (hit && hit.src === n) {
+          return hit.rf;
+        }
+
+        const rf: Node = {
           id: n.id,
           type: n.kind,
           position: n.position,
@@ -164,9 +174,23 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
           width: n.size.width,
           height: n.size.height,
           ...(n.parentId ? { parentId: n.parentId } : {}),
-        })),
-    [nodes],
-  );
+        };
+
+        nodeCacheRef.current.set(n.id, { src: n, rf });
+        return rf;
+      });
+
+    const currentIds = new Set(nodes.map((n) => n.id));
+    const keysToRemove: string[] = [];
+    nodeCacheRef.current.forEach((_, id) => {
+      if (!currentIds.has(id)) {
+        keysToRemove.push(id);
+      }
+    });
+    keysToRemove.forEach((id) => nodeCacheRef.current.delete(id));
+
+    return result;
+  }, [nodes]);
 
   const rfEdges: Edge[] = useMemo(
     () =>

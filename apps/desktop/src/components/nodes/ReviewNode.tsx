@@ -119,7 +119,7 @@ function ReviewNodeImpl({ data, selected }: NodeProps<ReviewRfNode>) {
       {/* Alça de baixo = VALIDADOR: ligue num OmniAgent revisor. */}
       <Handle type="source" id="validator" position={Position.Bottom} className="!bg-brand !border-surface1" />
 
-      <div className="node-drag-handle flex items-center gap-1.5 border-b border-white/10 px-2 py-1.5">
+      <div className="node-drag-handle flex items-center gap-1.5 border-b border-white/10 px-2 py-1.5 cursor-grab active:cursor-grabbing select-none">
         <GitPullRequestArrow size={13} className="text-yellow-400" />
         <span className="flex-1 truncate font-semibold text-text">{data.label ?? "Review"}</span>
         {validatorLabel && (
