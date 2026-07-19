@@ -83,3 +83,7 @@ apps/desktop/src-tauri/tauri.dev-install.generated.json
 # PÚBLICO, então o dado de um cliente virou source archive de release.
 logs_clientes/
 *omnirift-diagnostico-*.txt
+
+# Log temporário dos gates (scripts/gate.sh e redirects manuais) — na RAIZ
+# também, não só em tools/. Entrou no repo em 2026-07-19 por um `git add -A`.
+.gate.log
