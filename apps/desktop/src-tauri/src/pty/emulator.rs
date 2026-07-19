@@ -20,7 +20,7 @@
 //! `grid().iter_from(Point::new(topmost_line, Column(0)))` → `Indexed<&Cell>`,
 //! `Cell { c, fg, bg, flags }`, `Color::{Named,Spec,Indexed}`, `TermMode::ALT_SCREEN`.
 
-use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
@@ -28,7 +28,8 @@ use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Rgb};
 
 use serde::Serialize;
-use std::sync::atomic::{AtomicU64, Ordering};
+use parking_lot::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 /// Scrollback máximo retido pelo emulador (linhas). Bounded de propósito: um agente
@@ -76,8 +77,54 @@ impl Dimensions for EmuSize {
 /// bounded) + um `Processor` (parser ANSI stateful). Single-threaded por design: o
 /// caller serializa os `feed` (1 read-loop por sessão); o `PtyManager` guarda cada
 /// um sob `Mutex` pra leitura concorrente do `snapshot`.
+/// Backstop de queries: responde DSR/DA/OSC **apenas enquanto não há xterm anexado**.
+///
+/// A decisão original (VoidListener, nunca responder) é correta quando existe uma view:
+/// duas respostas competindo na stdin do shell corrompem tema/valores. Mas no eager-spawn
+/// NÃO existe xterm — e aí ninguém responde. A TUI (bash/claude/codex) fica esperando o
+/// CPR do `CSI 6 n` e morre com código 1 depois de ~30s, com a tela vazia. Este listener
+/// cobre exatamente essa janela e se cala assim que a view anexa.
+#[derive(Clone)]
+pub struct BackstopListener {
+    pending: Arc<Mutex<Vec<Vec<u8>>>>,
+    view_attached: Arc<AtomicBool>,
+    cols: u16,
+    rows: u16,
+}
+
+/// Teto do buffer de respostas: se ninguém drenar (sessão morta, feeder parado), não
+/// crescemos sem limite — descartamos em vez de segurar memória.
+const MAX_PENDING_RESPONSES: usize = 256;
+
+impl EventListener for BackstopListener {
+    fn send_event(&self, event: Event) {
+        // View anexada = o xterm do front responde. Não duplicar.
+        if self.view_attached.load(Ordering::SeqCst) {
+            return;
+        }
+        let resposta = match event {
+            Event::PtyWrite(s) => s,
+            Event::ColorRequest(_, f) => f(Rgb { r: 0, g: 0, b: 0 }),
+            Event::TextAreaSizeRequest(f) => f(WindowSize {
+                num_lines: self.rows,
+                num_cols: self.cols,
+                cell_width: 8,
+                cell_height: 16,
+            }),
+            _ => return,
+        };
+        let mut pend = self.pending.lock();
+        if pend.len() >= MAX_PENDING_RESPONSES {
+            return;
+        }
+        pend.push(resposta.into_bytes());
+    }
+}
+
 pub struct TermEmulator {
-    term: Term<VoidListener>,
+    term: Term<BackstopListener>,
+    pending: Arc<Mutex<Vec<Vec<u8>>>>,
+    view_attached: Arc<AtomicBool>,
     parser: Processor,
     /// `seq` monotônico por sessão, em `Arc<AtomicU64>` pra ser COMPARTILHADO com o
     /// thread de emit do `pty://output` (em `session.rs`) — assim o evento ao vivo
@@ -104,8 +151,17 @@ impl TermEmulator {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let config = Config { scrolling_history: SCROLLBACK_LIMIT, ..Config::default() };
         let size = EmuSize { cols: cols as usize, rows: rows as usize };
-        let term = Term::new(config, &size, VoidListener);
-        Self { term, parser: Processor::new(), seq, cols, rows }
+        // Nasce SEM view: responde queries até o xterm anexar (pty_view_attach).
+        let pending = Arc::new(Mutex::new(Vec::new()));
+        let view_attached = Arc::new(AtomicBool::new(false));
+        let listener = BackstopListener {
+            pending: Arc::clone(&pending),
+            view_attached: Arc::clone(&view_attached),
+            cols,
+            rows,
+        };
+        let term = Term::new(config, &size, listener);
+        Self { term, parser: Processor::new(), seq, cols, rows, pending, view_attached }
     }
 
     /// Alimenta bytes do PTY no grid. `seq += 1` por chamada (1 chunk pintado). O
@@ -113,6 +169,25 @@ impl TermEmulator {
     pub fn feed(&mut self, bytes: &[u8]) {
         self.parser.advance(&mut self.term, bytes);
         self.seq.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Drena as respostas de query acumuladas pelo backstop. O read-loop chama isto
+    /// depois de cada `feed` e escreve o resultado na stdin do PTY.
+    pub fn take_pending_responses(&self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut *self.pending.lock())
+    }
+
+    /// Liga/desliga o backstop. `true` = xterm anexado → backend se cala.
+    pub fn set_view_attached(&self, anexado: bool) {
+        self.view_attached.store(anexado, Ordering::SeqCst);
+    }
+
+    pub fn view_attached(&self) -> bool {
+        self.view_attached.load(Ordering::SeqCst)
+    }
+
+    pub fn view_attached_arc(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.view_attached)
     }
 
     /// Redimensiona o grid (o read-loop chama junto com o resize do PTY master).
@@ -446,5 +521,36 @@ mod tests {
         let snap = e.snapshot(SCROLLBACK_LIMIT);
         assert_eq!(snap.cols, 100);
         assert_eq!(snap.rows, 40);
+    }
+
+    #[test]
+    fn dsr_responde_quando_nao_ha_view_anexada() {
+        // Sem view anexada ninguem responde o CPR: a TUI espera e morre com codigo 1
+        // depois de ~30s (bug real, Windows, v0.1.141). O backstop cobre essa janela.
+        let mut e = TermEmulator::new(80, 24);
+        e.feed(b"\x1b[6n");
+        let resp = e.take_pending_responses();
+        assert_eq!(resp.len(), 1, "DSR sem view deve gerar exatamente uma resposta CPR");
+        assert!(resp[0].starts_with(b"\x1b["), "CPR comeca com CSI: {:?}", resp[0]);
+        assert_eq!(resp[0].last().copied(), Some(b'R'), "CPR termina em R: {:?}", resp[0]);
+    }
+
+    #[test]
+    fn dsr_nao_responde_com_view_anexada() {
+        // Com xterm anexado quem responde e ele. Resposta dupla na stdin do shell
+        // corromperia tema/valores — era a razao do VoidListener original.
+        let mut e = TermEmulator::new(80, 24);
+        e.set_view_attached(true);
+        e.feed(b"\x1b[6n");
+        assert!(e.take_pending_responses().is_empty(), "com view anexada o backend fica mudo");
+    }
+
+    #[test]
+    fn take_pending_responses_drena() {
+        let mut e = TermEmulator::new(80, 24);
+        e.feed(b"\x1b[6n");
+        e.feed(b"\x1b[6n");
+        assert_eq!(e.take_pending_responses().len(), 2, "duas queries, duas respostas");
+        assert_eq!(e.take_pending_responses().len(), 0, "segunda drenagem vem vazia");
     }
 }

@@ -28,6 +28,8 @@ import {
   ptyResize,
   ptySnapshot,
   ptySpawn,
+  ptyViewAttach,
+  ptyViewDetach,
   ptyWrite,
   TERMINAL_VIEW_SCROLLBACK_ROWS,
 } from "@/lib/pty-client";
@@ -584,6 +586,9 @@ export function useTerminalSession({
         }
 
         if (!disposed) {
+          // A view esta pronta (listener de output + term.onData instalados): ela assume
+          // as queries do shell e o backstop do backend se cala (nada de resposta dupla).
+          void ptyViewAttach(sessionId);
           setReady(true);
           void emit("pty://ready", { id: sessionId });
         }
@@ -596,6 +601,9 @@ export function useTerminalSession({
 
     // --- Cleanup --------------------------------------------------------
     return () => {
+      // View saindo (unmount/virtualizacao): o backend reassume as respostas de query,
+      // senao a TUI trava esperando o CPR e morre com codigo 1.
+      void ptyViewDetach(sessionId);
       ro.disconnect();
       disposed = true;
       disposedRef.current = true; // visível pro reconnect() abortar o re-spawn [GLM-audit #3]

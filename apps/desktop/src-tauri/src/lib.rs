@@ -110,7 +110,8 @@ use commands::hosts::{hosts_add, hosts_list, hosts_remove};
 use commands::pty::{
     pty_kill, pty_list, pty_list_alive, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
     pty_proc_info_all,
-    pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_write,
+    pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_view_attach, pty_view_detach,
+    pty_write,
 };
 use commands::acp::{
     acp_agent_register, acp_agent_unregister, acp_attach, acp_authenticate, acp_cancel, acp_gc,
@@ -448,6 +449,8 @@ pub fn run() {
             pty_proc_info,
             pty_proc_info_all,
             pty_snapshot,
+            pty_view_attach,
+            pty_view_detach,
             mobile_pairing_offer,
             mobile_devices_list,
             mobile_revoke,

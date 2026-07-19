@@ -99,6 +99,29 @@ export async function ptySnapshot(
   return invoke<PtySnapshot>("pty_snapshot", { sessionId, scrollbackRows });
 }
 
+/** Avisa o backend que um xterm anexou: a partir daqui QUEM responde as queries do
+ *  shell (DSR/DA/OSC) é a view. Sem isto o backend responderia junto e as duas
+ *  respostas competiriam na stdin do shell. Nunca lança: é robustez, não pode
+ *  derrubar a montagem do terminal. */
+export async function ptyViewAttach(sessionId: SessionId): Promise<void> {
+  try {
+    await invoke("pty_view_attach", { sessionId });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Avisa o backend que a view saiu (unmount/virtualização). O backend reassume as
+ *  respostas — senão a TUI pergunta a posição do cursor, ninguém responde, e ela
+ *  morre com código 1 depois de ~30s. Nunca lança. */
+export async function ptyViewDetach(sessionId: SessionId): Promise<void> {
+  try {
+    await invoke("pty_view_detach", { sessionId });
+  } catch {
+    /* best-effort */
+  }
+}
+
 /**
  * Inscreve um listener para os outputs de UMA sessão específica.
  * Filtra na borda — o Rust emite globalmente, mas o consumidor só vê o que importa.

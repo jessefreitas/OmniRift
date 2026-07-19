@@ -81,11 +81,29 @@ impl PtyManager {
         let emulator = Arc::new(Mutex::new(TermEmulator::new_with_seq(cols, rows, session.seq_arc())));
         self.emulators.insert(id.clone(), emulator.clone());
         let mut feed_rx = session.subscribe();
+        // Backstop de queries: enquanto NENHUM xterm estiver anexado, o emulador responde
+        // DSR/DA/OSC e o writer abaixo devolve a resposta pra stdin do shell. Sem isto, um
+        // agente em eager-spawn (fora do viewport, sem view montada) perguntava a posição
+        // do cursor, ninguém respondia, e ele morria com código 1 depois de ~30s.
+        let backstop_writer = session.writer_arc();
         tauri::async_runtime::spawn(async move {
             use tokio::sync::broadcast::error::RecvError;
             loop {
                 match feed_rx.recv().await {
-                    Ok(bytes) => emulator.lock().feed(&bytes),
+                    Ok(bytes) => {
+                        let respostas = {
+                            let mut emu = emulator.lock();
+                            emu.feed(&bytes);
+                            emu.take_pending_responses()
+                        };
+                        if !respostas.is_empty() {
+                            let mut w = backstop_writer.lock();
+                            for r in &respostas {
+                                let _ = w.write_all(r);
+                            }
+                            let _ = w.flush();
+                        }
+                    }
                     Err(RecvError::Lagged(_)) => {} // perdeu chunks: snapshot só fica defasado
                     Err(RecvError::Closed) => break, // PTY EOF → fim do feeder
                 }
@@ -149,6 +167,16 @@ impl PtyManager {
             .ok_or_else(|| anyhow!("sessão {id} sem emulador (sem snapshot — degrade pro fluxo ao vivo)"))?;
         let snap = emu.lock().snapshot(scrollback_rows);
         Ok(snap)
+    }
+
+    /// Define se a view (xterm) está anexada à sessão.
+    /// - `true`: o xterm acabou de anexar e passa a responder queries DSR/DA/OSC.
+    /// - `false`: não há view, então o backend reassume essas respostas.
+    pub fn set_view_attached(&self, id: &str, anexado: bool) {
+        if let Some(emu) = self.emulators.get(id) {
+            emu.lock().set_view_attached(anexado);
+        }
+        // Sessão sem emulador não é erro: simplesmente não faz nada.
     }
 
     /// Insere um emulador já alimentado direto no mapa — só pra testar a leitura do
