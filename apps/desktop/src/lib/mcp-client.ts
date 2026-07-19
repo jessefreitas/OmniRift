@@ -51,8 +51,14 @@ export async function getMaxAgents(): Promise<number> {
  * `allowed` (chaves do mcpInventory) = curadoria por-role: só esses servers entram
  * no config → contexto enxuto (budget de 200k). undefined = TODOS (back-compat).
  */
-export async function agentMcpConfig(allowed?: string[]): Promise<string | null> {
-  return invoke<string | null>("agent_mcp_config", allowed ? { allowed } : undefined);
+export async function agentMcpConfig(
+  allowed?: string[],
+  allowBrowser?: boolean,
+): Promise<string | null> {
+  const payload: Record<string, unknown> = {};
+  if (allowed) payload.allowed = allowed;
+  if (allowBrowser) payload.allowBrowser = true;
+  return invoke<string | null>("agent_mcp_config", Object.keys(payload).length ? payload : undefined);
 }
 
 /** Um MCP server disponível + custo estimado de contexto (tokens de schema). */

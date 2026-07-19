@@ -409,7 +409,14 @@ impl AcpManager {
         };
 
         let (bin, args) = adapter_cmd(provider.as_deref().unwrap_or("claude"));
-        let mut cmd = Command::new(bin);
+        // No Windows o adapter é quase sempre `npx`, que o npm instala como shim `.cmd` —
+        // e o CreateProcessW só carrega imagens PE. `Command::new("npx")` falhava com
+        // "program not found", quebrando TODO OmniAgent ACP no Windows. O caminho de PTY
+        // já resolvia isso por conta própria (portable-pty); este é o mesmo tratamento
+        // pro spawn assíncrono. Fora do Windows é no-op — nada muda no Linux/macOS.
+        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        let (bin, args) = crate::proc_win::wrap_for_windows(bin, &args);
+        let mut cmd = Command::new(&bin);
         cmd.args(&args);
         cmd.current_dir(&cwd_abs);
 

@@ -19,6 +19,7 @@ pub mod observability;
 // pré-spawn (cwd em mount FUSE morto → erro claro em vez de agente ENOTCONN).
 pub mod omnifs;
 pub mod proc_ext;
+mod proc_win;
 pub mod pty;
 // Redator de segredos — aplicado no caminho OUTBOUND (gateway OmniMemory + /diag),
 // nunca no blackboard local. Módulo puro (regex compiladas lazy via OnceLock):

@@ -31,6 +31,9 @@ export interface AgentRoleDef {
   /** MCP servers (chaves do mcp_inventory) que este role carrega. undefined = TODOS
    *  (back-compat); curar reduz o contexto do agente — é o lever do budget de 200k. */
   mcpServers?: string[];
+  /** Papel que de fato automatiza navegador (Frontend/QA). Sem isto, o perfil default
+   *  não carrega chrome-devtools/playwright — eram ~1,7 GB parados em 12 agentes. */
+  needsBrowser?: boolean;
   /** Compressor de token deste role ("none"|"rtk"|"headroom"). Decora só env no spawn. */
   compressor?: string;
   /** true = o comando de início já injeta o próprio system-prompt (wrapper tipo
@@ -238,6 +241,7 @@ export const BUILTIN_ROLES: AgentRoleDef[] = [
   },
   {
     id: "frontend",
+    needsBrowser: true,
     name: "Frontend",
     builtin: true,
     prompt:
@@ -270,6 +274,7 @@ export const BUILTIN_ROLES: AgentRoleDef[] = [
   },
   {
     id: "qa",
+    needsBrowser: true,
     name: "QA / Tester",
     builtin: true,
     prompt:

@@ -190,8 +190,21 @@ trackAction("depois-da-janela");
 }
 
 // clearTrail zera o limitador (senão um teste/sessão contamina o próximo)
-reset("actions");
-for (let i = 0; i < 100; i++)
+{
+  reset("actions");
+  // Estoura a janela de propósito: sem o reset, as próximas ações seriam suprimidas.
+  for (let i = 0; i < 100; i++) {
+    trackAction("flood");
+  }
+  taken();
+  clearTrail();
+  trackAction("depois-do-clear");
+  const l = taken();
+  assert(
+    l.length === 1,
+    `clearTrail tem que zerar o limitador — a ação seguinte foi suprimida (obtido ${l.length})`,
+  );
+}
 
 // ── Privacidade: o basename precisa alcançar QUALQUER profundidade ───────────
 // O sanitizeValue só cobria string direta; caminho dentro de objeto/array ia cru e

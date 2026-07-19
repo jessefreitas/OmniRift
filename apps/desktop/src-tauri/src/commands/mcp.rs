@@ -210,6 +210,11 @@ pub fn agent_mcp_config(
     db: State<'_, Db>,
     mcp_token: State<'_, std::sync::Arc<crate::mcp::server::McpAuthToken>>,
     allowed: Option<Vec<String>>,
+    // Papel que PRECISA de navegador (Frontend/QA). Só ele recebe chrome-devtools e
+    // playwright no perfil default. Flag em vez de whitelist de propósito: whitelist
+    // derrubaria em silêncio os MCP que o USUÁRIO habilitou no banco (Postgres, GitHub…),
+    // e ninguém pediu pra perder isso — o que queremos é só não pagar navegador por padrão.
+    allow_browser: Option<bool>,
 ) -> Option<String> {
     use tauri::Manager;
     let mut servers = serde_json::Map::new();
@@ -326,7 +331,9 @@ pub fn agent_mcp_config(
             // custo de memória medido no app (1,7 GB parados, 0% de CPU). Quem precisa
             // pede via `allowed`.
             let mut servers = servers;
-            servers.retain(|k, _| !is_heavy_browser_mcp(k.as_str()));
+            if !allow_browser.unwrap_or(false) {
+                servers.retain(|k, _| !is_heavy_browser_mcp(k.as_str()));
+            }
             (servers, "agent-mcp.json".to_string())
         }
     };

@@ -237,7 +237,12 @@ export function useTerminalSession({
     }
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
-    term.focus();
+    // FOCO NÃO VAI AQUI. O FloorCanvas usa `onlyRenderVisibleElements`, então um nó que
+    // sai da tela DESMONTA de verdade — e passear pelo canvas remonta vários terminais
+    // em sequência. Focar na montagem fazia cada remount roubar o foco do usuário: era a
+    // outra metade do "canvas travando pra passear", que o opt-in do `fit()` não cobria.
+    // O foco desceu pro caminho de SPAWN (sessão nova = o usuário acabou de criar este
+    // terminal); reattach de remount não mexe no foco.
 
     // ResizeObserver → fit() sempre que o container mudar de tamanho
     const ro = new ResizeObserver(() => {
@@ -308,6 +313,10 @@ export function useTerminalSession({
             if (String(e).includes("já existe")) attached = true;
             else throw e;
           }
+          // Terminal NOVO (não é reattach de remount) → foca: aqui o usuário acabou de
+          // criar o nó e quer digitar. `attached` vira true no catch acima quando a
+          // sessão já existia, e nesse caso não focamos.
+          if (!attached && !disposedRef.current) term.focus();
         }
         if (attached) {
           // Ajusta o PTY existente às dimensões reais deste xterm (eager-spawn e

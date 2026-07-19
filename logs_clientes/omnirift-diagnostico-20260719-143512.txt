@@ -1,0 +1,513 @@
+=== OmniRift — diagnóstico ===
+gerado : 2026-07-19 14:35:12
+versão : 0.1.138
+SO     : windows windows/x86_64
+debug  : LIGADO
+
+Se o modo debug estava DESLIGADO, o log tem menos detalhe: ligue em
+Configurações > Geral, reproduza o problema e gere o arquivo de novo.
+
+
+=== omnirift.log (fim) ===
+[2026-07-14][17:13:14][omnirift_lib::rpc::socket][INFO] RPC pipe escutando em "\\\\.\\pipe\\omnirift-00003210"
+[2026-07-14][17:13:14][omnirift_lib::rpc][INFO] RPC: runtime.json gravado em "C:\\Users\\Pichau\\.omnirift\\runtime.json"
+[2026-07-14][17:13:14][omnirift_lib::rpc::relay_client][INFO] relay mobile: sem devices pareados — nenhum dialer de relay
+[2026-07-14][17:13:14][omnirift_lib][INFO] OmniRift MCP server: http://127.0.0.1:7844
+[2026-07-14][17:13:14][omnirift_lib::rpc::ws][INFO] relay mobile: WebSocket escutando em 0.0.0.0:6768 (LAN)
+[2026-07-14][17:13:14][omnirift_lib::llm_router::server][INFO] OmniSwitch server: http://127.0.0.1:7845
+[2026-07-14][17:13:17][omnirift_lib::mcp::prewarm][INFO] prewarm: aquecendo cache do serena (uvx)
+[2026-07-14][17:14:37][omnirift_lib::mcp::prewarm][INFO] prewarm: serena concluído (ok, falha ou timeout — best-effort)
+[2026-07-14][17:15:11][omnirift_lib::pty::session][INFO] PTY oDjwIlUQ5x2kHN18LFqFv EOF
+[2026-07-14][17:15:23][omnirift_lib::pty::session][INFO] PTY oDjwIlUQ5x2kHN18LFqFv EOF
+[2026-07-14][17:15:40][omnirift_lib::pty::session][INFO] PTY n7vFtiXcs7qKpyT8Vu5DC EOF
+[2026-07-14][17:16:09][omnirift_lib::pty::session][INFO] PTY n7vFtiXcs7qKpyT8Vu5DC EOF
+[2026-07-14][17:17:34][omnirift_lib::pty::session][INFO] PTY f8yog3IRb3EP017eWHA-1 EOF
+[2026-07-14][17:17:36][omnirift_lib::pty::session][INFO] PTY mnHMWDu9pUQ-ni0beTRjW EOF
+[2026-07-14][17:17:37][omnirift_lib::pty::session][INFO] PTY ITXgQm2btpFvpSD_NR8rs EOF
+[2026-07-14][17:17:39][omnirift_lib::pty::session][INFO] PTY v1ZQuAXNZ5PjOj1B_vL3p EOF
+[2026-07-14][17:18:02][omnirift_lib::pty::session][INFO] PTY YKQXUaUuu-EEtU0cFqAuL EOF
+[2026-07-14][17:18:04][omnirift_lib::pty::session][INFO] PTY 6iDb7qxpmUcXDjqmUMyI3 EOF
+[2026-07-14][17:18:12][omnirift_lib::pty::session][INFO] PTY m6Pa9H-7V3xXn45kV6lSb EOF
+[2026-07-14][17:18:15][omnirift_lib::pty::session][INFO] PTY m6Pa9H-7V3xXn45kV6lSb EOF
+[2026-07-14][17:18:15][omnirift_lib::pty::session][INFO] PTY m6Pa9H-7V3xXn45kV6lSb EOF
+[2026-07-14][17:18:16][omnirift_lib::pty::session][INFO] PTY m6Pa9H-7V3xXn45kV6lSb EOF
+[2026-07-14][17:18:27][omnirift_lib::pty::session][INFO] PTY m6Pa9H-7V3xXn45kV6lSb EOF
+[2026-07-14][17:18:55][omnirift_lib::pty::session][INFO] PTY s_xla__Ao6NCy5LfvcmDc EOF
+[2026-07-14][17:18:58][omnirift_lib::pty::session][INFO] PTY s_xla__Ao6NCy5LfvcmDc EOF
+[2026-07-14][17:22:48][omnirift_lib::pty::session][INFO] PTY o3GtFOGkxc9QB00DUzM6E EOF
+[2026-07-14][17:23:04][omnirift_lib::pty::session][INFO] PTY NI-Ej5QKOD_84gQFVFmpA EOF
+[2026-07-14][17:23:14][omnirift_lib::pty::session][INFO] PTY NI-Ej5QKOD_84gQFVFmpA EOF
+[2026-07-14][17:23:47][omnirift_lib::mcp::registry][INFO] MCP: agente 'shell' registrado (NI-Ej5QK)
+[2026-07-14][17:24:23][omnirift_lib::rpc::socket][INFO] RPC pipe escutando em "\\\\.\\pipe\\omnirift-00000cbc"
+[2026-07-14][17:24:23][omnirift_lib::rpc::relay_client][INFO] relay mobile: sem devices pareados — nenhum dialer de relay
+[2026-07-14][17:24:23][omnirift_lib::rpc][INFO] RPC: runtime.json gravado em "C:\\Users\\Pichau\\.omnirift\\runtime.json"
+[2026-07-14][17:24:23][omnirift_lib][ERROR] Falha ao iniciar MCP server na porta 7844: Only one usage of each socket address (protocol/network address/port) is normally permitted. (os error 10048)
+[2026-07-14][17:24:23][omnirift_lib::rpc::ws][WARN] relay mobile: porta 6768 ocupada (Only one usage of each socket address (protocol/network address/port) is normally permitted. (os error 10048)) — fallback p/ porta do OS
+[2026-07-14][17:24:23][omnirift_lib::llm_router::server][WARN] OmniSwitch: bind 127.0.0.1:7845 falhou (Only one usage of each socket address (protocol/network address/port) is normally permitted. (os error 10048)) — roteador desligado nesta sessão
+[2026-07-14][17:24:23][omnirift_lib::rpc::ws][INFO] relay mobile: WebSocket escutando em 0.0.0.0:60268 (LAN)
+[2026-07-14][17:24:23][omnirift_lib::mcp::prewarm][INFO] prewarm: aquecendo cache do serena (uvx)
+[2026-07-14][17:24:26][omnirift_lib::mcp::prewarm][INFO] prewarm: serena concluído (ok, falha ou timeout — best-effort)
+[2026-07-15][02:31:43][omnirift_lib::rpc::socket][INFO] RPC pipe escutando em "\\\\.\\pipe\\omnirift-0000916c"
+[2026-07-15][02:31:43][omnirift_lib::rpc][INFO] RPC: runtime.json gravado em "C:\\Users\\Pichau\\.omnirift\\runtime.json"
+[2026-07-15][02:31:43][omnirift_lib][INFO] OmniRift MCP server: http://127.0.0.1:7844
+[2026-07-15][02:31:43][omnirift_lib::llm_router::server][INFO] OmniSwitch server: http://127.0.0.1:7845
+[2026-07-15][02:31:43][omnirift_lib::rpc::relay_client][INFO] relay mobile: sem devices pareados — nenhum dialer de relay
+[2026-07-15][02:31:43][omnirift_lib::rpc::ws][INFO] relay mobile: WebSocket escutando em 0.0.0.0:6768 (LAN)
+[2026-07-15][02:31:43][omnirift_lib::mcp::prewarm][INFO] prewarm: aquecendo cache do serena (uvx)
+[2026-07-15][02:31:49][omnirift_lib::mcp::prewarm][INFO] prewarm: serena concluído (ok, falha ou timeout — best-effort)
+[2026-07-15][02:34:49][omnirift_lib::pty::session][INFO] PTY mqtfUelqT3kG8f4iTa3Oh EOF
+[2026-07-15][03:55:21][omnirift_lib::rpc::socket][INFO] RPC pipe escutando em "\\\\.\\pipe\\omnirift-00007b88"
+[2026-07-15][03:55:21][omnirift_lib::rpc::relay_client][INFO] relay mobile: sem devices pareados — nenhum dialer de relay
+[2026-07-15][03:55:21][omnirift_lib::rpc][INFO] RPC: runtime.json gravado em "C:\\Users\\Pichau\\.omnirift\\runtime.json"
+[2026-07-15][03:55:21][omnirift_lib][INFO] OmniRift MCP server: http://127.0.0.1:7844
+[2026-07-15][03:55:21][omnirift_lib::rpc::ws][INFO] relay mobile: WebSocket escutando em 0.0.0.0:6768 (LAN)
+[2026-07-15][03:55:21][omnirift_lib::llm_router::server][INFO] OmniSwitch server: http://127.0.0.1:7845
+[2026-07-15][03:55:21][omnirift_lib::mcp::prewarm][INFO] prewarm: aquecendo cache do serena (uvx)
+[2026-07-15][03:55:24][omnirift_lib::mcp::prewarm][INFO] prewarm: serena concluído (ok, falha ou timeout — best-effort)
+[2026-07-15][03:55:39][omnirift_lib::mcp::registry][INFO] MCP: agente 'shell 2' registrado (aWB3Ol8g)
+[2026-07-15][03:56:07][omnirift_lib::mcp::registry][INFO] MCP: agente 'shell 4' registrado (4S5FuU48)
+[2026-07-15][03:59:58][omnirift_lib::pty::session][INFO] PTY zokqBavkL2xhNeWG-UgNp EOF
+[2026-07-15][03:59:58][omnirift_lib::pty::manager][INFO] pipe zokqBavkL2xhNeWG-UgNp→4S5FuU48gWIBoqJrd7BUK encerrado
+[2026-07-15][04:00:28][omnirift_lib::pty::session][INFO] PTY kVlSYvj6cePtuZiTw1K7_ EOF
+[2026-07-15][04:00:28][omnirift_lib::pty::manager][INFO] pipe kVlSYvj6cePtuZiTw1K7_→aWB3Ol8g0BBnumpOI7VBT encerrado
+[2026-07-15][04:00:28][omnirift_lib::pty::session][INFO] PTY aWB3Ol8g0BBnumpOI7VBT EOF
+[2026-07-15][04:00:28][omnirift_lib::pty::manager][INFO] pipe aWB3Ol8g0BBnumpOI7VBT→4S5FuU48gWIBoqJrd7BUK encerrado
+[2026-07-15][04:02:53][omnirift_lib::rpc::socket][INFO] RPC pipe escutando em "\\\\.\\pipe\\omnirift-00008768"
+[2026-07-15][04:02:53][omnirift_lib::rpc::relay_client][INFO] relay mobile: sem devices pareados — nenhum dialer de relay
+[2026-07-15][04:02:53][omnirift_lib::rpc][INFO] RPC: runtime.json gravado em "C:\\Users\\Pichau\\.omnirift\\runtime.json"
+[2026-07-15][04:02:53][omnirift_lib][INFO] OmniRift MCP server: http://127.0.0.1:7844
+[2026-07-15][04:02:53][omnirift_lib::rpc::ws][INFO] relay mobile: WebSocket escutando em 0.0.0.0:6768 (LAN)
+[2026-07-15][04:02:53][omnirift_lib::llm_router::server][INFO] OmniSwitch server: http://127.0.0.1:7845
+[2026-07-15][04:02:53][omnirift_lib::mcp::prewarm][INFO] prewarm: aquecendo cache do serena (uvx)
+[2026-07-15][04:02:55][omnirift_lib::mcp::prewarm][INFO] prewarm: serena concluído (ok, falha ou timeout — best-effort)
+[2026-07-15][04:04:14][omnirift_lib::rpc::socket][INFO] RPC pipe escutando em "\\\\.\\pipe\\omnirift-00009ae4"
+[2026-07-15][04:04:14][omnirift_lib::rpc::relay_client][INFO] relay mobile: sem devices pareados — nenhum dialer de relay
+[2026-07-15][04:04:14][omnirift_lib::rpc][INFO] RPC: runtime.json gravado em "C:\\Users\\Pichau\\.omnirift\\runtime.json"
+[2026-07-15][04:04:14][omnirift_lib][INFO] OmniRift MCP server: http://127.0.0.1:7844
+[2026-07-15][04:04:14][omnirift_lib::rpc::ws][INFO] relay mobile: WebSocket escutando em 0.0.0.0:6768 (LAN)
+[2026-07-15][04:04:14][omnirift_lib::llm_router::server][INFO] OmniSwitch server: http://127.0.0.1:7845
+[2026-07-15][04:04:14][omnirift_lib::mcp::prewarm][INFO] prewarm: aquecendo cache do serena (uvx)
+[2026-07-15][04:04:16][omnirift_lib::mcp::prewarm][INFO] prewarm: serena concluído (ok, falha ou timeout — best-effort)
+[2026-07-16][05:42:02][omnirift_lib::rpc::socket][INFO] RPC pipe escutando em "\\\\.\\pipe\\omnirift-00008d88"
+[2026-07-16][05:42:02][omnirift_lib::rpc][INFO] RPC: runtime.json gravado em "C:\\Users\\Pichau\\.omnirift\\runtime.json"
+[2026-07-16][05:42:02][omnirift_lib][INFO] OmniRift MCP server: http://127.0.0.1:7844
+[2026-07-16][05:42:02][omnirift_lib::llm_router::server][INFO] OmniSwitch server: http://127.0.0.1:7845
+[2026-07-16][05:42:02][omnirift_lib::rpc::relay_client][INFO] relay mobile: sem devices pareados — nenhum dialer de relay
+[2026-07-16][05:42:02][omnirift_lib::rpc::ws][INFO] relay mobile: WebSocket escutando em 0.0.0.0:6768 (LAN)
+[2026-07-16][05:42:02][omnirift_lib::mcp::prewarm][INFO] prewarm: aquecendo cache do serena (uvx)
+[2026-07-16][05:42:09][omnirift_lib::mcp::prewarm][INFO] prewarm: serena concluído (ok, falha ou timeout — best-effort)
+[2026-07-17][22:29:19][omnirift_lib::rpc::socket][INFO] RPC pipe escutando em "\\\\.\\pipe\\omnirift-000075c4"
+[2026-07-17][22:29:19][omnirift_lib::rpc][INFO] RPC: runtime.json gravado em "C:\\Users\\Pichau\\.omnirift\\runtime.json"
+[2026-07-17][22:29:19][omnirift_lib][INFO] OmniRift MCP server: http://127.0.0.1:7844
+[2026-07-17][22:29:19][omnirift_lib::llm_router::server][INFO] OmniSwitch server: http://127.0.0.1:7845
+[2026-07-17][22:29:19][omnirift_lib::rpc::relay_client][INFO] relay mobile: sem devices pareados — nenhum dialer de relay
+[2026-07-17][22:29:19][omnirift_lib::rpc::ws][INFO] relay mobile: WebSocket escutando em 0.0.0.0:6768 (LAN)
+[2026-07-17][22:29:19][omnirift_lib::mcp::prewarm][INFO] prewarm: aquecendo cache do serena (uvx)
+[2026-07-17][22:29:36][omnirift_lib::mcp::prewarm][INFO] prewarm: serena concluído (ok, falha ou timeout — best-effort)
+[2026-07-17][22:29:37][omnirift_lib::pty::session][INFO] PTY FAvVLyDvmraPcSu81xe84 EOF
+[2026-07-17][22:29:47][omnirift_lib::pty::session][INFO] PTY FAvVLyDvmraPcSu81xe84 EOF
+[2026-07-17][22:29:50][omnirift_lib::pty::session][INFO] PTY FAvVLyDvmraPcSu81xe84 EOF
+[2026-07-17][22:30:57][omnirift_lib::pty::session][INFO] PTY FAvVLyDvmraPcSu81xe84 EOF
+[2026-07-17][22:31:02][omnirift_lib::pty::session][INFO] PTY FAvVLyDvmraPcSu81xe84 EOF
+[2026-07-17][22:31:05][omnirift_lib::pty::session][INFO] PTY FAvVLyDvmraPcSu81xe84 EOF
+[2026-07-17][22:32:38][omnirift_lib::rpc::socket][INFO] RPC pipe escutando em "\\\\.\\pipe\\omnirift-00005220"
+[2026-07-17][22:32:38][omnirift_lib::rpc::relay_client][INFO] relay mobile: sem devices pareados — nenhum dialer de relay
+[2026-07-17][22:32:38][omnirift_lib::rpc][INFO] RPC: runtime.json gravado em "C:\\Users\\Pichau\\.omnirift\\runtime.json"
+[2026-07-17][22:32:38][omnirift_lib][INFO] OmniRift MCP server: http://127.0.0.1:7844
+[2026-07-17][22:32:38][omnirift_lib::rpc::ws][INFO] relay mobile: WebSocket escutando em 0.0.0.0:6768 (LAN)
+[2026-07-17][22:32:38][omnirift_lib::llm_router::server][INFO] OmniSwitch server: http://127.0.0.1:7845
+[2026-07-17][22:32:38][omnirift_lib::mcp::prewarm][INFO] prewarm: aquecendo cache do serena (uvx)
+[2026-07-17][22:32:40][omnirift_lib::mcp::prewarm][INFO] prewarm: serena concluído (ok, falha ou timeout — best-effort)
+[2026-07-17][22:32:53][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:32:54][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:32:56][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:32:58][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:32:59][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:03][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:04][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:06][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:06][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:08][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:08][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:10][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:10][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:14][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:16][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:18][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:18][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:33:23][omnirift_lib::pty::session][INFO] PTY l_SKMsaUBqebmaRDYe3kH EOF
+[2026-07-17][22:34:28][omnirift_lib::pty::session][INFO] PTY 5j3MUE5ssMknbVsP6jE68 EOF
+[2026-07-17][22:34:51][omnirift_lib::mcp::registry][INFO] MCP: agente 'shell' registrado (5j3MUE5s)
+[2026-07-19][17:14:33][omnirift_lib::rpc::socket][INFO] RPC pipe escutando em "\\\\.\\pipe\\omnirift-00005584"
+[2026-07-19][17:14:33][omnirift_lib::rpc][INFO] RPC: runtime.json gravado em "C:\\Users\\Pichau\\.omnirift\\runtime.json"
+[2026-07-19][17:14:33][omnirift_lib][INFO] OmniRift MCP server: http://127.0.0.1:7844
+[2026-07-19][17:14:33][omnirift_lib::llm_router::server][INFO] OmniSwitch server: http://127.0.0.1:7845
+[2026-07-19][17:14:33][omnirift_lib::rpc::relay_client][INFO] relay mobile: sem devices pareados — nenhum dialer de relay
+[2026-07-19][17:14:33][omnirift_lib::rpc::ws][INFO] relay mobile: WebSocket escutando em 0.0.0.0:6768 (LAN)
+[2026-07-19][17:14:33][omnirift_lib::mcp::prewarm][INFO] prewarm: aquecendo cache do serena (uvx)
+[2026-07-19][17:15:05][omnirift_lib::mcp::prewarm][INFO] prewarm: serena concluído (ok, falha ou timeout — best-effort)
+[2026-07-19][17:15:58][omnirift_lib::pty::session][INFO] PTY ME5jaMwqgk35fRa6hHKoC EOF
+[2026-07-19][17:17:02][omnirift_lib::mcp::registry][INFO] MCP: agente 'Debugger' registrado (5ZXOBl9F)
+[2026-07-19][17:17:10][omnirift_lib::pty::session][INFO] MCP: agente 'Debugger' desregistrado (sessão morreu)
+[2026-07-19][17:17:10][omnirift_lib::pty::session][INFO] PTY 5ZXOBl9FdYSQYIagGdlnf EOF
+[2026-07-19][17:17:13][omnirift_lib::pty::session][INFO] PTY ME5jaMwqgk35fRa6hHKoC EOF
+[2026-07-19][17:17:18][omnirift_lib::pty::session][INFO] PTY 5ZXOBl9FdYSQYIagGdlnf EOF
+[2026-07-19][17:17:19][omnirift_lib::pty::session][INFO] PTY ME5jaMwqgk35fRa6hHKoC EOF
+[2026-07-19][17:18:26][omnirift_lib::rpc::socket][INFO] RPC pipe escutando em "\\\\.\\pipe\\omnirift-00006334"
+[2026-07-19][17:18:26][omnirift_lib::rpc::relay_client][INFO] relay mobile: sem devices pareados — nenhum dialer de relay
+[2026-07-19][17:18:26][omnirift_lib::rpc][INFO] RPC: runtime.json gravado em "C:\\Users\\Pichau\\.omnirift\\runtime.json"
+[2026-07-19][17:18:26][omnirift_lib::rpc::ws][INFO] relay mobile: WebSocket escutando em 0.0.0.0:6768 (LAN)
+[2026-07-19][17:18:26][omnirift_lib][INFO] OmniRift MCP server: http://127.0.0.1:7844
+[2026-07-19][17:18:26][omnirift_lib::llm_router::server][INFO] OmniSwitch server: http://127.0.0.1:7845
+[2026-07-19][17:18:27][omnirift_lib::mcp::prewarm][INFO] prewarm: aquecendo cache do serena (uvx)
+[2026-07-19][17:18:28][omnirift_lib::mcp::prewarm][INFO] prewarm: serena concluído (ok, falha ou timeout — best-effort)
+[2026-07-19][17:19:02][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 spawn: bash (0 args) cwd=None
+[2026-07-19][17:19:44][omnirift_lib::mcp::registry][INFO] MCP: agente 'Orquestrador' registrado (Mb1iMJWs)
+[2026-07-19][17:19:44][omnirift_lib::pty::session][INFO] PTY Mb1iMJWsLjETlyqmBBZnc spawn: claude (19 args) cwd=None
+[2026-07-19][17:19:46][omnirift_lib::pty::session][INFO] PTY Mb1iMJWsLjETlyqmBBZnc saiu: código 1 após 1.905701s
+[2026-07-19][17:19:46][omnirift_lib::pty::session][INFO] MCP: agente removido (sessão morreu): Orquestrador
+[2026-07-19][17:19:46][omnirift_lib::pty::session][INFO] PTY Mb1iMJWsLjETlyqmBBZnc EOF
+[2026-07-19][17:19:46][omnirift_lib::pty::session][INFO] PTY Mb1iMJWsLjETlyqmBBZnc spawn: claude (19 args) cwd=None
+[2026-07-19][17:19:47][omnirift_lib::pty::session][INFO] PTY Mb1iMJWsLjETlyqmBBZnc saiu: código 1 após 738.651ms
+[2026-07-19][17:19:47][omnirift_lib::pty::session][INFO] PTY Mb1iMJWsLjETlyqmBBZnc EOF
+[2026-07-19][17:19:48][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 saiu: código 1 após 45.4201526s
+[2026-07-19][17:19:48][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 EOF
+[2026-07-19][17:19:48][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 spawn: bash (0 args) cwd=None
+[2026-07-19][17:20:15][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 saiu: código 1 após 27.1702215s
+[2026-07-19][17:20:15][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 EOF
+[2026-07-19][17:20:15][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 spawn: bash (0 args) cwd=None
+[2026-07-19][17:20:19][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 saiu: código 1 após 3.4429342s
+[2026-07-19][17:20:19][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 EOF
+[2026-07-19][17:20:19][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 spawn: claude (19 args) cwd=None
+[2026-07-19][17:20:20][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 saiu: código 1 após 883.8688ms
+[2026-07-19][17:20:20][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 EOF
+[2026-07-19][17:20:20][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 spawn: claude (19 args) cwd=None
+[2026-07-19][17:23:16][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 saiu: código 1 após 175.6659327s
+[2026-07-19][17:23:16][omnirift_lib::pty::session][INFO] PTY KWVwPaFeZBsHKvpxFy6P0 EOF
+[2026-07-19][17:23:17][omnirift_lib::pty::session][INFO] PTY CRTdWuPSBktE2BZ5VrRml spawn: bash (0 args) cwd=None
+[2026-07-19][17:23:37][omnirift_lib::pty::session][INFO] PTY CRTdWuPSBktE2BZ5VrRml saiu: código 1 após 20.2981482s
+[2026-07-19][17:23:37][omnirift_lib::pty::session][INFO] PTY CRTdWuPSBktE2BZ5VrRml EOF
+[2026-07-19][17:23:49][omnirift_lib::mcp::registry][INFO] MCP: agente 'Shell' registrado (xE2yRsYg)
+[2026-07-19][17:23:49][omnirift_lib::pty::session][INFO] PTY xE2yRsYg2VmFgOhsb40_t spawn: powershell.exe (0 args) cwd=None
+[2026-07-19][17:24:12][omnirift_lib::pty::session][INFO] PTY xE2yRsYg2VmFgOhsb40_t saiu: código 1 após 22.7249034s
+[2026-07-19][17:24:12][omnirift_lib::pty::session][INFO] MCP: agente removido (sessão morreu): Shell
+[2026-07-19][17:24:12][omnirift_lib::pty::session][INFO] PTY xE2yRsYg2VmFgOhsb40_t EOF
+[2026-07-19][17:25:37][omnirift_lib::mcp::registry][INFO] MCP: agente 'Orquestrador (cópia)' registrado (UWPSuIJ5)
+[2026-07-19][17:25:37][omnirift_lib::pty::session][INFO] PTY UWPSuIJ5r7tRwlEZJqqbG spawn: powershell.exe (0 args) cwd=None
+[2026-07-19][17:27:07][omnirift_lib::mcp::registry][INFO] MCP: agente 'Claude Code' registrado (G7pQHHIq)
+[2026-07-19][17:27:07][omnirift_lib::pty::session][INFO] PTY G7pQHHIqVU2qRAxF6WqAu spawn: claude (19 args) cwd=None
+[2026-07-19][17:27:10][omnirift_lib::mcp::registry][INFO] MCP: agente 'Codex' registrado (8xnYi1CB)
+[2026-07-19][17:27:10][omnirift_lib::pty::session][INFO] PTY 8xnYi1CBWjb3VagAslOyj spawn: codex (0 args) cwd=None
+[2026-07-19][17:27:12][omnirift_lib::mcp::registry][INFO] MCP: agente 'Antigravity' registrado (fh_Q6NbV)
+[2026-07-19][17:27:12][omnirift_lib::pty::session][INFO] PTY fh_Q6NbVoMPR4ZMCiCGAN spawn: agy (0 args) cwd=None
+[2026-07-19][17:33:59][omnirift_lib::pty::session][INFO] PTY UWPSuIJ5r7tRwlEZJqqbG saiu: código 1 após 502.1316765s
+[2026-07-19][17:33:59][omnirift_lib::pty::session][INFO] MCP: agente removido (sessão morreu): Orquestrador (cópia)
+[2026-07-19][17:33:59][omnirift_lib::pty::session][INFO] PTY UWPSuIJ5r7tRwlEZJqqbG EOF
+[2026-07-19][17:34:00][omnirift_lib::pty::session][INFO] PTY fh_Q6NbVoMPR4ZMCiCGAN saiu: código 1 após 407.9655s
+[2026-07-19][17:34:00][omnirift_lib::pty::session][INFO] MCP: agente removido (sessão morreu): Antigravity
+[2026-07-19][17:34:00][omnirift_lib::pty::session][INFO] PTY fh_Q6NbVoMPR4ZMCiCGAN EOF
+[2026-07-19][17:34:01][omnirift_lib::pty::session][INFO] PTY 8xnYi1CBWjb3VagAslOyj saiu: código 1 após 410.6006828s
+[2026-07-19][17:34:01][omnirift_lib::pty::session][INFO] MCP: agente removido (sessão morreu): Codex
+[2026-07-19][17:34:01][omnirift_lib::pty::session][INFO] PTY 8xnYi1CBWjb3VagAslOyj EOF
+[2026-07-19][17:34:02][omnirift_lib::pty::session][INFO] PTY G7pQHHIqVU2qRAxF6WqAu saiu: código 1 após 415.1038823s
+[2026-07-19][17:34:02][omnirift_lib::pty::session][INFO] MCP: agente removido (sessão morreu): Claude Code
+[2026-07-19][17:34:02][omnirift_lib::pty::session][INFO] PTY G7pQHHIqVU2qRAxF6WqAu EOF
+[2026-07-19][17:34:03][omnirift_lib::pty::session][INFO] PTY 8xHdoZMAVPV2bEsALkEY8 spawn: bash (0 args) cwd=None
+[2026-07-19][17:34:09][omnirift_lib::mcp::registry][INFO] MCP: agente 'Orquestrador (cópia)' registrado (qoXal6-I)
+[2026-07-19][17:34:09][omnirift_lib::pty::session][INFO] PTY qoXal6-IyjFAJh8kJYR4N spawn: powershell.exe (0 args) cwd=None
+[2026-07-19][17:34:40][omnirift_lib::mcp::registry][INFO] MCP: agente 'Claude Code' registrado (-5sq_u2j)
+[2026-07-19][17:34:40][omnirift_lib::pty::session][INFO] PTY -5sq_u2jfg1Hkid73MeO0 spawn: claude (19 args) cwd=None
+[2026-07-19][17:34:44][omnirift_lib::pty::session][INFO] PTY -5sq_u2jfg1Hkid73MeO0 saiu: código 1 após 4.6837088s
+[2026-07-19][17:34:44][omnirift_lib::pty::session][INFO] MCP: agente removido (sessão morreu): Claude Code
+[2026-07-19][17:34:44][omnirift_lib::pty::session][INFO] PTY -5sq_u2jfg1Hkid73MeO0 EOF
+
+
+=== debug.log (fim) ===
+
+===== boot =====
+[2026-07-14T17:15:11.159Z] [error] [omni-canvas] pty_write falhou: sessão oDjwIlUQ5x2kHN18LFqFv não encontrada
+[2026-07-14T17:15:23.950Z] [warn] [TAURI] Couldn't find callback id 1883524060. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:15:23.955Z] [warn] [TAURI] Couldn't find callback id 3239599973. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:15:40.849Z] [error] [omni-canvas] pty_write falhou: sessão n7vFtiXcs7qKpyT8Vu5DC não encontrada
+[2026-07-14T17:16:09.382Z] [warn] [TAURI] Couldn't find callback id 641888504. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:16:09.387Z] [warn] [TAURI] Couldn't find callback id 2371333767. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:16:32.493Z] [🔁 RENDER-LOOP] AgentNode:VACriyDWkndyFwX8G7ifF — 61 renders em <1s (provável causa de tela preta)
+[1784049438] [omnigraph] run: C:\Users\Pichau\AppData\Local\hermes\bin\uvx.exe --from graphifyy graphify update F:\Projetos\Projetos\SPFP\SPFP (cwd=F:\Projetos\Projetos\SPFP\SPFP)
+[1784049449] [omnigraph] graph_json: NENHUM graph.json nos candidate paths (cwd=F:\Projetos\Projetos\SPFP\SPFP)
+[1784049449] [omnigraph] report: cwd=F:\Projetos\Projetos\SPFP\SPFP engine=C:\Users\Pichau\AppData\Local\hermes\bin\uvx.exe
+[1784049449] [omnigraph] run: C:\Users\Pichau\AppData\Local\hermes\bin\uvx.exe --from graphifyy graphify update F:\Projetos\Projetos\SPFP\SPFP (cwd=F:\Projetos\Projetos\SPFP\SPFP)
+[2026-07-14T17:17:34.018Z] [warn] [TAURI] Couldn't find callback id 3766256067. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:17:34.025Z] [warn] [TAURI] Couldn't find callback id 2913988975. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:17:36.516Z] [warn] [TAURI] Couldn't find callback id 1951675059. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:17:39.964Z] [warn] [TAURI] Couldn't find callback id 3276171747. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[unhandledrejection] falha ao abrir 'code': program not found
+[unhandledrejection] falha ao abrir 'code': program not found
+[2026-07-14T17:18:02.432Z] [warn] [TAURI] Couldn't find callback id 1016835763. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:18:02.440Z] [warn] [TAURI] Couldn't find callback id 1796316277. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:18:04.238Z] [warn] [TAURI] Couldn't find callback id 1223532543. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:18:12.922Z] [error] [omni-canvas] pty_write falhou: sessão m6Pa9H-7V3xXn45kV6lSb não encontrada
+[2026-07-14T17:18:15.888Z] [error] [omni-canvas] pty_write falhou: sessão m6Pa9H-7V3xXn45kV6lSb não encontrada
+[2026-07-14T17:18:27.420Z] [warn] [TAURI] Couldn't find callback id 2545836968. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:18:27.430Z] [warn] [TAURI] Couldn't find callback id 1903966213. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:18:55.855Z] [error] [omni-canvas] pty_write falhou: sessão s_xla__Ao6NCy5LfvcmDc não encontrada
+[2026-07-14T17:18:58.234Z] [warn] [TAURI] Couldn't find callback id 3598213893. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:18:58.238Z] [warn] [TAURI] Couldn't find callback id 3733004624. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:18:58.241Z] [warn] [TAURI] Couldn't find callback id 1411648746. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:18:58.242Z] [warn] [TAURI] Couldn't find callback id 3598213893. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:22:48.735Z] [warn] [TAURI] Couldn't find callback id 2527439417. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:22:48.740Z] [warn] [TAURI] Couldn't find callback id 2885011560. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-14T17:23:04.915Z] [error] [omni-canvas] pty_write falhou: sessão NI-Ej5QKOD_84gQFVFmpA não encontrada
+
+===== boot =====
+
+===== boot =====
+[2026-07-15T02:34:49.868Z] [error] [omni-canvas] pty_write falhou: sessão mqtfUelqT3kG8f4iTa3Oh não encontrada
+
+===== boot =====
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[2026-07-15T03:59:58.712Z] [error] [omni-canvas] pty_write falhou: sessão zokqBavkL2xhNeWG-UgNp não encontrada
+[2026-07-15T04:00:28.281Z] [error] [omni-canvas] pty_write falhou: sessão kVlSYvj6cePtuZiTw1K7_ não encontrada
+
+===== boot =====
+
+===== boot =====
+
+===== boot =====
+
+===== boot =====
+[2026-07-17T22:29:37.467Z] [error] [omni-canvas] pty_write falhou: sessão FAvVLyDvmraPcSu81xe84 não encontrada
+[2026-07-17T22:29:50.210Z] [error] [omni-canvas] pty_write falhou: sessão FAvVLyDvmraPcSu81xe84 não encontrada
+[unhandledrejection] falha ao abrir 'code': program not found
+[2026-07-17T22:30:57.380Z] [error] [omni-canvas] pty_write falhou: sessão FAvVLyDvmraPcSu81xe84 não encontrada
+[2026-07-17T22:31:05.558Z] [error] [omni-canvas] pty_write falhou: sessão FAvVLyDvmraPcSu81xe84 não encontrada
+
+===== boot =====
+[2026-07-17T22:32:53.318Z] [error] [omni-canvas] pty_write falhou: sessão l_SKMsaUBqebmaRDYe3kH não encontrada
+[2026-07-17T22:32:56.810Z] [error] [omni-canvas] pty_write falhou: sessão l_SKMsaUBqebmaRDYe3kH não encontrada
+[2026-07-17T22:32:59.904Z] [error] [omni-canvas] pty_write falhou: sessão l_SKMsaUBqebmaRDYe3kH não encontrada
+[2026-07-17T22:33:03.764Z] [error] [omni-canvas] pty_write falhou: sessão l_SKMsaUBqebmaRDYe3kH não encontrada
+[2026-07-17T22:33:06.031Z] [error] [omni-canvas] pty_write falhou: sessão l_SKMsaUBqebmaRDYe3kH não encontrada
+[2026-07-17T22:33:08.157Z] [error] [omni-canvas] pty_write falhou: sessão l_SKMsaUBqebmaRDYe3kH não encontrada
+[2026-07-17T22:33:10.079Z] [error] [omni-canvas] pty_write falhou: sessão l_SKMsaUBqebmaRDYe3kH não encontrada
+[2026-07-17T22:33:14.937Z] [error] [omni-canvas] pty_write falhou: sessão l_SKMsaUBqebmaRDYe3kH não encontrada
+[2026-07-17T22:33:18.267Z] [error] [omni-canvas] pty_write falhou: sessão l_SKMsaUBqebmaRDYe3kH não encontrada
+[2026-07-17T22:33:23.322Z] [warn] [TAURI] Couldn't find callback id 1763831470. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-17T22:33:23.328Z] [warn] [TAURI] Couldn't find callback id 80525469. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[1784327638] [omnigraph] run: C:\Users\Pichau\AppData\Local\hermes\bin\uvx.exe --from graphifyy graphify update F:\Projetos\Projetos\JARVIS (cwd=F:\Projetos\Projetos\JARVIS)
+[1784327663] [omnigraph] graph_json: NENHUM graph.json nos candidate paths (cwd=F:\Projetos\Projetos\JARVIS)
+[1784327663] [omnigraph] report: cwd=F:\Projetos\Projetos\JARVIS engine=C:\Users\Pichau\AppData\Local\hermes\bin\uvx.exe
+[1784327663] [omnigraph] run: C:\Users\Pichau\AppData\Local\hermes\bin\uvx.exe --from graphifyy graphify update F:\Projetos\Projetos\JARVIS (cwd=F:\Projetos\Projetos\JARVIS)
+[2026-07-17T22:34:28.474Z] [error] [omni-canvas] pty_write falhou: sessão 5j3MUE5ssMknbVsP6jE68 não encontrada
+
+===== boot =====
+[2026-07-19T17:15:58.649Z] [error] [omni-canvas] pty_write falhou: sessão ME5jaMwqgk35fRa6hHKoC não encontrada
+[2026-07-19T17:17:10.838Z] [error] [omni-canvas] pty_write falhou: sessão 5ZXOBl9FdYSQYIagGdlnf não encontrada
+[2026-07-19T17:17:18.545Z] [warn] [TAURI] Couldn't find callback id 387844030. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:17:19.402Z] [warn] [TAURI] Couldn't find callback id 2135007393. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+
+===== boot =====
+[2026-07-19T17:19:46.204Z] [error] [omni-canvas] pty_write falhou: sessão Mb1iMJWsLjETlyqmBBZnc não encontrada
+[2026-07-19T17:19:47.157Z] [warn] [TAURI] Couldn't find callback id 3389617389. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:19:47.160Z] [warn] [TAURI] Couldn't find callback id 1190479153. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:19:47.161Z] [warn] [TAURI] Couldn't find callback id 2670808711. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:19:47.162Z] [warn] [TAURI] Couldn't find callback id 3389617389. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:19:48.153Z] [error] [omni-canvas] pty_write falhou: sessão KWVwPaFeZBsHKvpxFy6P0 não encontrada
+[2026-07-19T17:20:19.270Z] [error] [omni-canvas] pty_write falhou: sessão KWVwPaFeZBsHKvpxFy6P0 não encontrada
+[2026-07-19T17:23:16.247Z] [warn] [TAURI] Couldn't find callback id 2716445028. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:23:16.254Z] [warn] [TAURI] Couldn't find callback id 2716445028. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:23:16.259Z] [warn] [TAURI] Couldn't find callback id 3058010700. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:23:37.658Z] [warn] [TAURI] Couldn't find callback id 1741021963. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:23:37.662Z] [warn] [TAURI] Couldn't find callback id 1741021963. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:23:37.666Z] [warn] [TAURI] Couldn't find callback id 970678639. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:24:12.562Z] [warn] [TAURI] Couldn't find callback id 582891669. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:24:12.567Z] [warn] [TAURI] Couldn't find callback id 582891669. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:24:12.571Z] [warn] [TAURI] Couldn't find callback id 2982003320. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[error-event] ResizeObserver loop completed with undelivered notifications. @ http://tauri.localhost/:0
+[2026-07-19T17:34:00.036Z] [warn] [TAURI] Couldn't find callback id 307930232. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:34:01.486Z] [warn] [TAURI] Couldn't find callback id 2036611440. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:34:02.167Z] [warn] [TAURI] Couldn't find callback id 1695293024. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:34:44.968Z] [warn] [TAURI] Couldn't find callback id 2644118047. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:34:44.976Z] [warn] [TAURI] Couldn't find callback id 2644118047. This might happen when the app is reloaded while Rust is running an asynchronous operation.
+[2026-07-19T17:34:44.982Z] [warn] [TAURI] Couldn't find callback id 4124283088. This might happen when the app is reloaded while Rust is running an asynchronous operation.

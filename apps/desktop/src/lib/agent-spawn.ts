@@ -112,7 +112,7 @@ export async function buildRoleSpawn(
   // undefined → global de sempre. Fallback ao path passado pelo chamador.
   const roleMcpPath =
     role.mcpServers !== undefined
-      ? ((await agentMcpConfig(role.mcpServers).catch(() => null)) ?? mcpFallback)
+      ? ((await agentMcpConfig(role.mcpServers, role.needsBrowser).catch(() => null)) ?? mcpFallback)
       : ((await agentMcpConfig().catch(() => null)) ?? mcpFallback);
 
   // Wrapper (ex.: claudefast / claude-ollama) que JÁ injeta system-prompt: não anexar

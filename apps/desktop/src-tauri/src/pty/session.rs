@@ -498,6 +498,65 @@ pub(crate) fn login_shell_path() -> Option<&'static str> {
 ///
 /// Função extraída justamente pra ser testável sem spawnar nada (os testes
 /// inspecionam o argv/cwd resultante, não executam o processo).
+/// O teto real do cmd.exe é 8191 para a linha INTEIRA, já contando `cmd.exe /s /c` e as
+/// aspas. 7000 deixa folga pros outros argumentos e pro próprio wrapper — errar pra baixo
+/// só custa gravar um arquivo a mais; errar pra cima volta a truncar em silêncio.
+const CMD_LINE_SAFE_LIMIT: usize = 7000;
+
+/// Troca `--append-system-prompt <texto-gigante>` por `--append-system-prompt-file`
+/// `<caminho>` quando a linha de comando montada passaria do teto do cmd.exe.
+///
+/// Só age quando PRECISA — linha curta segue inline, que é o comportamento testado no
+/// Linux; devolve os args inalterados se não achar a flag, se o valor for pequeno, ou se
+/// a gravação falhar, porque um agente com prompt truncado ainda é melhor que um agente
+/// que nem sobe.
+fn spill_system_prompt_to_file(
+    args: Vec<String>,
+    dir: &std::path::Path,
+    session_id: &str,
+) -> Vec<String> {
+    let total_len: usize = args.iter().map(|a| a.len() + 3).sum();
+    if total_len <= CMD_LINE_SAFE_LIMIT {
+        return args;
+    }
+
+    let Some(idx) = args.iter().position(|a| a == "--append-system-prompt") else {
+        return args;
+    };
+    if idx + 1 >= args.len() {
+        return args;
+    }
+
+    let prompt = args[idx + 1].clone();
+    let path = dir.join(format!("agent-prompt-{session_id}.txt"));
+
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        log::warn!(
+            "spill_system_prompt_to_file: falha ao criar diretório {}: {e}",
+            dir.display()
+        );
+        return args;
+    }
+    if let Err(e) = std::fs::write(&path, &prompt) {
+        log::warn!(
+            "spill_system_prompt_to_file: falha ao escrever {}: {e}",
+            path.display()
+        );
+        return args;
+    }
+
+    log::info!(
+        "spill_system_prompt_to_file: {} chars de system prompt movidos para {}",
+        prompt.len(),
+        path.display()
+    );
+
+    let mut new_args = args;
+    new_args[idx] = "--append-system-prompt-file".to_string();
+    new_args[idx + 1] = path.display().to_string();
+    new_args
+}
+
 fn build_command(cfg: &PtySpawnConfig) -> CommandBuilder {
     // Resolve o host de execução (ref §3.1). `Local` → (command, args) crus, igual
     // ao comportamento anterior. `Ssh(target)` → embrulha em `ssh -tt ... -- <cmd>`,
@@ -1031,4 +1090,77 @@ mod tests {
         // E não há o comando perigoso solto (o target sujo nunca chega ao shell).
         assert!(!argv.iter().any(|a| a.contains("rm -rf")), "target sujo NÃO vaza: {argv:?}");
     }
+
+    #[cfg(test)]
+    mod tests_spill_system_prompt {
+    use super::super::*;
+
+    fn dir_temp_unico(sufixo: &str) -> std::path::PathBuf {
+        std::env::temp_dir()
+            .join(format!("claude-pty-spill-test-{}-{sufixo}", std::process::id()))
+    }
+
+    /// O caminho testado no Linux não pode mudar — só o Windows perto do limite paga.
+    #[test]
+    fn linha_curta_fica_inline() {
+        let dir = dir_temp_unico("curto");
+        let _ = std::fs::remove_dir_all(&dir);
+        let args = vec!["--append-system-prompt".into(), "curto".into()];
+        let out = spill_system_prompt_to_file(args.clone(), &dir, "curto");
+        assert_eq!(out, args);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// É o caso do cliente Windows — 10.500 chars de contrato estouravam os 8191 do cmd.
+    #[test]
+    fn prompt_gigante_vira_arquivo() {
+        let dir = dir_temp_unico("gigante");
+        let _ = std::fs::remove_dir_all(&dir);
+        let big = "x".repeat(10_000);
+        let args = vec!["--append-system-prompt".into(), big.clone()];
+        let out = spill_system_prompt_to_file(args, &dir, "win");
+        assert_eq!(out[0], "--append-system-prompt-file");
+        assert!(out[1].ends_with(".txt"));
+        assert!(std::path::Path::new(&out[1]).exists());
+        let content = std::fs::read_to_string(&out[1]).unwrap();
+        assert_eq!(content.len(), 10_000);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Outros comandos longos (não-claude) não devem ganhar arquivo nenhum.
+    #[test]
+    fn sem_a_flag_nao_mexe() {
+        let dir = dir_temp_unico("no-flag");
+        let _ = std::fs::remove_dir_all(&dir);
+        let args = vec!["--foo".into(), "x".repeat(9000)];
+        let out = spill_system_prompt_to_file(args.clone(), &dir, "no-flag");
+        assert_eq!(out, args);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A troca é cirúrgica; mexer na ordem quebraria o parse do claude.
+    #[test]
+    fn preserva_os_demais_argumentos() {
+        let dir = dir_temp_unico("ordem");
+        let _ = std::fs::remove_dir_all(&dir);
+        let big = "x".repeat(10_000);
+        let args = vec![
+            "--model".into(),
+            "opus".into(),
+            "--append-system-prompt".into(),
+            big,
+            "--settings".into(),
+            "/tmp/s.json".into(),
+        ];
+        let out = spill_system_prompt_to_file(args, &dir, "ordem");
+        assert_eq!(out[0], "--model");
+        assert_eq!(out[1], "opus");
+        assert_eq!(out[2], "--append-system-prompt-file");
+        assert!(out[3].ends_with(".txt"));
+        assert_eq!(out[4], "--settings");
+        assert_eq!(out[5], "/tmp/s.json");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    }
+
 }
