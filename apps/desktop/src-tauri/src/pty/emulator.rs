@@ -99,18 +99,22 @@ impl EventListener for BackstopListener {
     fn send_event(&self, event: Event) {
         let resposta = match event {
             Event::PtyWrite(s) => s,
-            // Cor REAL do tema da view (useTerminalSession: bg #0a1014, fg #edeef0).
-            // Responder preto pra tudo fazia o app calcular contraste em cima de uma
-            // cor que não é a da tela — TUI escolhia paleta errada por achar o fundo
-            // diferente do que é. Índice desconhecido cai no fundo, que é o palpite
-            // menos danoso (a maioria pergunta OSC 11).
+            // Cor REAL do tema da view (useTerminalSession: bg #0a1014, fg #edeef0):
+            // responder preto pra tudo fazia a TUI calcular contraste em cima de uma
+            // cor que não é a da tela.
+            //
+            // SÓ foreground (OSC 10) e background (OSC 11). Paleta (OSC 4) e cursor
+            // (OSC 12) também chegam como ColorRequest, mas quem responde essas é o
+            // xterm — ele conhece a paleta real, e o front só consome 10/11. Responder
+            // tudo aqui dava resposta DUPLA e errada nessas duas.
             Event::ColorRequest(idx, f) => {
-                let cor = if idx == NamedColor::Foreground as usize {
-                    Rgb { r: 0xed, g: 0xee, b: 0xf0 }
+                if idx == NamedColor::Foreground as usize {
+                    f(Rgb { r: 0xed, g: 0xee, b: 0xf0 })
+                } else if idx == NamedColor::Background as usize {
+                    f(Rgb { r: 0x0a, g: 0x10, b: 0x14 })
                 } else {
-                    Rgb { r: 0x0a, g: 0x10, b: 0x14 }
-                };
-                f(cor)
+                    return;
+                }
             }
             Event::TextAreaSizeRequest(f) => {
                 let (cols, rows) = *self.dims.lock();
@@ -552,5 +556,70 @@ mod tests {
         e.feed(b"\x1b[6n");
         assert_eq!(e.take_pending_responses().len(), 2, "duas queries, duas respostas");
         assert_eq!(e.take_pending_responses().len(), 0, "segunda drenagem vem vazia");
+    }
+
+    #[test]
+    fn backend_responde_as_queries_que_sao_dele() {
+        // Conjunto de queries que o backend deve responder sozinho.
+        let queries: &[(&[u8], &str)] = &[
+            (b"\x1b[6n", "DSR / CPR"),
+            (b"\x1b[c", "DA1"),
+            (b"\x1b[>c", "DA2"),
+            (b"\x1b[18t", "tamanho em celulas"),
+            (b"\x1b]10;?\x07", "OSC 10 foreground"),
+            (b"\x1b]11;?\x07", "OSC 11 background"),
+        ];
+
+        for (bytes, nome) in queries {
+            let mut e = TermEmulator::new(80, 24);
+            e.feed(bytes);
+            let respostas = e.take_pending_responses();
+            assert!(
+                !respostas.is_empty(),
+                "o backend deveria responder a query '{}'",
+                nome
+            );
+
+            if *nome == "DSR / CPR" {
+                let ultima = respostas.last().expect("resposta deveria existir");
+                assert!(
+                    ultima.ends_with(b"R"),
+                    "resposta ao DSR/CPR deveria terminar em 'R'"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn backend_fica_mudo_no_que_e_do_xterm() {
+        // Queries que o xterm responde; o backend deve ignorar para evitar resposta dupla.
+        let queries: &[(&[u8], &str)] = &[
+            (b"\x1b[?6n", "DSR privado"),
+            (b"\x1b]4;1;?\x07", "OSC 4 paleta"),
+            (b"\x1b]12;?\x07", "OSC 12 cursor"),
+        ];
+
+        for (bytes, nome) in queries {
+            let mut e = TermEmulator::new(80, 24);
+            e.feed(bytes);
+            let respostas = e.take_pending_responses();
+            assert!(
+                respostas.is_empty(),
+                "o backend NAO deve responder a '{}' (o xterm ja responde; responder aqui daria resposta dupla). No DSR privado o vte nem despacha a sequencia.",
+                nome
+            );
+        }
+    }
+
+    #[test]
+    fn dsr_privado_nao_pode_ficar_sem_respondedor() {
+        // Documenta o motivo de nao registrar handler no front para a sequencia privada.
+        let mut e = TermEmulator::new(80, 24);
+        e.feed(b"\x1b[?6n");
+        let respostas = e.take_pending_responses();
+        assert!(
+            respostas.is_empty(),
+            "backend nao responde a DSR privado; por isso o front NAO pode registrar handler pra {{prefix:\"?\",final:\"n\"}} — se registrasse, a sequencia ficaria sem respondedor NENHUM e a TUI travaria esperando, que e pior que o bug original"
+        );
     }
 }

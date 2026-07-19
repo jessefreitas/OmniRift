@@ -224,9 +224,15 @@ export function useTerminalSession({
     // `{prefix:"?",final:"n"}` (DSR privado) e `{prefix:">",final:"c"}` (DA2) separados
     // dos sem prefixo. Cobrir só o final deixava essas duas escapando pro respondedor
     // nativo, mantendo a autoridade dupla que o pivô veio matar.
+    //
+    // O que NÃO está aqui é tão importante quanto o que está: `{prefix:"?",final:"n"}`
+    // (DSR privado) fica de fora DE PROPÓSITO. O VTE só despacha `('n', [])` — sem
+    // prefixo (vte-0.15.0/src/ansi.rs:1701); a variante privada cai em `unhandled!()`
+    // e o backend NUNCA responde. Consumir aqui deixaria a sequência sem respondedor
+    // nenhum, que é pior que o bug original. Quem responde `CSI ? 6 n` é o xterm — e
+    // como o backend é mudo nela, a autoridade segue única.
     const queries: { prefix?: string; final: string }[] = [
       { final: "n" }, // DSR / CPR
-      { prefix: "?", final: "n" }, // DSR privado
       { final: "c" }, // DA1
       { prefix: ">", final: "c" }, // DA2
       { final: "t" }, // tamanho da área de texto
