@@ -24,6 +24,19 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.137",
+    date: "2026-07-19",
+    title: "Correções no Windows e no terminal que ficava verde após morrer",
+    highlights: [
+      "Corrigido: quando o programa de um terminal morre na hora de abrir (por exemplo, um CLI que não está instalado), o card agora fica marcado como encerrado em vez de continuar verde como se estivesse trabalhando.",
+      "Corrigido: abrir um terminal cujo processo já tinha morrido deixava a tela em branco, sem nenhuma mensagem. Agora um processo novo é iniciado e você vê o erro real na tela, como 'o comando não é reconhecido'.",
+      "Corrigido no Windows: o indicador de processo ativo respondia sempre que estava parado, porque usava um caminho que só existe no Linux.",
+      "O log agora registra qual programa foi aberto em cada terminal, com que código ele saiu e quanto tempo durou. Com o Modo Debug ligado, isso vai para o arquivo de diagnóstico e permite ao suporte diferenciar um programa que não existe de um que abre e não desenha na tela.",
+      "A tela de licença mudou depois de ativar: o campo de colar a chave some e dá lugar a uma confirmação clara, com a data de validade e um botão \"Trocar chave de licença\" para quando você realmente quiser mudar. Ao ativar, aparece um aviso grande na tela — antes só um selo pequenininho no canto indicava que já estava tudo liberado, e dava para colar uma licença em cima da outra sem perceber (obrigado, Eric)",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.136",
     date: "2026-07-18",
     title: "Edite o time antes de montar, terminal nativo como padrão, modo Debug e mais",

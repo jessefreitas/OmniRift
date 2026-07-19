@@ -7,11 +7,12 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Copy, Gift, KeyRound, Lock, Sparkles, X } from "lucide-react";
+import { Check, Copy, Gift, KeyRound, Lock, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { useLicenseStore, type LimitKind } from "@/store/license-store";
 import { useT } from "@/lib/i18n";
+import { notify } from "@/lib/notify";
 import { BetaInviteModal } from "@/components/BetaInviteModal";
 
 /** Landing de planos (upgrade Pro). `?beta=1` sinaliza o desconto de beta tester. */
@@ -102,16 +103,25 @@ function LicenseModal() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [changing, setChanging] = useState(false);
+  const [justActivated, setJustActivated] = useState(false);
 
   const isFull = status?.tier === "full";
   const fp = status?.fingerprint ?? "";
 
+  // A confirmação precisa ser IMPOSSÍVEL de não ver: o badge minúsculo no cabeçalho
+  // passava despercebido e o beta tester colava licença em cima de licença sem saber
+  // que já estava ativado.
   async function doActivate() {
     setBusy(true);
     setErr(null);
     try {
       await activate(key.trim());
       setKey("");
+      setChanging(false);
+      setJustActivated(true);
+      void notify(t("license.activatedToast", "Licença OmniRift Full ativada"));
+      setTimeout(() => setJustActivated(false), 8000);
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -182,22 +192,81 @@ function LicenseModal() {
             </div>
           </div>
 
-          <div>
-            <label className="text-[10px] uppercase tracking-wider text-textMuted">{t("license.keyLabel", "Chave de licença")}</label>
-            <div className="flex items-center gap-2 mt-1">
-              <input
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-                placeholder={t("license.keyPlaceholder", "cole a chave aqui…")}
-                className="flex-1 px-2 py-1.5 rounded bg-bg border border-border text-[12px] text-text font-mono placeholder:text-textMuted focus:outline-none focus:border-brand"
-              />
-              <button onClick={doActivate} disabled={busy || !key.trim()} className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover disabled:opacity-40">
-                {busy ? t("license.activating", "Ativando…") : t("license.activate", "Ativar")}
-              </button>
-            </div>
+          <>
+            {/* Banner de sucesso: feedback grande e impossivel de ignorar logo apos ativar. */}
+            {justActivated ? (
+              <div className="border border-brand bg-brand/10 rounded-md p-3 flex items-start gap-3">
+                <ShieldCheck size={16} className="text-brand shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[13px] font-semibold text-text">
+                    {t("license.activatedTitle", "Licença Full ativada")}
+                  </p>
+                  {status?.holder && (
+                    <p className="text-[11px] text-textMuted mt-0.5">{status.holder}</p>
+                  )}
+                </div>
+              </div>
+            ) : isFull && !changing ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Check size={13} className="text-brand" />
+                  <span className="text-[12px] text-text">
+                    {t("license.keyActiveLabel", "Chave ativa nesta máquina")}
+                  </span>
+                </div>
+                {status?.exp && (
+                  <p className="text-[11px] text-textMuted">
+                    {t("license.validUntil", "válida até")}{" "}
+                    {new Date(status.exp * 1000).toLocaleDateString()}
+                  </p>
+                )}
+                {/* Esconde o formulario quando ativado; so abre de novo sob demanda para evitar que o usuario cole licencas seguidas sem perceber. */}
+                <button
+                  type="button"
+                  onClick={() => { setChanging(true); setErr(null); }}
+                  className="flex items-center gap-1 text-[11px] text-textMuted hover:text-brand"
+                >
+                  <RefreshCw size={11} />
+                  {t("license.changeKey", "Trocar chave de licença")}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-textMuted">
+                  {t("license.keyLabel", "Chave de licença")}
+                </label>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="text"
+                    value={key}
+                    onChange={(e) => setKey(e.target.value)}
+                    placeholder={t("license.keyPlaceholder", "cole a chave aqui…")}
+                    className="flex-1 px-2 py-1.5 rounded bg-bg border border-border text-[12px] text-text font-mono placeholder:text-textMuted focus:outline-none focus:border-brand"
+                  />
+                  {changing && (
+                    <button
+                      type="button"
+                      onClick={() => { setChanging(false); setKey(""); setErr(null); }}
+                      className="text-[11px] text-textMuted hover:text-text"
+                    >
+                      {t("common.cancel", "Cancelar")}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy || !key.trim()}
+                    onClick={doActivate}
+                    className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover disabled:opacity-40"
+                  >
+                    {busy ? t("license.activating", "Ativando…") : t("license.activate", "Ativar")}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {err && <p className="text-[11px] text-danger mt-1">{err}</p>}
             {status?.detail && !err && <p className="text-[11px] text-textMuted mt-1">{status.detail}</p>}
-          </div>
+          </>
         </div>
 
         <footer className="px-5 py-2.5 border-t border-border text-[10px] text-textMuted opacity-70">

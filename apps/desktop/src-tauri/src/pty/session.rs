@@ -183,6 +183,13 @@ impl PtySession {
 
         let cmd = build_command(&cfg);
 
+        // O QUE foi spawnado, no log. Sem isto o diagnóstico que o beta tester manda pro
+        // suporte não distingue "o binário não existe" de "o TUI não desenha" — que foi
+        // exatamente a dúvida no caso dos nós em branco no Windows. Os args ficam só no
+        // nível debug porque carregam persona/prompt inteiros (e passam pelo redactor).
+        log::info!("PTY {id} spawn: {} ({} args) cwd={:?}", cfg.command, cfg.args.len(), cfg.cwd);
+        log::debug!("PTY {id} args: {:?}", cfg.args);
+        let spawned_at = Instant::now();
         let mut child = pair.slave.spawn_command(cmd).context("falha ao spawnar processo no PTY")?;
         let root_pid = child.process_id();
         // Clona o killer ANTES do `child` ir pra thread waiter (move, mais abaixo) — é
@@ -282,6 +289,17 @@ impl PtySession {
 
         std::thread::spawn(move || {
             let status = child.wait();
+            // Código de saída + QUANTO viveu. Um processo que morre em milissegundos é
+            // binário ausente / erro de spawn; um que viveu minutos saiu normal. É a
+            // pergunta que o log tinha que responder e não respondia.
+            match &status {
+                Ok(st) => log::info!(
+                    "PTY {id_for_waiter} saiu: código {} após {:?}",
+                    st.exit_code(),
+                    spawned_at.elapsed()
+                ),
+                Err(e) => log::warn!("PTY {id_for_waiter} wait falhou após {:?}: {e}", spawned_at.elapsed()),
+            }
             // marcar antes de emitir/limpar elimina a janela em que o processo já morreu
             // mas a UI ainda o vê vivo.
             exited_for_waiter.store(true, std::sync::atomic::Ordering::Relaxed);
