@@ -588,7 +588,11 @@ export function useTerminalSession({
         if (!disposed) {
           // A view esta pronta (listener de output + term.onData instalados): ela assume
           // as queries do shell e o backstop do backend se cala (nada de resposta dupla).
-          void ptyViewAttach(sessionId);
+          // AGUARDA: entre o pedido e o backend virar a flag existe uma janela em que
+          // xterm e backstop responderiam JUNTOS a mesma query. Só liberamos a view
+          // depois do backend confirmar. Nunca lança (o cliente engole erro).
+          await ptyViewAttach(sessionId);
+          if (disposed) return;
           setReady(true);
           void emit("pty://ready", { id: sessionId });
         }

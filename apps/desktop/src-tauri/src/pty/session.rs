@@ -151,6 +151,12 @@ pub struct PtySession {
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     output_tx: broadcast::Sender<Vec<u8>>,
+    /// Receptor criado ANTES da thread do reader existir. `tokio::broadcast` só entrega
+    /// o que foi publicado DEPOIS do subscribe — e o `read_loop` já está lendo quando o
+    /// manager chama `subscribe()`. Sem este receptor antecipado, o `CSI 6 n` que a TUI
+    /// manda nos primeiros milissegundos podia se perder antes de chegar no backstop, e
+    /// o agente morria com código 1 mesmo com o backstop ligado.
+    early_rx: Mutex<Option<broadcast::Receiver<Vec<u8>>>>,
     root_pid: Option<u32>,
     /// Emulador de tela: reconstrói a tela visível processando cursor/clears/etc.
     /// (line-mode não funciona para TUIs full-screen como Claude Code).
@@ -237,6 +243,8 @@ impl PtySession {
         let writer = Arc::new(Mutex::new(writer));
 
         let (output_tx, _) = broadcast::channel::<Vec<u8>>(64);
+        // ANTES de qualquer thread: garante que nenhum byte inicial escape do feeder.
+        let early_rx = Mutex::new(Some(output_tx.subscribe()));
         let tx_for_reader = output_tx.clone();
 
         // Canal std (não precisa de runtime tokio): debounce de 16ms antes de emitir evento Tauri
@@ -422,12 +430,19 @@ impl PtySession {
             master,
             writer,
             output_tx,
+            early_rx,
             root_pid,
             parser,
             seq,
             killer: Mutex::new(killer),
             exited,
         })
+    }
+
+    /// Toma o receptor antecipado (só o primeiro chamador leva). O manager usa este no
+    /// feeder do emulador em vez de `subscribe()`, pra não perder os primeiros chunks.
+    pub(crate) fn take_early_rx(&self) -> Option<broadcast::Receiver<Vec<u8>>> {
+        self.early_rx.lock().take()
     }
 
     /// true enquanto o processo filho está vivo; não consulta o SO, lê a flag do waiter.

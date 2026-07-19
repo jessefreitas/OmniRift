@@ -80,7 +80,9 @@ impl PtyManager {
         // vivo → `pty://output.seq` e `snapshot.seq` na MESMA escala (dedup do front).
         let emulator = Arc::new(Mutex::new(TermEmulator::new_with_seq(cols, rows, session.seq_arc())));
         self.emulators.insert(id.clone(), emulator.clone());
-        let mut feed_rx = session.subscribe();
+        // Receptor antecipado (criado antes da thread do reader) — fecha a corrida em que
+        // o CSI 6 n inicial era publicado antes deste subscribe e sumia.
+        let mut feed_rx = session.take_early_rx().unwrap_or_else(|| session.subscribe());
         // Backstop de queries: enquanto NENHUM xterm estiver anexado, o emulador responde
         // DSR/DA/OSC e o writer abaixo devolve a resposta pra stdin do shell. Sem isto, um
         // agente em eager-spawn (fora do viewport, sem view montada) perguntava a posição

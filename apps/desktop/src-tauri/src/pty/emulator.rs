@@ -88,8 +88,9 @@ impl Dimensions for EmuSize {
 pub struct BackstopListener {
     pending: Arc<Mutex<Vec<Vec<u8>>>>,
     view_attached: Arc<AtomicBool>,
-    cols: u16,
-    rows: u16,
+    /// Compartilhado com o TermEmulator: o `resize` atualiza aqui, senão o backstop
+    /// responderia TextAreaSizeRequest com o tamanho de quando a sessão nasceu.
+    dims: Arc<Mutex<(u16, u16)>>,
 }
 
 /// Teto do buffer de respostas: se ninguém drenar (sessão morta, feeder parado), não
@@ -105,12 +106,12 @@ impl EventListener for BackstopListener {
         let resposta = match event {
             Event::PtyWrite(s) => s,
             Event::ColorRequest(_, f) => f(Rgb { r: 0, g: 0, b: 0 }),
-            Event::TextAreaSizeRequest(f) => f(WindowSize {
-                num_lines: self.rows,
-                num_cols: self.cols,
-                cell_width: 8,
-                cell_height: 16,
-            }),
+            Event::TextAreaSizeRequest(f) => {
+                let (cols, rows) = *self.dims.lock();
+                // Sem view não há célula real; 8x16 é fallback e só vale nesta janela —
+                // o xterm reporta o tamanho verdadeiro assim que anexa.
+                f(WindowSize { num_lines: rows, num_cols: cols, cell_width: 8, cell_height: 16 })
+            }
             _ => return,
         };
         let mut pend = self.pending.lock();
@@ -125,6 +126,9 @@ pub struct TermEmulator {
     term: Term<BackstopListener>,
     pending: Arc<Mutex<Vec<Vec<u8>>>>,
     view_attached: Arc<AtomicBool>,
+    /// Dimensões vistas pelo backstop, atualizadas no `resize`. Compartilhado com o
+    /// listener — que responde TextAreaSizeRequest enquanto não há view anexada.
+    dims: Arc<Mutex<(u16, u16)>>,
     parser: Processor,
     /// `seq` monotônico por sessão, em `Arc<AtomicU64>` pra ser COMPARTILHADO com o
     /// thread de emit do `pty://output` (em `session.rs`) — assim o evento ao vivo
@@ -154,14 +158,14 @@ impl TermEmulator {
         // Nasce SEM view: responde queries até o xterm anexar (pty_view_attach).
         let pending = Arc::new(Mutex::new(Vec::new()));
         let view_attached = Arc::new(AtomicBool::new(false));
+        let dims = Arc::new(Mutex::new((cols, rows)));
         let listener = BackstopListener {
             pending: Arc::clone(&pending),
             view_attached: Arc::clone(&view_attached),
-            cols,
-            rows,
+            dims: Arc::clone(&dims),
         };
         let term = Term::new(config, &size, listener);
-        Self { term, parser: Processor::new(), seq, cols, rows, pending, view_attached }
+        Self { term, parser: Processor::new(), seq, cols, rows, pending, view_attached, dims }
     }
 
     /// Alimenta bytes do PTY no grid. `seq += 1` por chamada (1 chunk pintado). O
@@ -195,6 +199,8 @@ impl TermEmulator {
         let (cols, rows) = (cols.max(1), rows.max(1));
         self.cols = cols;
         self.rows = rows;
+        // O backstop lê daqui: sem isto ele responderia o tamanho do nascimento.
+        *self.dims.lock() = (cols, rows);
         self.term.resize(EmuSize { cols: cols as usize, rows: rows as usize });
     }
 
@@ -496,11 +502,12 @@ mod tests {
 
     #[test]
     fn da1_query_produces_no_response_bytes() {
-        // DA1 (\x1b[c) é uma query: um terminal "vivo" responderia bytes na stdin.
-        // O emulador headless (VoidListener) NÃO responde — só atualiza (não imprime nada).
-        // Não há canal de saída no TermEmulator, então a "prova" é dupla:
+        // DA1 (\x1b[c) é uma query. Desde o backstop, o emulador PODE responder — mas a
+        // resposta vai pro buffer de `take_pending_responses`, nunca pro grid. Este teste
+        // trava exatamente isso: resposta de query não pode CONTAMINAR o snapshot, senão
+        // o front re-hidrataria a view com bytes de protocolo virando lixo na tela.
         //  (a) feed de DA1 não panica e o seq incrementa normalmente;
-        //  (b) o snapshot não contém a resposta DA (\x1b[?...c) que um vt vivo emitiria.
+        //  (b) o snapshot não contém a resposta DA (\x1b[?...c).
         let mut e = TermEmulator::new(80, 24);
         e.feed(b"\x1b[c");
         assert_eq!(e.seq(), 1, "feed de query incrementa seq como qualquer chunk");
@@ -543,6 +550,20 @@ mod tests {
         e.set_view_attached(true);
         e.feed(b"\x1b[6n");
         assert!(e.take_pending_responses().is_empty(), "com view anexada o backend fica mudo");
+    }
+
+    #[test]
+    fn backstop_reporta_dimensoes_atuais_apos_resize() {
+        // CSI 18 t = "reporte o tamanho da área de texto em caracteres". As dims do
+        // backstop são compartilhadas com o emulador; sem o update no `resize` ele
+        // responderia pra sempre o tamanho de quando a sessão nasceu.
+        let mut e = TermEmulator::new(80, 24);
+        e.resize(120, 40);
+        e.feed(b"\x1b[18t");
+        let resp = e.take_pending_responses();
+        assert_eq!(resp.len(), 1, "CSI 18t sem view deve gerar resposta");
+        let txt = String::from_utf8_lossy(&resp[0]).to_string();
+        assert!(txt.contains("40") && txt.contains("120"), "deve refletir 120x40, veio: {txt:?}");
     }
 
     #[test]
