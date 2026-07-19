@@ -136,16 +136,61 @@ jobs:
             echo "OmniFS não compilou no macOS — .dmg sai sem OmniFS (degrade pro PATH)."
           fi
 
-      # macOS sem Developer ID: força identidade ad-hoc ("-") no bundler Tauri.
-      # Sem isso o .app sai linker-signed incompleto → Gatekeeper "is damaged".
-      # tauri.conf.json já tem bundle.macOS.signingIdentity = "-"; o env reforça no job.
-      # NÃO substitui notarization — só evita o falso "damaged" até haver cert pago.
-      # Ver scripts/macos-adhoc-codesign.sh e scripts/install-macos.sh.
-      - name: macOS ad-hoc signing identity (até Developer ID + notarize)
+      # Assinatura macOS em DOIS regimes, decididos pela presença do secret:
+      #
+      #   COM APPLE_CERTIFICATE  → Developer ID + notarização + staple. Abre com
+      #                            duplo-clique, sem aviso nenhum.
+      #   SEM APPLE_CERTIFICATE  → seal ad-hoc ("-"). Evita o falso "is damaged",
+      #                            mas o Gatekeeper BLOQUEIA na máquina do cliente
+      #                            ("a Apple não pôde verificar se está livre de
+      #                            malware"). Ad-hoc não é notarização.
+      #
+      # APPLE_SIGNING_IDENTITY (env) sobrescreve bundle.macOS.signingIdentity do
+      # tauri.conf.json — por isso o "-" de lá não sabota o certificado real.
+      - name: macOS — identidade de assinatura (Developer ID se houver; senão ad-hoc)
         if: matrix.os == 'macos-14'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
-          echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
-          echo "→ signingIdentity ad-hoc (-) — seal do bundle no tauri build"
+          set -euo pipefail
+          if [[ -z "${APPLE_CERTIFICATE:-}" ]]; then
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            echo "OMNIRIFT_MACOS_NOTARIZED=0" >> "$GITHUB_ENV"
+            echo "::warning::Sem APPLE_CERTIFICATE — .dmg sai ad-hoc e o Gatekeeper vai bloquear no Mac do cliente."
+            exit 0
+          fi
+
+          # Keychain efêmera: morre com o runner. Senha aleatória, nunca reusada.
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERT_P12="$(mktemp -t omnirift-cert).p12"
+          trap 'rm -f "$CERT_P12"' EXIT
+
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_P12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import "$CERT_P12" -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain >/dev/null
+
+          # "Developer ID Application" — NÃO "Apple Development". O exemplo da doc do
+          # Tauri procura o segundo, que é certificado de DESENVOLVIMENTO: assina,
+          # passa no CI, e o Gatekeeper bloqueia igual no Mac do cliente. Distribuição
+          # fora da App Store só aceita Developer ID.
+          CERT_ID="$(security find-identity -v -p codesigning build.keychain \
+            | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')"
+          if [[ -z "$CERT_ID" ]]; then
+            echo "❌ p12 importado, mas sem 'Developer ID Application' dentro." >&2
+            security find-identity -v -p codesigning build.keychain >&2
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+          echo "OMNIRIFT_MACOS_NOTARIZED=1" >> "$GITHUB_ENV"
+          echo "→ Developer ID encontrado: $CERT_ID"
 
       - name: Build + Release (tauri-action)
         uses: tauri-apps/tauri-action@v0
@@ -156,6 +201,15 @@ jobs:
           #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD = vazio (chave gerada sem senha)
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS: o Tauri notariza e GRAMPEIA (staple) sozinho quando APPLE_ID +
+          # APPLE_PASSWORD + APPLE_TEAM_ID estão presentes. APPLE_PASSWORD tem que ser
+          # uma senha de app (appleid.apple.com), não a senha da conta.
+          # Vazios nos runners Linux/Windows — o bundler ignora.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
@@ -181,10 +235,13 @@ jobs:
       # Linux/Win auto-atualizam). Uma regressão de seal no Mac não pode segurar a
       # entrega dessas duas — mesmo critério dos steps do OmniFS acima. Falha aparece
       # como annotation vermelha no run.
-      - name: macOS — verificar seal ad-hoc do .dmg (não modifica)
+      # BLOQUEANTE quando notarizado, best-effort quando ad-hoc: um staple quebrado
+      # não pode passar calado — publicaria um .dmg que o Gatekeeper barra, que é
+      # exatamente o problema que a notarização foi comprada pra resolver.
+      - name: macOS — verificar seal/notarização do .dmg (não modifica)
         if: matrix.os == 'macos-14'
         shell: bash
-        continue-on-error: true
+        continue-on-error: ${{ env.OMNIRIFT_MACOS_NOTARIZED != '1' }}
         run: bash scripts/macos-verify-seal.sh
 
   # Gate de smoke no ARTEFATO REAL: instala o .deb do draft e exige boot limpo.

@@ -77,7 +77,41 @@ if grep -qiE 'linker-signed|Sealed Resources=none' <<< "$SIG_INFO"; then
 fi
 echo "✓ não é linker-signed"
 
-echo "→ spctl (informativo):"
-spctl -a -vv "$APP" 2>&1 || true
 
-echo "✓ Seal ad-hoc do dmg OK"
+if [[ "${OMNIRIFT_MACOS_NOTARIZED:-0}" != "1" ]]; then
+  echo "→ spctl (informativo — build ad-hoc, sem notarização):"
+  spctl -a -vv "$APP" 2>&1 || true
+  echo "⚠️  Build ad-hoc: o Gatekeeper VAI bloquear na máquina do cliente."
+  echo "✓ Seal ad-hoc do dmg OK"
+  exit 0
+fi
+
+echo "→ Notarização declarada — exigindo ticket grampeado…"
+
+STAPLED=""
+if xcrun stapler validate "$APP" >/dev/null 2>&1; then
+  STAPLED="app"
+elif xcrun stapler validate "$DMG" >/dev/null 2>&1; then
+  STAPLED="dmg"
+fi
+
+if [[ -z "$STAPLED" ]]; then
+  echo "❌ Nenhum ticket de notarização grampeado (nem no .app, nem no .dmg)." >&2
+  echo "   O cliente vai ver 'a Apple não pôde verificar se está livre de malware'." >&2
+  echo "   Confira APPLE_ID / APPLE_PASSWORD (senha de APP) / APPLE_TEAM_ID no CI." >&2
+  exit 1
+fi
+
+echo "✓ ticket grampeado (${STAPLED})"
+
+echo "→ spctl (veredito final do Gatekeeper):"
+SPCTL_OUT="$(spctl -a -vv --type execute "$APP" 2>&1 || true)"
+echo "$SPCTL_OUT"
+
+if ! grep -qi "accepted" <<< "$SPCTL_OUT"; then
+  echo "❌ spctl NÃO aceitou o app — o Gatekeeper vai barrar apesar do staple." >&2
+  exit 1
+fi
+
+echo "✓ spctl: accepted"
+echo "✓ .dmg assinado com Developer ID, notarizado e grampeado"
