@@ -106,7 +106,7 @@ use commands::omnifs::{
 };
 use commands::hosts::{hosts_add, hosts_list, hosts_remove};
 use commands::pty::{
-    pty_kill, pty_list, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
+    pty_kill, pty_list, pty_list_alive, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
     pty_proc_info_all,
     pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_write,
 };
@@ -438,6 +438,7 @@ pub fn run() {
             pty_resize,
             pty_kill,
             pty_list,
+            pty_list_alive,
             pty_pipe_create,
             pty_pipe_remove,
             pty_pipe_list,

@@ -69,6 +69,13 @@ export async function ptyList(): Promise<SessionId[]> {
   return invoke<SessionId[]>("pty_list");
 }
 
+/** Só as sessões cujo processo AINDA RODA. Use esta pra decidir ATTACH: `ptyList`
+ *  devolve também as mortas (o scrollback delas segue consultável), e attachar numa
+ *  sessão morta deixa o terminal em branco sem erro nenhum. */
+export async function ptyListAlive(): Promise<SessionId[]> {
+  return invoke<SessionId[]>("pty_list_alive");
+}
+
 /**
  * Snapshot serializado (scrollback+viewport em ANSI re-hidratado) do emulador VT
  * headless de uma sessão (ref P0 #2). O front chama no retorno-de-oculto / overflow

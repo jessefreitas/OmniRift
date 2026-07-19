@@ -51,6 +51,14 @@ pub fn pty_list(manager: State<'_, std::sync::Arc<PtyManager>>) -> Vec<SessionId
     manager.list()
 }
 
+/// Só as sessões cujo processo AINDA RODA. `pty_list` continua devolvendo todas (o
+/// scrollback de uma sessão morta ainda é consultável); quem vai ATTACHAR usa esta —
+/// colar num cadáver deixava o terminal em branco, sem erro nenhum, com o card verde.
+#[tauri::command]
+pub fn pty_list_alive(manager: State<'_, std::sync::Arc<PtyManager>>) -> Vec<SessionId> {
+    manager.list_alive()
+}
+
 /// PID + RSS do processo de uma sessão (process mgmt na UI). None se sumiu.
 #[tauri::command]
 pub fn pty_proc_info(

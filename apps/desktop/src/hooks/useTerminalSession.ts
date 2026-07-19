@@ -24,7 +24,7 @@ import {
   listenPtyExit,
   listenPtyOutput,
   ptyKill,
-  ptyList,
+  ptyListAlive,
   ptyResize,
   ptySnapshot,
   ptySpawn,
@@ -274,7 +274,11 @@ export function useTerminalSession({
         let attached = config.attach === true;
         if (!attached) {
           try {
-            attached = (await ptyList()).includes(sessionId);
+            // VIVAS, não todas: uma sessão cujo processo morreu continua listada em
+            // `ptyList` (o scrollback dela ainda serve). Attachar nela pulava o spawn e
+            // colava num cadáver — terminal em branco, sem erro, com o card verde. Foi o
+            // que fazia nó de CLI inexistente no Windows abrir vazio.
+            attached = (await ptyListAlive()).includes(sessionId);
           } catch {
             /* lista indisponível → segue pro spawn normal */
           }

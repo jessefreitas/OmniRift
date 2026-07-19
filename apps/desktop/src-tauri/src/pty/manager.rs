@@ -162,12 +162,25 @@ impl PtyManager {
 
     /// PID raiz + RSS de uma sessão (process mgmt na UI). None se a sessão sumiu.
     pub fn proc_info(&self, id: &str) -> Option<ProcInfo> {
-        let pid = self.sessions.get(id)?.root_pid()?;
+        let sess = self.sessions.get(id)?;
+        let pid = sess.root_pid()?;
+        // Antes o alive vinha de /proc/<pid>, inexistente no Windows, e por isso lá respondia sempre false.
         Some(ProcInfo {
             pid,
             rss_kb: read_rss_kb(pid),
-            alive: std::path::Path::new(&format!("/proc/{pid}")).exists(),
+            alive: sess.is_alive(),
         })
+    }
+    /// Lista somente sessões cujo processo filho ainda está vivo.
+    /// `list()` continua devolvendo TODAS, inclusive mortas, porque o scrollback delas ainda é
+    /// consultável; quem vai ATTACHAR precisa desta, senão cola num cadáver e a tela fica vazia
+    /// sem erro nenhum.
+    pub fn list_alive(&self) -> Vec<SessionId> {
+        self.sessions
+            .iter()
+            .filter(|e| e.value().is_alive())
+            .map(|e| e.key().clone())
+            .collect()
     }
 
     /// PID + RSS de TODAS as sessões vivas de uma vez (BATCH). O front fazia N invokes
