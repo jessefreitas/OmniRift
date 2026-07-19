@@ -97,3 +97,36 @@ def test_flush_to_brain_sincroniza_e_marca_synced(monkeypatch, tmp_path):
     row = fb.db.execute("SELECT synced FROM failures WHERE symptom LIKE 'erro pra sincronizar%'").fetchone()
     assert row[0] == 1
     assert m.flush_to_brain() == 0  # nada novo na 2ª passada
+
+def test_kill_pid_ausente_nao_sigterma_process_group(monkeypatch, tmp_path):
+    # pid faltando → os.kill(0) mandaria SIGTERM pro grupo do próprio watchdog (fix #1).
+    m = _mod(monkeypatch, tmp_path)
+    chamado = []
+    monkeypatch.setattr(m.os, "kill", lambda p, s: chamado.append(p))
+    ex = m.Executor(dry_run=False, notify_fn=lambda msg: None)
+    ex.kill(None)
+    ex.kill(0)
+    assert chamado == []                                  # nunca chamou os.kill
+    assert [a[0] for a in ex.actions] == ["kill_skipped", "kill_skipped"]
+    ex.kill(12345)
+    assert chamado == [12345]                             # pid real ainda mata
+
+
+def test_stale_min_ajustavel_por_env(monkeypatch):
+    """O default subiu de 20 para 40 porque o transcript so recebe o resultado de uma
+    ferramenta QUANDO ELA TERMINA — um build longo deixa o arquivo parado sem que nada
+    esteja travado, e com 20 min um turno saudavel era morto. Fica ajustavel por env, e
+    valor invalido tem que cair no default: config quebrada nao pode derrubar o watchdog.
+    """
+    import importlib
+    m = importlib.import_module("watchdog")
+
+    monkeypatch.delenv("FAILPROOF_STALE_MIN", raising=False)
+    assert m._stale_min() == 40
+
+    monkeypatch.setenv("FAILPROOF_STALE_MIN", "90")
+    assert m._stale_min() == 90
+
+    for ruim in ("abc", "", "0", "-5"):
+        monkeypatch.setenv("FAILPROOF_STALE_MIN", ruim)
+        assert m._stale_min() == 40, "env {!r} deveria cair no default".format(ruim)

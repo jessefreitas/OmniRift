@@ -21,7 +21,24 @@ if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 import failbase
 
-STALE_MIN_DEFAULT = 20
+def _stale_min():
+    """Minutos sem escrita no transcript para considerar um turno travado.
+
+    Sobe de 20 para 40 porque o transcript só recebe o resultado de uma ferramenta
+    QUANDO ELA TERMINA: um build ou uma suíte de testes longa deixa o arquivo parado
+    o tempo todo da execução, sem que nada esteja travado. Com 20 min, um turno
+    saudável rodando um build pesado seria morto. Ajustável por env pra quem tem
+    ferramenta ainda mais lenta, sem editar código. Valor inválido cai no default —
+    config quebrada não pode derrubar o watchdog.
+    """
+    try:
+        v = int(os.environ.get("FAILPROOF_STALE_MIN", "40"))
+        return v if v > 0 else 40
+    except (TypeError, ValueError):
+        return 40
+
+
+STALE_MIN_DEFAULT = _stale_min()
 LOOP_REPEATS = 3
 
 
