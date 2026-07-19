@@ -34,6 +34,7 @@ pub mod metrics;
 pub mod pipeline;
 pub mod providers;
 pub mod pty;
+pub mod reveal;
 pub mod review_cfg;
 pub mod review_history;
 pub mod observability;

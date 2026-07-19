@@ -48,6 +48,7 @@ use commands::dbnode::db_query;
 use commands::debug::debug_request;
 use commands::debug_log::{debug_log_mark, debug_log_path, debug_log_write};
 use commands::diagnostics::{collect_diagnostics, diagnostics_export};
+use commands::reveal::reveal_path;
 use commands::metrics::metrics_snapshot;
 use commands::compress::{compressor_list, compressor_savings};
 use commands::editor::{detect_editors, open_in_editor};
@@ -565,6 +566,7 @@ pub fn run() {
             debug_mode_get,
             debug_mode_set,
             diagnostics_export,
+            reveal_path,
             observability_record,
             observability_record_batch,
             observability_timeline,
