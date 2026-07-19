@@ -73,16 +73,36 @@ pub fn build_bwrap_argv(program: &str, args: &[String], workspace: Option<&str>)
     // Pastas essenciais do usuário para cache, npm, cargo, config e runtime do app.
     if let Ok(home) = env::var("HOME") {
         if !home.is_empty() {
-            for folder in [".omnirift", ".cache", ".npm", ".cargo", ".config"] {
+            for dir in [".omnirift", ".cache", ".npm", ".cargo", ".config"] {
+                let p = format!("{}/{}", home, dir);
                 argv.push(String::from("--bind-try"));
-                argv.push(format!("{}/{}", home, folder));
-                argv.push(format!("{}/{}", home, folder));
+                argv.push(p.clone());
+                argv.push(p);
             }
 
-            // Oculta segredos com tmpfs vazio.
-            for secret in [".ssh", ".aws", ".gnupg"] {
+            // Os tmpfs vêm DEPOIS dos binds acima porque ~/.config/gh mora
+            // dentro do ~/.config recém-montado read-write.
+            for secret in [".ssh", ".aws", ".gnupg", ".config/gh"] {
                 argv.push(String::from("--tmpfs"));
                 argv.push(format!("{}/{}", home, secret));
+            }
+
+            // ~/.claude é caso especial: guarda a credencial JUNTO com
+            // settings.json e mcp.json que o agente precisa pra subir, então
+            // tmpfs no diretório inteiro mataria a auth e o MCP de todo
+            // agente Claude — por isso monta read-only e mascara só o arquivo.
+            let claude_dir = format!("{}/.claude", home);
+            argv.push(String::from("--ro-bind-try"));
+            argv.push(claude_dir.clone());
+            argv.push(claude_dir);
+
+            // Arquivo solto não aceita tmpfs (bwrap só monta tmpfs em
+            // diretório), então mascara com /dev/null; sem isso a raiz
+            // --ro-bind entrega o arquivo.
+            for file in [".claude/.credentials.json", ".git-credentials"] {
+                argv.push(String::from("--ro-bind-try"));
+                argv.push(String::from("/dev/null"));
+                argv.push(format!("{}/{}", home, file));
             }
         }
     }
@@ -153,6 +173,68 @@ mod tests {
                 String::from("https://repo"),
             ][..],
             "final deve ser --, programa e args na ordem"
+        );
+    }
+
+    #[test]
+    fn build_bwrap_argv_oculta_todos_os_caminhos_de_credencial() {
+        let home = match std::env::var("HOME") {
+            Ok(v) if !v.is_empty() => v,
+            _ => return,
+        };
+
+        let argv = build_bwrap_argv("claude", &[], Some("/repo"));
+
+        for dir in [".ssh", ".aws", ".gnupg", ".config/gh"] {
+            let esperado = vec![String::from("--tmpfs"), format!("{}/{}", home, dir)];
+            assert!(
+                argv.windows(2).any(|w| w == esperado),
+                "o argv deveria conter '--tmpfs {0}/{1}' para ocultar credenciais: a raiz é --ro-bind, então sem tmpfs o agente lê o segredo em {0}/{1}",
+                home, dir
+            );
+        }
+
+        // ~/.claude não pode virar tmpfs (levaria junto settings.json/mcp.json e o
+        // agente não sobe): monta read-only e mascara só o arquivo de credencial.
+        for arquivo in [".claude/.credentials.json", ".git-credentials"] {
+            let esperado_arquivo = vec![
+                String::from("--ro-bind-try"),
+                String::from("/dev/null"),
+                format!("{}/{}", home, arquivo),
+            ];
+            assert!(
+                argv.windows(3).any(|w| w == esperado_arquivo),
+                "o argv deveria mascarar {}/{} com /dev/null via --ro-bind-try (arquivo solto não aceita tmpfs)",
+                home, arquivo
+            );
+        }
+    }
+
+    #[test]
+    fn build_bwrap_argv_oculta_gh_depois_de_montar_config() {
+        let home = match std::env::var("HOME") {
+            Ok(v) if !v.is_empty() => v,
+            _ => return,
+        };
+
+        let argv = build_bwrap_argv("claude", &[], Some("/repo"));
+
+        let config = format!("{}/.config", home);
+        let config_gh = format!("{}/.config/gh", home);
+
+        let pos_config = argv
+            .iter()
+            .position(|x| x == &config)
+            .expect("esperava encontrar o bind/montagem de ~/.config no argv");
+
+        let pos_gh = argv
+            .iter()
+            .position(|x| x == &config_gh)
+            .expect("esperava encontrar --tmpfs de ~/.config/gh no argv");
+
+        assert!(
+            pos_gh > pos_config,
+            "bwrap aplica operações em ordem; um bind de ~/.config depois do tmpfs de ~/.config/gh faria o token do gh reaparecer"
         );
     }
 
