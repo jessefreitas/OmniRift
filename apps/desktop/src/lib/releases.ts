@@ -24,11 +24,26 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.141",
+    date: "2026-07-19",
+    title: "Windows: a correção da versão anterior agora está de fato ligada",
+    highlights: [
+      "No Windows, os agentes voltam a abrir: a leitura das instruções longas a partir de arquivo estava escrita mas desligada na 0.1.140, e agora está ativa.",
+      "Pastas com “&”, “|”, “<” ou “>” no caminho deixam de quebrar a abertura do agente no Windows.",
+      "O pacote de diagnóstico enviado ao suporte agora recorta o período gravado nos dois registros, e não só em um deles.",
+      "No Mac, o aplicativo passa a poder ser reconhecido pela Apple assim que o certificado de distribuição estiver ativo."
+    ],
+    tag: "fix"
+  },
+  {
     version: "0.1.140",
     date: "2026-07-19",
     title: "Windows e desempenho: agentes voltam a abrir e app fica mais leve",
     highlights: [
-      "No Windows, os agentes voltam a abrir normalmente porque as instruções longas agora são lidas de arquivo e o atalho do OmniAgent foi corrigido.",
+      // Esta versão ANUNCIOU a correção do Windows, mas ela saiu desligada (o código
+      // existia e não era chamado). Corrigido de fato na 0.1.141. A nota fica honesta:
+      // quem leu isso e continuou sem conseguir abrir agente merece saber por quê.
+      "O atalho do OmniAgent foi corrigido. (A leitura das instruções longas a partir de arquivo, também anunciada aqui, saiu desligada por engano e só passou a funcionar na 0.1.141.)",
       "O aplicativo consome bem menos recursos com vários agentes abertos, pois deixou de ler todos os processos do computador a cada segundo.",
       "Passear pelo canvas não trava mais, pois o terminal não rouba o foco e o histórico recarregado não passa do que a tela exibe.",
       "Os servidores de automação de navegador só iniciam nos papéis Frontend e QA, liberando mais de um giga e meio de memória nos demais casos.",
