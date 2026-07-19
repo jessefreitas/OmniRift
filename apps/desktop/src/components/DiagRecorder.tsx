@@ -95,15 +95,21 @@ export function DiagRecorder() {
     setBusy(true);
 
     try {
-      // desligar sempre vence, mesmo se a exportação falhar depois
+      // O backend devolve o estado EFETIVO. Se a remoção do marcador falhar (permissão),
+      // ele SEGUE em modo Debug — e mostrar "parado" aqui deixaria o cliente com o disco
+      // enchendo achando que desligou. Refletimos o estado real, não o pretendido.
+      let aindaGravando = false;
       try {
-        await debugModeSet(false);
+        aindaGravando = await debugModeSet(false);
       } catch {
-        notify(t("diag.stopFailed", "Não consegui desligar a gravação de diagnóstico"), "error");
+        aindaGravando = true;
+      }
+      if (aindaGravando) {
+        notify(t("diag.stopFailed", "Não consegui desligar a gravação (permissão de disco?) — ela continua ativa"), "error");
       }
 
       setTrailScope("off");
-      setRecording(false);
+      setRecording(aindaGravando);
 
       let caminho = "";
 

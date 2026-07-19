@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use sysinfo::{Disks, Networks, ProcessesToUpdate, System};
+use sysinfo::{Disks, Networks, Pid, ProcessesToUpdate, System};
 
 use super::{AgentStat, DiskStats, GlobalStats, NetStats};
 
@@ -108,7 +108,7 @@ impl SystemProbe {
             || self.tree_at.map(|t| t.elapsed() >= TREE_TTL).unwrap_or(true);
 
         if needs_topology {
-            self.sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+            self.sys.refresh_processes(ProcessesToUpdate::All, true);
 
             let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
             for (pid, p) in self.sys.processes() {
@@ -142,10 +142,10 @@ impl SystemProbe {
                 .values()
                 .flatten()
                 .copied()
-                .map(sysinfo::Pid::from_u32)
+                .map(Pid::from_u32)
                 .collect();
             if !pids.is_empty() {
-                self.sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&pids), true);
+                self.sys.refresh_processes(ProcessesToUpdate::Some(&pids), true);
             }
         }
 
@@ -155,7 +155,7 @@ impl SystemProbe {
             let mut vram = 0u64;
             let members = self.agent_tree.get(root).cloned().unwrap_or_else(|| vec![*root]);
             for pid in &members {
-                if let Some(p) = self.sys.process(sysinfo::Pid::from_u32(*pid)) {
+                if let Some(p) = self.sys.process(Pid::from_u32(*pid)) {
                     cpu += p.cpu_usage();
                     rss += p.memory();
                 }
