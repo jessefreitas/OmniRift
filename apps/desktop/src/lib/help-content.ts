@@ -37,7 +37,8 @@ export const HELP_TOPICS: HelpTopic[] = [
 Quer corrigir um bug? Abra a pasta do projeto → crie um agente *Backend* → digite "encontre e corrija o erro em X" → veja ele trabalhar no terminal.
 
 ## Mexendo no canvas
-- **Mover a tela:** arraste o fundo vazio.
+- **Mover a tela:** arraste o fundo vazio — ou arraste com o **botão do meio** em cima de qualquer card (funciona mesmo sobre terminais e agentes, quando a tela está cheia).
+- **Trackpad:** segure **Espaço** e deslize dois dedos para mover a tela.
 - **Zoom:** scroll (rodinha) do mouse.
 - **Mover um node (caixa):** arraste pelo cabeçalho dele.
 - **Selecionar vários:** segure *Shift* e arraste em volta deles.
@@ -1047,7 +1048,8 @@ OmniRift **updates itself** — no need to download an installer again. The butt
 
 | Ação | Como |
 |---|---|
-| Mover a tela | arraste o fundo |
+| Mover a tela | arraste o fundo, ou botão do meio sobre qualquer card |
+| Mover a tela (trackpad) | Espaço + dois dedos |
 | Zoom | scroll do mouse |
 | Mover node | arraste o cabeçalho |
 | Seleção múltipla | Shift + arraste |

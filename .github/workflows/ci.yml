@@ -67,3 +67,10 @@ jobs:
 
       - name: Smoke boot (o app abre limpo?)
         run: bash scripts/smoke-boot.sh apps/desktop/src-tauri/target/debug/omnirift
+
+      # Trava o passivo de lint/clippy/fmt: falha SÓ se piorar em relação à
+      # scripts/quality-baseline.txt. O script existia desde a 0.1.141 e nenhum
+      # workflow o chamava — baseline que ninguém roda não é gate, é arquivo.
+      # Vem por último: não pode mascarar uma falha de build ou de smoke.
+      - name: Gate de qualidade (não piorar)
+        run: bash scripts/quality-baseline.sh

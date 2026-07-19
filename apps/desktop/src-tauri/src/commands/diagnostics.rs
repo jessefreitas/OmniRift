@@ -164,7 +164,27 @@ pub fn diagnostics_export(app: tauri::AppHandle) -> Result<String, String> {
         chrono::Local::now().format("%Y%m%d-%H%M%S")
     );
     let path = dir.join(name);
-    let mut f = std::fs::File::create(&path).map_err(|e| format!("não criei o arquivo: {e}"))?;
+    // 0600 no Unix: o pacote leva caminhos de projeto, IDs de sessão e trechos de log.
+    // `File::create` herda a umask (0002 na máquina do dono → 0664) e qualquer usuário
+    // local conseguia ler. O redactor já tira segredos de padrão conhecido, mas o resto
+    // do conteúdo continua sendo do dono, não da máquina.
+    let mut f = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&path)
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::File::create(&path)
+        }
+    }
+    .map_err(|e| format!("não criei o arquivo: {e}"))?;
     f.write_all(safe.as_bytes())
         .map_err(|e| format!("não escrevi: {e}"))?;
     Ok(path.to_string_lossy().to_string())

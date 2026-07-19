@@ -1012,6 +1012,13 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         } catch (e) {
           pushSys(`erro ao iniciar: ${e}`);
           setStatus("dead");
+          // TENTATIVA, não sucesso: o FloorCanvas desliga a virtualização enquanto
+          // existir agente sem `spawnedOnce`. Sem marcar aqui, UM agente que não sobe
+          // (provider errado, chave faltando) deixava o floor INTEIRO sem virtualização
+          // pra sempre — todos os nós montados, justo por causa de uma falha que devia
+          // degradar só ela mesma. O nó morto mostra o erro e oferece retry; o resto do
+          // floor volta ao normal.
+          if (!data.spawnedOnce) patchNode(data.id, { spawnedOnce: true });
         }
       }
 

@@ -15,5 +15,11 @@
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "version:set": "node scripts/set-version.mjs"
+  },
+  "overrides": {
+    "dompurify": "^3.4.12",
+    "monaco-editor": {
+      "dompurify": "^3.4.12"
+    }
   }
 }

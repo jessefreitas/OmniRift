@@ -37,7 +37,7 @@
     "@xterm/xterm": "^5.5.0",
     "@xyflow/react": "^12.3.5",
     "clsx": "^2.1.1",
-    "dompurify": "^3.4.10",
+    "dompurify": "^3.4.12",
     "lucide-react": "^0.469.0",
     "marked": "^18.0.5",
     "monaco-editor": "^0.55.1",
