@@ -153,6 +153,9 @@ jobs:
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          IN_APPLE_ID: ${{ secrets.APPLE_ID }}
+          IN_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          IN_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           if [[ -z "${APPLE_CERTIFICATE:-}" ]]; then
@@ -190,7 +193,25 @@ jobs:
           fi
           echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
           echo "OMNIRIFT_MACOS_NOTARIZED=1" >> "$GITHUB_ENV"
+
+          # Só EXPORTA as credenciais quando existe certificado de verdade.
+          # Passá-las direto no env: do tauri-action quebrou o build da 0.1.141: sem
+          # os secrets, o GitHub injeta as variáveis DEFINIDAS E VAZIAS, e o Tauri
+          # testa existência (não conteúdo) → tentou importar um .p12 vazio e morreu
+          # com "security import: failed to import keychain certificate". Variável
+          # ausente ≠ variável vazia.
+          {
+            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_ID=${IN_APPLE_ID:-}"
+            echo "APPLE_PASSWORD=${IN_APPLE_PASSWORD:-}"
+            echo "APPLE_TEAM_ID=${IN_APPLE_TEAM_ID:-}"
+          } >> "$GITHUB_ENV"
+
           echo "→ Developer ID encontrado: $CERT_ID"
+          if [[ -z "${IN_APPLE_ID:-}" || -z "${IN_APPLE_TEAM_ID:-}" ]]; then
+            echo "::warning::Cert presente mas APPLE_ID/APPLE_TEAM_ID faltando — assina sem notarizar."
+          fi
 
       - name: Build + Release (tauri-action)
         uses: tauri-apps/tauri-action@v0
@@ -201,15 +222,11 @@ jobs:
           #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD = vazio (chave gerada sem senha)
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS: o Tauri notariza e GRAMPEIA (staple) sozinho quando APPLE_ID +
-          # APPLE_PASSWORD + APPLE_TEAM_ID estão presentes. APPLE_PASSWORD tem que ser
-          # uma senha de app (appleid.apple.com), não a senha da conta.
-          # Vazios nos runners Linux/Windows — o bundler ignora.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # As APPLE_* NÃO entram aqui de propósito: o step de assinatura acima só as
+          # exporta (via GITHUB_ENV) quando há certificado. Declará-las neste bloco
+          # as cria vazias em TODA build e o Tauri tenta importar um .p12 vazio.
+          # O Tauri notariza e grampeia sozinho ao ver APPLE_ID + APPLE_PASSWORD
+          # (senha de APP, não a da conta) + APPLE_TEAM_ID no ambiente.
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
