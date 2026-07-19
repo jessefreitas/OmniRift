@@ -239,6 +239,12 @@ impl PtySession {
             .context("falha ao tomar writer do master")?;
         let writer = Arc::new(Mutex::new(writer));
 
+        // Capacidade 64 (~256 KB com chunks de 4 KB). Mantida de propósito: desde que o
+        // emulador passou a ser alimentado DENTRO do read_loop, o snapshot não depende
+        // mais deste canal — sobraram o StateDetector (só carimba timestamp, nunca
+        // atrasa) e os pipes (podem travar se o destino for lento). Os dois tratam
+        // `Lagged` de forma visível e se recuperam, então aumentar isto sem um caso
+        // medido só empurraria memória pra frente sem corrigir nada.
         let (output_tx, _) = broadcast::channel::<Vec<u8>>(64);
         let tx_for_reader = output_tx.clone();
 
