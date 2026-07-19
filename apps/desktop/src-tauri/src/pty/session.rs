@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -243,7 +243,7 @@ impl PtySession {
         let tx_for_reader = output_tx.clone();
 
         // Canal std (não precisa de runtime tokio): debounce de 16ms antes de emitir evento Tauri
-        let (emit_tx, emit_rx) = mpsc::channel::<Vec<u8>>();
+        let (emit_tx, emit_rx) = mpsc::channel::<(Vec<u8>, u64)>();
 
         // Seq compartilhado com o emulador VT (ref P0 #2). O emulador (no manager) é
         // criado via `new_with_seq` com ESTE Arc; o feeder dele o incrementa por chunk
@@ -258,18 +258,23 @@ impl PtySession {
         let emulator = Arc::new(Mutex::new(TermEmulator::new_with_seq(
             cfg.cols, cfg.rows, Arc::clone(&seq),
         )));
-        let seq_for_emit = Arc::clone(&seq);
 
         let id_for_emit = id.clone();
         let app_for_emit = app.clone();
         std::thread::spawn(move || {
             const DEBOUNCE: Duration = Duration::from_millis(16);
             let mut pending: Vec<u8> = Vec::new();
+            // (offset_final_em_pending, seq_daquele_chunk) — permite carimbar o frame
+            // com o seq do último chunk INTEIRO, em vez do contador global.
+            let mut marcos: Vec<(usize, u64)> = Vec::new();
+            // Último seq já emitido: fallback quando nenhum chunk coube inteiro no corte.
+            let mut ultimo_seq: u64 = 0;
             loop {
                 // Bloqueia até chegar o primeiro chunk do frame
                 match emit_rx.recv() {
-                    Ok(bytes) => {
+                    Ok((bytes, seq_chunk)) => {
                         pending.extend_from_slice(&bytes);
+                        marcos.push((pending.len(), seq_chunk));
                     }
                     Err(_) => {
                         // Canal fechado — emite o que sobrou e encerra
@@ -280,7 +285,7 @@ impl PtySession {
                                 PtyOutputEvent {
                                     session_id: id_for_emit.clone(),
                                     data: text,
-                                    seq: seq_for_emit.load(Ordering::SeqCst),
+                                    seq: marcos.last().map(|(_, s)| *s).unwrap_or(ultimo_seq),
                                 },
                             );
                         }
@@ -295,8 +300,9 @@ impl PtySession {
                         break;
                     }
                     match emit_rx.recv_timeout(remaining) {
-                        Ok(more) => {
+                        Ok((more, seq_chunk)) => {
                             pending.extend_from_slice(&more);
+                            marcos.push((pending.len(), seq_chunk));
                         }
                         Err(_) => break,
                     }
@@ -317,16 +323,30 @@ impl PtySession {
                     pending.len()
                 };
                 if cut > 0 {
+                    // O seq TEM que ser o do último chunk cujos bytes saíram INTEIROS
+                    // neste frame. Antes lia-se o contador global no instante do emit —
+                    // que já podia ter avançado por chunks ainda não emitidos, fazendo o
+                    // frame carregar um seq do futuro. O front descarta ao vivo tudo com
+                    // `seq <= snapshot.seq`, então um seq inflado derrubava frame legítimo
+                    // (tela incompleta/vazia). Cauda UTF-8 partida = chunk incompleto:
+                    // fica de fora da conta e leva o seq do anterior.
+                    let seq_frame = seq_do_frame(&marcos, cut, ultimo_seq);
+                    ultimo_seq = seq_frame;
                     let text = String::from_utf8_lossy(&pending[..cut]).to_string();
                     let _ = app_for_emit.emit(
                         "pty://output",
                         PtyOutputEvent {
                             session_id: id_for_emit.clone(),
                             data: text,
-                            seq: seq_for_emit.load(Ordering::SeqCst),
+                            seq: seq_frame,
                         },
                     );
                     pending.drain(..cut); // mantém a cauda incompleta pro próximo frame
+                    // Marcos consumidos saem; os que sobram rebaseiam pro novo offset 0.
+                    marcos.retain(|(fim, _)| *fim > cut);
+                    for (fim, _) in marcos.iter_mut() {
+                        *fim -= cut;
+                    }
                 }
             }
         });
@@ -523,11 +543,27 @@ impl Drop for PtySession {
     }
 }
 
+/// Seq que um frame do `pty://output` deve carregar: o do último chunk cujos bytes
+/// saíram INTEIROS neste corte. `marcos` = (offset_final_em_pending, seq_do_chunk).
+///
+/// Ler o contador global no instante do emit (o que se fazia antes) entrega um seq do
+/// FUTURO quando o read_loop já avançou chunks que ainda não foram emitidos. Como o
+/// front descarta ao vivo tudo com `seq <= snapshot.seq`, um seq inflado derruba frame
+/// legítimo — tela incompleta ou vazia. Chunk partido pela cauda UTF-8 não conta.
+fn seq_do_frame(marcos: &[(usize, u64)], cut: usize, ultimo_seq: u64) -> u64 {
+    marcos
+        .iter()
+        .rev()
+        .find(|(fim, _)| *fim <= cut)
+        .map(|(_, s)| *s)
+        .unwrap_or(ultimo_seq)
+}
+
 fn read_loop(
     id: SessionId,
     mut reader: Box<dyn Read + Send>,
     tx: broadcast::Sender<Vec<u8>>,
-    emit_tx: mpsc::Sender<Vec<u8>>,
+    emit_tx: mpsc::Sender<(Vec<u8>, u64)>,
     parser: Arc<Mutex<vt100::Parser>>,
     emulator: Arc<Mutex<TermEmulator>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
@@ -546,10 +582,13 @@ fn read_loop(
                 // é o que garante que a query inicial nunca se perca. As respostas
                 // (DSR/DA/OSC) voltam pra stdin do PTY na hora — o backend é o ÚNICO
                 // respondedor; o xterm consome as queries sem responder.
-                let respostas = {
+                let (seq_chunk, respostas) = {
                     let mut emu = emulator.lock();
                     emu.feed(&chunk);
-                    emu.take_pending_responses()
+                    // Seq DESTE chunk, lido sob o mesmo lock do feed: é o que o emit
+                    // carimba no frame. Ler depois (fora do lock) já pegaria o valor
+                    // avançado por outro chunk.
+                    (emu.seq(), emu.take_pending_responses())
                 };
                 // Locks nunca sobrepostos (emulador solto antes do writer) → sem deadlock.
                 if !respostas.is_empty() {
@@ -560,7 +599,7 @@ fn read_loop(
                     let _ = w.flush();
                 }
                 let _ = tx.send(chunk.clone()); // broadcast imediato (MCP/pipes)
-                let _ = emit_tx.send(chunk); // debounced → Tauri event
+                let _ = emit_tx.send((chunk, seq_chunk)); // debounced → Tauri event
             }
             Err(e) => {
                 log::warn!("erro lendo do PTY {id}: {e}");
@@ -1482,6 +1521,46 @@ mod tests {
             assert_eq!(out[4], "--settings");
             assert_eq!(out[5], "/tmp/s.json");
             let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    #[test]
+    fn seq_do_frame_usa_ultimo_chunk_inteiro() {
+        let marcos = [(10, 1), (25, 2), (40, 3)];
+        let resultado = super::seq_do_frame(&marcos, 25, 0);
+        assert_eq!(resultado, 2, "o chunk que termina em 40 nao saiu inteiro, entao o frame nao pode levar o seq 3");
+    }
+
+    #[test]
+    fn seq_do_frame_ignora_chunk_partido_pela_cauda_utf8() {
+        let marcos = [(10, 1), (25, 2)];
+        let resultado = super::seq_do_frame(&marcos, 20, 0);
+        assert_eq!(resultado, 1, "cut=20 corta o segundo chunk no meio (cauda UTF-8 incompleta fica pro proximo frame), entao vale o seq do anterior");
+    }
+
+    #[test]
+    fn seq_do_frame_sem_chunk_inteiro_mantem_ultimo_emitido() {
+        let marcos = [(30, 7)];
+        let resultado = super::seq_do_frame(&marcos, 12, 5);
+        assert_eq!(resultado, 5, "nenhum chunk coube inteiro; carimbar 7 seria seq do futuro e o front descartaria o resto");
+    }
+
+    #[test]
+    fn seq_do_frame_nunca_devolve_seq_do_futuro() {
+        let marcos = [(10, 1), (20, 2), (30, 3), (40, 4)];
+        for cut in 0..=40 {
+            let esperado_max = marcos
+                .iter()
+                .filter(|(offset, _)| *offset <= cut)
+                .map(|(_, seq)| *seq)
+                .last()
+                .unwrap_or(0);
+            let resultado = super::seq_do_frame(&marcos, cut, 0);
+            assert_eq!(
+                resultado, esperado_max,
+                "invariante central: o seq carimbado nunca pode pertencer a bytes que ainda nao sairam (cut={})",
+                cut
+            );
         }
     }
 }
