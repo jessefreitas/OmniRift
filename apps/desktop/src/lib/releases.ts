@@ -24,6 +24,19 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.138",
+    date: "2026-07-19",
+    title: "Tela de licença mais clara e correções de segurança",
+    highlights: [
+      "A tela de licença agora mostra uma confirmação clara com a data de validade e um botão \"Trocar chave de licença\", evitando que você cole uma licença em cima da outra sem perceber.",
+      "O ID da máquina só fica em destaque enquanto você ainda precisa dele para pedir uma chave; depois de ativado, a tela exibe apenas as informações que importam.",
+      "A verificação de segurança voltou a examinar o projeto inteiro em busca de senhas e chaves esquecidas no código, sem desistir silenciosamente por excesso de tempo.",
+      "O canal interno que os agentes usam para informar seu próprio estado agora exige autenticação, e a credencial deixou de aparecer na lista de processos do sistema.",
+      "Corrigimos uma situação em que o monitor de sessões travadas podia encerrar o processo errado."
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.137",
     date: "2026-07-19",
     title: "Correções no Windows e no terminal que ficava verde após morrer",
