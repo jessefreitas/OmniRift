@@ -270,9 +270,8 @@ impl PtySession {
         std::thread::spawn(move || {
             const DEBOUNCE: Duration = Duration::from_millis(16);
             let mut pending: Vec<u8> = Vec::new();
-            // (offset_final_em_pending, seq_daquele_chunk) — permite carimbar o frame
-            // com o seq do último chunk INTEIRO, em vez do contador global.
-            let mut marcos: Vec<(usize, u64)> = Vec::new();
+            // Seqs dos chunks que entraram neste frame — o frame leva o do ÚLTIMO.
+            let mut marcos: Vec<u64> = Vec::new();
             // Último seq já emitido: fallback quando nenhum chunk coube inteiro no corte.
             let mut ultimo_seq: u64 = 0;
             loop {
@@ -280,7 +279,7 @@ impl PtySession {
                 match emit_rx.recv() {
                     Ok((bytes, seq_chunk)) => {
                         pending.extend_from_slice(&bytes);
-                        marcos.push((pending.len(), seq_chunk));
+                        marcos.push(seq_chunk);
                     }
                     Err(_) => {
                         // Canal fechado — emite o que sobrou e encerra
@@ -291,7 +290,7 @@ impl PtySession {
                                 PtyOutputEvent {
                                     session_id: id_for_emit.clone(),
                                     data: text,
-                                    seq: marcos.last().map(|(_, s)| *s).unwrap_or(ultimo_seq),
+                                    seq: seq_do_frame(&marcos, ultimo_seq),
                                 },
                             );
                         }
@@ -308,7 +307,7 @@ impl PtySession {
                     match emit_rx.recv_timeout(remaining) {
                         Ok((more, seq_chunk)) => {
                             pending.extend_from_slice(&more);
-                            marcos.push((pending.len(), seq_chunk));
+                            marcos.push(seq_chunk);
                         }
                         Err(_) => break,
                     }
@@ -336,7 +335,7 @@ impl PtySession {
                     // `seq <= snapshot.seq`, então um seq inflado derrubava frame legítimo
                     // (tela incompleta/vazia). Cauda UTF-8 partida = chunk incompleto:
                     // fica de fora da conta e leva o seq do anterior.
-                    let seq_frame = seq_do_frame(&marcos, cut, ultimo_seq);
+                    let seq_frame = seq_do_frame(&marcos, ultimo_seq);
                     ultimo_seq = seq_frame;
                     let text = String::from_utf8_lossy(&pending[..cut]).to_string();
                     let _ = app_for_emit.emit(
@@ -348,11 +347,9 @@ impl PtySession {
                         },
                     );
                     pending.drain(..cut); // mantém a cauda incompleta pro próximo frame
-                    // Marcos consumidos saem; os que sobram rebaseiam pro novo offset 0.
-                    marcos.retain(|(fim, _)| *fim > cut);
-                    for (fim, _) in marcos.iter_mut() {
-                        *fim -= cut;
-                    }
+                    // Frame fechado: o próximo começa a contar do zero (e sempre trará
+                    // ao menos um chunk novo, o que garante o seq estritamente maior).
+                    marcos.clear();
                 }
             }
         });
@@ -549,20 +546,25 @@ impl Drop for PtySession {
     }
 }
 
-/// Seq que um frame do `pty://output` deve carregar: o do último chunk cujos bytes
-/// saíram INTEIROS neste corte. `marcos` = (offset_final_em_pending, seq_do_chunk).
+/// Seq que um frame do `pty://output` deve carregar: o do ÚLTIMO chunk recebido neste
+/// frame. `marcos` = os seqs dos chunks que entraram, em ordem.
 ///
-/// Ler o contador global no instante do emit (o que se fazia antes) entrega um seq do
-/// FUTURO quando o read_loop já avançou chunks que ainda não foram emitidos. Como o
-/// front descarta ao vivo tudo com `seq <= snapshot.seq`, um seq inflado derruba frame
-/// legítimo — tela incompleta ou vazia. Chunk partido pela cauda UTF-8 não conta.
-fn seq_do_frame(marcos: &[(usize, u64)], cut: usize, ultimo_seq: u64) -> u64 {
-    marcos
-        .iter()
-        .rev()
-        .find(|(fim, _)| *fim <= cut)
-        .map(|(_, s)| *s)
-        .unwrap_or(ultimo_seq)
+/// Duas armadilhas que este contrato evita, nesta ordem de descoberta:
+///
+/// 1. Ler o contador GLOBAL no instante do emit entrega um seq do futuro — o read_loop
+///    já avançou chunks que ainda não foram emitidos. O front descarta ao vivo tudo com
+///    `seq <= lastSeq`, então seq inflado derruba frame legítimo (tela incompleta).
+///
+/// 2. Usar o último chunk COMPLETO (descartando o partido pela cauda UTF-8) parece mais
+///    conservador e é pior: pode repetir o seq do frame anterior, e com dedup `<=` frame
+///    repetido é frame DESCARTADO — perda de bytes, não segurança.
+///
+/// O último recebido resolve os dois: é estritamente crescente por construção (o emit
+/// bloqueia em `recv`, então todo frame traz ao menos um chunk novo) e nunca pertence a
+/// bytes que o read_loop não entregou a este frame. O custo é reaplicar no máximo a
+/// cauda de um chunk quando um snapshot cai exatamente no meio dele.
+fn seq_do_frame(marcos: &[u64], ultimo_seq: u64) -> u64 {
+    marcos.last().copied().unwrap_or(ultimo_seq)
 }
 
 fn read_loop(
@@ -1531,42 +1533,41 @@ mod tests {
     }
 
     #[test]
-    fn seq_do_frame_usa_ultimo_chunk_inteiro() {
-        let marcos = [(10, 1), (25, 2), (40, 3)];
-        let resultado = super::seq_do_frame(&marcos, 25, 0);
-        assert_eq!(resultado, 2, "o chunk que termina em 40 nao saiu inteiro, entao o frame nao pode levar o seq 3");
+    fn seq_do_frame_leva_o_ultimo_chunk_recebido() {
+        assert_eq!(super::seq_do_frame(&[1, 2, 3], 0), 3);
     }
 
     #[test]
-    fn seq_do_frame_ignora_chunk_partido_pela_cauda_utf8() {
-        let marcos = [(10, 1), (25, 2)];
-        let resultado = super::seq_do_frame(&marcos, 20, 0);
-        assert_eq!(resultado, 1, "cut=20 corta o segundo chunk no meio (cauda UTF-8 incompleta fica pro proximo frame), entao vale o seq do anterior");
+    fn seq_do_frame_sem_chunk_mantem_ultimo_emitido() {
+        assert_eq!(super::seq_do_frame(&[], 5), 5, "frame vazio nao avanca o seq");
     }
 
     #[test]
-    fn seq_do_frame_sem_chunk_inteiro_mantem_ultimo_emitido() {
-        let marcos = [(30, 7)];
-        let resultado = super::seq_do_frame(&marcos, 12, 5);
-        assert_eq!(resultado, 5, "nenhum chunk coube inteiro; carimbar 7 seria seq do futuro e o front descartaria o resto");
+    fn seq_do_frame_e_estritamente_crescente_entre_frames() {
+        // Invariante central. O emit bloqueia em `recv`, entao TODO frame traz ao menos
+        // um chunk novo. Se o seq repetisse, o front descartaria o frame seguinte no
+        // filtro `seq <= lastSeq` e perderia bytes — foi exatamente o furo da tentativa
+        // anterior, que usava "ultimo chunk COMPLETO" e repetia quando a cauda UTF-8
+        // partia um chunk entre dois frames.
+        let frames = [vec![1u64], vec![2, 3], vec![4], vec![5, 6, 7]];
+        let mut anterior = 0u64;
+        for f in &frames {
+            let s = super::seq_do_frame(f, anterior);
+            assert!(
+                s > anterior,
+                "frame {f:?} devolveu {s}, nao maior que {anterior} — o front descartaria e perderia bytes"
+            );
+            anterior = s;
+        }
     }
 
     #[test]
     fn seq_do_frame_nunca_devolve_seq_do_futuro() {
-        let marcos = [(10, 1), (20, 2), (30, 3), (40, 4)];
-        for cut in 0..=40 {
-            let esperado_max = marcos
-                .iter()
-                .filter(|(offset, _)| *offset <= cut)
-                .map(|(_, seq)| *seq)
-                .last()
-                .unwrap_or(0);
-            let resultado = super::seq_do_frame(&marcos, cut, 0);
-            assert_eq!(
-                resultado, esperado_max,
-                "invariante central: o seq carimbado nunca pode pertencer a bytes que ainda nao sairam (cut={})",
-                cut
-            );
+        // O outro lado: o seq nunca pode passar do maior chunk realmente entregue a
+        // este frame. Era o bug original (contador global lido no instante do emit).
+        for f in [vec![1u64], vec![1, 2], vec![7, 8, 9]] {
+            let maior = *f.iter().max().unwrap();
+            assert!(super::seq_do_frame(&f, 0) <= maior, "seq acima do maior chunk do frame");
         }
     }
 }

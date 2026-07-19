@@ -99,7 +99,19 @@ impl EventListener for BackstopListener {
     fn send_event(&self, event: Event) {
         let resposta = match event {
             Event::PtyWrite(s) => s,
-            Event::ColorRequest(_, f) => f(Rgb { r: 0, g: 0, b: 0 }),
+            // Cor REAL do tema da view (useTerminalSession: bg #0a1014, fg #edeef0).
+            // Responder preto pra tudo fazia o app calcular contraste em cima de uma
+            // cor que não é a da tela — TUI escolhia paleta errada por achar o fundo
+            // diferente do que é. Índice desconhecido cai no fundo, que é o palpite
+            // menos danoso (a maioria pergunta OSC 11).
+            Event::ColorRequest(idx, f) => {
+                let cor = if idx == NamedColor::Foreground as usize {
+                    Rgb { r: 0xed, g: 0xee, b: 0xf0 }
+                } else {
+                    Rgb { r: 0x0a, g: 0x10, b: 0x14 }
+                };
+                f(cor)
+            }
             Event::TextAreaSizeRequest(f) => {
                 let (cols, rows) = *self.dims.lock();
                 // Célula em pixels não existe no backend (headless): 8x16 é o padrão de

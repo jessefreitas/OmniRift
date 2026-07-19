@@ -220,13 +220,25 @@ export function useTerminalSession({
     // xterm vê a query o backend já respondeu — daria resposta dupla na stdin do
     // shell, que é justamente o que corrompe tema/valores. Autoridade única resolve.
     //
-    // Consome: DSR/CPR (n), DA1/DA2 (c), tamanho da área de texto (t).
-    for (const final of ["n", "c", "t"]) {
-      term.parser.registerCsiHandler({ final }, () => true);
+    // O identificador do handler inclui PREFIXO, não só o char final — o xterm registra
+    // `{prefix:"?",final:"n"}` (DSR privado) e `{prefix:">",final:"c"}` (DA2) separados
+    // dos sem prefixo. Cobrir só o final deixava essas duas escapando pro respondedor
+    // nativo, mantendo a autoridade dupla que o pivô veio matar.
+    const queries: { prefix?: string; final: string }[] = [
+      { final: "n" }, // DSR / CPR
+      { prefix: "?", final: "n" }, // DSR privado
+      { final: "c" }, // DA1
+      { prefix: ">", final: "c" }, // DA2
+      { final: "t" }, // tamanho da área de texto
+    ];
+    for (const id of queries) {
+      term.parser.registerCsiHandler(id, () => true);
     }
-    // OSC 10/11 = cor de foreground/background.
-    term.parser.registerOscHandler(10, () => true);
-    term.parser.registerOscHandler(11, () => true);
+    // OSC 10/11 = foreground/background. Só a QUERY (`?`) é consumida: engolir tudo
+    // mataria também o SET de cor, e o app perderia como mudar o tema do terminal.
+    for (const osc of [10, 11]) {
+      term.parser.registerOscHandler(osc, (data) => data.trim().startsWith("?"));
+    }
 
     term.open(containerRef.current);
     // Renderer GPU (WebGL2): ordens de grandeza mais leve que o DOM renderer default
