@@ -416,7 +416,7 @@ pub fn agent_config_dir() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::inject_failproof_hooks;
+    use super::{inject_failproof_hooks, status_hook_cmd, write_hook_curl_config};
     use std::path::Path;
 
     #[test]
@@ -453,4 +453,52 @@ mod tests {
         inject_failproof_hooks(&mut s, Path::new("/x"));
         assert!(s["hooks"]["SessionStart"].is_null());
     }
+
+    /// o motivo de existir o arquivo de config. argv e legivel por qualquer processo
+    /// local (ps, /proc/<pid>/cmdline); token em query string vazaria pra qualquer um na
+    /// mesma maquina — que e o modelo de ameaca que motivou por auth nessa rota.
+    #[test]
+    fn token_nao_aparece_na_linha_de_comando() {
+        let dir = std::env::temp_dir().join(format!("omnirift-hookcfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg = write_hook_curl_config(&dir, "Backend", "s3cr3ttoken123").unwrap();
+        let cmd = status_hook_cmd("Backend", "working", &cfg);
+        assert!(!cmd.contains("s3cr3ttoken123"), "token vazou na linha de comando: {cmd}");
+        assert!(cmd.contains("-K"), "deveria ler o header do arquivo de config: {cmd}");
+        assert!(cmd.contains("/agent-hook/Backend?state=working"), "rota/estado errados: {cmd}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// o token so sai de argv se ele estiver DE FATO no arquivo; e o arquivo so protege
+    /// se nao for legivel por outros usuarios.
+    #[test]
+    fn arquivo_de_config_carrega_o_header_e_e_privado() {
+        let dir = std::env::temp_dir().join(format!("omnirift-hookcfg-{}-perm", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg = write_hook_curl_config(&dir, "QA", "abc123").unwrap();
+        let conteudo = std::fs::read_to_string(&cfg).unwrap();
+        assert!(conteudo.contains("x-omnirift-token: abc123"), "header ausente: {conteudo}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let modo = std::fs::metadata(&cfg).unwrap().permissions().mode() & 0o777;
+            assert_eq!(modo, 0o600, "arquivo com o token precisa ser 0600, veio {modo:o}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// os tres hooks (working/blocked/done) tem que apontar pro MESMO arquivo de config
+    /// e diferir SO no estado — regressao de quando o token era interpolado em cada um.
+    #[test]
+    fn cada_estado_gera_seu_proprio_comando() {
+        let dir = std::env::temp_dir().join(format!("omnirift-hookcfg-{}-est", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg = write_hook_curl_config(&dir, "Front", "tk").unwrap();
+        for st in ["working", "blocked", "done"] {
+            let c = status_hook_cmd("Front", st, &cfg);
+            assert!(c.contains(&format!("state={st}")), "estado {st} ausente: {c}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
 }
