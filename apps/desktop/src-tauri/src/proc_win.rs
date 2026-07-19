@@ -1,4 +1,3 @@
-
 //! Helper compartilhado para spawnar no Windows programas que podem ser scripts,
 //! shims ou executáveis sem extensão (por exemplo `.cmd`, `.ps1`, `npx`, `claude`).
 //!
@@ -36,9 +35,9 @@ pub fn needs_cmd_wrapper(command: &str) -> bool {
 /// dobradas; as próprias aspas são escapadas com `\`.
 pub fn win_argv_quote(arg: &str) -> String {
     let precisa_quote = arg.is_empty()
-        || arg.chars().any(|c| {
-            c == ' ' || c == '\t' || c == '\n' || c == '\x0b' || c == '"'
-        });
+        || arg
+            .chars()
+            .any(|c| c == ' ' || c == '\t' || c == '\n' || c == '\x0b' || c == '"');
 
     if !precisa_quote {
         return arg.to_string();

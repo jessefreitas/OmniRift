@@ -41,8 +41,12 @@ pub struct PtySpawnConfig {
     pub execution_host: Option<String>,
 }
 
-fn default_cols() -> u16 { 80 }
-fn default_rows() -> u16 { 24 }
+fn default_cols() -> u16 {
+    80
+}
+fn default_rows() -> u16 {
+    24
+}
 
 /// Decide se um `command` precisa ser executado via `cmd.exe /c` no Windows.
 ///
@@ -201,10 +205,18 @@ impl PtySession {
         // suporte não distingue "o binário não existe" de "o TUI não desenha" — que foi
         // exatamente a dúvida no caso dos nós em branco no Windows. Os args ficam só no
         // nível debug porque carregam persona/prompt inteiros (e passam pelo redactor).
-        log::info!("PTY {id} spawn: {} ({} args) cwd={:?}", cfg.command, cfg.args.len(), cfg.cwd);
+        log::info!(
+            "PTY {id} spawn: {} ({} args) cwd={:?}",
+            cfg.command,
+            cfg.args.len(),
+            cfg.cwd
+        );
         log::debug!("PTY {id} args: {:?}", cfg.args);
         let spawned_at = Instant::now();
-        let mut child = pair.slave.spawn_command(cmd).context("falha ao spawnar processo no PTY")?;
+        let mut child = pair
+            .slave
+            .spawn_command(cmd)
+            .context("falha ao spawnar processo no PTY")?;
         let root_pid = child.process_id();
         // Clona o killer ANTES do `child` ir pra thread waiter (move, mais abaixo) — é
         // o que permite o kill() matar o filho de verdade (fecha o slave → read_loop
@@ -214,8 +226,14 @@ impl PtySession {
         drop(pair.slave);
 
         let master = Arc::new(Mutex::new(pair.master));
-        let reader = master.lock().try_clone_reader().context("falha ao clonar reader do master")?;
-        let writer: Box<dyn Write + Send> = master.lock().take_writer().context("falha ao tomar writer do master")?;
+        let reader = master
+            .lock()
+            .try_clone_reader()
+            .context("falha ao clonar reader do master")?;
+        let writer: Box<dyn Write + Send> = master
+            .lock()
+            .take_writer()
+            .context("falha ao tomar writer do master")?;
         let writer = Arc::new(Mutex::new(writer));
 
         let (output_tx, _) = broadcast::channel::<Vec<u8>>(64);
@@ -242,16 +260,21 @@ impl PtySession {
             loop {
                 // Bloqueia até chegar o primeiro chunk do frame
                 match emit_rx.recv() {
-                    Ok(bytes) => { pending.extend_from_slice(&bytes); }
+                    Ok(bytes) => {
+                        pending.extend_from_slice(&bytes);
+                    }
                     Err(_) => {
                         // Canal fechado — emite o que sobrou e encerra
                         if !pending.is_empty() {
                             let text = String::from_utf8_lossy(&pending).to_string();
-                            let _ = app_for_emit.emit("pty://output", PtyOutputEvent {
-                                session_id: id_for_emit.clone(),
-                                data: text,
-                                seq: seq_for_emit.load(Ordering::SeqCst),
-                            });
+                            let _ = app_for_emit.emit(
+                                "pty://output",
+                                PtyOutputEvent {
+                                    session_id: id_for_emit.clone(),
+                                    data: text,
+                                    seq: seq_for_emit.load(Ordering::SeqCst),
+                                },
+                            );
                         }
                         break;
                     }
@@ -260,9 +283,13 @@ impl PtySession {
                 let deadline = Instant::now() + DEBOUNCE;
                 loop {
                     let remaining = deadline.saturating_duration_since(Instant::now());
-                    if remaining.is_zero() { break; }
+                    if remaining.is_zero() {
+                        break;
+                    }
                     match emit_rx.recv_timeout(remaining) {
-                        Ok(more) => { pending.extend_from_slice(&more); }
+                        Ok(more) => {
+                            pending.extend_from_slice(&more);
+                        }
                         Err(_) => break,
                     }
                 }
@@ -276,14 +303,21 @@ impl PtySession {
                 };
                 // Cauda > 3 bytes não é char UTF-8 incompleto (máx 4 bytes) → é byte
                 // inválido real: emite tudo (lossy) pra não acumular lixo no buffer.
-                let cut = if pending.len() - valid <= 3 { valid } else { pending.len() };
+                let cut = if pending.len() - valid <= 3 {
+                    valid
+                } else {
+                    pending.len()
+                };
                 if cut > 0 {
                     let text = String::from_utf8_lossy(&pending[..cut]).to_string();
-                    let _ = app_for_emit.emit("pty://output", PtyOutputEvent {
-                        session_id: id_for_emit.clone(),
-                        data: text,
-                        seq: seq_for_emit.load(Ordering::SeqCst),
-                    });
+                    let _ = app_for_emit.emit(
+                        "pty://output",
+                        PtyOutputEvent {
+                            session_id: id_for_emit.clone(),
+                            data: text,
+                            seq: seq_for_emit.load(Ordering::SeqCst),
+                        },
+                    );
                     pending.drain(..cut); // mantém a cauda incompleta pro próximo frame
                 }
             }
@@ -293,7 +327,13 @@ impl PtySession {
         let parser_for_reader = Arc::clone(&parser);
         let id_for_reader = id.clone();
         std::thread::spawn(move || {
-            read_loop(id_for_reader, reader, tx_for_reader, emit_tx, parser_for_reader);
+            read_loop(
+                id_for_reader,
+                reader,
+                tx_for_reader,
+                emit_tx,
+                parser_for_reader,
+            );
         });
 
         let id_for_waiter = id.clone();
@@ -312,7 +352,10 @@ impl PtySession {
                     st.exit_code(),
                     spawned_at.elapsed()
                 ),
-                Err(e) => log::warn!("PTY {id_for_waiter} wait falhou após {:?}: {e}", spawned_at.elapsed()),
+                Err(e) => log::warn!(
+                    "PTY {id_for_waiter} wait falhou após {:?}: {e}",
+                    spawned_at.elapsed()
+                ),
             }
             // marcar antes de emitir/limpar elimina a janela em que o processo já morreu
             // mas a UI ainda o vê vivo.
@@ -340,27 +383,36 @@ impl PtySession {
                 if let Some(pm) = app_for_waiter.try_state::<Arc<crate::pty::PtyManager>>() {
                     pm.set_agent_state(&id_for_waiter, crate::pty::AgentState::Dead);
                 }
-                let _ = app_for_waiter.emit("agent://status", crate::pty::AgentStatusEvent {
-                    session_id: id_for_waiter.clone(),
-                    state: crate::pty::AgentState::Dead,
-                    agent: agent_name,
-                    message: None,
-                });
+                let _ = app_for_waiter.emit(
+                    "agent://status",
+                    crate::pty::AgentStatusEvent {
+                        session_id: id_for_waiter.clone(),
+                        state: crate::pty::AgentState::Dead,
+                        agent: agent_name,
+                        message: None,
+                    },
+                );
             }
 
             match status {
                 Ok(status) => {
-                    let _ = app_for_waiter.emit("pty://exit", PtyExitEvent {
-                        session_id: id_for_waiter,
-                        exit_code: Some(status.exit_code() as i32),
-                    });
+                    let _ = app_for_waiter.emit(
+                        "pty://exit",
+                        PtyExitEvent {
+                            session_id: id_for_waiter,
+                            exit_code: Some(status.exit_code() as i32),
+                        },
+                    );
                 }
                 Err(e) => {
                     log::error!("erro aguardando child do PTY: {e}");
-                    let _ = app_for_waiter.emit("pty://exit", PtyExitEvent {
-                        session_id: id_for_waiter,
-                        exit_code: None,
-                    });
+                    let _ = app_for_waiter.emit(
+                        "pty://exit",
+                        PtyExitEvent {
+                            session_id: id_for_waiter,
+                            exit_code: None,
+                        },
+                    );
                 }
             }
         });
@@ -401,7 +453,12 @@ impl PtySession {
         self.parser.lock().set_size(rows, cols);
         self.master
             .lock()
-            .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|e| anyhow!("falha ao redimensionar PTY: {e}"))
     }
 
@@ -458,14 +515,20 @@ fn read_loop(
     let mut buf = [0u8; 4096];
     loop {
         match reader.read(&mut buf) {
-            Ok(0) => { log::info!("PTY {id} EOF"); break; }
+            Ok(0) => {
+                log::info!("PTY {id} EOF");
+                break;
+            }
             Ok(n) => {
                 let chunk = buf[..n].to_vec();
                 parser.lock().process(&chunk); // alimenta o emulador de tela
                 let _ = tx.send(chunk.clone()); // broadcast imediato (MCP/pipes)
-                let _ = emit_tx.send(chunk);    // debounced → Tauri event
+                let _ = emit_tx.send(chunk); // debounced → Tauri event
             }
-            Err(e) => { log::warn!("erro lendo do PTY {id}: {e}"); break; }
+            Err(e) => {
+                log::warn!("erro lendo do PTY {id}: {e}");
+                break;
+            }
         }
     }
 }
@@ -571,7 +634,11 @@ fn spill_system_prompt_to_file(
     new_args
 }
 
-fn build_command(cfg: &PtySpawnConfig, spill_dir: Option<&std::path::Path>, session_id: &str) -> CommandBuilder {
+fn build_command(
+    cfg: &PtySpawnConfig,
+    spill_dir: Option<&std::path::Path>,
+    session_id: &str,
+) -> CommandBuilder {
     // Resolve o host de execução (ref §3.1). `Local` → (command, args) crus, igual
     // ao comportamento anterior. `Ssh(target)` → embrulha em `ssh -tt ... -- <cmd>`,
     // onde `<cmd>` é a linha do agente shell-quotada (defesa anti-injeção em host.rs).
@@ -607,7 +674,8 @@ fn build_command(cfg: &PtySpawnConfig, spill_dir: Option<&std::path::Path>, sess
     // está no PATH (fail-open: off/remoto/sem-bwrap → comando cru, zero regressão). Contém o
     // EXECUTOR real (workers PTY), não o processo Tauri — o ponto onde bash/edit/rm rodam.
     #[cfg(target_os = "linux")]
-    let (program, args) = crate::sandbox::maybe_wrap(program, args, cfg.cwd.as_deref(), host.is_remote());
+    let (program, args) =
+        crate::sandbox::maybe_wrap(program, args, cfg.cwd.as_deref(), host.is_remote());
 
     // WINDOWS: aqui é onde o spill precisa acontecer — DEPOIS de resolver host/sandbox e
     // ANTES de montar a linha do cmd.exe. Sem esta chamada a função era código morto: os
@@ -696,10 +764,7 @@ fn fail_safe_program(err: &str) -> (String, Vec<String>) {
     {
         (
             "cmd".to_string(),
-            vec![
-                "/c".to_string(),
-                format!("echo {msg} & exit 1"),
-            ],
+            vec!["/c".to_string(), format!("echo {msg} & exit 1")],
         )
     }
 }
@@ -782,6 +847,64 @@ fn command_is_binary(command: &str) -> bool {
         .unwrap_or(true)
 }
 
+/// Versao nao condicional da regra de quoting para `cmd.exe`, usada nos testes do CI.
+///
+/// A logica e identica a `win_cmd_quote`, mas sem `#[cfg(windows)]` para que a
+/// regra do Windows seja validada tambem em Linux; do contrario so seria testada
+/// em maquinas Windows — que e onde ninguem roda teste. A versao cfg(windows)
+/// delega para esta a fim de evitar duas implementacoes divergentes.
+fn win_cmd_quote_portable(arg: &str) -> String {
+    let mut out = String::with_capacity(arg.len() + 2);
+    out.push('"');
+
+    let mut backslashes = 0usize;
+    for c in arg.chars() {
+        match c {
+            '"' => {
+                // Dobra as barras invertidas que precedem a aspas...
+                for _ in 0..backslashes {
+                    out.push('\\');
+                }
+                backslashes = 0;
+                // ...e escapa a aspas.
+                out.push('\\');
+                out.push('"');
+            }
+            '\\' => {
+                backslashes += 1;
+                out.push('\\');
+            }
+            _ => {
+                backslashes = 0;
+                out.push(c);
+            }
+        }
+    }
+
+    // No fim do token, dobra as barras invertidas para que nao escapem
+    // a aspas de fechamento.
+    for _ in 0..backslashes {
+        out.push('\\');
+    }
+    out.push('"');
+    out
+}
+
+/// Quoting para a linha que vai DEPOIS do `cmd.exe /s /c`.
+///
+/// Identico ao `win_argv_quote`, exceto que SEMPRE envolve o token em aspas,
+/// mesmo quando ele nao tem espaco. Dentro de aspas o cmd nao trata
+/// `& | < > ^` como operador; fora, trata. Um caminho com `&` — pasta "A&B" —
+/// partia o comando em dois.
+///
+/// LIMITE CONHECIDO: `%VAR%` ainda EXPANDE dentro de aspas no cmd; nao ha
+/// escape confiavel para `%` fora de arquivo .bat, entao um argumento com
+/// `%NOME%` de variavel existente sera substituido.
+#[cfg(windows)]
+fn win_cmd_quote(arg: &str) -> String {
+    win_cmd_quote_portable(arg)
+}
+
 #[cfg(windows)]
 fn build_program(command: &str, args: &[String]) -> CommandBuilder {
     if !needs_cmd_wrapper(command) {
@@ -819,10 +942,13 @@ fn build_program(command: &str, args: &[String]) -> CommandBuilder {
     // que vem DEPOIS do `/c`, e esse pedaço é uma única string já blindada).
     let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string());
 
-    let mut inner = win_argv_quote(command);
+    // `win_cmd_quote` (não `win_argv_quote`): esta linha é re-parseada pelo CMD, e fora de
+    // aspas ele lê & | < > como operador. Token cru com `&` — pasta "A&B" — partia o
+    // comando em dois e executava a segunda metade.
+    let mut inner = win_cmd_quote(command);
     for arg in args {
         inner.push(' ');
-        inner.push_str(&win_argv_quote(arg));
+        inner.push_str(&win_cmd_quote(arg));
     }
 
     let mut cmd = CommandBuilder::new(&comspec);
@@ -835,6 +961,48 @@ fn build_program(command: &str, args: &[String]) -> CommandBuilder {
 #[cfg(test)]
 mod tests {
 
+    #[cfg(test)]
+    mod tests {
+        use super::super::win_cmd_quote_portable;
+
+        /// Doc: e a diferenca em relacao ao argv — fora de aspas o cmd le & | < > como operador.
+        #[test]
+        fn token_simples_tambem_vai_entre_aspas() {
+            assert_eq!(win_cmd_quote_portable("--model"), "\"--model\"");
+        }
+
+        /// Doc: pasta "A&B" no Windows e banal; sem aspas o cmd rodava a metade e executava o resto.
+        #[test]
+        fn e_comercial_nao_parte_o_comando() {
+            assert_eq!(
+                win_cmd_quote_portable("C:/Projetos/A&B/app"),
+                "\"C:/Projetos/A&B/app\""
+            );
+        }
+
+        /// Doc: pipe e redirect so fazem sentido como argumentos se o cmd nao os interpretar.
+        #[test]
+        fn pipe_e_redirect_ficam_protegidos() {
+            let pipe = win_cmd_quote_portable("x|y");
+            let redirect = win_cmd_quote_portable("a>b");
+            assert!(pipe.starts_with('"') && pipe.ends_with('"') && pipe.contains('|'));
+            assert!(redirect.starts_with('"') && redirect.ends_with('"') && redirect.contains('>'));
+        }
+
+        /// Doc: aspas internas sao escapadas com barra invertida, senao terminariam o token.
+        #[test]
+        fn aspas_internas_sao_escapadas() {
+            let quoted = win_cmd_quote_portable("diz \"oi\"");
+            assert!(quoted.contains("\\\""));
+        }
+
+        /// Doc: sem dobrar, a `\` final escaparia a aspas de fechamento e a linha inteira vazaria.
+        #[test]
+        fn barras_finais_sao_dobradas() {
+            let quoted = win_cmd_quote_portable("C:\\pasta\\");
+            assert!(quoted.ends_with("\\\\\""));
+        }
+    }
 
     #[test]
     fn vt100_basic_text() {
@@ -911,7 +1079,10 @@ mod tests {
             let cmd = build_command(&cfg("foo.exe", &["bar"]), None, "t");
             let argv = argv_strings(&cmd);
             assert_eq!(argv[0].to_lowercase(), "foo.exe");
-            assert!(!argv.iter().any(|a| a == "/c"), "não deve embrulhar: {argv:?}");
+            assert!(
+                !argv.iter().any(|a| a == "/c"),
+                "não deve embrulhar: {argv:?}"
+            );
             assert_eq!(argv[1], "bar");
         }
 
@@ -937,7 +1108,10 @@ mod tests {
             // a flag aparece literal e o conteúdo (com a quebra) está embutido
             assert!(inner.contains("--append-system-prompt"), "inner: {inner}");
             assert!(inner.contains("You are an agent."), "inner: {inner}");
-            assert!(inner.contains('\n'), "quebra de linha preservada: {inner:?}");
+            assert!(
+                inner.contains('\n'),
+                "quebra de linha preservada: {inner:?}"
+            );
             // aspas internas escapadas no formato argv do Windows (\")
             assert!(inner.contains("\\\""), "aspas escapadas: {inner:?}");
         }
@@ -991,7 +1165,12 @@ mod tests {
     // via get_argv() (cross-platform). No Windows, o caminho cmd-wrap empacota a
     // mesma linha — coberto pela lógica de host.rs + os testes Windows acima.
 
-    fn cfg_host(command: &str, args: &[&str], host: Option<&str>, cwd: Option<&str>) -> super::PtySpawnConfig {
+    fn cfg_host(
+        command: &str,
+        args: &[&str],
+        host: Option<&str>,
+        cwd: Option<&str>,
+    ) -> super::PtySpawnConfig {
         super::PtySpawnConfig {
             command: command.to_string(),
             args: args.iter().map(|s| s.to_string()).collect(),
@@ -1020,13 +1199,27 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("omnirift-spill-wire-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let gigante = "x".repeat(10_000);
-        let c = cfg_host("claude", &["--append-system-prompt", &gigante, "--model", "opus"], None, None);
+        let c = cfg_host(
+            "claude",
+            &["--append-system-prompt", &gigante, "--model", "opus"],
+            None,
+            None,
+        );
         let built = super::build_command(&c, Some(&dir), "sessao-teste");
         let argv = argv_of(&built);
         let linha = argv.join(" ");
-        assert!(!linha.contains(&gigante), "o prompt gigante NAO pode sobrar na linha de comando");
-        assert!(linha.contains("--append-system-prompt-file"), "a flag de arquivo deveria ter entrado: {linha}");
-        assert!(linha.contains("--model") && linha.contains("opus"), "os demais argumentos tem que sobreviver");
+        assert!(
+            !linha.contains(&gigante),
+            "o prompt gigante NAO pode sobrar na linha de comando"
+        );
+        assert!(
+            linha.contains("--append-system-prompt-file"),
+            "a flag de arquivo deveria ter entrado: {linha}"
+        );
+        assert!(
+            linha.contains("--model") && linha.contains("opus"),
+            "os demais argumentos tem que sobreviver"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1037,7 +1230,11 @@ mod tests {
         // (binário garantido no PATH em qualquer runner) — o teste é sobre host-wrapping,
         // não sobre a detecção de binário (essa tem testes próprios abaixo).
         for h in [None, Some("local")] {
-            let argv = argv_of(&super::build_command(&cfg_host("sh", &["--foo"], h, None), None, "t"));
+            let argv = argv_of(&super::build_command(
+                &cfg_host("sh", &["--foo"], h, None),
+                None,
+                "t",
+            ));
             assert_eq!(argv[0], "sh", "host={h:?} argv={argv:?}");
             assert_eq!(argv[1], "--foo");
             assert!(!argv.iter().any(|a| a == "ssh"), "sem ssh: {argv:?}");
@@ -1048,7 +1245,10 @@ mod tests {
     #[test]
     fn binary_command_spawns_direct() {
         // `sh` resolve no PATH → exec direto (sem embrulho em bash), args crus.
-        let argv = argv_of(&super::build_program("sh", &["-c".into(), "echo hi".into()]));
+        let argv = argv_of(&super::build_program(
+            "sh",
+            &["-c".into(), "echo hi".into()],
+        ));
         assert_eq!(argv[0], "sh", "binário direto: {argv:?}");
         assert_eq!(argv[1], "-c");
         assert_eq!(argv[2], "echo hi");
@@ -1067,8 +1267,16 @@ mod tests {
         assert_eq!(argv[0], shell, "argv: {argv:?}");
         assert_eq!(argv[1], "-lic");
         assert_eq!(argv.len(), 3, "linha única: {argv:?}");
-        assert!(argv[2].contains("__omniswitch_no_such_wrapper__"), "linha: {}", argv[2]);
-        assert!(argv[2].contains("'a b'"), "arg com espaço shell-quotado: {}", argv[2]);
+        assert!(
+            argv[2].contains("__omniswitch_no_such_wrapper__"),
+            "linha: {}",
+            argv[2]
+        );
+        assert!(
+            argv[2].contains("'a b'"),
+            "arg com espaço shell-quotado: {}",
+            argv[2]
+        );
         if super::shell_is_bash(&shell) {
             assert!(
                 argv[2].contains("expand_aliases"),
@@ -1083,7 +1291,11 @@ mod tests {
     fn ssh_host_wraps_command() {
         // execution_host ssh:<encoded user@host> → ssh -tt -o BatchMode=yes ... -- <cmd>
         let host_id = super::ExecutionHost::Ssh("user@box".to_string()).id();
-        let argv = argv_of(&super::build_command(&cfg_host("claude", &["--foo"], Some(&host_id), None), None, "t"));
+        let argv = argv_of(&super::build_command(
+            &cfg_host("claude", &["--foo"], Some(&host_id), None),
+            None,
+            "t",
+        ));
         assert_eq!(argv[0], "ssh", "argv: {argv:?}");
         assert_eq!(argv[1], "-tt");
         assert_eq!(argv[2], "-o");
@@ -1097,7 +1309,10 @@ mod tests {
         // do ssh local) → as aspas internas viram '\''. O conteúdo (claude/--foo)
         // sobrevive; o shell remoto desfaz a camada externa.
         let remote = argv.last().unwrap();
-        assert!(remote.starts_with('\'') && remote.ends_with('\''), "token único: {remote}");
+        assert!(
+            remote.starts_with('\'') && remote.ends_with('\''),
+            "token único: {remote}"
+        );
         assert!(remote.contains("claude"), "remote: {remote}");
         assert!(remote.contains("--foo"), "remote: {remote}");
     }
@@ -1107,16 +1322,29 @@ mod tests {
     fn ssh_host_embeds_remote_cwd() {
         // Com cwd → cd <path> && exec <agent> embutido no comando remoto.
         let host_id = super::ExecutionHost::Ssh("box".to_string()).id();
-        let argv = argv_of(&super::build_command(&cfg_host("bash", &[], Some(&host_id), Some("/srv/app")), None, "t"));
+        let argv = argv_of(&super::build_command(
+            &cfg_host("bash", &[], Some(&host_id), Some("/srv/app")),
+            None,
+            "t",
+        ));
         let remote = argv.last().unwrap();
         // O remote_cmd vai CRU como último arg do ssh (o ssh junta e manda pro shell
         // remoto parsear cd/&&/exec). Os TOKENS internos é que são quotados:
         // `cd '/srv/app' && exec 'bash'`. A segurança é o quote por-token, não um wrap
         // externo (que quebraria o parse remoto). [GLM-audit]
-        assert!(remote.contains("/srv/app"), "remote contém o path: {remote}");
-        assert!(remote.starts_with("cd "), "remote cru começa com cd: {remote}");
+        assert!(
+            remote.contains("/srv/app"),
+            "remote contém o path: {remote}"
+        );
+        assert!(
+            remote.starts_with("cd "),
+            "remote cru começa com cd: {remote}"
+        );
         assert!(remote.contains("&& exec"), "remote: {remote}");
-        assert!(remote.contains("'/srv/app'"), "path inner-quotado: {remote}");
+        assert!(
+            remote.contains("'/srv/app'"),
+            "path inner-quotado: {remote}"
+        );
         assert!(remote.contains("'bash'"), "cmd inner-quotado: {remote}");
         // O cwd LOCAL não é setado no ssh local (só embutido no remoto).
     }
@@ -1128,84 +1356,95 @@ mod tests {
         // Constrói um id ssh: com target perigoso (encode preserva os metacaracteres no
         // round-trip, então parse devolve Ssh com o target sujo; ssh_argv então rejeita).
         let dirty = super::ExecutionHost::Ssh("host; rm -rf /".to_string()).id();
-        let argv = argv_of(&super::build_command(&cfg_host("claude", &[], Some(&dirty), None), None, "t"));
+        let argv = argv_of(&super::build_command(
+            &cfg_host("claude", &[], Some(&dirty), None),
+            None,
+            "t",
+        ));
         // Não há `ssh` no argv — caiu no fail-safe.
-        assert!(!argv.iter().any(|a| a == "ssh"), "NÃO deve spawnar ssh: {argv:?}");
+        assert!(
+            !argv.iter().any(|a| a == "ssh"),
+            "NÃO deve spawnar ssh: {argv:?}"
+        );
         assert_eq!(argv[0], "sh", "fail-safe via sh: {argv:?}");
         // E não há o comando perigoso solto (o target sujo nunca chega ao shell).
-        assert!(!argv.iter().any(|a| a.contains("rm -rf")), "target sujo NÃO vaza: {argv:?}");
+        assert!(
+            !argv.iter().any(|a| a.contains("rm -rf")),
+            "target sujo NÃO vaza: {argv:?}"
+        );
     }
 
     #[cfg(test)]
     mod tests_spill_system_prompt {
-    use super::super::*;
+        use super::super::*;
 
-    fn dir_temp_unico(sufixo: &str) -> std::path::PathBuf {
-        std::env::temp_dir()
-            .join(format!("claude-pty-spill-test-{}-{sufixo}", std::process::id()))
-    }
+        fn dir_temp_unico(sufixo: &str) -> std::path::PathBuf {
+            std::env::temp_dir().join(format!(
+                "claude-pty-spill-test-{}-{sufixo}",
+                std::process::id()
+            ))
+        }
 
-    /// O caminho testado no Linux não pode mudar — só o Windows perto do limite paga.
-    #[test]
-    fn linha_curta_fica_inline() {
-        let dir = dir_temp_unico("curto");
-        let _ = std::fs::remove_dir_all(&dir);
-        let args = vec!["--append-system-prompt".into(), "curto".into()];
-        let out = spill_system_prompt_to_file(args.clone(), &dir, "curto");
-        assert_eq!(out, args);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
+        /// O caminho testado no Linux não pode mudar — só o Windows perto do limite paga.
+        #[test]
+        fn linha_curta_fica_inline() {
+            let dir = dir_temp_unico("curto");
+            let _ = std::fs::remove_dir_all(&dir);
+            let args = vec!["--append-system-prompt".into(), "curto".into()];
+            let out = spill_system_prompt_to_file(args.clone(), &dir, "curto");
+            assert_eq!(out, args);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
 
-    /// É o caso do cliente Windows — 10.500 chars de contrato estouravam os 8191 do cmd.
-    #[test]
-    fn prompt_gigante_vira_arquivo() {
-        let dir = dir_temp_unico("gigante");
-        let _ = std::fs::remove_dir_all(&dir);
-        let big = "x".repeat(10_000);
-        let args = vec!["--append-system-prompt".into(), big.clone()];
-        let out = spill_system_prompt_to_file(args, &dir, "win");
-        assert_eq!(out[0], "--append-system-prompt-file");
-        assert!(out[1].ends_with(".txt"));
-        assert!(std::path::Path::new(&out[1]).exists());
-        let content = std::fs::read_to_string(&out[1]).unwrap();
-        assert_eq!(content.len(), 10_000);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
+        /// É o caso do cliente Windows — 10.500 chars de contrato estouravam os 8191 do cmd.
+        #[test]
+        fn prompt_gigante_vira_arquivo() {
+            let dir = dir_temp_unico("gigante");
+            let _ = std::fs::remove_dir_all(&dir);
+            let big = "x".repeat(10_000);
+            let args = vec!["--append-system-prompt".into(), big.clone()];
+            let out = spill_system_prompt_to_file(args, &dir, "win");
+            assert_eq!(out[0], "--append-system-prompt-file");
+            assert!(out[1].ends_with(".txt"));
+            assert!(std::path::Path::new(&out[1]).exists());
+            let content = std::fs::read_to_string(&out[1]).unwrap();
+            assert_eq!(content.len(), 10_000);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
 
-    /// Outros comandos longos (não-claude) não devem ganhar arquivo nenhum.
-    #[test]
-    fn sem_a_flag_nao_mexe() {
-        let dir = dir_temp_unico("no-flag");
-        let _ = std::fs::remove_dir_all(&dir);
-        let args = vec!["--foo".into(), "x".repeat(9000)];
-        let out = spill_system_prompt_to_file(args.clone(), &dir, "no-flag");
-        assert_eq!(out, args);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
+        /// Outros comandos longos (não-claude) não devem ganhar arquivo nenhum.
+        #[test]
+        fn sem_a_flag_nao_mexe() {
+            let dir = dir_temp_unico("no-flag");
+            let _ = std::fs::remove_dir_all(&dir);
+            let args = vec!["--foo".into(), "x".repeat(9000)];
+            let out = spill_system_prompt_to_file(args.clone(), &dir, "no-flag");
+            assert_eq!(out, args);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
 
-    /// A troca é cirúrgica; mexer na ordem quebraria o parse do claude.
-    #[test]
-    fn preserva_os_demais_argumentos() {
-        let dir = dir_temp_unico("ordem");
-        let _ = std::fs::remove_dir_all(&dir);
-        let big = "x".repeat(10_000);
-        let args = vec![
-            "--model".into(),
-            "opus".into(),
-            "--append-system-prompt".into(),
-            big,
-            "--settings".into(),
-            "/tmp/s.json".into(),
-        ];
-        let out = spill_system_prompt_to_file(args, &dir, "ordem");
-        assert_eq!(out[0], "--model");
-        assert_eq!(out[1], "opus");
-        assert_eq!(out[2], "--append-system-prompt-file");
-        assert!(out[3].ends_with(".txt"));
-        assert_eq!(out[4], "--settings");
-        assert_eq!(out[5], "/tmp/s.json");
-        let _ = std::fs::remove_dir_all(&dir);
+        /// A troca é cirúrgica; mexer na ordem quebraria o parse do claude.
+        #[test]
+        fn preserva_os_demais_argumentos() {
+            let dir = dir_temp_unico("ordem");
+            let _ = std::fs::remove_dir_all(&dir);
+            let big = "x".repeat(10_000);
+            let args = vec![
+                "--model".into(),
+                "opus".into(),
+                "--append-system-prompt".into(),
+                big,
+                "--settings".into(),
+                "/tmp/s.json".into(),
+            ];
+            let out = spill_system_prompt_to_file(args, &dir, "ordem");
+            assert_eq!(out[0], "--model");
+            assert_eq!(out[1], "opus");
+            assert_eq!(out[2], "--append-system-prompt-file");
+            assert!(out[3].ends_with(".txt"));
+            assert_eq!(out[4], "--settings");
+            assert_eq!(out[5], "/tmp/s.json");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
-    }
-
 }

@@ -19,7 +19,11 @@ fn home_dir() -> Option<String> {
 }
 
 fn log_path() -> Option<PathBuf> {
-    Some(PathBuf::from(home_dir()?).join(".omnirift").join("debug.log"))
+    Some(
+        PathBuf::from(home_dir()?)
+            .join(".omnirift")
+            .join("debug.log"),
+    )
 }
 
 /// Appenda uma linha no debug.log (cria o dir/arquivo se preciso). Best-effort.
@@ -55,6 +59,11 @@ pub fn debug_log_path() -> String {
 #[tauri::command]
 pub fn debug_log_mark(label: String) {
     append(&format!("\n===== {label} ====="));
+    // A MESMA marca vai pro omnirift.log. O pacote de diagnóstico leva os DOIS arquivos;
+    // delimitar só o debug.log deixava o outro entrar cru, com atividade anterior ao
+    // consentimento do cliente — o problema que a marca existe pra resolver, resolvido
+    // pela metade.
+    log::info!("===== {label} =====");
 }
 
 /// Anota uma linha de diagnóstico no debug.log a partir do BACKEND (subsistemas como OmniGraph

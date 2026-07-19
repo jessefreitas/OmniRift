@@ -95,8 +95,14 @@ impl SystemProbe {
 
     /// Consumo por agente: soma CPU%/RSS do processo-raiz de cada sessão + descendentes.
     /// `label` fica vazio (o frontend resolve via id).
-    pub fn sample_agents(&mut self, sessions: &[(String, u32)], vram_by_pid: &HashMap<u32, u64>) -> Vec<AgentStat> {
-        if sessions.is_empty() { return Vec::new(); }
+    pub fn sample_agents(
+        &mut self,
+        sessions: &[(String, u32)],
+        vram_by_pid: &HashMap<u32, u64>,
+    ) -> Vec<AgentStat> {
+        if sessions.is_empty() {
+            return Vec::new();
+        }
 
         let roots: Vec<u32> = sessions.iter().map(|(_, root)| *root).collect();
 
@@ -105,7 +111,10 @@ impl SystemProbe {
         // atraso máximo de TREE_TTL — muito menor custo que varrer /proc inteiro a cada segundo.
         let needs_topology = self.tree_at.is_none()
             || self.tree_roots != roots
-            || self.tree_at.map(|t| t.elapsed() >= TREE_TTL).unwrap_or(true);
+            || self
+                .tree_at
+                .map(|t| t.elapsed() >= TREE_TTL)
+                .unwrap_or(true);
 
         if needs_topology {
             self.sys.refresh_processes(ProcessesToUpdate::All, true);
@@ -113,7 +122,10 @@ impl SystemProbe {
             let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
             for (pid, p) in self.sys.processes() {
                 if let Some(parent) = p.parent() {
-                    children.entry(parent.as_u32()).or_default().push(pid.as_u32());
+                    children
+                        .entry(parent.as_u32())
+                        .or_default()
+                        .push(pid.as_u32());
                 }
             }
 
@@ -122,7 +134,9 @@ impl SystemProbe {
                 let mut seen = HashSet::new();
                 let mut stack = vec![*root];
                 while let Some(pid) = stack.pop() {
-                    if !seen.insert(pid) { continue; }
+                    if !seen.insert(pid) {
+                        continue;
+                    }
                     if let Some(kids) = children.get(&pid) {
                         stack.extend(kids);
                     }
@@ -138,37 +152,46 @@ impl SystemProbe {
             self.tree_roots = roots;
         } else {
             // PT: Métricas: refresca só os PIDs cacheados, evitando varrer /proc todo.
-            let pids: Vec<sysinfo::Pid> = self.agent_tree
+            let pids: Vec<sysinfo::Pid> = self
+                .agent_tree
                 .values()
                 .flatten()
                 .copied()
                 .map(Pid::from_u32)
                 .collect();
             if !pids.is_empty() {
-                self.sys.refresh_processes(ProcessesToUpdate::Some(&pids), true);
+                self.sys
+                    .refresh_processes(ProcessesToUpdate::Some(&pids), true);
             }
         }
 
-        sessions.iter().map(|(sid, root)| {
-            let mut cpu = 0.0f32;
-            let mut rss = 0u64;
-            let mut vram = 0u64;
-            let members = self.agent_tree.get(root).cloned().unwrap_or_else(|| vec![*root]);
-            for pid in &members {
-                if let Some(p) = self.sys.process(Pid::from_u32(*pid)) {
-                    cpu += p.cpu_usage();
-                    rss += p.memory();
+        sessions
+            .iter()
+            .map(|(sid, root)| {
+                let mut cpu = 0.0f32;
+                let mut rss = 0u64;
+                let mut vram = 0u64;
+                let members = self
+                    .agent_tree
+                    .get(root)
+                    .cloned()
+                    .unwrap_or_else(|| vec![*root]);
+                for pid in &members {
+                    if let Some(p) = self.sys.process(Pid::from_u32(*pid)) {
+                        cpu += p.cpu_usage();
+                        rss += p.memory();
+                    }
+                    vram += vram_by_pid.get(pid).copied().unwrap_or(0);
                 }
-                vram += vram_by_pid.get(pid).copied().unwrap_or(0);
-            }
-            AgentStat {
-                session_id: sid.clone(),
-                label: String::new(),
-                pid: *root,
-                cpu_pct: cpu,
-                rss_bytes: rss,
-                vram_bytes: if vram > 0 { Some(vram) } else { None },
-            }
-        }).collect()
+                AgentStat {
+                    session_id: sid.clone(),
+                    label: String::new(),
+                    pid: *root,
+                    cpu_pct: cpu,
+                    rss_bytes: rss,
+                    vram_bytes: if vram > 0 { Some(vram) } else { None },
+                }
+            })
+            .collect()
     }
 }

@@ -116,14 +116,27 @@ pub fn diagnostics_export(app: tauri::AppHandle) -> Result<String, String> {
     // PRIVACIDADE: corta a partir da marca que o gravador escreve ao iniciar. Sem isso o
     // pacote levava os últimos 200 KB CRUS — que podem ser de outra sessão, de outro
     // projeto. O cliente aperta "gravar" e tem que sair daí pra frente, não do passado.
-    let (debug_tail, veio_da_marca) = slice_recording(&debug_log, 200_000);
+    let (debug_tail, marca_debug) = slice_recording(&debug_log, 200_000);
+    // O omnirift.log passa pelo MESMO recorte: os dois arquivos saem da máquina do cliente.
+    let (app_tail, marca_app) = slice_recording(&b.log_tail, LOG_TAIL_BYTES);
+    let veio_da_marca = marca_debug && marca_app;
 
     let mut out = String::new();
     out.push_str("=== OmniRift — diagnóstico ===\n");
-    out.push_str(&format!("gerado : {}\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S")));
+    out.push_str(&format!(
+        "gerado : {}\n",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    ));
     out.push_str(&format!("versão : {}\n", b.app_version));
     out.push_str(&format!("SO     : {} {}\n", b.os, b.os_version));
-    out.push_str(&format!("debug  : {}\n", if crate::commands::debug_mode::is_enabled() { "LIGADO" } else { "desligado" }));
+    out.push_str(&format!(
+        "debug  : {}\n",
+        if crate::commands::debug_mode::is_enabled() {
+            "LIGADO"
+        } else {
+            "desligado"
+        }
+    ));
     out.push_str("\nSe o modo debug estava DESLIGADO, o log tem menos detalhe: ligue em\n");
     out.push_str("Configurações > Geral, reproduza o problema e gere o arquivo de novo.\n");
     if !veio_da_marca {
@@ -131,7 +144,7 @@ pub fn diagnostics_export(app: tauri::AppHandle) -> Result<String, String> {
         out.push_str("final do log, que pode conter atividade anterior a este problema.\n");
     }
     out.push_str("\n\n=== omnirift.log (fim) ===\n");
-    out.push_str(&b.log_tail);
+    out.push_str(&app_tail);
     out.push_str("\n\n=== debug.log (fim) ===\n");
     if !debug_err.is_empty() {
         out.push_str(&debug_err);
@@ -146,10 +159,14 @@ pub fn diagnostics_export(app: tauri::AppHandle) -> Result<String, String> {
         .app_log_dir()
         .map_err(|e| format!("sem diretório de log: {e}"))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("não criei o diretório: {e}"))?;
-    let name = format!("omnirift-diagnostico-{}.txt", chrono::Local::now().format("%Y%m%d-%H%M%S"));
+    let name = format!(
+        "omnirift-diagnostico-{}.txt",
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    );
     let path = dir.join(name);
     let mut f = std::fs::File::create(&path).map_err(|e| format!("não criei o arquivo: {e}"))?;
-    f.write_all(safe.as_bytes()).map_err(|e| format!("não escrevi: {e}"))?;
+    f.write_all(safe.as_bytes())
+        .map_err(|e| format!("não escrevi: {e}"))?;
     Ok(path.to_string_lossy().to_string())
 }
 
@@ -160,9 +177,8 @@ mod tests {
     #[test]
     /// doc: o cliente apertou "gravar" — nada de antes disso pode sair da máquina dele
     fn corta_a_partir_da_marca() {
-        let log = "passado que nao pode vazar\n===== ".to_string()
-            + RECORDING_MARK
-            + " =====\nagora sim";
+        let log =
+            "passado que nao pode vazar\n===== ".to_string() + RECORDING_MARK + " =====\nagora sim";
         let (trecho, veio_da_marca) = slice_recording(&log, 200);
         assert!(!trecho.contains("passado que nao pode vazar"));
         assert!(trecho.contains("agora sim"));

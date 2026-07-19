@@ -102,7 +102,11 @@ fn floor_count(ctx: &RpcContext) -> usize {
         return 0;
     };
     let guard = mirror.lock();
-    guard.get("floors").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0)
+    guard
+        .get("floors")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +202,9 @@ const REMOTE_SNAPSHOT_DEFAULT_ROWS: usize = 500;
 
 fn parse_snapshot_params(params: Value) -> Result<SnapshotParams, RpcError> {
     if params.is_null() {
-        return Err(RpcError::invalid_argument("pty.snapshot exige params {sessionId, rows?}"));
+        return Err(RpcError::invalid_argument(
+            "pty.snapshot exige params {sessionId, rows?}",
+        ));
     }
     serde_json::from_value(params).map_err(|e| {
         // Mensagem do serde já é legível ("missing field `sessionId`", etc.).
@@ -265,7 +271,9 @@ impl SpawnParams {
     /// um único nome de programa inexistente, não dois comandos. Só barramos o vazio.
     fn validate(self) -> Result<Self, RpcError> {
         if self.command.trim().is_empty() {
-            return Err(RpcError::invalid_argument("agent.spawn exige 'command' não-vazio"));
+            return Err(RpcError::invalid_argument(
+                "agent.spawn exige 'command' não-vazio",
+            ));
         }
         Ok(self)
     }
@@ -278,8 +286,8 @@ fn parse_spawn_params(params: Value) -> Result<SpawnParams, RpcError> {
             "agent.spawn exige params {command, args?, cwd?, label?, executionHost?}",
         ));
     }
-    let parsed: SpawnParams = serde_json::from_value(params)
-        .map_err(|e| RpcError::invalid_argument(e.to_string()))?;
+    let parsed: SpawnParams =
+        serde_json::from_value(params).map_err(|e| RpcError::invalid_argument(e.to_string()))?;
     parsed.validate()
 }
 
@@ -319,7 +327,13 @@ fn agent_spawn(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
     if let Some(reg) = ctx.app.try_state::<Arc<AgentRegistry>>() {
         // role=None: o spawn pela CLI não declara papel, então este agente fica fora do
         // casamento por papel do guard anti-duplicata (só o por-nome vale pra ele).
-        reg.register(label.clone(), session_id.clone(), p.command.clone(), None, None);
+        reg.register(
+            label.clone(),
+            session_id.clone(),
+            p.command.clone(),
+            None,
+            None,
+        );
     }
 
     // Avisa o frontend pra attachar um TerminalNode na sessão JÁ spawnada (não re-spawna).
@@ -355,7 +369,9 @@ struct SendParams {
 /// Parse puro dos params de `agent.send`. Null/torto → `invalid_argument`.
 fn parse_send_params(params: Value) -> Result<SendParams, RpcError> {
     if params.is_null() {
-        return Err(RpcError::invalid_argument("agent.send exige params {sessionId, input}"));
+        return Err(RpcError::invalid_argument(
+            "agent.send exige params {sessionId, input}",
+        ));
     }
     serde_json::from_value(params).map_err(|e| RpcError::invalid_argument(e.to_string()))
 }
@@ -405,7 +421,9 @@ struct KillParams {
 /// Parse puro dos params de `agent.kill`. Null/torto → `invalid_argument`.
 fn parse_kill_params(params: Value) -> Result<KillParams, RpcError> {
     if params.is_null() {
-        return Err(RpcError::invalid_argument("agent.kill exige params {sessionId}"));
+        return Err(RpcError::invalid_argument(
+            "agent.kill exige params {sessionId}",
+        ));
     }
     serde_json::from_value(params).map_err(|e| RpcError::invalid_argument(e.to_string()))
 }
@@ -474,8 +492,12 @@ fn permissions_list(_params: Value, ctx: &RpcContext) -> Result<Value, RpcError>
     // (F1) SEM lock novo (mesmo caminho do `acp_attach`); `pending_permission` já é `{reqId, params}`.
     let mut pending: Vec<Value> = Vec::new();
     for (label, id, _ready) in manager.labels_list() {
-        let Ok(snap) = manager.attach(&id) else { continue };
-        let Some(payload) = snap.pending_permission else { continue };
+        let Ok(snap) = manager.attach(&id) else {
+            continue;
+        };
+        let Some(payload) = snap.pending_permission else {
+            continue;
+        };
         let req_id = payload.get("reqId").cloned().unwrap_or(Value::Null);
         let acp_params = payload.get("params").cloned().unwrap_or(Value::Null);
         pending.push(json!({
@@ -520,7 +542,9 @@ fn parse_permission_respond_params(params: Value) -> Result<PermissionRespondPar
     let parsed: PermissionRespondParams =
         serde_json::from_value(params).map_err(|e| RpcError::invalid_argument(e.to_string()))?;
     if parsed.session_id.trim().is_empty() {
-        return Err(RpcError::invalid_argument("permission.respond exige 'sessionId' não-vazio"));
+        return Err(RpcError::invalid_argument(
+            "permission.respond exige 'sessionId' não-vazio",
+        ));
     }
     Ok(parsed)
 }
@@ -584,7 +608,11 @@ fn kanban_list(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
     // recentemente ativo (ou `""` se não há cards, o que devolve o default de 6 + zero cards).
     let project = match p.project.filter(|s| !s.is_empty()) {
         Some(pr) => pr,
-        None => db.kanban_projects().ok().and_then(|v| v.into_iter().next()).unwrap_or_default(),
+        None => db
+            .kanban_projects()
+            .ok()
+            .and_then(|v| v.into_iter().next())
+            .unwrap_or_default(),
     };
 
     let columns: Vec<Value> = crate::db::kanban_effective_columns(&db, &project)
@@ -624,7 +652,9 @@ struct KanbanMoveParams {
 /// Parse puro dos params de `kanban.move`. Null/torto → `invalid_argument`.
 fn parse_kanban_move_params(params: Value) -> Result<KanbanMoveParams, RpcError> {
     if params.is_null() {
-        return Err(RpcError::invalid_argument("kanban.move exige params {cardId, col}"));
+        return Err(RpcError::invalid_argument(
+            "kanban.move exige params {cardId, col}",
+        ));
     }
     serde_json::from_value(params).map_err(|e| RpcError::invalid_argument(e.to_string()))
 }
@@ -649,7 +679,8 @@ fn kanban_move(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
             crate::db::kanban_cols_hint(&db, &project)
         )));
     }
-    db.kanban_move(p.card_id, &p.col).map_err(|e| RpcError::internal(format!("{e:#}")))?;
+    db.kanban_move(p.card_id, &p.col)
+        .map_err(|e| RpcError::internal(format!("{e:#}")))?;
     let _ = ctx.app.emit("kanban://changed", ());
     Ok(json!({ "ok": true }))
 }
@@ -677,18 +708,14 @@ fn parse_acp_prompt_params(params: Value) -> Result<AcpPromptParams, RpcError> {
             "acp.prompt exige params {sessionId, input}",
         ));
     }
-    serde_json::from_value(params)
-        .map_err(|e| RpcError::invalid_argument(e.to_string()))
+    serde_json::from_value(params).map_err(|e| RpcError::invalid_argument(e.to_string()))
 }
 
 fn parse_acp_session_params(params: Value) -> Result<AcpSessionParams, RpcError> {
     if params.is_null() {
-        return Err(RpcError::invalid_argument(
-            "exige params {sessionId}",
-        ));
+        return Err(RpcError::invalid_argument("exige params {sessionId}"));
     }
-    serde_json::from_value(params)
-        .map_err(|e| RpcError::invalid_argument(e.to_string()))
+    serde_json::from_value(params).map_err(|e| RpcError::invalid_argument(e.to_string()))
 }
 
 fn acp_list(_params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
@@ -792,7 +819,11 @@ mod tests {
     fn snapshot_params_require_session_id() {
         let err = parse_snapshot_params(json!({ "rows": 80 })).unwrap_err();
         assert_eq!(err.code, "invalid_argument");
-        assert!(err.message.contains("sessionId"), "erro deve citar o campo: {}", err.message);
+        assert!(
+            err.message.contains("sessionId"),
+            "erro deve citar o campo: {}",
+            err.message
+        );
     }
 
     #[test]
@@ -810,9 +841,21 @@ mod tests {
     #[test]
     fn snapshot_params_parse_full_and_default_rows() {
         let full = parse_snapshot_params(json!({ "sessionId": "s1", "rows": 120 })).unwrap();
-        assert_eq!(full, SnapshotParams { session_id: "s1".into(), rows: Some(120) });
+        assert_eq!(
+            full,
+            SnapshotParams {
+                session_id: "s1".into(),
+                rows: Some(120)
+            }
+        );
         let defaulted = parse_snapshot_params(json!({ "sessionId": "s2" })).unwrap();
-        assert_eq!(defaulted, SnapshotParams { session_id: "s2".into(), rows: None });
+        assert_eq!(
+            defaulted,
+            SnapshotParams {
+                session_id: "s2".into(),
+                rows: None
+            }
+        );
     }
 
     // ----------------------------------------------------------------------
@@ -823,7 +866,11 @@ mod tests {
     fn spawn_params_require_command() {
         let err = parse_spawn_params(json!({ "label": "x" })).unwrap_err();
         assert_eq!(err.code, "invalid_argument");
-        assert!(err.message.contains("command"), "erro deve citar 'command': {}", err.message);
+        assert!(
+            err.message.contains("command"),
+            "erro deve citar 'command': {}",
+            err.message
+        );
     }
 
     #[test]
@@ -899,24 +946,42 @@ mod tests {
     fn send_params_require_session_id_and_input() {
         let no_sid = parse_send_params(json!({ "input": "oi" })).unwrap_err();
         assert_eq!(no_sid.code, "invalid_argument");
-        assert!(no_sid.message.contains("sessionId"), "msg: {}", no_sid.message);
+        assert!(
+            no_sid.message.contains("sessionId"),
+            "msg: {}",
+            no_sid.message
+        );
 
         let no_input = parse_send_params(json!({ "sessionId": "s1" })).unwrap_err();
         assert_eq!(no_input.code, "invalid_argument");
-        assert!(no_input.message.contains("input"), "msg: {}", no_input.message);
+        assert!(
+            no_input.message.contains("input"),
+            "msg: {}",
+            no_input.message
+        );
     }
 
     #[test]
     fn send_params_reject_null_and_unknown_field() {
-        assert_eq!(parse_send_params(Value::Null).unwrap_err().code, "invalid_argument");
-        let err = parse_send_params(json!({ "sessionId": "s1", "input": "x", "bogus": 1 })).unwrap_err();
+        assert_eq!(
+            parse_send_params(Value::Null).unwrap_err().code,
+            "invalid_argument"
+        );
+        let err =
+            parse_send_params(json!({ "sessionId": "s1", "input": "x", "bogus": 1 })).unwrap_err();
         assert_eq!(err.code, "invalid_argument");
     }
 
     #[test]
     fn send_params_parse_ok() {
         let p = parse_send_params(json!({ "sessionId": "s1", "input": "/help" })).unwrap();
-        assert_eq!(p, SendParams { session_id: "s1".into(), input: "/help".into() });
+        assert_eq!(
+            p,
+            SendParams {
+                session_id: "s1".into(),
+                input: "/help".into()
+            }
+        );
     }
 
     // ----------------------------------------------------------------------
@@ -932,7 +997,10 @@ mod tests {
 
     #[test]
     fn kill_params_reject_null_and_unknown_field() {
-        assert_eq!(parse_kill_params(Value::Null).unwrap_err().code, "invalid_argument");
+        assert_eq!(
+            parse_kill_params(Value::Null).unwrap_err().code,
+            "invalid_argument"
+        );
         let err = parse_kill_params(json!({ "sessionId": "s1", "bogus": 1 })).unwrap_err();
         assert_eq!(err.code, "invalid_argument");
     }
@@ -940,7 +1008,12 @@ mod tests {
     #[test]
     fn kill_params_parse_ok() {
         let p = parse_kill_params(json!({ "sessionId": "s9" })).unwrap();
-        assert_eq!(p, KillParams { session_id: "s9".into() });
+        assert_eq!(
+            p,
+            KillParams {
+                session_id: "s9".into()
+            }
+        );
     }
 
     // ----------------------------------------------------------------------
@@ -955,7 +1028,10 @@ mod tests {
         use crate::pty::PtyManager;
         let m = PtyManager::new();
         // Sessão inexistente: o manager erra...
-        assert!(m.kill("nope").is_err(), "kill de sessão inexistente erra no manager");
+        assert!(
+            m.kill("nope").is_err(),
+            "kill de sessão inexistente erra no manager"
+        );
         // ...e o agent_kill engole esse erro (idempotência): a forma é `let _ = kill(); Ok(ok)`.
         // Como não há AppHandle no teste unit, fixamos o contrato no nível do manager +
         // documentamos que o handler faz `let _ = manager.kill(...)` → sempre {ok:true}.
@@ -969,7 +1045,11 @@ mod tests {
     fn permission_respond_params_require_session_and_req_id() {
         let no_sid = parse_permission_respond_params(json!({ "reqId": 1 })).unwrap_err();
         assert_eq!(no_sid.code, "invalid_argument");
-        assert!(no_sid.message.contains("sessionId"), "msg: {}", no_sid.message);
+        assert!(
+            no_sid.message.contains("sessionId"),
+            "msg: {}",
+            no_sid.message
+        );
 
         let no_req = parse_permission_respond_params(json!({ "sessionId": "s1" })).unwrap_err();
         assert_eq!(no_req.code, "invalid_argument");
@@ -979,14 +1059,22 @@ mod tests {
     #[test]
     fn permission_respond_params_reject_null_empty_and_unknown() {
         assert_eq!(
-            parse_permission_respond_params(Value::Null).unwrap_err().code,
+            parse_permission_respond_params(Value::Null)
+                .unwrap_err()
+                .code,
             "invalid_argument"
         );
-        let empty = parse_permission_respond_params(json!({ "sessionId": "  ", "reqId": 1 })).unwrap_err();
+        let empty =
+            parse_permission_respond_params(json!({ "sessionId": "  ", "reqId": 1 })).unwrap_err();
         assert_eq!(empty.code, "invalid_argument");
-        assert!(empty.message.contains("não-vazio"), "msg: {}", empty.message);
+        assert!(
+            empty.message.contains("não-vazio"),
+            "msg: {}",
+            empty.message
+        );
         let bogus =
-            parse_permission_respond_params(json!({ "sessionId": "s1", "reqId": 1, "x": 2 })).unwrap_err();
+            parse_permission_respond_params(json!({ "sessionId": "s1", "reqId": 1, "x": 2 }))
+                .unwrap_err();
         assert_eq!(bogus.code, "invalid_argument");
     }
 
@@ -1023,8 +1111,14 @@ mod tests {
         });
         let opts = extract_permission_options(&acp_params);
         assert_eq!(opts.len(), 2);
-        assert_eq!(opts[0], json!({ "optionId": "allow", "name": "Permitir", "kind": "allow_once" }));
-        assert_eq!(extract_permission_title(&acp_params), "Rodar `rm -rf build`");
+        assert_eq!(
+            opts[0],
+            json!({ "optionId": "allow", "name": "Permitir", "kind": "allow_once" })
+        );
+        assert_eq!(
+            extract_permission_title(&acp_params),
+            "Rodar `rm -rf build`"
+        );
     }
 
     #[test]
@@ -1049,13 +1143,21 @@ mod tests {
 
     #[test]
     fn kanban_list_params_null_is_no_project() {
-        assert_eq!(parse_kanban_list_params(Value::Null).unwrap(), KanbanListParams { project: None });
+        assert_eq!(
+            parse_kanban_list_params(Value::Null).unwrap(),
+            KanbanListParams { project: None }
+        );
     }
 
     #[test]
     fn kanban_list_params_parse_project_and_reject_unknown() {
         let with = parse_kanban_list_params(json!({ "project": "/home/x/proj" })).unwrap();
-        assert_eq!(with, KanbanListParams { project: Some("/home/x/proj".into()) });
+        assert_eq!(
+            with,
+            KanbanListParams {
+                project: Some("/home/x/proj".into())
+            }
+        );
         let bogus = parse_kanban_list_params(json!({ "bogus": 1 })).unwrap_err();
         assert_eq!(bogus.code, "invalid_argument");
     }
@@ -1072,8 +1174,17 @@ mod tests {
 
     #[test]
     fn kanban_move_params_reject_null_and_parse_ok() {
-        assert_eq!(parse_kanban_move_params(Value::Null).unwrap_err().code, "invalid_argument");
+        assert_eq!(
+            parse_kanban_move_params(Value::Null).unwrap_err().code,
+            "invalid_argument"
+        );
         let p = parse_kanban_move_params(json!({ "cardId": 42, "col": "review" })).unwrap();
-        assert_eq!(p, KanbanMoveParams { card_id: 42, col: "review".into() });
+        assert_eq!(
+            p,
+            KanbanMoveParams {
+                card_id: 42,
+                col: "review".into()
+            }
+        );
     }
 }

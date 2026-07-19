@@ -60,7 +60,11 @@ pub fn mcp_server_url(
 /// Monta a URL SSE (loopback) com o token de auth embutido. Fonte única usada pelo
 /// comando `mcp_server_url` e pelo `agent_mcp_config` (entrada `omnirift-agents`).
 fn mcp_sse_url(token: &str) -> String {
-    format!("http://127.0.0.1:{}/sse?token={}", crate::mcp::MCP_PORT, token)
+    format!(
+        "http://127.0.0.1:{}/sse?token={}",
+        crate::mcp::MCP_PORT,
+        token
+    )
 }
 
 /// Salva uma imagem colada (Ctrl+V) em arquivo PNG temporário e devolve o caminho.
@@ -103,10 +107,7 @@ pub struct CanvasAgentsMirror(pub std::sync::Arc<parking_lot::Mutex<serde_json::
 /// O front espelha aqui TODOS os terminais do canvas — `[{sessionId, label, role, floor}]`.
 /// O `state` (working/idle/…) o `agents.list` resolve na hora via `PtyManager`.
 #[tauri::command]
-pub fn canvas_agents_set(
-    agents: serde_json::Value,
-    mirror: State<'_, CanvasAgentsMirror>,
-) {
+pub fn canvas_agents_set(agents: serde_json::Value, mirror: State<'_, CanvasAgentsMirror>) {
     *mirror.0.lock() = agents;
 }
 
@@ -114,7 +115,11 @@ pub fn canvas_agents_set(
 fn which(bin: &str) -> Option<String> {
     // `which` no Unix, `where` no Windows (resolve binário via PATH em ambos).
     let finder = if cfg!(windows) { "where" } else { "which" };
-    let out = std::process::Command::new(finder).arg(bin).no_window().output().ok()?;
+    let out = std::process::Command::new(finder)
+        .arg(bin)
+        .no_window()
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }
@@ -125,7 +130,11 @@ fn which(bin: &str) -> Option<String> {
         .unwrap_or("")
         .trim()
         .to_string();
-    if p.is_empty() { None } else { Some(p) }
+    if p.is_empty() {
+        None
+    } else {
+        Some(p)
+    }
 }
 
 /// Binário `serena` instalado (PATH, uv tools, ou snap do VS Code).
@@ -145,7 +154,9 @@ fn serena_binary() -> Option<String> {
     // Fallback: dev sob o snap do VS Code (~/snap/code/<rev>/.local/share/uv/...).
     if let Ok(revs) = std::fs::read_dir(format!("{home}/snap/code")) {
         for rev in revs.flatten() {
-            let c = rev.path().join(".local/share/uv/tools/serena-agent/bin/serena");
+            let c = rev
+                .path()
+                .join(".local/share/uv/tools/serena-agent/bin/serena");
             if c.exists() {
                 return Some(c.to_string_lossy().to_string());
             }
@@ -159,7 +170,10 @@ fn find_uvx() -> Option<String> {
         return Some(p);
     }
     let home = std::env::var("HOME").ok()?;
-    for c in [format!("{home}/.local/bin/uvx"), format!("{home}/.cargo/bin/uvx")] {
+    for c in [
+        format!("{home}/.local/bin/uvx"),
+        format!("{home}/.cargo/bin/uvx"),
+    ] {
         if std::path::Path::new(&c).exists() {
             return Some(c);
         }
@@ -175,7 +189,10 @@ fn find_serena() -> Option<(String, Vec<String>)> {
         return Some((bin, vec![]));
     }
     if let Some(uvx) = find_uvx() {
-        return Some((uvx, vec!["--from".into(), "serena-agent".into(), "serena".into()]));
+        return Some((
+            uvx,
+            vec!["--from".into(), "serena-agent".into(), "serena".into()],
+        ));
     }
     None
 }
@@ -224,11 +241,16 @@ pub fn agent_mcp_config(
         let mut args: Vec<serde_json::Value> =
             prefix.into_iter().map(serde_json::Value::from).collect();
         for a in [
-            "start-mcp-server", "--transport", "stdio",
-            "--project-from-cwd", "--context", "ide-assistant",
+            "start-mcp-server",
+            "--transport",
+            "stdio",
+            "--project-from-cwd",
+            "--context",
+            "ide-assistant",
             // --open-web-dashboard False: NÃO abre a dashboard do Serena no
             // navegador a cada agente (senão reabre 127.0.0.1:<porta>/dashboard toda hora).
-            "--open-web-dashboard", "False",
+            "--open-web-dashboard",
+            "False",
         ] {
             args.push(serde_json::Value::from(a));
         }
@@ -315,8 +337,10 @@ pub fn agent_mcp_config(
     let (servers, filename) = match &allowed {
         Some(allow) => {
             let keep: std::collections::HashSet<&str> = allow.iter().map(String::as_str).collect();
-            let servers: serde_json::Map<String, serde_json::Value> =
-                servers.into_iter().filter(|(k, _)| keep.contains(k.as_str())).collect();
+            let servers: serde_json::Map<String, serde_json::Value> = servers
+                .into_iter()
+                .filter(|(k, _)| keep.contains(k.as_str()))
+                .collect();
             let mut keys: Vec<&str> = servers.keys().map(String::as_str).collect();
             keys.sort_unstable();
             let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -378,42 +402,101 @@ pub fn mcp_inventory(
     db: State<'_, Db>,
 ) -> Vec<McpInventoryItem> {
     let mut out = vec![
-        McpInventoryItem { key: "serena".into(), label: "Serena — estrutura de código (LSP, 50+ langs)".into(), est_tokens: 7000, source: "builtin".into(), available: find_serena().is_some() },
-        McpInventoryItem { key: "context7".into(), label: "Context7 — docs ao vivo de libs".into(), est_tokens: 700, source: "builtin".into(), available: true },
-        McpInventoryItem { key: "playwright".into(), label: "Playwright — dirige um browser real".into(), est_tokens: 8000, source: "builtin".into(), available: true },
+        McpInventoryItem {
+            key: "serena".into(),
+            label: "Serena — estrutura de código (LSP, 50+ langs)".into(),
+            est_tokens: 7000,
+            source: "builtin".into(),
+            available: find_serena().is_some(),
+        },
+        McpInventoryItem {
+            key: "context7".into(),
+            label: "Context7 — docs ao vivo de libs".into(),
+            est_tokens: 700,
+            source: "builtin".into(),
+            available: true,
+        },
+        McpInventoryItem {
+            key: "playwright".into(),
+            label: "Playwright — dirige um browser real".into(),
+            est_tokens: 8000,
+            source: "builtin".into(),
+            available: true,
+        },
     ];
     if crate::compress::find_sidecar("omnicompress-mcp").is_some() {
-        out.push(McpInventoryItem { key: "omnicompress".into(), label: "OmniCompress — compressão sob demanda".into(), est_tokens: 900, source: "builtin".into(), available: true });
+        out.push(McpInventoryItem {
+            key: "omnicompress".into(),
+            label: "OmniCompress — compressão sob demanda".into(),
+            est_tokens: 900,
+            source: "builtin".into(),
+            available: true,
+        });
     }
     // OmniFS: 5 tools (~900 tokens de schema). `available` = daemon respondendo no
     // socket (o gate real do agent_mcp_config) — binário sem daemon fica cinza.
     if crate::omnifs::find_omnifs_bin().is_some() {
-        out.push(McpInventoryItem { key: "omnifs".into(), label: "OmniFS — drive versionado + busca semântica".into(), est_tokens: 900, source: "builtin".into(), available: crate::omnifs::socket_alive(&crate::omnifs::socket_path()) });
+        out.push(McpInventoryItem {
+            key: "omnifs".into(),
+            label: "OmniFS — drive versionado + busca semântica".into(),
+            est_tokens: 900,
+            source: "builtin".into(),
+            available: crate::omnifs::socket_alive(&crate::omnifs::socket_path()),
+        });
     }
     // Provider de memória ativo (omnimemory ~100 tools = o gigante do contexto).
     for (name, _spec) in memory_registry.active_provider().agent_wiring().mcp_servers {
-        let est = if name.to_lowercase().contains("memory") || name.to_lowercase().contains("omnimemory") { 32000 } else { 4000 };
-        out.push(McpInventoryItem { key: name.clone(), label: format!("Memória — {name}"), est_tokens: est, source: "memory".into(), available: true });
+        let est = if name.to_lowercase().contains("memory")
+            || name.to_lowercase().contains("omnimemory")
+        {
+            32000
+        } else {
+            4000
+        };
+        out.push(McpInventoryItem {
+            key: name.clone(),
+            label: format!("Memória — {name}"),
+            est_tokens: est,
+            source: "memory".into(),
+            available: true,
+        });
     }
     // MCP servers custom habilitados pelo usuário.
     if let Ok(rows) = db.mcp_list() {
         for r in rows.into_iter().filter(|r| r.enabled) {
-            out.push(McpInventoryItem { key: r.name.clone(), label: format!("Custom — {}", r.name), est_tokens: 2500, source: "custom".into(), available: true });
+            out.push(McpInventoryItem {
+                key: r.name.clone(),
+                label: format!("Custom — {}", r.name),
+                est_tokens: 2500,
+                source: "custom".into(),
+                available: true,
+            });
         }
     }
-    out.push(McpInventoryItem { key: "omnirift-agents".into(), label: "OmniRift — orquestração (equipe, claims, review)".into(), est_tokens: 3500, source: "orchestration".into(), available: true });
+    out.push(McpInventoryItem {
+        key: "omnirift-agents".into(),
+        label: "OmniRift — orquestração (equipe, claims, review)".into(),
+        est_tokens: 3500,
+        source: "orchestration".into(),
+        available: true,
+    });
     out
 }
 
 /// Define o teto de agentes simultâneos do Orquestrador (clamp 1–16).
 #[tauri::command]
-pub fn set_max_agents(n: usize, max_agents: State<'_, std::sync::Arc<std::sync::atomic::AtomicUsize>>) {
+pub fn set_max_agents(
+    n: usize,
+    max_agents: State<'_, std::sync::Arc<std::sync::atomic::AtomicUsize>>,
+) {
     max_agents.store(n.clamp(1, 16), std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Teto atual de agentes simultâneos.
 #[tauri::command]
-pub fn get_max_agents(max_agents: State<'_, std::sync::Arc<std::sync::atomic::AtomicUsize>>) -> usize {
+pub fn get_max_agents(
+    max_agents: State<'_, std::sync::Arc<std::sync::atomic::AtomicUsize>>,
+) -> usize {
     max_agents.load(std::sync::atomic::Ordering::Relaxed)
 }
 
