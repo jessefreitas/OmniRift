@@ -181,7 +181,21 @@ impl PtySession {
             })
             .context("falha ao abrir PTY pair")?;
 
-        let cmd = build_command(&cfg);
+        // Diretório onde o system prompt gigante é derramado quando a linha estoura o
+        // teto do cmd.exe (Windows). `None` = não deu pra resolver → spill pulado e o
+        // comportamento é o de antes (fail-open).
+        // A DECISÃO DE PLATAFORMA MORA AQUI, não no build_command. Só o Windows tem o teto
+        // de 8191 do cmd.exe; no Linux/macOS a linha cabe e mudar o comportamento testado
+        // seria regressão gratuita (e quebraria quem tem um claude antigo, sem a flag de
+        // arquivo). Deixar a decisão no caller também torna o build_command testável no CI,
+        // que roda Linux — foi a falta desse teste que deixou o fix virar código morto.
+        let spill_dir = if cfg!(windows) {
+            use tauri::Manager;
+            app.path().app_data_dir().ok()
+        } else {
+            None
+        };
+        let cmd = build_command(&cfg, spill_dir.as_deref(), &id);
 
         // O QUE foi spawnado, no log. Sem isto o diagnóstico que o beta tester manda pro
         // suporte não distingue "o binário não existe" de "o TUI não desenha" — que foi
@@ -557,7 +571,7 @@ fn spill_system_prompt_to_file(
     new_args
 }
 
-fn build_command(cfg: &PtySpawnConfig) -> CommandBuilder {
+fn build_command(cfg: &PtySpawnConfig, spill_dir: Option<&std::path::Path>, session_id: &str) -> CommandBuilder {
     // Resolve o host de execução (ref §3.1). `Local` → (command, args) crus, igual
     // ao comportamento anterior. `Ssh(target)` → embrulha em `ssh -tt ... -- <cmd>`,
     // onde `<cmd>` é a linha do agente shell-quotada (defesa anti-injeção em host.rs).
@@ -594,6 +608,15 @@ fn build_command(cfg: &PtySpawnConfig) -> CommandBuilder {
     // EXECUTOR real (workers PTY), não o processo Tauri — o ponto onde bash/edit/rm rodam.
     #[cfg(target_os = "linux")]
     let (program, args) = crate::sandbox::maybe_wrap(program, args, cfg.cwd.as_deref(), host.is_remote());
+
+    // WINDOWS: aqui é onde o spill precisa acontecer — DEPOIS de resolver host/sandbox e
+    // ANTES de montar a linha do cmd.exe. Sem esta chamada a função era código morto: os
+    // testes passavam isolados e o spawn real nunca a executava, então a 0.1.140 saiu
+    // prometendo consertar o Windows sem consertar nada.
+    let args = match spill_dir {
+        Some(dir) => spill_system_prompt_to_file(args, dir, session_id),
+        None => args,
+    };
 
     let mut cmd = build_program(&program, &args);
 
@@ -811,6 +834,8 @@ fn build_program(command: &str, args: &[String]) -> CommandBuilder {
 
 #[cfg(test)]
 mod tests {
+
+
     #[test]
     fn vt100_basic_text() {
         let mut p = vt100::Parser::new(24, 80, 0);
@@ -865,7 +890,7 @@ mod tests {
         #[test]
         fn node_cli_wraps_in_cmd_c() {
             // opencode + ["x"] → programa = cmd.exe e inclui "/c","opencode","x"
-            let cmd = build_command(&cfg("opencode", &["x"]));
+            let cmd = build_command(&cfg("opencode", &["x"]), None, "t");
             let argv = argv_strings(&cmd);
             // argv[0] é o comspec (cmd.exe ou caminho completo dele)
             assert!(
@@ -883,7 +908,7 @@ mod tests {
         #[test]
         fn exe_command_spawns_direct_no_cmd() {
             // foo.exe → NÃO usa cmd; programa = foo.exe, arg preservado
-            let cmd = build_command(&cfg("foo.exe", &["bar"]));
+            let cmd = build_command(&cfg("foo.exe", &["bar"]), None, "t");
             let argv = argv_strings(&cmd);
             assert_eq!(argv[0].to_lowercase(), "foo.exe");
             assert!(!argv.iter().any(|a| a == "/c"), "não deve embrulhar: {argv:?}");
@@ -985,6 +1010,26 @@ mod tests {
             .collect()
     }
 
+    /// Regressão: `spill_system_prompt_to_file` existia, seus próprios testes passavam,
+    /// mas `build_command` nunca a chamava. O "fix" do Windows virou código morto e uma
+    /// release saiu prometendo consertar sem consertar. Este teste não valida só a função
+    /// auxiliar — valida a FIAÇÃO: `build_command` precisa aplicar o spill quando recebe
+    /// `Some(spill_dir)`.
+    #[test]
+    fn build_command_aplica_o_spill_do_system_prompt() {
+        let dir = std::env::temp_dir().join(format!("omnirift-spill-wire-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let gigante = "x".repeat(10_000);
+        let c = cfg_host("claude", &["--append-system-prompt", &gigante, "--model", "opus"], None, None);
+        let built = super::build_command(&c, Some(&dir), "sessao-teste");
+        let argv = argv_of(&built);
+        let linha = argv.join(" ");
+        assert!(!linha.contains(&gigante), "o prompt gigante NAO pode sobrar na linha de comando");
+        assert!(linha.contains("--append-system-prompt-file"), "a flag de arquivo deveria ter entrado: {linha}");
+        assert!(linha.contains("--model") && linha.contains("opus"), "os demais argumentos tem que sobreviver");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[cfg(not(windows))]
     #[test]
     fn local_host_is_unchanged_baseline() {
@@ -992,7 +1037,7 @@ mod tests {
         // (binário garantido no PATH em qualquer runner) — o teste é sobre host-wrapping,
         // não sobre a detecção de binário (essa tem testes próprios abaixo).
         for h in [None, Some("local")] {
-            let argv = argv_of(&super::build_command(&cfg_host("sh", &["--foo"], h, None)));
+            let argv = argv_of(&super::build_command(&cfg_host("sh", &["--foo"], h, None), None, "t"));
             assert_eq!(argv[0], "sh", "host={h:?} argv={argv:?}");
             assert_eq!(argv[1], "--foo");
             assert!(!argv.iter().any(|a| a == "ssh"), "sem ssh: {argv:?}");
@@ -1038,7 +1083,7 @@ mod tests {
     fn ssh_host_wraps_command() {
         // execution_host ssh:<encoded user@host> → ssh -tt -o BatchMode=yes ... -- <cmd>
         let host_id = super::ExecutionHost::Ssh("user@box".to_string()).id();
-        let argv = argv_of(&super::build_command(&cfg_host("claude", &["--foo"], Some(&host_id), None)));
+        let argv = argv_of(&super::build_command(&cfg_host("claude", &["--foo"], Some(&host_id), None), None, "t"));
         assert_eq!(argv[0], "ssh", "argv: {argv:?}");
         assert_eq!(argv[1], "-tt");
         assert_eq!(argv[2], "-o");
@@ -1062,7 +1107,7 @@ mod tests {
     fn ssh_host_embeds_remote_cwd() {
         // Com cwd → cd <path> && exec <agent> embutido no comando remoto.
         let host_id = super::ExecutionHost::Ssh("box".to_string()).id();
-        let argv = argv_of(&super::build_command(&cfg_host("bash", &[], Some(&host_id), Some("/srv/app"))));
+        let argv = argv_of(&super::build_command(&cfg_host("bash", &[], Some(&host_id), Some("/srv/app")), None, "t"));
         let remote = argv.last().unwrap();
         // O remote_cmd vai CRU como último arg do ssh (o ssh junta e manda pro shell
         // remoto parsear cd/&&/exec). Os TOKENS internos é que são quotados:
@@ -1083,7 +1128,7 @@ mod tests {
         // Constrói um id ssh: com target perigoso (encode preserva os metacaracteres no
         // round-trip, então parse devolve Ssh com o target sujo; ssh_argv então rejeita).
         let dirty = super::ExecutionHost::Ssh("host; rm -rf /".to_string()).id();
-        let argv = argv_of(&super::build_command(&cfg_host("claude", &[], Some(&dirty), None)));
+        let argv = argv_of(&super::build_command(&cfg_host("claude", &[], Some(&dirty), None), None, "t"));
         // Não há `ssh` no argv — caiu no fail-safe.
         assert!(!argv.iter().any(|a| a == "ssh"), "NÃO deve spawnar ssh: {argv:?}");
         assert_eq!(argv[0], "sh", "fail-safe via sh: {argv:?}");

@@ -6,7 +6,11 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // `src-tauri/target` guarda artefato do cargo — inclusive JS GERADO pelo tauri-codegen.
+  // Sem ignorar, `npm run lint` varria isso e cuspia ~7.000 problemas de código que não é
+  // nosso, o que tornava o gate inútil na prática: ninguém lê 7.000 linhas pra achar as 3
+  // que importam. Um gate que ninguém consegue ler é um gate desligado.
+  globalIgnores(['dist', 'src-tauri/target', 'scripts/.*.bundle.mjs']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
