@@ -190,6 +190,19 @@ fn find_serena() -> Option<(String, Vec<String>)> {
 ///                quando o sidecar do MCP existe; o proxy lossless segue transparente.
 /// Sempre devolve Some: o Context7 não exige instalação local. Os MCPs de banco
 /// (Postgres/MS SQL/Firebase/SQLite) entram como add-on configurável à parte.
+/// Servidores MCP de automação de navegador que consomem muita memória mesmo ociosos.
+/// Medidos com 12 agentes: `chrome-devtools` sozinho = 12 processos, 0,0% de CPU e
+/// 1.722 MB de RSS. A maioria dos papéis (Backend, DBA, Reviewer, Arquiteto, DevOps…)
+/// nunca abre navegador, então pagavam ~1,7 GB por nada. Passam a ser OPT-IN: só quem
+/// listar explicitamente em `allowed` (Frontend/QA) os recebe.
+const HEAVY_BROWSER_MCP: &[&str] = &["chrome-devtools", "playwright"];
+
+/// `true` se a chave é um MCP de navegador (não entra no config default).
+/// Fn pura — a `agent_mcp_config` precisa de `AppHandle` e não é testável direto.
+fn is_heavy_browser_mcp(key: &str) -> bool {
+    HEAVY_BROWSER_MCP.contains(&key)
+}
+
 #[tauri::command]
 pub fn agent_mcp_config(
     app: tauri::AppHandle,
@@ -308,7 +321,14 @@ pub fn agent_mcp_config(
             }
             (servers, format!("agent-mcp-{h:016x}.json"))
         }
-        None => (servers, "agent-mcp.json".to_string()),
+        None => {
+            // Sem curadoria explícita, o default deixa de carregar navegador: era o maior
+            // custo de memória medido no app (1,7 GB parados, 0% de CPU). Quem precisa
+            // pede via `allowed`.
+            let mut servers = servers;
+            servers.retain(|k, _| !is_heavy_browser_mcp(k.as_str()));
+            (servers, "agent-mcp.json".to_string())
+        }
     };
 
     let dir = app.path().app_data_dir().ok()?;
@@ -388,4 +408,44 @@ pub fn set_max_agents(n: usize, max_agents: State<'_, std::sync::Arc<std::sync::
 #[tauri::command]
 pub fn get_max_agents(max_agents: State<'_, std::sync::Arc<std::sync::atomic::AtomicUsize>>) -> usize {
     max_agents.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// medido com 12 agentes — chrome-devtools sozinho eram 12 processos, 0,0% de CPU
+    /// e 1.722 MB de RSS. Papel que nunca abre navegador pagava isso por nada.
+    #[test]
+    fn navegador_fica_fora_do_config_padrao() {
+        assert!(is_heavy_browser_mcp("chrome-devtools"));
+        assert!(is_heavy_browser_mcp("playwright"));
+    }
+
+    /// a lista é cirúrgica de propósito — tirar o que o agente USA seria trocar
+    /// memória por capacidade. Estes formam o núcleo e não podem sair.
+    #[test]
+    fn servidores_de_trabalho_continuam_no_padrao() {
+        for x in [
+            "serena",
+            "omnifs",
+            "omnicompress",
+            "omnimemory",
+            "omnirift-agents",
+            "context7",
+        ] {
+            assert!(
+                !is_heavy_browser_mcp(x),
+                "...{x} nao pode ser tratado como pesado..."
+            );
+        }
+    }
+
+    /// MCP que o usuário habilitou no banco (Postgres, GitHub, filesystem...) tem
+    /// chave que a gente não conhece; o default é MANTER — só a lista explícita sai.
+    #[test]
+    fn chave_desconhecida_nao_e_pesada() {
+        assert!(!is_heavy_browser_mcp("postgres"));
+        assert!(!is_heavy_browser_mcp(""));
+    }
 }
