@@ -23,5 +23,18 @@ def test_hook_falha_aberto(hook, bad, tmp_path):
         hook, proc.returncode, bad)
 
 
-def test_existem_4_hooks():
-    assert len(HOOKS) == 4
+# A contagem e travada de proposito: hook novo entra no parametrize acima (fail-open)
+# so se alguem lembrar de atualizar aqui — e a falha deste assert e o lembrete.
+ESPERADOS = {
+    "posttool_failure_capture.py",
+    "sessionstart_known_failures.py",
+    "stop_evidence_gate.py",
+    "userprompt_correction_detector.py",
+    "watch_cleanup.py",
+    "watch_register.py",
+}
+
+
+def test_conjunto_de_hooks_e_o_esperado():
+    achados = {os.path.basename(h) for h in HOOKS}
+    assert achados == ESPERADOS, "hooks divergiram: {}".format(achados ^ ESPERADOS)

@@ -25,6 +25,15 @@ const FP_HOOK_SESSIONSTART: &str =
     include_str!("../../../../../tools/failproof/hooks/sessionstart_known_failures.py");
 const FP_HOOK_USERPROMPT: &str =
     include_str!("../../../../../tools/failproof/hooks/userprompt_correction_detector.py");
+/// Registra a sessão pro watchdog vigiar. O hook se auto-gateia em `is_unattended()`:
+/// numa sessão que o usuário está olhando ele NÃO registra nada — vigiar (e no strike 3
+/// matar) um agente que a pessoa acompanha seria pior que o problema.
+const FP_HOOK_WATCH_REGISTER: &str =
+    include_str!("../../../../../tools/failproof/hooks/watch_register.py");
+/// Desregistra ao encerrar. Sem isto o `watch/` acumula sessões mortas e o watchdog
+/// gera postmortem de conversa que já acabou.
+const FP_HOOK_WATCH_CLEANUP: &str =
+    include_str!("../../../../../tools/failproof/hooks/watch_cleanup.py");
 const FP_HOOK_POSTTOOL: &str =
     include_str!("../../../../../tools/failproof/hooks/posttool_failure_capture.py");
 
@@ -80,6 +89,8 @@ pub fn ensure_failproof_scripts(app: &tauri::AppHandle) -> Result<PathBuf, Strin
         ("sessionstart_known_failures.py", FP_HOOK_SESSIONSTART),
         ("userprompt_correction_detector.py", FP_HOOK_USERPROMPT),
         ("posttool_failure_capture.py", FP_HOOK_POSTTOOL),
+        ("watch_register.py", FP_HOOK_WATCH_REGISTER),
+        ("watch_cleanup.py", FP_HOOK_WATCH_CLEANUP),
     ] {
         std::fs::write(hooks.join(name), body).map_err(|e| format!("gravar {name}: {e}"))?;
     }
@@ -255,13 +266,29 @@ fn inject_failproof_hooks(settings: &mut serde_json::Value, hooks_dir: &std::pat
     // sobrescreve): preserva os SessionStart do usuário global já mesclados antes (ex:
     // context-loader de isolamento de projeto) — só APPENDA o grupo do failproof.
     let fp_group = serde_json::json!({ "hooks": [
-        { "type": "command", "command": cmd("sessionstart_known_failures.py"), "timeout": 10 }
+        { "type": "command", "command": cmd("sessionstart_known_failures.py"), "timeout": 10 },
+        // Registra a sessão em `failbase/watch/<sid>.json` — é o hook que faltava pro
+        // watchdog ter o que vigiar (o timer rodava a cada 5min sobre um diretório vazio).
+        // Só o Claude conhece o próprio session_id/transcript_path, por isso vem por hook
+        // e não pelo spawn do OmniRift.
+        { "type": "command", "command": cmd("watch_register.py"), "timeout": 10 }
     ] });
     match hooks.get_mut("SessionStart").and_then(|v| v.as_array_mut()) {
         Some(arr) => arr.push(fp_group),
         None => { hooks.insert("SessionStart".into(), serde_json::json!([fp_group])); }
     }
     // PostToolUse (só Bash): captura par falha→fix e devolve fix conhecido.
+    // Stop: tira a sessão do watch. MERGE — o Stop já carrega o gate de review.
+    if let Some(arr) = hooks
+        .get_mut("Stop")
+        .and_then(|v| v.get_mut(0))
+        .and_then(|v| v.get_mut("hooks"))
+        .and_then(|v| v.as_array_mut())
+    {
+        arr.push(serde_json::json!(
+            { "type": "command", "command": cmd("watch_cleanup.py"), "timeout": 10 }
+        ));
+    }
     hooks.insert("PostToolUse".into(), serde_json::json!([ { "matcher": "Bash", "hooks": [
         { "type": "command", "command": cmd("posttool_failure_capture.py"), "timeout": 10 }
     ] } ]));
@@ -438,6 +465,16 @@ mod tests {
         assert_eq!(h["PostToolUse"][0]["matcher"], "Bash");
         assert!(h["PostToolUse"][0]["hooks"][0]["command"]
             .as_str().unwrap().contains("posttool_failure_capture.py"));
+        // WATCH: o registro entra no SessionStart junto do known_failures, e a limpeza
+        // no Stop. Sem estes dois o watchdog roda a cada 5min sobre um `watch/` vazio —
+        // timer ativo vigiando nada, que é o mesmo teatro do gate que não escaneava.
+        let ss = h["SessionStart"][0]["hooks"].as_array().unwrap();
+        assert_eq!(ss.len(), 2, "SessionStart precisa de known_failures + watch_register");
+        assert!(ss[1]["command"].as_str().unwrap().contains("watch_register.py"));
+        let stop = h["Stop"][0]["hooks"].as_array().unwrap();
+        assert_eq!(stop.len(), 2, "Stop precisa preservar o review e ganhar o cleanup");
+        assert!(stop[0]["command"].as_str().unwrap().contains("review"), "review não pode sumir");
+        assert!(stop[1]["command"].as_str().unwrap().contains("watch_cleanup.py"));
         // UserPromptSubmit MERGE: agora tem 2 hooks (status + captador de correção).
         let ups = h["UserPromptSubmit"][0]["hooks"].as_array().unwrap();
         assert_eq!(ups.len(), 2);
