@@ -100,6 +100,11 @@ class Executor:
         self.notify_fn = notify_fn
 
     def kill(self, pid):
+        # pid <= 0 tem semântica especial no os.kill (0 = process group do caller —
+        # SIGTERMaria o próprio watchdog; -1 = todos). Registro sem pid → não mata nada.
+        if not isinstance(pid, int) or pid <= 0:
+            self.actions.append(("kill_skipped", pid))
+            return
         self.actions.append(("kill", pid))
         if not self.dry_run:
             try:
