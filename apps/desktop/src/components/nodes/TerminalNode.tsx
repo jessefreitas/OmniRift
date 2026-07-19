@@ -27,6 +27,7 @@ import { agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
 import { ROLE_CLIS, extractPersona, buildCliSwitch, loadRoles, type AgentRoleDef } from "@/lib/agent-roles";
 import { buildRoleSpawn } from "@/lib/agent-spawn";
 import { cn } from "@/lib/cn";
+import { useFloorActive } from "@/lib/floor-activity";
 import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
 
 import "@xterm/xterm/css/xterm.css";
@@ -94,9 +95,11 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
       .join(", ");
   });
   const termStatus = useCanvasStore((s) => s.terminalStatuses[data.session_id] ?? "idle");
-  const proc = useProcInfo(data.session_id, termStatus !== "dead");
+  const floorActive = useFloorActive();
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
   const isOrch = orchestratorSid === data.session_id;
+  const viewActive = floorActive || isOrch;
+  const proc = useProcInfo(data.session_id, termStatus !== "dead" && viewActive);
   // Orquestrador no floor ATIVO → terminal vive no próprio node; noutro floor → dock.
   // Selector devolve boolean → só re-renderiza quando o estado realmente vira.
   const orchOnActiveFloor = useCanvasStore((s) => {
@@ -336,10 +339,10 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
 
   // Tempo de sessão: re-render leve a cada 30s só pra atualizar o "há Xmin".
   useEffect(() => {
-    if (!data.createdAt) return;
+    if (!data.createdAt || !viewActive) return;
     const iv = window.setInterval(() => setAgeTick((n) => n + 1), 30000);
     return () => window.clearInterval(iv);
-  }, [data.createdAt]);
+  }, [data.createdAt, viewActive]);
 
   // Foca o input quando entra em modo de edição
   useEffect(() => {
@@ -369,8 +372,8 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   // background → a saída é enfileirada/dropada e re-hidratada via snapshot no retorno.
   // Espelha a mesma condição do `visibility` do container do xterm abaixo.
   useEffect(() => {
-    setActive(isFullscreen || isOrch || inViewport);
-  }, [isFullscreen, isOrch, inViewport, setActive]);
+    setActive(isFullscreen || isOrch || (viewActive && inViewport));
+  }, [isFullscreen, isOrch, viewActive, inViewport, setActive]);
 
   // ESC fecha o fullscreen + context menu via DOM nativo no canvas movido
   useEffect(() => {
@@ -396,7 +399,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   // quando o nativo está ligado e o node está vivo + visível (não desperdiça em
   // node oculto/morto). `null` (proxy fora do ar / sem /stats) → badge some.
   useEffect(() => {
-    if (!isCompressorEnabled("omnicompress") || termStatus === "dead" || !inViewport) {
+    if (!isCompressorEnabled("omnicompress") || termStatus === "dead" || !viewActive || !inViewport) {
       setSavings(null);
       return;
     }
@@ -412,7 +415,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
       alive = false;
       window.clearInterval(iv);
     };
-  }, [termStatus, inViewport]);
+  }, [termStatus, viewActive, inViewport]);
 
   function commitRename() {
     const label = draft.trim() || data.command;
@@ -891,7 +894,7 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
           <div
             ref={containerRef}
             className="terminal nowheel absolute inset-0"
-            style={{ visibility: isOrch || isFullscreen || (inViewport && !lodOut) ? "visible" : "hidden" }}
+            style={{ visibility: isOrch || isFullscreen || (viewActive && inViewport && !lodOut) ? "visible" : "hidden" }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={fit}
           />

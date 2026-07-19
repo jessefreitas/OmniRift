@@ -50,6 +50,7 @@ import { CommunityNode } from "@/components/nodes/CommunityNode";
 import { FlowEdge } from "@/components/edges/FlowEdge";
 import { useCanvasStore } from "@/store/canvas-store";
 import { registerFloorInstance } from "@/lib/canvas-focus";
+import { FloorActivityContext } from "@/lib/floor-activity";
 import { ptyPipeCreate, ptyPipeRemove } from "@/lib/pty-client";
 import type { CanvasNode } from "@/types/canvas";
 
@@ -181,7 +182,6 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
         // responseSchema/lastValidation (Fase 2 — conexões tipadas): só nas edges com contrato;
         // a FlowEdge renderiza o badge ✓/✗. Undefined nas demais = sem badge (intocado).
         data: { kind: e.kind, confidence: e.confidence, responseSchema: e.responseSchema, lastValidation: e.lastValidation },
-        animated: e.kind === "pty-pipe",
         style:
           e.kind === "pty-pipe"
             ? { stroke: "rgb(41, 162, 167)", strokeWidth: 2 }
@@ -391,7 +391,8 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
   }, [active, deleteSelected]);
 
   return (
-    <ReactFlow
+    <FloorActivityContext.Provider value={active}>
+      <ReactFlow
       nodes={rfNodes}
       edges={rfEdges}
       nodeTypes={nodeTypes}
@@ -474,7 +475,8 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
           </div>,
           document.body,
         )}
-    </ReactFlow>
+      </ReactFlow>
+    </FloorActivityContext.Provider>
   );
 }
 

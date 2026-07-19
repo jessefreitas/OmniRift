@@ -8,7 +8,7 @@
 // (store.edgePayloadKind). Estado vem de store.edgeFlow (setado pelo useConnectionRouting
 // e pelo pulseTerminalEdges, que diferencia direção: source ativo = azul, target = verde).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react";
 import { useCanvasStore } from "@/store/canvas-store";
 import { ptyPipeRemove } from "@/lib/pty-client";
@@ -53,20 +53,20 @@ export function FlowEdge({
   const confidence = (data as { confidence?: string } | undefined)?.confidence;
   const isGraphEdge = kind === "graph-edge" && !!confidence;
   // GRAFO INTEGRADO (#30): AgentNode→CommunityNode. É ESTÁTICA como cano de dados (o roteamento
-  // só processa "generic" → nunca ganha edgeFlow, fica sempre "idle"), mas tem vida PRÓPRIA:
-  // cor do brand + dashdraw fluindo do agente pro código. Não interfere nas edges existentes.
+  // só processa "generic" → nunca ganha edgeFlow, fica sempre "idle"). Mantemos cor + tracejado,
+  // mas sem dashdraw permanente: animação SVG ociosa mantém o WebKitGTK pintando a 60 fps.
   const isWorksOn = kind === "works-on";
   // Pipe de terminal com o processo do SOURCE morto → a linha inteira vira vermelha
   // (não há mais quem emita). ⚠️ zustand v5: seletores retornam SÓ primitivas
   // (string/boolean) — devolver objeto/array novo re-renderiza em loop e trava o app.
-  const sourceSessionId = useCanvasStore((s) => {
+  const sourceSessionId = useMemo(() => {
     if (kind !== "pty-pipe") return undefined;
-    for (const p of s.parallels) {
+    for (const p of useCanvasStore.getState().parallels) {
       const n = p.nodes.find((x) => x.id === source);
       if (n) return n.kind === "terminal" ? n.session_id : undefined;
     }
     return undefined;
-  });
+  }, [kind, source]);
   const sourceDead = useCanvasStore((s) =>
     sourceSessionId ? s.terminalStatuses[sourceSessionId] === "dead" : false,
   );
@@ -116,7 +116,7 @@ export function FlowEdge({
               ? "rgb(41, 162, 167)" // works-on = cor do brand (ligação viva agente→código, #30)
               : COLORS.idle;
   const stroke = flow !== "idle" ? COLORS[flow] ?? COLORS.idle : idleColor;
-  // works-on está sempre "idle" (o roteamento não a toca) → animada por si só (dashdraw + dash).
+  // works-on está sempre "idle" (o roteamento não a toca) → tracejada, mas estática.
   const worksOnIdle = isWorksOn && flow === "idle";
   // Dash por confiança (só nas graph-edge idle): INFERRED tracejada · AMBIGUOUS pontilhada.
   const graphDash =
@@ -145,22 +145,21 @@ export function FlowEdge({
         style={{
           stroke: selected ? "#ef4444" : stroke,
           strokeWidth: selected ? 3 : active ? 2.5 : worksOnIdle ? 2 : 1.5,
-          // sending = tracejado animado A→B; error = SÓLIDO ("none"/"animation:none"
-          // anulam o dash da classe .animated que o pty-pipe carrega); works-on idle = dash
-          // animado do brand (ligação viva #30); demais estados herdam o default
-          // (pty-pipe idle segue com o dash ciano de sempre).
+          // Só `sending` anima, por no máximo ~700ms após saída real. PTY idle, works-on e
+          // review ficam estáticos: qualquer animação SVG contínua mantém composição/pintura
+          // ativa no WebKitGTK mesmo quando o usuário não interage com o canvas.
           strokeDasharray:
-            flow === "sending" ? "6 4" : flow === "error" ? "none" : worksOnIdle ? "6 4" : graphDash,
+            flow === "sending"
+              ? "6 4"
+              : flow === "error"
+                ? "none"
+                : worksOnIdle || (kind === "pty-pipe" && flow === "idle")
+                  ? "6 4"
+                  : graphDash,
           animation:
             flow === "sending"
               ? "dashdraw 0.5s linear infinite"
-              : flow === "review"
-                ? "pulse 1.2s ease-in-out infinite"
-                : flow === "error"
-                  ? "none"
-                  : worksOnIdle
-                    ? "dashdraw 0.5s linear infinite"
-                    : undefined,
+              : "none",
           transition: `stroke ${fadeOut ? "2s" : "0.3s"} ease`,
         }}
       />

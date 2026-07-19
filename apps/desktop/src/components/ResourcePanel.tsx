@@ -4,7 +4,8 @@
 // agente] — Geral = CPU/RAM/swap/disco/rede/GPU do sistema; cada agente = consumo
 // (CPU/RAM/VRAM) do seu processo-raiz + descendentes. Overlay canto inferior-direito.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useResourceStore } from "@/store/resource-store";
 import { useCanvasStore } from "@/store/canvas-store";
 import type { AgentStat, ResourceSample } from "@/types/metrics";
@@ -76,8 +77,34 @@ function Metric({
 }
 
 export function ResourcePanel() {
-  const t = useT();
   const expanded = useResourceStore((s) => s.expanded);
+
+  // O sampler nativo fica em 5s enquanto o chip está fechado e sobe para 1 Hz
+  // somente quando estes gráficos estão realmente visíveis. Janela minimizada/aba
+  // oculta volta ao modo econômico mesmo se o painel tiver ficado aberto.
+  useEffect(() => {
+    if (!expanded) return;
+    const sync = () => {
+      void invoke("metrics_set_realtime", {
+        enabled: document.visibilityState === "visible",
+      }).catch(() => {});
+    };
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      void invoke("metrics_set_realtime", { enabled: false }).catch(() => {});
+    };
+  }, [expanded]);
+
+  // O corpo pesado só existe aberto. Assim o painel fechado não assina `parallels`
+  // nem reconstrói o mapa de labels a cada frame de drag no canvas.
+  if (!expanded) return null;
+  return <ExpandedResourcePanel />;
+}
+
+function ExpandedResourcePanel() {
+  const t = useT();
   const setExpanded = useResourceStore((s) => s.setExpanded);
   const last = useResourceStore((s) => s.last);
   const ring = useResourceStore((s) => s.ring);
@@ -94,7 +121,7 @@ export function ResourcePanel() {
     return (sid: string) => m.get(sid) ?? sid.slice(0, 8);
   }, [parallels]);
 
-  if (!expanded || !last) return null;
+  if (!last) return null;
 
   const g = last.global;
   const memPct = g.memTotal > 0 ? (g.memUsed / g.memTotal) * 100 : 0;

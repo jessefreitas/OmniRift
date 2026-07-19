@@ -11,3 +11,8 @@ use crate::metrics::{sampler::Sampler, ResourceSample};
 pub fn metrics_snapshot(sampler: State<'_, Arc<Sampler>>) -> Option<ResourceSample> {
     sampler.latest()
 }
+
+#[tauri::command]
+pub fn metrics_set_realtime(sampler: State<'_, Arc<Sampler>>, enabled: bool) {
+    sampler.set_realtime(enabled);
+}

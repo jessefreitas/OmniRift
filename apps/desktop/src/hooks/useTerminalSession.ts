@@ -102,6 +102,9 @@ export function useTerminalSession({
   // --- Output scheduler (ref P0 #2) -----------------------------------
   // foreground (visível) escreve ao vivo; background enfileira com cap.
   const activeRef = useRef(true);
+  // Visibilidade pedida pelo TerminalNode, separada da efetiva: ao minimizar a
+  // janela pausamos todos os xterms sem esquecer quais devem voltar ao foreground.
+  const requestedActiveRef = useRef(true);
   // Backlog de background: chunks pendentes + contagem de chars (pro cap).
   const bgQueueRef = useRef<string[]>([]);
   const bgQueueCharsRef = useRef(0);
@@ -146,7 +149,7 @@ export function useTerminalSession({
         '"JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace',
       fontSize: 13,
       lineHeight: 1.25,
-      cursorBlink: true,
+      cursorBlink: !document.hidden && activeRef.current,
       allowProposedApi: true,
       theme: {
         background: "#0a1014",
@@ -696,6 +699,11 @@ export function useTerminalSession({
 
     try {
       const snap = await ptySnapshot(sessionId);
+      // O `await` abre uma janela: o nó pode ter desmontado (troca de floor, fechar o
+      // card) e o `term` já ter sofrido `dispose()`. Escrever num terminal descartado
+      // lança e derruba o replay inteiro. O gatilho ficou mais provável com o
+      // `visibilitychange`, que passou a chamar este caminho fora do fluxo do nó.
+      if (disposedRef.current) return;
       term.reset();
       term.write(snap.data);
       lastSeqRef.current = snap.seq;
@@ -716,9 +724,16 @@ export function useTerminalSession({
     }
   }, [sessionId]);
 
-  // Foreground (visível) / background (oculto) — vem do `inViewport` do TerminalNode.
-  const setActive = useCallback(
+  // Aplica foreground/background de fato. Além de suspender writes, desliga o blink
+  // do cursor: no xterm cada cursor piscando mantém timer + paint ativos mesmo ocioso.
+  const applyActive = useCallback(
     (visible: boolean) => {
+      try {
+        if (terminalRef.current) terminalRef.current.options.cursorBlink = visible;
+      } catch {
+        /* terminal desmontando */
+      }
+      if (activeRef.current === visible) return;
       if (visible) {
         // Volta a foreground.
         if (staleRef.current) {
@@ -749,6 +764,27 @@ export function useTerminalSession({
     },
     [replayFromSnapshot],
   );
+
+  // Foreground pedido pelo `inViewport` do TerminalNode. A visibilidade do documento
+  // entra como segundo gate para uma janela minimizada não manter render dos xterms.
+  const setActive = useCallback(
+    (visible: boolean) => {
+      requestedActiveRef.current = visible;
+      applyActive(visible && document.visibilityState === "visible");
+    },
+    [applyActive],
+  );
+
+  useEffect(() => {
+    const syncDocumentVisibility = () => {
+      applyActive(
+        requestedActiveRef.current && document.visibilityState === "visible",
+      );
+    };
+    document.addEventListener("visibilitychange", syncDocumentVisibility);
+    syncDocumentVisibility();
+    return () => document.removeEventListener("visibilitychange", syncDocumentVisibility);
+  }, [applyActive]);
 
   return { containerRef, ready, error, fit, getSelection, writeNotice, reconnect, setActive };
 }

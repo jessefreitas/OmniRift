@@ -49,7 +49,7 @@ use commands::debug::debug_request;
 use commands::debug_log::{debug_log_mark, debug_log_path, debug_log_write};
 use commands::diagnostics::{collect_diagnostics, diagnostics_export};
 use commands::reveal::reveal_path;
-use commands::metrics::metrics_snapshot;
+use commands::metrics::{metrics_set_realtime, metrics_snapshot};
 use commands::compress::{compressor_list, compressor_savings};
 use commands::editor::{detect_editors, open_in_editor};
 use commands::fsinfo::{fs_cow_info, reflink_clone};
@@ -599,6 +599,7 @@ pub fn run() {
             debug_log_path,
             debug_log_mark,
             metrics_snapshot,
+            metrics_set_realtime,
             compressor_list,
             compressor_savings,
             serena_ensure_project,
