@@ -28,8 +28,6 @@ import {
   ptyResize,
   ptySnapshot,
   ptySpawn,
-  ptyViewAttach,
-  ptyViewDetach,
   ptyWrite,
   TERMINAL_VIEW_SCROLLBACK_ROWS,
 } from "@/lib/pty-client";
@@ -211,6 +209,24 @@ export function useTerminalSession({
     );
     term.loadAddon(fitAddon);
     term.loadAddon(webLinks);
+
+    // O BACKEND é o único respondedor de queries do terminal. Aqui só CONSUMIMOS as
+    // queries (handler devolve true = "tratei", o xterm não responde).
+    //
+    // Por quê: no eager-spawn o nó ainda não montou, então não existe xterm nenhum —
+    // a TUI mandava `CSI 6 n`, ninguém respondia e ela morria com código 1 depois de
+    // ~30s. Alternar a autoridade por flag tem corrida irredutível: os bytes chegam
+    // ao emulador do backend na hora e aqui ~16ms depois (debounce), então quando o
+    // xterm vê a query o backend já respondeu — daria resposta dupla na stdin do
+    // shell, que é justamente o que corrompe tema/valores. Autoridade única resolve.
+    //
+    // Consome: DSR/CPR (n), DA1/DA2 (c), tamanho da área de texto (t).
+    for (const final of ["n", "c", "t"]) {
+      term.parser.registerCsiHandler({ final }, () => true);
+    }
+    // OSC 10/11 = cor de foreground/background.
+    term.parser.registerOscHandler(10, () => true);
+    term.parser.registerOscHandler(11, () => true);
 
     term.open(containerRef.current);
     // Renderer GPU (WebGL2): ordens de grandeza mais leve que o DOM renderer default
@@ -588,11 +604,6 @@ export function useTerminalSession({
         if (!disposed) {
           // A view esta pronta (listener de output + term.onData instalados): ela assume
           // as queries do shell e o backstop do backend se cala (nada de resposta dupla).
-          // AGUARDA: entre o pedido e o backend virar a flag existe uma janela em que
-          // xterm e backstop responderiam JUNTOS a mesma query. Só liberamos a view
-          // depois do backend confirmar. Nunca lança (o cliente engole erro).
-          await ptyViewAttach(sessionId);
-          if (disposed) return;
           setReady(true);
           void emit("pty://ready", { id: sessionId });
         }
@@ -605,9 +616,6 @@ export function useTerminalSession({
 
     // --- Cleanup --------------------------------------------------------
     return () => {
-      // View saindo (unmount/virtualizacao): o backend reassume as respostas de query,
-      // senao a TUI trava esperando o CPR e morre com codigo 1.
-      void ptyViewDetach(sessionId);
       ro.disconnect();
       disposed = true;
       disposedRef.current = true; // visível pro reconnect() abortar o re-spawn [GLM-audit #3]

@@ -1,4 +1,5 @@
 use crate::pty::host::{self, ExecutionHost};
+use crate::pty::emulator::TermEmulator;
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -151,21 +152,17 @@ pub struct PtySession {
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     output_tx: broadcast::Sender<Vec<u8>>,
-    /// Receptor criado ANTES da thread do reader existir. `tokio::broadcast` só entrega
-    /// o que foi publicado DEPOIS do subscribe — e o `read_loop` já está lendo quando o
-    /// manager chama `subscribe()`. Sem este receptor antecipado, o `CSI 6 n` que a TUI
-    /// manda nos primeiros milissegundos podia se perder antes de chegar no backstop, e
-    /// o agente morria com código 1 mesmo com o backstop ligado.
-    early_rx: Mutex<Option<broadcast::Receiver<Vec<u8>>>>,
+    /// Emulador VT da sessão. Criado ANTES da thread de leitura e alimentado DENTRO
+    /// dela — sem broadcast no caminho, nenhum byte inicial pode se perder. O manager
+    /// lê o snapshot daqui.
+    emulator: Arc<Mutex<TermEmulator>>,
     root_pid: Option<u32>,
     /// Emulador de tela: reconstrói a tela visível processando cursor/clears/etc.
     /// (line-mode não funciona para TUIs full-screen como Claude Code).
     parser: Arc<Mutex<vt100::Parser>>,
-    /// Seq monotônico do emulador VT headless (ref P0 #2). COMPARTILHADO com o
-    /// `TermEmulator` (via `new_with_seq` no manager): o feeder do emulador o
-    /// incrementa por chunk pintado; o thread de emit do `pty://output` lê o valor
-    /// atual pra estampar cada evento ao vivo. Assim `pty://output.seq` e
-    /// `snapshot.seq` falam a MESMA escala → o front deduplica corretamente.
+    /// Seq monotônico do grid, compartilhado com o `TermEmulator` e com o thread de
+    /// emit do `pty://output` — as duas escalas batem e o front deduplica correto.
+    #[allow(dead_code)]
     seq: Arc<AtomicU64>,
     /// Killer do processo filho (portable-pty): clonado ANTES do `child` ser movido
     /// pra thread waiter. É o que permite o `kill()` matar o filho DE VERDADE — sem
@@ -243,8 +240,6 @@ impl PtySession {
         let writer = Arc::new(Mutex::new(writer));
 
         let (output_tx, _) = broadcast::channel::<Vec<u8>>(64);
-        // ANTES de qualquer thread: garante que nenhum byte inicial escape do feeder.
-        let early_rx = Mutex::new(Some(output_tx.subscribe()));
         let tx_for_reader = output_tx.clone();
 
         // Canal std (não precisa de runtime tokio): debounce de 16ms antes de emitir evento Tauri
@@ -258,6 +253,11 @@ impl PtySession {
         // estamos emitindo → o snapshot tirado nesse instante já contém esses bytes,
         // então o front pode descartar com segurança os live com `seq <= snapshot.seq`.
         let seq = Arc::new(AtomicU64::new(0));
+        // ANTES da thread de leitura: o emulador precisa ver o PRIMEIRO byte. A TUI
+        // manda `CSI 6 n` em milissegundos; criar depois perdia a query.
+        let emulator = Arc::new(Mutex::new(TermEmulator::new_with_seq(
+            cfg.cols, cfg.rows, Arc::clone(&seq),
+        )));
         let seq_for_emit = Arc::clone(&seq);
 
         let id_for_emit = id.clone();
@@ -334,6 +334,8 @@ impl PtySession {
         let parser = Arc::new(Mutex::new(vt100::Parser::new(cfg.rows, cfg.cols, 0)));
         let parser_for_reader = Arc::clone(&parser);
         let id_for_reader = id.clone();
+        let emulator_for_reader = Arc::clone(&emulator);
+        let writer_for_reader = Arc::clone(&writer);
         std::thread::spawn(move || {
             read_loop(
                 id_for_reader,
@@ -341,6 +343,8 @@ impl PtySession {
                 tx_for_reader,
                 emit_tx,
                 parser_for_reader,
+                emulator_for_reader,
+                writer_for_reader,
             );
         });
 
@@ -430,7 +434,7 @@ impl PtySession {
             master,
             writer,
             output_tx,
-            early_rx,
+            emulator,
             root_pid,
             parser,
             seq,
@@ -439,10 +443,9 @@ impl PtySession {
         })
     }
 
-    /// Toma o receptor antecipado (só o primeiro chamador leva). O manager usa este no
-    /// feeder do emulador em vez de `subscribe()`, pra não perder os primeiros chunks.
-    pub(crate) fn take_early_rx(&self) -> Option<broadcast::Receiver<Vec<u8>>> {
-        self.early_rx.lock().take()
+    /// Emulador VT da sessão (fonte da verdade do scrollback); o manager usa no snapshot.
+    pub(crate) fn emulator_arc(&self) -> Arc<Mutex<TermEmulator>> {
+        Arc::clone(&self.emulator)
     }
 
     /// true enquanto o processo filho está vivo; não consulta o SO, lê a flag do waiter.
@@ -502,10 +505,10 @@ impl PtySession {
         Arc::clone(&self.parser)
     }
 
-    /// Seq monotônico do emulador VT (ref P0 #2). O manager passa este Arc pro
-    /// `TermEmulator::new_with_seq` — assim o feeder do emulador e o thread de emit do
-    /// `pty://output` compartilham o MESMO contador, e o front deduplica os chunks ao
-    /// vivo contra `snapshot.seq`.
+    /// Seq monotônico do emulador VT (ref P0 #2). Mantido para o thread de emit do
+    /// `pty://output`, que estampa cada evento com o seq do grid — o front deduplica
+    /// os chunks ao vivo contra `snapshot.seq`.
+    #[allow(dead_code)]
     pub(crate) fn seq_arc(&self) -> Arc<AtomicU64> {
         Arc::clone(&self.seq)
     }
@@ -526,6 +529,8 @@ fn read_loop(
     tx: broadcast::Sender<Vec<u8>>,
     emit_tx: mpsc::Sender<Vec<u8>>,
     parser: Arc<Mutex<vt100::Parser>>,
+    emulator: Arc<Mutex<TermEmulator>>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
 ) {
     let mut buf = [0u8; 4096];
     loop {
@@ -537,6 +542,23 @@ fn read_loop(
             Ok(n) => {
                 let chunk = buf[..n].to_vec();
                 parser.lock().process(&chunk); // alimenta o emulador de tela
+                // Emulador alimentado AQUI, síncrono, no mesmo thread que leu os bytes:
+                // é o que garante que a query inicial nunca se perca. As respostas
+                // (DSR/DA/OSC) voltam pra stdin do PTY na hora — o backend é o ÚNICO
+                // respondedor; o xterm consome as queries sem responder.
+                let respostas = {
+                    let mut emu = emulator.lock();
+                    emu.feed(&chunk);
+                    emu.take_pending_responses()
+                };
+                // Locks nunca sobrepostos (emulador solto antes do writer) → sem deadlock.
+                if !respostas.is_empty() {
+                    let mut w = writer.lock();
+                    for r in &respostas {
+                        let _ = w.write_all(r);
+                    }
+                    let _ = w.flush();
+                }
                 let _ = tx.send(chunk.clone()); // broadcast imediato (MCP/pipes)
                 let _ = emit_tx.send(chunk); // debounced → Tauri event
             }

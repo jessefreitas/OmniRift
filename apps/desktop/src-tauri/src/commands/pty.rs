@@ -108,20 +108,6 @@ pub fn pty_snapshot(
         .map_err(|e| format!("{e:#}"))
 }
 
-/// Avisa o backend que o xterm anexou à sessão, para evitar respostas duplicadas
-/// (o xterm passa a responder queries DSR/DA/OSC no lugar do backstop).
-#[tauri::command]
-pub fn pty_view_attach(session_id: SessionId, manager: State<'_, std::sync::Arc<PtyManager>>) {
-    manager.set_view_attached(&session_id, true);
-}
-
-/// Avisa o backend que o xterm desanexou, para que o backstop reassuma as respostas
-/// e a TUI não fique travada esperando respostas que nunca virão.
-#[tauri::command]
-pub fn pty_view_detach(session_id: SessionId, manager: State<'_, std::sync::Arc<PtyManager>>) {
-    manager.set_view_attached(&session_id, false);
-}
-
 fn bounded_snapshot_rows(requested: Option<usize>) -> usize {
     requested.unwrap_or(SCROLLBACK_LIMIT).min(SCROLLBACK_LIMIT)
 }
