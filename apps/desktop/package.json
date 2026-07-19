@@ -19,7 +19,8 @@
     "test:shell": "node scripts/run-shell-tests.mjs",
     "test:license": "node scripts/run-license-tests.mjs",
     "test:pipeline-edit": "node scripts/run-pipeline-edit-tests.mjs",
-    "test:action-trail": "node scripts/run-action-trail-tests.mjs"
+    "test:action-trail": "node scripts/run-action-trail-tests.mjs",
+    "test:boot-armor": "node scripts/run-boot-armor-tests.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

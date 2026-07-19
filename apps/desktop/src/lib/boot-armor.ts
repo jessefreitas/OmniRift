@@ -47,6 +47,14 @@ export function runArmorScene(cv: HTMLCanvasElement): ArmorScene {
     H = innerHeight;
     cv.width = W * dpr;
     cv.height = H * dpr;
+    // Canvas é elemento *replaced*: sem width/height de CSS ele é exibido no
+    // tamanho INTRÍNSECO (= buffer, dpr vezes maior que a janela) e o `right:0`
+    // do `inset:0` é descartado por over-constraint — em dpr=2 a cena inteira
+    // saía ancorada à esquerda com o dobro do tamanho, jogando o que é desenhado
+    // em W/2 (a armadura) para a borda direita. Travar aqui, e não no CSS, faz o
+    // dimensionamento viajar junto com a cena.
+    cv.style.width = W + "px";
+    cv.style.height = H + "px";
     ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
     S = (Math.min(W / ARM.VW, H / ARM.VH) * 0.52);
   }
