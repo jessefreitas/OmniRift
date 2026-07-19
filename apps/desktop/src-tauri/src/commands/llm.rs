@@ -381,7 +381,22 @@ mod tests {
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let canon = std::fs::canonicalize(&dir).unwrap();
-        let out = cli_run(script.to_str().unwrap(), "x", Duration::from_secs(10), canon.to_str(), &[]).await.unwrap();
+        // FLAKE conhecido: `Text file busy` (ETXTBSY). Este teste escreve um script e o
+        // executa em seguida, enquanto OUTROS testes da suíte spawnam processos em
+        // paralelo — basta um deles estar no meio de um fork com o descritor ainda aberto
+        // pra o exec falhar. Não é bug do `cli_run`: o mesmo teste passa 5/5 isolado e
+        // falhou 1 vez em ~8 rodadas da suíte inteira. Retentar é a correção honesta —
+        // esconder atrás de `#[ignore]` tiraria cobertura real do ancoramento de cwd.
+        let mut out = String::new();
+        for tentativa in 0..5 {
+            match cli_run(script.to_str().unwrap(), "x", Duration::from_secs(10), canon.to_str(), &[]).await {
+                Ok(o) => { out = o; break; }
+                Err(e) if e.contains("Text file busy") && tentativa < 4 => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(e) => panic!("cli_run falhou: {e}"),
+            }
+        }
         assert_eq!(out.trim(), canon.to_str().unwrap(), "out: {out}");
         let _ = std::fs::remove_dir_all(&dir);
     }

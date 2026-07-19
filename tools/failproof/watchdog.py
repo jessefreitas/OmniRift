@@ -7,6 +7,7 @@ Sessões se registram criando $FAILBASE_HOME/watch/<session_id>.json.
 """
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -109,7 +110,13 @@ class Executor:
     def relaunch(self, cmd, postmortem_path):
         self.actions.append(("relaunch", cmd))
         if not self.dry_run and cmd:
-            subprocess.Popen(cmd.format(postmortem=postmortem_path), shell=True)
+            # shell=True é intencional — `cmd` é um TEMPLATE de shell que o dono escreve na
+            # config (pode ter pipe/redirect). O que NÃO era intencional: interpolar o path
+            # cru dentro dessa linha. O path é gerado internamente hoje, mas ele carrega o
+            # session_id, que vem de fora; um `;` ali viraria comando. shlex.quote fecha isso
+            # sem tirar do dono a liberdade de escrever o comando dele.
+            # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
+            subprocess.Popen(cmd.format(postmortem=shlex.quote(postmortem_path)), shell=True)
 
     def notify(self, msg):
         self.actions.append(("notify", msg))

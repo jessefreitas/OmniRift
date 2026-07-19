@@ -1,0 +1,54 @@
+# Config do gitleaks para o gate de review (scripts/local-review.py).
+#
+# POR QUE EXISTE: o gate roda `gitleaks detect --no-git`, que varre o FILESYSTEM — 1,3 GB
+# de node_modules e o target/ do cargo, contra 956 arquivos versionados. Estourava os 60s
+# de timeout e o gitleaks era PULADO em silêncio ("skipped"), enquanto o review seguia
+# emitindo veredito. O gate parecia rigoroso sem ter escaneado segredo nenhum — pior que
+# não ter gate, porque dava falsa confiança. Com este config: 38,8s → 7,5s.
+#
+# Formato: gitleaks 8.18 só aceita UM bloco [allowlist] global ([[allowlists]] é 8.19+).
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Dependências/artefatos + falsos positivos verificados um a um (2026-07-19)"
+
+# Só o que NÃO é nosso código ou é gerado por compilador/gerenciador de pacote.
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)target/''',
+  '''(^|/)dist/''',
+  '''(^|/)\.git/''',
+  '''(^|/)graphify-out/''',
+  '''(^|/)\.vite/''',
+  '''package-lock\.json$''',
+  '''Cargo\.lock$''',
+]
+
+# Casa contra a LINHA inteira (não só o valor casado) — necessário pra reconhecer o
+# identificador que prova ser falso positivo (ex.: TEST_SIGNING_KEY, const KEY).
+regexTarget = "line"
+regexes = [
+  # Canários do redator: segredos FALSOS e propositais. São a PROVA de que a redação
+  # funciona — se sumirem, o teste que garante isso morre junto.
+  '''CANARY''',
+  # Fixture de JWT no teste de redação do grab.
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.''',
+  # `const KEY = "omnirift-…-v1"`: nome de chave do localStorage, não credencial. O
+  # gitleaks casa pelo identificador KEY, não pelo valor.
+  '''omnirift-[a-z-]+-v\d+''',
+  # Beacon do Cloudflare Web Analytics: token PÚBLICO por design, servido no HTML da
+  # landing pra qualquer visitante. Não há o que vazar.
+  '''static\.cloudflareinsights\.com''',
+  # Ed25519 descartável dos testes do license-worker. VERIFICADO em 2026-07-19: a
+  # pública derivada dela NÃO bate com a de produção nem com a embutida no license.rs
+  # — é outro par de chaves, gerado só pro teste.
+  '''TEST_SIGNING_KEY''',
+  # Fixtures do redactor.rs que não carregam a palavra CANARY (chave gitlab/genérica
+  # de exemplo). O arquivo INTEIRO não é excluído de propósito: segredo real caindo
+  # ali amanhã continua sendo pego.
+  # Fixture da redação de credencial embutida em URL. Literalmente `admin:senha` —
+  # nem tenta parecer real; existe pra provar que o redator corta userinfo de URL.
+  '''postgres://admin:senha@''',
+]

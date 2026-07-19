@@ -233,7 +233,16 @@ def _gitleaks_gate(cwd, findings, skipped):
         "gitleaks", "detect", "--source", cwd, "--no-git", "--redact",
         "--report-format", "json", "--report-path", report_path, "--exit-code", "1",
     ]
-    kind, out = _run_tool(cmd, 60)
+    # `.gitleaks.toml` do repo: exclui node_modules/target/dist (1,3 GB de código de
+    # terceiros) e os fixtures de segredo falso. Sem ele a varredura levava ~39s e
+    # estourava o timeout de 60s sob carga — aí o gitleaks virava "skipped" e o review
+    # seguia dando veredito SEM ter escaneado segredo nenhum. Com ele: ~6s.
+    cfg = os.path.join(cwd, ".gitleaks.toml")
+    if os.path.isfile(cfg):
+        cmd += ["--config", cfg]
+    # Timeout maior que o da varredura medida, com folga pra máquina sob carga: o custo
+    # de um scan lento é esperar; o de pular o scan é achar que revisou e não ter revisado.
+    kind, out = _run_tool(cmd, 180)
     try:
         if kind == "missing":
             skipped.append("gitleaks: ferramenta ausente")

@@ -101,12 +101,40 @@ fn sanitize_label(label: &str) -> String {
     if s.is_empty() { "agent".into() } else { s }
 }
 
-/// Comando curl de um push-hook de status (loopback, `-m 2` = nunca trava o agente).
-/// `state` em query param → ZERO inferno de quoting cross-platform (curl existe no
-/// Win10+/Linux/Mac). O label vai no path da rota `/agent-hook/:label`.
-fn status_hook_cmd(label: &str, state: &str) -> String {
+/// Escreve a configuração do curl em arquivo próprio e devolve seu caminho.
+/// O token de autenticação vai para esse arquivo, e não para a query string ou
+/// argv, porque a linha de comando de um processo é legível por qualquer
+/// processo local via `ps` ou `/proc/<pid>/cmdline`. Se o token viajasse na
+/// URL, qualquer usuário na mesma máquina conseguiria lê-lo, o que quebra
+/// exatamente o modelo de ameaça que justifica exigir autenticação nessa
+/// rota. Colocar o header no arquivo de configuração do curl e carregá-lo
+/// com `-K` isola o segredo de outros processos.
+fn write_hook_curl_config(dir: &std::path::Path, label: &str, token: &str) -> Option<std::path::PathBuf> {
+    let path = dir.join(format!("agent-hook-{}.curl", label));
+    let contents = format!("header = \"x-omnirift-token: {token}\"\n");
+    std::fs::write(&path, contents).ok()?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+
+    #[cfg(windows)]
+    {
+        // No Windows não há equivalente simples de 0600; o arquivo herda a ACL
+        // do diretório de dados do app (perfil do usuário).
+    }
+
+    Some(path)
+}
+
+// `curl -K` lê o header de autenticação do arquivo de configuração 0600, de
+// forma que o token nunca aparece na linha de comando nem vaza via argv.
+fn status_hook_cmd(label: &str, state: &str, curl_cfg: &std::path::Path) -> String {
     format!(
-        "curl -s -m 2 -X POST \"http://127.0.0.1:{}/agent-hook/{}?state={}\"",
+        "curl -s -m 2 -K \"{}\" -X POST \"http://127.0.0.1:{}/agent-hook/{}?state={}\"",
+        curl_cfg.display(),
         crate::mcp::MCP_PORT,
         label,
         state,
@@ -127,6 +155,18 @@ pub fn agent_settings_config(
     label: String,
     failproof: Option<bool>,
 ) -> Option<String> {
+    // Token de auth do control plane, o MESMO do /sse. O /agent-hook era a única rota
+    // sem auth — loopback, mas qualquer processo local podia forjar o estado de um agente
+    // (marcar "done" e destravar um gate). Se o token não estiver no estado (app subindo),
+    // o hook nasce SEM token e o servidor recusa: falha fechada, não aberta.
+    let hook_token = {
+        use tauri::Manager;
+        app.try_state::<std::sync::Arc<crate::mcp::server::McpAuthToken>>()
+            .map(|t| t.0.clone())
+            .unwrap_or_default()
+    };
+    let hook_dir = { use tauri::Manager; app.path().app_data_dir().ok()? };
+    let hook_cfg = write_hook_curl_config(&hook_dir, sanitize_label(&label).as_str(), &hook_token)?;
     let script = ensure_review_script(&app).ok()?;
     let cfg = config_path(&app).ok()?;
     // command roda via shell (sem `args`) → cita os caminhos por segurança.
@@ -148,16 +188,16 @@ pub fn agent_settings_config(
         "hooks": {
             // Prompt submetido → o agente começou a trabalhar.
             "UserPromptSubmit": [ { "hooks": [
-                { "type": "command", "command": status_hook_cmd(label, "working"), "timeout": 5 }
+                { "type": "command", "command": status_hook_cmd(label, "working", &hook_cfg), "timeout": 5 }
             ] } ],
             // Notification (pedido de permissão / espera de input) → bloqueado.
             "Notification": [ { "hooks": [
-                { "type": "command", "command": status_hook_cmd(label, "blocked"), "timeout": 5 }
+                { "type": "command", "command": status_hook_cmd(label, "blocked", &hook_cfg), "timeout": 5 }
             ] } ],
             // Stop: MERGE — status `done` (push) + review headless (gate NO-GO).
             // Ambos no mesmo array; o de review mantém timeout 180s (teto do LLM).
             "Stop": [ { "hooks": [
-                { "type": "command", "command": status_hook_cmd(label, "done"), "timeout": 5 },
+                { "type": "command", "command": status_hook_cmd(label, "done", &hook_cfg), "timeout": 5 },
                 { "type": "command", "command": review_cmd, "timeout": 180 }
             ] } ]
         }

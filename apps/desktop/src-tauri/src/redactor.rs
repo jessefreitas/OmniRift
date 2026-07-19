@@ -368,6 +368,9 @@ mod tests {
             "glpat-CANARYeeeeeeeeeeeeeeeeeeee",
             "AIzaCANARYfffffffffffffffffffffffffffffff",
             "xoxb-CANARYgggggggg",
+            // Canário de TESTE, não credencial: prova que o redator corta chave AWS.
+            // Se esta linha sumir, some junto a prova de que a redação funciona.
+            // nosemgrep
             "AKIACANARYHHHHHHHHHH",
             "cfat_CANARYiiiiiiii",
             "xai-CANARYjjjjjjjjjjjjjjjj",

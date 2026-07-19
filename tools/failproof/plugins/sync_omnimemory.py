@@ -33,6 +33,10 @@ def sync():
         if not rows:
             return 0
         payload = "\n".join(json.dumps(r, ensure_ascii=False) for r in rows)
+        # shell=True é o RECURSO, não um descuido: FAILPROOF_SYNC_CMD é uma linha de shell
+        # que o próprio dono escreve na config dele (pipes, redirect). Quem controla a env
+        # var já controla o processo — não há elevação de privilégio aqui.
+        # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
         proc = subprocess.run(os.environ["FAILPROOF_SYNC_CMD"], shell=True,
                               input=payload.encode(), timeout=60, capture_output=True)
         if proc.returncode == 0:

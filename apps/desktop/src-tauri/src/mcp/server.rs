@@ -111,7 +111,15 @@ async fn agent_hook_handler(
     Path(label): Path<String>,
     Query(params): Query<HashMap<String, String>>,
     State(state): State<Arc<McpState>>,
+    headers: axum::http::HeaderMap,
 ) -> StatusCode {
+    // Esta rota era a ÚNICA do control plane sem auth. É loopback, então o risco externo
+    // é zero — mas qualquer processo local podia forjar o estado de um agente: marcar
+    // "done" num agente que não terminou destrava gate e engana o orquestrador. Barato
+    // fechar agora, e obrigatório antes da Fase B, que vai enriquecer este payload.
+    if !check_token(&headers, &params, &state.token) {
+        return StatusCode::UNAUTHORIZED;
+    }
     let Some(new_state) = params.get("state").and_then(|s| map_state(s)) else {
         return StatusCode::NO_CONTENT; // estado inválido/ausente → ignora
     };
