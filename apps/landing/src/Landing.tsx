@@ -887,16 +887,17 @@ export function Landing() {
             </div>
           </div>
           <p style={{ color: MUTED, fontSize: 12.5, maxWidth: 560, margin: "22px auto 0", lineHeight: 1.5 }}>
-            macOS beta (Apple Silicon): se o Gatekeeper disser “damaged”, instale com{" "}
-            <a
-              href="https://github.com/jessefreitas/OmniRift/blob/main/scripts/install-macos.sh"
-              target="_blank"
-              rel="noreferrer noopener"
-              style={{ color: "var(--ac)" }}
-            >
-              scripts/install-macos.sh
-            </a>
-            {" "}(remove quarentena + sela o bundle). Solução definitiva: Developer ID + notarize.
+            macOS beta (Apple Silicon): no primeiro clique o macOS avisa que “a Apple não pôde
+            verificar” o app. É esperado — ainda não temos o certificado de distribuição da
+            Apple, e não significa que exista algo errado com o arquivo. Para abrir, vá em{" "}
+            <strong style={{ color: "#F3F3F4" }}>
+              Ajustes do Sistema › Privacidade e Segurança
+            </strong>{" "}
+            e clique em <strong style={{ color: "#F3F3F4" }}>“Abrir Mesmo Assim”</strong> — o
+            botão aparece logo depois da primeira tentativa. No macOS Sequoia (15+) esse é o
+            caminho: clicar com o botão direito não funciona mais. Alternativa por terminal:{" "}
+            <code style={{ fontSize: 12 }}>xattr -dr com.apple.quarantine /Applications/OmniRift.app</code>.
+            Estamos providenciando o certificado para que isso deixe de aparecer.
           </p>
           <a href="https://github.com/jessefreitas/OmniRift/releases/latest" target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 16, color: "var(--ac)", textDecoration: "none", fontSize: 14 }}>
             Todas as versões e formatos (.deb, .msi, .dmg) → GitHub Releases
