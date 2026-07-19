@@ -82,6 +82,13 @@ interface UseTerminalSessionReturn {
  */
 const MAX_BG_CHARS = 2 * 1024 * 1024;
 
+/** Teto de contextos WebGL simultâneos. O WebKit limita quantos existem; passando do
+ *  teto, criar um novo DESPEJA o mais antigo — que fica PRETO até redesenhar no DOM.
+ *  Com orçamento, os primeiros N usam GPU e o resto nasce no DOM: lento, porém estável.
+ *  (Diagnóstico 2026-07-19: 11 terminais → "webgl context not restored" + jank 880ms.) */
+const WEBGL_BUDGET = 6;
+let webglInUse = 0;
+
 export function useTerminalSession({
   sessionId,
   config,
@@ -97,6 +104,8 @@ export function useTerminalSession({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const webglRef = useRef<WebglAddon | null>(null);
+  /** Este terminal consumiu uma vaga do orçamento? Devolve no MÁXIMO uma vez. */
+  const webglSlotRef = useRef(false);
   const spawnedRef = useRef(false);
   // Session recorder: último estado logado + guarda pra encerrar só uma vez.
   const lastStateRef = useRef<string | null>(null);
@@ -209,9 +218,11 @@ export function useTerminalSession({
     // Kill-switch: flag off → fica no renderer DOM (evita a race do addon-webgl no dispose,
     // `_core._store._isDisposed`, que já derrubou o app). Guarda a ref pra dispor o WebGL
     // ANTES do term.dispose() no cleanup (para o rAF antes do core sumir).
-    if (getFlag("terminal-webgl")) {
+    if (getFlag("terminal-webgl") && webglInUse < WEBGL_BUDGET) {
       try {
         const webgl = new WebglAddon();
+        webglInUse++;
+        webglSlotRef.current = true;
         // Perda de contexto GPU (pressão de GPU / driver reset — comum com VM/browsers disputando
         // a placa): dispõe o WebGL de forma SEGURA e FORÇA o xterm a redesenhar no renderer DOM.
         // Só `dispose()` deixava o terminal PRETO — o WebGL parava de desenhar e o DOM não assumia
@@ -223,6 +234,12 @@ export function useTerminalSession({
             /* `_core._store._isDisposed` race durante o context loss — já foi, ignora */
           }
           webglRef.current = null;
+          // Devolve a vaga: daqui pra frente este terminal vive no DOM, e segurar o
+          // orçamento só impediria outro terminal de usar a GPU.
+          if (webglSlotRef.current) {
+            webglSlotRef.current = false;
+            webglInUse = Math.max(0, webglInUse - 1);
+          }
           try {
             term.refresh(0, term.rows - 1); // redesenha tudo no DOM → sem tela preta
           } catch {
@@ -606,6 +623,13 @@ export function useTerminalSession({
       // existe, evitando a race `_core._store._isDisposed` (o rAF acessava um core já limpo).
       try { webglRef.current?.dispose(); } catch { /* já disposed */ }
       webglRef.current = null;
+      // Desmontou (nó saiu do viewport / terminal fechado): devolve a vaga do
+      // orçamento. Sem isto o contador só sobe e, passados WEBGL_BUDGET terminais,
+      // nenhum outro pega GPU pelo resto da sessão.
+      if (webglSlotRef.current) {
+        webglSlotRef.current = false;
+        webglInUse = Math.max(0, webglInUse - 1);
+      }
       term.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
