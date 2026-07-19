@@ -77,3 +77,9 @@ tools/**/.gate.log
 
 # conf gerada pelo install-macos-dev.sh
 apps/desktop/src-tauri/tauri.dev-install.generated.json
+
+# Diagnósticos que CLIENTES mandam pro suporte. Contêm caminho de máquina, nome de
+# usuário e de projeto deles. Já entrou no repo uma vez por \ — este repo é
+# PÚBLICO, então o dado de um cliente virou source archive de release.
+logs_clientes/
+*omnirift-diagnostico-*.txt
