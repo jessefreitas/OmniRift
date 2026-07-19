@@ -176,6 +176,10 @@ interface CanvasState {
     /** Floor onde o terminal nasce (routines "Rodar em"). undefined = floor ativo
      *  (comportamento idêntico ao anterior). NÃO troca o floor ativo. */
     targetFloorId?: string;
+    /** Nasce SUSPENSO: nó no canvas, ZERO processo. O usuário religa no card
+     *  (`wakeTerminal`). Usado pelas ondas futuras do Montar — antes disso, o
+     *  plano desenhava ondas mas subia todos os PTYs de uma vez. */
+    dormant?: boolean;
   }) => TerminalNode | null;
   addNote: (params?: { position?: { x: number; y: number }; content?: string; color?: string }) => NoteNode;
   addGroup: (params?: { position?: { x: number; y: number }; label?: string }) => GroupNode;
@@ -546,7 +550,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       return { dirtyFiles: next };
     }),
 
-  addTerminal: ({ command, args, role = "shell", position, label, id, compressor, env: extraEnv, executionHost, attach, cwd: cwdArg, targetFloorId }) => {
+  addTerminal: ({ command, args, role = "shell", position, label, id, compressor, env: extraEnv, executionHost, attach, cwd: cwdArg, targetFloorId, dormant }) => {
     // Gate de licença: community = máx 5 agentes (terminais). 0 = ilimitado.
     const lic = useLicenseStore.getState();
     if (!withinLimit(lic.limits.agents, get().allTerminalNodes().length)) {
@@ -606,6 +610,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       // Attach (Fase 2 do #8): só decora quando true (node de spawn normal fica
       // byte-idêntico ao anterior — `attach` ausente).
       attach: attach ? true : undefined,
+      // Nasce SUSPENSO (card 💤, zero PTY) — ondas futuras do Montar. Só decora
+      // quando true, pro node de spawn normal seguir byte-idêntico ao anterior.
+      dormant: dormant ? true : undefined,
       position: position ?? defaultPosition(),
       size: { width: 520, height: 320 },
     };
@@ -618,7 +625,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     // spawnaria. O PTY nasce aqui, dono = backend; o nó ANEXA quando montar (o hook
     // detecta via pty_list; corrida spawn×spawn é benigna — "já existe" → attach).
     // `attach` (CLI omnirift spawn) fica de fora: esse PTY já nasceu no backend.
-    if (!attach) void ensurePtySessions([node]);
+    // `dormant` também fica de fora: o card suspenso NÃO tem processo — é justamente
+    // o ponto de nascer sem PTY (o Montar subia o time inteiro de uma vez).
+    if (!attach && !dormant) void ensurePtySessions([node]);
     return node;
   },
 

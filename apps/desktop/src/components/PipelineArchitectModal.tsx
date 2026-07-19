@@ -234,8 +234,14 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
     // Líder = agente da MENOR onda (o Arquiteto, que "define contratos e divide o trabalho").
     // Ele vira o ORQUESTRADOR do time (persona de comando abaixo + coroa/dock via setOrchestratorSid).
     const leaderRole = [...plan.agents].sort((x, y) => (x.wave ?? 1) - (y.wave ?? 1))[0]?.role.toLowerCase();
+    // ADMISSÃO POR ONDA: só a primeira onda ganha processo. As seguintes nascem
+    // SUSPENSAS (card 💤, zero PTY) e o usuário religa quando a dependência entrega.
+    // Antes disso a onda era só desenho — o Montar subia o time INTEIRO de uma vez
+    // (11 claude em ~22s no diagnóstico do Jessé, main thread parada 1,85s).
+    const firstWave = Math.min(...plan.agents.map((a) => a.wave ?? 1));
     for (const a of plan.agents) {
       const wave = a.wave ?? 1;
+      const bornDormant = wave !== firstWave;
       const targetFloorId = floorIdFor(a.floor);
       const colKey = `${targetFloorId ?? "active"}:${wave}`;
       const col = colByFloorWave.get(colKey) ?? 0;
@@ -297,6 +303,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
           label: a.role,
           position: { x, y },
           targetFloorId,
+          dormant: bornDormant,
         });
         if (!node) { skippedByLimit++; continue; } // gate de licença (máx agentes) → pula o role
         nodeId = node.id;
