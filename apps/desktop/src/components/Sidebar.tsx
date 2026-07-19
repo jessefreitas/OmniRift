@@ -140,6 +140,8 @@ const ReviewPolicyModal = lazy(() => import("@/components/ReviewPolicyModal").th
 const ReviewSettingsModal = lazy(() => import("@/components/ReviewSettingsModal").then((m) => ({ default: m.ReviewSettingsModal })));
 const SkillLaunchPickerModal = lazy(() => import("@/components/SkillLaunchPicker").then((m) => ({ default: m.SkillLaunchPicker })));
 const DiagnosticsModal = lazy(() => import("@/components/DiagnosticsModal").then((m) => ({ default: m.DiagnosticsModal })));
+// Não é lazy: vive SEMPRE visível no rodapé (um lazy aqui só adiciona um flash de vazio).
+import { DiagRecorder } from "@/components/DiagRecorder";
 const SkillsCenterModal = lazy(() => import("@/components/SkillsCenterModal").then((m) => ({ default: m.SkillsCenterModal })));
 const KanbanPanel = lazy(() => import("@/components/KanbanPanel").then((m) => ({ default: m.KanbanPanel })));
 const SnippetsPanel = lazy(() => import("@/components/SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })));
@@ -2565,6 +2567,10 @@ export function Sidebar() {
           >
             {tr("sidebar.sendDiag", "Enviar diagnóstico")}
           </button>
+          <span className="opacity-40">·</span>
+          {/* Caminho OFFLINE do suporte: grava, gera o arquivo e abre a pasta pro
+              cliente anexar onde quiser (funciona atrás de firewall, e ele VÊ o que manda). */}
+          <DiagRecorder />
         </div>
       </footer>
 

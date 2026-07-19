@@ -23,3 +23,9 @@ export async function debugModeSet(enabled: boolean): Promise<boolean> {
 export async function diagnosticsExport(): Promise<string> {
   return await invoke<string>("diagnostics_export");
 }
+
+/** Abre o gerenciador de arquivos na pasta do arquivo (ver commands/reveal.rs).
+ *  O caminho absoluto sozinho não ajuda quem não mexe em terminal. */
+export async function revealPath(path: string): Promise<void> {
+  await invoke("reveal_path", { path });
+}

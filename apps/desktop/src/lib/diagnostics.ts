@@ -6,6 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCanvasStore } from "@/store/canvas-store";
 import { logToDisk } from "@/lib/debug-log";
+import { trackAction } from "@/lib/action-trail";
 
 const LICENSE_WORKER_URL = "https://omnirift-license-worker.jesse-vieira-freitas.workers.dev";
 
@@ -47,11 +48,17 @@ export function initDiagnosticsCapture(): void {
   window.addEventListener("error", (e) => {
     const stack = (e.error as Error | undefined)?.stack;
     push(`[error-event] ${e.message} @ ${e.filename}:${e.lineno}${stack ? `\n${stack}` : ""}`);
+    // Marca o erro na TRILHA também: o log técnico diz o que quebrou, a trilha diz o
+    // que o cliente estava fazendo. Lidas juntas viram uma reprodução; separadas, o
+    // suporte tem um stack sem contexto. Só o basename do arquivo — o caminho
+    // completo do bundle não ajuda e revela a instalação.
+    trackAction("erro", { msg: e.message, arquivo: e.filename, linha: e.lineno });
   });
 
   window.addEventListener("unhandledrejection", (e) => {
     const stack = (e.reason as Error | undefined)?.stack;
     push(`[unhandledrejection] ${String(e.reason)}${stack ? `\n${stack}` : ""}`);
+    trackAction("promessa-rejeitada", { motivo: String(e.reason) });
   });
 }
 
