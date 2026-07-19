@@ -20,8 +20,19 @@ def test_claims_success():
     assert m.claims_success("corrigido!")
     assert m.claims_success("está funcionando agora")
     assert m.claims_success("pronto, resolvido")
+    assert m.claims_success("funciona agora")
+    assert m.claims_success("all done")
     assert not m.claims_success("vou investigar o erro")
     assert not m.claims_success("o teste falhou")
+
+
+def test_green_com_palavra_error_no_meio_nao_conta_como_vermelho():
+    # resultado verde cujo texto contém "error" em prosa/log não pode virar vermelho
+    # e bloquear conclusão legítima (fix #5).
+    green_com_ruido = {"kind": "tool_result", "name": "Bash",
+                       "text": "0 errors found; build ok\nexit_code: 0"}
+    events = [EDIT, green_com_ruido, _claim()]
+    assert m.should_block(events) is False
 
 
 def test_bloqueia_claim_sem_execucao_apos_edit():

@@ -27,18 +27,43 @@ def test_detect_failure(monkeypatch, tmp_path):
     assert m.detect_failure({"stdout": "all good"}) is False
 
 
+def test_detect_failure_reader_cmd_sem_exit_code_nao_e_falha(monkeypatch, tmp_path):
+    # grep/journalctl que imprimem "error:" no output MAS terminaram bem não são falha.
+    m = _mod(monkeypatch, tmp_path)
+    resp = {"stdout": "app.log: 2 error: timeout\n5 failed logins"}  # sem exit_code
+    assert m.detect_failure(resp, "grep -i error app.log") is False
+    assert m.detect_failure(resp, "python build.py") is True  # comando não-leitor: heurística vale
+
+
+def test_detect_failure_exit_code_camelcase_e_is_error(monkeypatch, tmp_path):
+    m = _mod(monkeypatch, tmp_path)
+    assert m.detect_failure({"stdout": "x", "exitCode": 2}) is True
+    assert m.detect_failure({"stdout": "x", "is_error": True}) is True
+
+
 def test_par_falha_fix_e_gravado_observado_nao_validado(monkeypatch, tmp_path):
-    # correlação temporal (falha→sucesso na mesma família) é OBSERVAÇÃO, não prova:
-    # o fix é guardado como candidato (fix_validated=0), nunca como confirmado.
+    # correlação temporal (falha→sucesso na mesma família, comando DIFERENTE) é
+    # OBSERVAÇÃO, não prova: guardado como candidato (fix_validated=0), nunca confirmado.
     m = _mod(monkeypatch, tmp_path)
     import failbase
     m.process(_payload("pytest tests/", "1 failed: ImportError foo", 1))
-    m.process(_payload("pytest tests/", "5 passed", 0))
+    m.process(_payload("pytest tests/ -p no:cacheprovider", "5 passed", 0))
     fb = failbase.FailBase()
     row = fb.search("ImportError")[0]
     assert row["fix_validated"] == 0            # observado, não validado
-    assert "pytest tests/" in row["fix"]        # mas o candidato foi guardado
+    assert "no:cacheprovider" in row["fix"]     # o candidato (comando de correção) guardado
     assert row["project"] == "proj"
+
+
+def test_retry_comando_identico_nao_vira_fix(monkeypatch, tmp_path):
+    # mesmo comando que passa na 2ª tentativa = flaky/retry, NÃO é correção.
+    m = _mod(monkeypatch, tmp_path)
+    import failbase
+    m.process(_payload("pytest tests/", "1 failed: flaky", 1))
+    m.process(_payload("pytest tests/", "5 passed", 0))
+    fb = failbase.FailBase()
+    rows = [r for r in fb.search("flaky") if r["fix"]]
+    assert rows == []                           # nenhum fix gravado a partir de retry idêntico
 
 
 def test_fix_validado_injeta_com_framing_confirmado(monkeypatch, tmp_path):

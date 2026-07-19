@@ -27,7 +27,7 @@ def build_instruction():
     return (
         "[failproof] O usuário está corrigindo você. Antes de refazer o trabalho: "
         "registre o erro na failbase com o comando "
-        "`python3 ~/.claude/failbase/failbase.py add --source human-feedback "
+        "`python3 ~/.claude/failbase/failbase.py add --source human-feedback --validated "
         "--symptom \"<o que você fez de errado>\" --root-cause \"<por que errou>\" "
         "--fix \"<entendimento correto>\" --project <slug>`. "
         "Depois aplique a correção. Não repita o padrão que causou a correção.")

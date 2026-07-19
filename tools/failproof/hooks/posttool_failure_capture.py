@@ -20,14 +20,26 @@ _PAIR_WINDOW = 10          # quantas entradas do buffer olhar pra trás
 _OUTPUT_TAIL = 1500        # bytes do output guardados
 
 
-def detect_failure(tool_response):
+# Comandos "leitores": o output deles é texto arbitrário (logs, código) — conter
+# "error:"/"failed" NÃO indica falha do comando. Sem exit code, não classifica.
+_READER_CMDS = {"grep", "rg", "egrep", "fgrep", "cat", "tail", "head", "less",
+                "journalctl", "ag", "awk", "sed", "jq", "echo", "printf", "find"}
+
+
+def detect_failure(tool_response, command=""):
     if isinstance(tool_response, dict):
-        code = tool_response.get("exit_code")
-        if isinstance(code, int):
-            return code != 0
+        for key in ("exit_code", "exitCode", "returnCode"):
+            code = tool_response.get(key)
+            if isinstance(code, int):
+                return code != 0
+        if tool_response.get("is_error") is True:
+            return True
         text = json.dumps(tool_response, ensure_ascii=False)
     else:
         text = str(tool_response)
+    head = (command.strip().split() or [""])[0].rsplit("/", 1)[-1]
+    if head in _READER_CMDS:
+        return False
     return bool(_ERROR_MARKERS.search(text))
 
 
@@ -59,7 +71,7 @@ def process(payload):
     project = os.path.basename(payload.get("cwd") or "")
     output = (response.get("stdout", "") if isinstance(response, dict)
               else str(response))[-_OUTPUT_TAIL:]
-    failed = detect_failure(response)
+    failed = detect_failure(response, command)
     sig = failbase.normalize_signature(output, command)
     buf_path = _buffer_path(session)
     entries = _read_buffer(buf_path)
@@ -83,7 +95,10 @@ def process(payload):
     else:
         resolved_any = False
         for e in reversed(entries[-_PAIR_WINDOW:]):
-            if e.get("failed") and not e.get("resolved") and _same_family(e["command"], command):
+            # comando idêntico que passou na 2ª tentativa = flaky/retry, não é "fix".
+            if (e.get("failed") and not e.get("resolved")
+                    and _same_family(e["command"], command)
+                    and e["command"].strip() != command.strip()):
                 # correlação temporal ≠ prova. Guarda como OBSERVADO (fix_validated=False);
                 # só human-feedback/CI promovem a validado.
                 fb.add(symptom=e["output"], fix=command, command=e["command"],

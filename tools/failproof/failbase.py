@@ -56,6 +56,61 @@ CREATE VIRTUAL TABLE IF NOT EXISTS failures_fts
 """
 
 
+_SECRET_PREFIXED = re.compile(
+    r"(?P<prefix>cfat_|ptr_|ghp_|gho_|ghs_|github_pat_)[A-Za-z0-9_-]{20,}"
+)
+
+_SECRET_SK = re.compile(r"(?P<prefix>sk-ant-|sk-)[A-Za-z0-9_-]{20,}")
+
+_SECRET_SLACK = re.compile(r"(?P<prefix>xox[abprs]-)[A-Za-z0-9-]{10,}")
+
+_SECRET_AKIA = re.compile(r"(?P<prefix>AKIA)[A-Z0-9]{16}")
+
+# Redige NOME=VALOR preservando o nome, evitando placeholders e variáveis shell.
+_SECRET_NOME_VALOR = re.compile(
+    r"(?i)(?P<nome>\w*(?:TOKEN|SECRET|PASSWORD|SENHA|APIKEY|API_KEY|ACCESS_KEY|PRIVATE_KEY|PASSWD|CREDENTIAL)\w*)\s*=\s*"
+    r"(?P<val>\"[^\"$]+\"|'[^'$]+'|(?!(?:xxx|\*\*\*|\[REDACTED\]|<[^>]+>)(?:\s|$))[^\s$]+)"
+)
+
+# Redige tokens em headers de autorização, preservando a palavra-chave.
+# Só redige se o valor PARECER token (20+ chars). Sem isso, "token expirado" em
+# prosa viraria "token [REDACTED]" e destruiria o diagnóstico.
+_SECRET_BEARER_TOKEN = re.compile(
+    r"(?i)(?P<prefix>(?:Bearer|token)\s+)(?P<val>(?!\$)[A-Za-z0-9_\-\.=]{20,})"
+)
+
+_SECRET_PEM = re.compile(
+    r"-----BEGIN .*? PRIVATE KEY-----.*?-----END .*? PRIVATE KEY-----",
+    re.DOTALL
+)
+
+# Chave Fernet isolada (base64 de 44 chars terminando em =) com word boundary.
+_SECRET_FERNET = re.compile(r"(?<!\w)[A-Za-z0-9+/]{43}=(?!\w)")
+
+_SECRET_REGEXES = [
+    (_SECRET_PREFIXED, r"\g<prefix>[REDACTED]"),
+    (_SECRET_SK, r"\g<prefix>[REDACTED]"),
+    (_SECRET_SLACK, r"\g<prefix>[REDACTED]"),
+    (_SECRET_AKIA, r"\g<prefix>[REDACTED]"),
+    (_SECRET_NOME_VALOR, r"\g<nome>=[REDACTED]"),
+    (_SECRET_BEARER_TOKEN, r"\g<prefix>[REDACTED]"),
+    (_SECRET_PEM, "[REDACTED]"),
+    (_SECRET_FERNET, "[REDACTED]"),
+]
+
+def redact_secrets(text):
+    """Redige segredos no texto porque os hooks gravam comando cru."""
+    if not text:
+        return text
+    try:
+        for regex, replacement in _SECRET_REGEXES:
+            text = regex.sub(replacement, text)
+        return text
+    except Exception:
+        # Base é fail-open: nunca levanta exceção, retorna o que tiver.
+        return text
+
+
 class FailBase:
     def __init__(self, db_path=None):
         self.db_path = db_path or default_db_path()
@@ -71,6 +126,12 @@ class FailBase:
     def add(self, symptom, fix="", root_cause="", source="session", project="",
             error_class="", fix_validated=False, signature=None, command=""):
         sig = signature or normalize_signature(symptom, command)
+        # Redige antes de gravar: os hooks capturam comando cru, que costuma trazer
+        # token/senha inline. A assinatura é calculada acima, sobre o texto original,
+        # para não mudar o agrupamento de falhas já existentes.
+        symptom = redact_secrets(symptom)
+        fix = redact_secrets(fix)
+        root_cause = redact_secrets(root_cause)
         symptom = (symptom or "")[:2048]
         row = self.lookup(sig)
         if row:
