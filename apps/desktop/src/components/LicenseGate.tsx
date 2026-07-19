@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Copy, Gift, KeyRound, Lock, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
+import { Check, Copy, Gift, KeyRound, Lock, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { useLicenseStore, type LimitKind } from "@/store/license-store";
@@ -148,96 +148,90 @@ function LicenseModal() {
         </header>
 
         <div className="p-5 space-y-4">
-          {!isFull && wasBeta && (
+
+          {(!isFull && wasBeta) && (
             <div className="flex items-start gap-2 rounded-md border border-brand/40 bg-brand/10 px-3 py-2.5">
               <Gift size={15} className="text-brand mt-0.5 shrink-0" />
               <div className="flex-1">
                 <p className="text-[12px] text-text">
                   {t("beta.ended", "Seu acesso beta acabou. Continue no OmniRift Pro com desconto de beta tester.")}
                 </p>
-                <button onClick={() => void openExternal(PRICING_URL)} className="mt-1 text-[12px] font-medium text-brand hover:underline">
+                <button
+                  onClick={() => void openExternal(PRICING_URL)}
+                  className="mt-1 text-[12px] font-medium text-brand hover:underline"
+                >
                   {t("beta.upgrade", "Ver planos com desconto ›")}
                 </button>
               </div>
             </div>
           )}
-          {isFull ? (
-            <div className="flex items-center gap-2 text-[13px] text-text">
-              <Sparkles size={15} className="text-brand" />
-              {t("license.fullActive", "Tudo liberado")}
-              {status?.holder ? <span className="text-textMuted">· {status.holder}</span> : null}
-            </div>
-          ) : (
-            <>
-              <p className="text-[12px] text-textMuted">
-                {t("license.communityIntro", "Você está na edição community (grátis). Com uma licença, tudo fica ilimitado.")}
-              </p>
-              <div className="rounded-md border border-border overflow-hidden">
-                <div className="grid grid-cols-3 gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wide text-textMuted bg-surface2/40">
-                  <span></span><span>{t("license.tierCommunity", "Community")}</span><span>{t("license.tierFull", "Full")}</span>
-                </div>
-                <Row label={t("license.workspaces", "Workspaces")} community="1" full={t("license.unlimited", "ilimitado")} />
-                <Row label={t("license.devices", "Computadores")} community="1" full="3" />
-              </div>
-            </>
-          )}
 
-          <div>
-            <label className="text-[10px] uppercase tracking-wider text-textMuted">{t("license.machineIdLabel", "ID da máquina (fingerprint)")}</label>
-            <div className="flex items-center gap-2 mt-1">
-              <code className="flex-1 px-2 py-1.5 rounded bg-bg border border-border text-[12px] text-brand font-mono select-all truncate">{fp || "—"}</code>
-              <button onClick={copyFp} className="text-textMuted hover:text-brand p-1.5" title={t("common.copy", "Copiar")}>
-                {copied ? <Check size={14} className="text-brand" /> : <Copy size={14} />}
-              </button>
-            </div>
-          </div>
-
-          <>
-            {/* Banner de sucesso: feedback grande e impossivel de ignorar logo apos ativar. */}
-            {justActivated ? (
-              <div className="border border-brand bg-brand/10 rounded-md p-3 flex items-start gap-3">
-                <ShieldCheck size={16} className="text-brand shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-[13px] font-semibold text-text">
-                    {t("license.activatedTitle", "Licença Full ativada")}
-                  </p>
-                  {status?.holder && (
-                    <p className="text-[11px] text-textMuted mt-0.5">{status.holder}</p>
-                  )}
-                </div>
-              </div>
-            ) : isFull && !changing ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Check size={13} className="text-brand" />
-                  <span className="text-[12px] text-text">
-                    {t("license.keyActiveLabel", "Chave ativa nesta máquina")}
-                  </span>
-                </div>
-                {status?.exp && (
-                  <p className="text-[11px] text-textMuted">
-                    {t("license.validUntil", "válida até")}{" "}
-                    {new Date(status.exp * 1000).toLocaleDateString()}
-                  </p>
+          {isFull && !changing ? (
+            <div className={"rounded-md border p-3 flex items-start gap-3 " + (justActivated ? "border-brand bg-brand/10" : "border-border")}>
+              <ShieldCheck size={16} className="text-brand shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold text-text">
+                  {justActivated ? t("license.activatedTitle", "Licença Full ativada") : t("license.fullActive", "Licença Full ativa")}
+                </p>
+                {status?.holder && (
+                  <p className="text-[11px] text-textMuted truncate">{status.holder}</p>
                 )}
-                {/* Esconde o formulario quando ativado; so abre de novo sob demanda para evitar que o usuario cole licencas seguidas sem perceber. */}
+                {status?.exp ? (
+                  <p className="text-[11px] text-textMuted">
+                    {t("license.validUntil", "válida até") + " " + new Date(status.exp * 1000).toLocaleDateString()}
+                  </p>
+                ) : null}
+                {/* um bloco só; o selo do cabeçalho já diz o tier, então repetir "tudo liberado" e o titular três vezes só gerava ruído */}
                 <button
-                  type="button"
+                  className="mt-2 flex items-center gap-1 text-[11px] text-textMuted hover:text-brand"
                   onClick={() => { setChanging(true); setErr(null); }}
-                  className="flex items-center gap-1 text-[11px] text-textMuted hover:text-brand"
                 >
                   <RefreshCw size={11} />
                   {t("license.changeKey", "Trocar chave de licença")}
                 </button>
               </div>
-            ) : (
+            </div>
+          ) : (
+            <>
+              {!isFull && (
+                <p className="text-[12px] text-textMuted">
+                  {t("license.communityIntro", "Você está na edição community (grátis). Com uma licença, tudo fica ilimitado.")}
+                </p>
+              )}
+
+              {!isFull && (
+                <div className="rounded-md border border-border overflow-hidden">
+                  <div className="grid grid-cols-3 gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wide text-textMuted bg-surface2/40">
+                    <span></span>
+                    <span>{t("license.tierCommunity", "Community")}</span>
+                    <span>{t("license.tierFull", "Full")}</span>
+                  </div>
+                  <Row label={t("license.workspaces", "Workspaces")} community="1" full={t("license.unlimited", "ilimitado")} />
+                  <Row label={t("license.devices", "Computadores")} community="1" full="3" />
+                </div>
+              )}
+
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-textMuted">
+                  {t("license.machineIdLabel", "ID da máquina (fingerprint)")}
+                </label>
+                <div className="flex items-center gap-2 mt-1">
+                  <code className="flex-1 px-2 py-1.5 rounded bg-bg border border-border text-[12px] text-brand font-mono select-all truncate">
+                    {fp || "—"}
+                  </code>
+                  <button onClick={copyFp} className="text-textMuted hover:text-brand p-1.5" title={t("common.copy", "Copiar")}>
+                    {copied ? <Check size={14} className="text-brand" /> : <Copy size={14} />}
+                  </button>
+                </div>
+                {/* o ID só aparece em destaque aqui porque só serve para PEDIR uma chave; para quem já ativou virava ruído no topo da tela */}
+              </div>
+
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-textMuted">
                   {t("license.keyLabel", "Chave de licença")}
                 </label>
                 <div className="flex items-center gap-2 mt-1">
                   <input
-                    type="text"
                     value={key}
                     onChange={(e) => setKey(e.target.value)}
                     placeholder={t("license.keyPlaceholder", "cole a chave aqui…")}
@@ -245,7 +239,6 @@ function LicenseModal() {
                   />
                   {changing && (
                     <button
-                      type="button"
                       onClick={() => { setChanging(false); setKey(""); setErr(null); }}
                       className="text-[11px] text-textMuted hover:text-text"
                     >
@@ -253,20 +246,19 @@ function LicenseModal() {
                     </button>
                   )}
                   <button
-                    type="button"
-                    disabled={busy || !key.trim()}
                     onClick={doActivate}
+                    disabled={busy || !key.trim()}
                     className="px-3 py-1.5 rounded-md text-xs bg-brand text-bg hover:bg-brand-hover disabled:opacity-40"
                   >
                     {busy ? t("license.activating", "Ativando…") : t("license.activate", "Ativar")}
                   </button>
                 </div>
               </div>
-            )}
+            </>
+          )}
 
-            {err && <p className="text-[11px] text-danger mt-1">{err}</p>}
-            {status?.detail && !err && <p className="text-[11px] text-textMuted mt-1">{status.detail}</p>}
-          </>
+          {err && <p className="text-[11px] text-danger">{err}</p>}
+          {status?.detail && !err && <p className="text-[11px] text-textMuted">{status.detail}</p>}
         </div>
 
         <footer className="px-5 py-2.5 border-t border-border text-[10px] text-textMuted opacity-70">
