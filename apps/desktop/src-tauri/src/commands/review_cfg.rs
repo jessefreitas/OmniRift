@@ -196,6 +196,12 @@ pub fn agent_settings_config(
         // texto E voz. Requer login com conta Claude.ai (STT nos servidores Anthropic).
         "voice": { "enabled": true, "mode": "tap" },
         "language": "pt",
+        // Agente do canvas NÃO tem humano digitando turno a turno: quem manda tarefa é o
+        // orquestrador ou uma automação. É essa a definição de "unattended" que os hooks
+        // do failproof usam pra decidir se registram a sessão pro watchdog vigiar.
+        // Seguro porque a vigilância é por TURNO (register no UserPromptSubmit, cleanup no
+        // Stop): agente ocioso entre tarefas não está registrado e não pode ser morto.
+        "env": { "OMNI_UNATTENDED": "1" },
         "hooks": {
             // Prompt submetido → o agente começou a trabalhar.
             "UserPromptSubmit": [ { "hooks": [
@@ -261,24 +267,30 @@ fn inject_failproof_hooks(settings: &mut serde_json::Value, hooks_dir: &std::pat
         arr.push(serde_json::json!(
             { "type": "command", "command": cmd("userprompt_correction_detector.py"), "timeout": 10 }
         ));
+        // A JANELA DE VIGILÂNCIA É O TURNO, não a sessão. Registrar no SessionStart e só
+        // limpar no SessionEnd deixaria o agente vigiado enquanto está OCIOSO — e "ocioso"
+        // é indistinguível de "travado" pro watchdog, que mede staleness pelo mtime do
+        // transcript. Um agente que terminou a tarefa e espera o próximo dispatch seria
+        // morto em 20 min. Registrando no início do turno e limpando no fim, só um turno
+        // que de fato pendura é pego.
+        arr.push(serde_json::json!(
+            { "type": "command", "command": cmd("watch_register.py"), "timeout": 10 }
+        ));
     }
     // SessionStart: injeta os erros já conhecidos do projeto no contexto. MERGE (não
     // sobrescreve): preserva os SessionStart do usuário global já mesclados antes (ex:
     // context-loader de isolamento de projeto) — só APPENDA o grupo do failproof.
     let fp_group = serde_json::json!({ "hooks": [
-        { "type": "command", "command": cmd("sessionstart_known_failures.py"), "timeout": 10 },
-        // Registra a sessão em `failbase/watch/<sid>.json` — é o hook que faltava pro
-        // watchdog ter o que vigiar (o timer rodava a cada 5min sobre um diretório vazio).
-        // Só o Claude conhece o próprio session_id/transcript_path, por isso vem por hook
-        // e não pelo spawn do OmniRift.
-        { "type": "command", "command": cmd("watch_register.py"), "timeout": 10 }
+        { "type": "command", "command": cmd("sessionstart_known_failures.py"), "timeout": 10 }
     ] });
     match hooks.get_mut("SessionStart").and_then(|v| v.as_array_mut()) {
         Some(arr) => arr.push(fp_group),
         None => { hooks.insert("SessionStart".into(), serde_json::json!([fp_group])); }
     }
     // PostToolUse (só Bash): captura par falha→fix e devolve fix conhecido.
-    // Stop: tira a sessão do watch. MERGE — o Stop já carrega o gate de review.
+    // Stop fecha a janela do turno (par do watch_register no UserPromptSubmit). MERGE —
+    // o Stop já carrega o gate de review. SessionEnd também limpa, como rede: se a sessão
+    // morrer no meio de um turno o Stop não dispara e a entrada ficaria órfã no watch/.
     if let Some(arr) = hooks
         .get_mut("Stop")
         .and_then(|v| v.get_mut(0))
@@ -289,6 +301,9 @@ fn inject_failproof_hooks(settings: &mut serde_json::Value, hooks_dir: &std::pat
             { "type": "command", "command": cmd("watch_cleanup.py"), "timeout": 10 }
         ));
     }
+    hooks.insert("SessionEnd".into(), serde_json::json!([ { "hooks": [
+        { "type": "command", "command": cmd("watch_cleanup.py"), "timeout": 10 }
+    ] } ]));
     hooks.insert("PostToolUse".into(), serde_json::json!([ { "matcher": "Bash", "hooks": [
         { "type": "command", "command": cmd("posttool_failure_capture.py"), "timeout": 10 }
     ] } ]));
@@ -469,15 +484,19 @@ mod tests {
         // no Stop. Sem estes dois o watchdog roda a cada 5min sobre um `watch/` vazio —
         // timer ativo vigiando nada, que é o mesmo teatro do gate que não escaneava.
         let ss = h["SessionStart"][0]["hooks"].as_array().unwrap();
-        assert_eq!(ss.len(), 2, "SessionStart precisa de known_failures + watch_register");
-        assert!(ss[1]["command"].as_str().unwrap().contains("watch_register.py"));
+        assert_eq!(ss.len(), 1, "SessionStart NÃO registra watch (a janela é o turno)");
+        // Janela = turno: register no UserPromptSubmit, cleanup no Stop. SessionEnd limpa
+        // como rede pra sessão que morre no meio do turno.
         let stop = h["Stop"][0]["hooks"].as_array().unwrap();
-        assert_eq!(stop.len(), 2, "Stop precisa preservar o review e ganhar o cleanup");
+        assert_eq!(stop.len(), 2, "Stop = review + cleanup do watch");
         assert!(stop[0]["command"].as_str().unwrap().contains("review"), "review não pode sumir");
         assert!(stop[1]["command"].as_str().unwrap().contains("watch_cleanup.py"));
+        assert!(h["SessionEnd"][0]["hooks"][0]["command"]
+            .as_str().unwrap().contains("watch_cleanup.py"));
         // UserPromptSubmit MERGE: agora tem 2 hooks (status + captador de correção).
         let ups = h["UserPromptSubmit"][0]["hooks"].as_array().unwrap();
-        assert_eq!(ups.len(), 2);
+        assert_eq!(ups.len(), 3, "status + captador de correção + registro do watch");
+        assert!(ups[2]["command"].as_str().unwrap().contains("watch_register.py"));
         assert!(ups[1]["command"].as_str().unwrap().contains("userprompt_correction_detector.py"));
         // Stop de review preservado intacto.
         assert_eq!(h["Stop"][0]["hooks"][0]["command"], "review");
