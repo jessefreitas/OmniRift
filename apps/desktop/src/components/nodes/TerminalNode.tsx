@@ -436,7 +436,8 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
     if (!target) target = homeSlotRef.current;
     if (target && host.parentElement !== target) {
       target.appendChild(host);
-      setTimeout(fit, 50);
+      // Re-parent (tela cheia / dock do orquestrador) é ação do usuário → foca de propósito.
+      setTimeout(() => fit(true), 50);
     }
   }, [isFullscreen, isOrch, orchOnActiveFloor, fit, containerRef]);
 
@@ -896,7 +897,8 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
             className="terminal nowheel absolute inset-0"
             style={{ visibility: isOrch || isFullscreen || (viewActive && inViewport && !lodOut) ? "visible" : "hidden" }}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={fit}
+            // Clicar no terminal É intenção do usuário — aqui o foco é o comportamento certo.
+            onClick={() => fit(true)}
           />
           {/* LOD: em zoom baixo o xterm some (paint caro à toa) e o label grande orienta. */}
           {lodOut && !isFullscreen && !isOrch && (

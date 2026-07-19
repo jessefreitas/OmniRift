@@ -191,6 +191,11 @@ struct SnapshotParams {
 
 /// Parse puro dos params (testável sem app). Erro claro se faltar `sessionId` ou se
 /// o JSON estiver torto (campo extra / tipo errado).
+/// Janela de scrollback devolvida ao mobile quando ele não pede um tamanho.
+/// Um celular mostra dezenas de linhas; mandar o histórico inteiro só paga cifragem,
+/// banda e memória pra descartar quase tudo. Teto continua sendo SCROLLBACK_LIMIT.
+const REMOTE_SNAPSHOT_DEFAULT_ROWS: usize = 500;
+
 fn parse_snapshot_params(params: Value) -> Result<SnapshotParams, RpcError> {
     if params.is_null() {
         return Err(RpcError::invalid_argument("pty.snapshot exige params {sessionId, rows?}"));
@@ -207,8 +212,17 @@ fn pty_snapshot(params: Value, ctx: &RpcContext) -> Result<Value, RpcError> {
         .app
         .try_state::<Arc<PtyManager>>()
         .ok_or_else(|| RpcError::internal("PtyManager indisponível"))?;
-    // rows ausente → scrollback completo do #6 (mesmo default do comando Tauri).
-    let rows = parsed.rows.unwrap_or(crate::pty::emulator::SCROLLBACK_LIMIT);
+    // `rows` ausente NÃO pode significar "manda tudo" aqui. Este é o caminho do MOBILE:
+    // o snapshot é cifrado e atravessa o relay antes de chegar num celular que mostra
+    // umas 30 linhas. Defaultar pro teto de 10.000 (≈4 MB de ANSI) desperdiça CPU de
+    // cifragem, banda e memória do telefone pra jogar 99% fora. O caminho local já foi
+    // limitado à janela real da view; este é o mesmo defeito, num transporte pior.
+    // Quem precisar de histórico longo continua podendo pedir `rows` explicitamente —
+    // o clamp do teto segue valendo.
+    let rows = parsed
+        .rows
+        .unwrap_or(REMOTE_SNAPSHOT_DEFAULT_ROWS)
+        .min(crate::pty::emulator::SCROLLBACK_LIMIT);
     let snap = pty
         .snapshot(&parsed.session_id, rows)
         .map_err(|e| RpcError::not_found(format!("{e:#}")))?;

@@ -19,6 +19,16 @@ import type {
 } from "@/types/pty";
 import { getFlag } from "@/lib/feature-flags";
 
+/**
+ * Histórico que uma view xterm mantém e reidrata ao voltar ao viewport.
+ *
+ * O backend continua guardando até 10.000 linhas como fonte de verdade. A view,
+ * porém, usa 1.000 linhas: pedir as 10.000 fazia o WebView interpretar até 4 MB
+ * de ANSI a cada remount do React Flow, embora o próprio xterm descartasse o
+ * excedente do scrollback. Esse trabalho inútil travava o pan entre agentes.
+ */
+export const TERMINAL_VIEW_SCROLLBACK_ROWS = 1_000;
+
 /** Agentes claude nascem com config dir ISOLADO (flag `agent-clean-hooks`): os hooks
  *  globais do usuário (~/.claude/settings.json) não carregam — cada turno pagava 2min+
  *  de Stop hooks herdados, atrasando o settle do agent_ask. Os hooks curados do app
@@ -82,8 +92,11 @@ export async function ptyListAlive(): Promise<SessionId[]> {
  * pra re-hidratar a view e dedupar os chunks ao vivo por `seq`. Rejeita se a sessão
  * não tem emulador → o caller faz fail-open (mantém o term como está).
  */
-export async function ptySnapshot(sessionId: SessionId): Promise<PtySnapshot> {
-  return invoke<PtySnapshot>("pty_snapshot", { sessionId });
+export async function ptySnapshot(
+  sessionId: SessionId,
+  scrollbackRows = TERMINAL_VIEW_SCROLLBACK_ROWS,
+): Promise<PtySnapshot> {
+  return invoke<PtySnapshot>("pty_snapshot", { sessionId, scrollbackRows });
 }
 
 /**

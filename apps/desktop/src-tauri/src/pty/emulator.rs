@@ -32,7 +32,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 /// Scrollback máximo retido pelo emulador (linhas). Bounded de propósito: um agente
-/// em loop não pode pinnizar GBs no backend. Casa com o `scrollback: 10000` do xterm.
+/// em loop não pode pinnizar GBs no backend. A UI pode pedir uma janela menor ao
+/// remontar uma view; o histórico maior continua disponível como fonte de verdade.
 pub const SCROLLBACK_LIMIT: usize = 10_000;
 
 /// Cap de segurança do snapshot serializado (bytes). Evita IPC gigante mesmo com

@@ -95,11 +95,21 @@ pub fn pty_read_screen(
 #[tauri::command]
 pub fn pty_snapshot(
     session_id: SessionId,
+    scrollback_rows: Option<usize>,
     manager: State<'_, std::sync::Arc<PtyManager>>,
 ) -> Result<PtySnapshot, String> {
+    // O backend mantém SCROLLBACK_LIMIT linhas como fonte de verdade, mas views
+    // podem pedir menos para evitar serializar/transferir/reinterpretar histórico
+    // que não cabe no scrollback delas. O clamp mantém o custo sempre bounded,
+    // inclusive para callers IPC não confiáveis que enviarem usize::MAX.
+    let rows = bounded_snapshot_rows(scrollback_rows);
     manager
-        .snapshot(&session_id, SCROLLBACK_LIMIT)
+        .snapshot(&session_id, rows)
         .map_err(|e| format!("{e:#}"))
+}
+
+fn bounded_snapshot_rows(requested: Option<usize>) -> usize {
+    requested.unwrap_or(SCROLLBACK_LIMIT).min(SCROLLBACK_LIMIT)
 }
 
 #[tauri::command]
@@ -130,4 +140,25 @@ pub fn pty_pipe_remove(
 #[tauri::command]
 pub fn pty_pipe_list(manager: State<'_, std::sync::Arc<PtyManager>>) -> Vec<[SessionId; 2]> {
     manager.pipe_list()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bounded_snapshot_rows;
+    use crate::pty::emulator::SCROLLBACK_LIMIT;
+
+    #[test]
+    fn snapshot_rows_defaults_to_backend_history_limit() {
+        assert_eq!(bounded_snapshot_rows(None), SCROLLBACK_LIMIT);
+    }
+
+    #[test]
+    fn snapshot_rows_preserves_smaller_view_window() {
+        assert_eq!(bounded_snapshot_rows(Some(1_000)), 1_000);
+    }
+
+    #[test]
+    fn snapshot_rows_clamps_untrusted_oversized_request() {
+        assert_eq!(bounded_snapshot_rows(Some(usize::MAX)), SCROLLBACK_LIMIT);
+    }
 }

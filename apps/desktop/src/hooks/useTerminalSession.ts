@@ -29,6 +29,7 @@ import {
   ptySnapshot,
   ptySpawn,
   ptyWrite,
+  TERMINAL_VIEW_SCROLLBACK_ROWS,
 } from "@/lib/pty-client";
 import { registerTerminalView, unregisterTerminalView } from "@/lib/terminal-sessions";
 import { useCanvasStore } from "@/store/canvas-store";
@@ -53,7 +54,9 @@ interface UseTerminalSessionReturn {
   containerRef: React.MutableRefObject<HTMLDivElement | null>;
   ready: boolean;
   error: string | null;
-  fit: () => void;
+  /** Reajusta o xterm ao container. `focus` é opt-in: eventos de layout (viewport,
+   *  resize, re-parent) NÃO devem roubar o foco do usuário. */
+  fit: (focus?: boolean) => void;
   getSelection: () => string;
   /** Escreve uma linha de AVISO local no xterm (NÃO vai pro PTY) — ex.: colar
    *  cancelado por exceder o teto de payload do IPC. */
@@ -150,6 +153,10 @@ export function useTerminalSession({
       fontSize: 13,
       lineHeight: 1.25,
       cursorBlink: !document.hidden && activeRef.current,
+      // Deve ficar sincronizado com o limite pedido em ptySnapshot(). O backend
+      // retém um histórico maior, mas a view não deve interpretar linhas que o
+      // xterm descartaria logo depois — isso bloqueava o pan ao remontar agentes.
+      scrollback: TERMINAL_VIEW_SCROLLBACK_ROWS,
       allowProposedApi: true,
       theme: {
         background: "#0a1014",
@@ -598,10 +605,18 @@ export function useTerminalSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  const fit = useCallback(() => {
+  /// Reajusta as dimensões do xterm ao container. `focus` é OPT-IN de propósito.
+  ///
+  /// Antes o `fit` sempre chamava `focus()`, e os três chamadores são eventos de LAYOUT:
+  /// nó redimensionado, nó entrando no viewport, e nó re-parentado. O do viewport é o que
+  /// dói: passear pelo canvas faz cada nó que cruza a margem de 200px roubar o foco — com
+  /// 12 agentes vira uma disputa de foco a cada arrasto, que é o "canvas travando pra
+  /// passear entre os agentes". Foco é intenção do usuário (clicar, abrir em tela cheia),
+  /// não consequência de um nó ter entrado na tela.
+  const fit = useCallback((focus = false) => {
     try {
       fitAddonRef.current?.fit();
-      terminalRef.current?.focus();
+      if (focus) terminalRef.current?.focus();
     } catch {
       // ResizeObserver pode chamar antes do layout estabilizar; ignorar.
     }
@@ -698,7 +713,7 @@ export function useTerminalSession({
     staleRef.current = false;
 
     try {
-      const snap = await ptySnapshot(sessionId);
+      const snap = await ptySnapshot(sessionId, TERMINAL_VIEW_SCROLLBACK_ROWS);
       // O `await` abre uma janela: o nó pode ter desmontado (troca de floor, fechar o
       // card) e o `term` já ter sofrido `dispose()`. Escrever num terminal descartado
       // lança e derruba o replay inteiro. O gatilho ficou mais provável com o

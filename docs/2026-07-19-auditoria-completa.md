@@ -7,6 +7,8 @@
 **Tipo de auditoria:** revisão estática abrangente, execução local de gates e testes, análise de dependências e modelagem de ameaças
 
 > Nota de rastreabilidade: a execução principal da auditoria terminou com o commit 23ee5aa e worktree limpo. Depois da auditoria foi detectada uma alteração local em apps/desktop/src-tauri/src/mcp/registry.rs. Essa alteração posterior não foi sobrescrita e não está coberta pelas conclusões deste documento.
+>
+> **Adendo pós-auditoria, 19 de julho de 2026:** após relato e evidência visual de travamento ao navegar entre agentes, foi analisado o caminho de virtualização/reattach dos terminais. O novo achado OR-PERF-002 documenta a causa e a correção local validada sobre a base 855c233.
 
 ---
 
@@ -929,6 +931,90 @@ DiffViewerModal é lazy em apps/desktop/src/components/Sidebar.tsx:111, mas Revi
 
 ---
 
+## OR-PERF-002 — Reattach de terminal longo bloqueia a navegação do canvas
+
+**Severidade:** Alta para usabilidade; Média para disponibilidade
+
+**Confiança:** Confirmado por inspeção do fluxo e incompatibilidade objetiva de limites
+
+**Status:** Correção local implementada e validada; teste visual no WebKitGTK ainda recomendado
+
+### Sintoma observado
+
+Ao passear pelo canvas entre agentes, especialmente em sessões antigas ou com muito output,
+o WebView engasga quando um TerminalNode entra novamente no viewport. O problema é amplificado
+quando vários agentes cruzam o limite de renderização durante o mesmo movimento.
+
+### Causa raiz
+
+O floor ativo usa `onlyRenderVisibleElements`. Portanto, um terminal fora do viewport é
+desmontado e, quando volta, reanexa ao PTY vivo e executa `pty_snapshot`.
+
+Antes da correção:
+
+- o backend podia devolver 10.000 linhas, limitado a 4 MB de ANSI;
+- o payload atravessava o IPC Tauri;
+- o xterm reinterpretava todo o ANSI no thread da interface;
+- o xterm não configurava `scrollback`, portanto usava sua janela padrão de 1.000 linhas;
+- até 90% do histórico processado podia ser descartado imediatamente pela própria view;
+- o `fit()` também focava o xterm em eventos automáticos de layout/viewport, fazendo agentes
+  disputarem o foco durante o pan.
+
+Fluxo do travamento:
+
+~~~text
+pan do canvas
+  → TerminalNode entra no viewport
+  → React Flow remonta a view
+  → pty_snapshot serializa até 10k linhas / 4 MB
+  → IPC transfere o payload
+  → xterm interpreta ANSI no WebView
+  → view retém só 1k linhas
+  → frame longo + foco roubado
+~~~
+
+### Correção aplicada
+
+- o backend continua retendo 10.000 linhas como fonte de verdade;
+- `pty_snapshot` passou a aceitar `scrollbackRows` opcional;
+- pedidos acima do limite são limitados no backend, inclusive `usize::MAX`;
+- a view declara explicitamente `scrollback: 1_000`;
+- o reattach pede exatamente 1.000 linhas, evitando trabalho que seria descartado;
+- `fit()` não muda mais o foco em eventos automáticos; foco passou a ser opt-in e ocorre
+  apenas em ações intencionais, como clicar no terminal ou abri-lo em tela cheia.
+
+### FailProof
+
+- callers antigos que omitem `scrollbackRows` preservam o comportamento de 10.000 linhas;
+- `None` usa o limite histórico do backend;
+- valores excessivos são clampados para 10.000;
+- valor zero ainda preserva a tela visível, pois limita apenas o histórico anterior;
+- falha no snapshot continua fail-soft: a view mantém o conteúdo atual e segue com output live;
+- o PTY e o histórico completo permanecem no backend, sem perda da sessão do agente.
+
+### Validação executada
+
+- typecheck TypeScript completo do desktop: passou;
+- build de produção do frontend: passou;
+- testes Rust direcionados do limite: 3 passaram;
+- suíte Rust completa: 666 passaram, 1 ignorado e 0 falhas;
+- ESLint do cliente PTY alterado: passou;
+- `git diff --check`: passou;
+- Rustfmt global continua falhando por dívida preexistente em muitos arquivos; as linhas novas
+  não adicionaram divergência apontada pelo formatter.
+
+### Validação dinâmica ainda recomendada
+
+Na build Tauri Linux, abrir ao menos oito agentes, produzir mais de 1.000 linhas em dois deles
+e alternar o viewport repetidamente. Medir frame time do WebKit antes/depois e confirmar:
+
+- ausência de foco saltando entre terminais;
+- pan responsivo enquanto os nós entram no viewport;
+- scrollback recente de até 1.000 linhas disponível;
+- sessão e histórico autoritativo preservados no backend.
+
+---
+
 ## 6. Complexidade ciclomática
 
 ### 6.1 Resultado geral
@@ -1452,6 +1538,7 @@ Os seguintes controles devem ser preservados:
 | OR-REL-008 | Média | Médio | P2 |
 | OR-REL-009 | Baixa | Baixo | P3 |
 | OR-PERF-001 | Média | Médio | P2 |
+| OR-PERF-002 | Alta/Média | Baixo | P0 |
 
 ---
 
@@ -1584,4 +1671,3 @@ A ordem correta é:
 5. reduzir complexidade.
 
 Após os itens P0, recomenda-se uma reauditoria focada com PoCs WebView/Tauri, testes concorrentes do License Worker e teste de prompt injection dentro do sandbox revisado.
-

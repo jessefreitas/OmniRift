@@ -1,7 +1,7 @@
 # OmniAgent & Camada ACP — Referência Completa de Funcionalidades
 
 > Tudo que a camada de **agente estruturado (ACP)** trouxe pro OmniRift. Branch `feat/acp-spike`.
-> Formato: **o que faz** + **como usar**. Atualizado 2026-06-30.
+> Formato: **o que faz** + **como usar**. Atualizado 2026-07-19.
 
 A aposta: deixar de tratar agente como **terminal cego** e passar a tratá-lo como **objeto
 estruturado**. O app passa a *entender* o que o agente faz (tool-calls, diffs, custo, permissões) —
@@ -83,6 +83,33 @@ Nó-filho **privado** de um agente Claude Code (OmniAgent ou terminal).
 | **Recarregar (↻)** | Reinicia a sessão pra CARREGAR subagentes criados após o boot | Botão ↻ (agente e terminal) |
 | **↻ mantém a conversa** | Terminal via `claude --continue`; OmniAgent via `session/load` (resume) | Ao clicar ↻ |
 
+### 5.1 Aviso do Claude Code ao retomar uma sessão grande
+
+O botão **“Recarregar subagentes mantendo a conversa”** do terminal reinicia o Claude Code
+com `--continue`. O preset `claude --continue` produz o mesmo comportamento. Isso é diferente
+da reconexão normal do terminal: `--continue` pede explicitamente ao Claude Code para localizar
+e retomar a conversa anterior daquele diretório.
+
+Quando a conversa encontrada é antiga ou possui muitos tokens, o próprio Claude Code pode
+interromper a retomada e mostrar:
+
+1. **Resume from summary (recommended)** — retoma a partir de um resumo compacto;
+2. **Resume full session as-is** — recarrega o histórico completo;
+3. **Don't ask me again** — deixa de mostrar essa proteção nas próximas retomadas.
+
+**Decisão operacional padrão:** escolher **Resume from summary**. O resumo preserva as decisões
+e o contexto essencial com menor consumo de cota, latência e pressão de contexto. A retomada
+completa fica reservada a casos em que detalhes exatos da conversa antiga sejam indispensáveis.
+Não é recomendado desativar permanentemente o aviso.
+
+Se a conversa anterior não deve ser retomada, pressione `Esc` e use a reconexão normal ou o
+preset `claude`, sem `--continue`. Para agentes de trabalho, prefira sessões novas apoiadas por
+`AGENTS.md`, memória compartilhada e artefatos persistidos; uma sessão gigante deve ser exceção,
+não o mecanismo principal de memória do projeto.
+
+O tempo exibido no cabeçalho do nó mede a idade do nó/sessão no OmniRift. O tempo informado
+pelo aviso mede a conversa que o Claude Code encontrou; por isso os dois valores podem diferir.
+
 ## 6. Conexões Semânticas (Fase 2 do ACP) — a linha carrega ESTRUTURA
 
 | Funcionalidade | O que faz | Como usar |
@@ -114,6 +141,8 @@ Nó-filho **privado** de um agente Claude Code (OmniAgent ou terminal).
   escopado aos membros.
 - **`session/load` do OmniAgent**: confirmar suporte ao vivo do adapter Claude (fallback já existe).
 - **Reload preservando contexto** no terminal via `--resume <id>` (hoje `--continue`).
+- **UX de retomada longa**: antes de usar `--continue`, oferecer escolha explícita entre
+  “iniciar sessão limpa” e “retomar conversa”; manter o aviso nativo do Claude Code como proteção.
 
 ---
 
