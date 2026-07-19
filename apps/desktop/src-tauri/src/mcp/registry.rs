@@ -53,8 +53,15 @@ impl AgentRegistry {
                     break;
                 }
                 Entry::Occupied(mut o) if o.get().session_id == session_id => {
-                    // Mesma sessão: re-registro (rename/reload) → atualiza metadados.
-                    o.insert(AgentEntry { session_id: session_id.clone(), description: description.clone(), floor: floor.clone(), role: role.clone() });
+                    // Mesma sessão: re-registro (rename/reload/toggle do Sidebar) → atualiza
+                    // metadados, MAS `None` significa "não sei", não "apague". Sobrescrever
+                    // com None fazia o papel declarado no spawn evaporar: o Sidebar
+                    // re-registra sem role em 4 caminhos, e o primeiro toggle depois de um
+                    // spawn do orquestrador zerava o papel — derrubando em silêncio o guard
+                    // anti-duplicata POR PAPEL, que é justamente o que pega o sinônimo.
+                    let role = role.clone().or_else(|| o.get().role.clone());
+                    let floor = floor.clone().or_else(|| o.get().floor.clone());
+                    o.insert(AgentEntry { session_id: session_id.clone(), description: description.clone(), floor, role });
                     break;
                 }
                 Entry::Occupied(_) => {
@@ -165,5 +172,30 @@ mod tests {
         let c = reg.register("Frontend".into(), "s3".into(), "ui".into(), None, None);
         assert_eq!(c, "Frontend 3");
         assert_eq!(reg.0.len(), 3);
+    }
+
+    /// REGRESSAO: o Sidebar re-registra o agente sem informar role em 4 caminhos (toggle do
+    /// checkbox MCP, restore, reload). Sobrescrever com None fazia o papel declarado no spawn
+    /// evaporar no primeiro toggle, e o guard anti-duplicata POR PAPEL — o que pega o
+    /// orquestrador abrindo "UI Dev" em cima de um "Frontend" livre — parava de funcionar em
+    /// silencio, sem erro nenhum na tela.
+    #[test]
+    fn reregistro_sem_role_preserva_o_papel_declarado() {
+        let reg = AgentRegistry::default();
+        reg.register("Frontend".into(), "s1".into(), "ui".into(), Some("feat/ui".into()), Some("frontend".into()));
+        let again = reg.register("Frontend".into(), "s1".into(), "ui atualizada".into(), None, None);
+        assert_eq!(again, "Frontend", "re-registro da mesma sessao mantem o label");
+        // ESCOPO OBRIGATÓRIO: `get()` devolve um Ref que segura o shard do DashMap em
+        // leitura. Segurá-lo enquanto se chama `register()` (que pede escrita no MESMO
+        // shard) TRAVA o teste — deadlock, não falha. Custou uma suíte pendurada por
+        // minutos até eu perceber que "rodando há 60s" não era compilação lenta.
+        {
+            let e = reg.0.get("Frontend").unwrap();
+            assert_eq!(e.role.as_deref(), Some("frontend"), "o papel do spawn nao pode evaporar");
+            assert_eq!(e.floor.as_deref(), Some("feat/ui"), "o floor tambem e preservado");
+            assert_eq!(e.description, "ui atualizada", "o que FOI informado atualiza normalmente");
+        }
+        reg.register("Frontend".into(), "s1".into(), "x".into(), None, Some("backend".into()));
+        assert_eq!(reg.0.get("Frontend").unwrap().role.as_deref(), Some("backend"), "Some tem que sobrescrever; so None e que preserva");
     }
 }

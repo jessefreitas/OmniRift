@@ -56,33 +56,24 @@ fn home_dir() -> Option<String> {
     std::env::var("HOME").ok()
 }
 
-/// Token aleatório da sessão (hex de 32 bytes). Sem dep nova: mistura várias fontes
-/// de entropia local (PID, nanos do relógio, endereço de heap, contador atômico) num
-/// SHA-256 — bom o bastante pra um segredo de socket local descartável por sessão.
+/// Token aleatório da sessão (hex de 32 bytes), direto do RNG do SO.
+///
+/// A versão anterior fazia SHA-256 sobre PID + nanos do relógio + contador + endereço
+/// de heap, com o comentário afirmando "várias fontes de entropia local". Hash NÃO cria
+/// entropia — só embaralha a que entra. E o modelo de ameaça deste token é justamente o
+/// ATACANTE LOCAL, pra quem quase tudo isso é legível: o PID está em `/proc`, o instante
+/// de início do processo está em `/proc/<pid>/stat`, e o contador começa em 0. Sobrava o
+/// endereço de heap (ASLR, ~28-30 bits no Linux, menos no Windows) — um espaço de busca
+/// que um processo na mesma máquina consegue varrer.
+///
+/// A justificativa "sem dep nova" também não valia: `rand` já é dependência e o `OsRng`
+/// já é usado em `keypair.rs` e `e2ee.rs`. Achado da auditoria de 2026-07-19 (OR-SEC-009).
 pub fn generate_token() -> String {
-    use sha2::{Digest, Sha256};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use rand::RngCore;
 
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let pid = std::process::id();
-    let ctr = COUNTER.fetch_add(1, Ordering::Relaxed);
-    // Endereço de heap: ASLR adiciona entropia entre processos.
-    let probe = Box::new(0u8);
-    let addr = (&*probe as *const u8) as usize;
-
-    let mut hasher = Sha256::new();
-    hasher.update(nanos.to_le_bytes());
-    hasher.update(pid.to_le_bytes());
-    hasher.update(ctr.to_le_bytes());
-    hasher.update(addr.to_le_bytes());
-    let digest = hasher.finalize();
-    hex_encode(&digest)
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    hex_encode(&bytes)
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
