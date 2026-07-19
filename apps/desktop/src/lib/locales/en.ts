@@ -1145,4 +1145,19 @@ export const en: Record<string, string> = {
     "Generates and shows this project's code map (communities, dependencies, god nodes) on the canvas — the first build takes ~1-2 min in the background.",
   "graph.pickView": "Pick the map view (communities, calls, deps, risk)",
   "graph.noCwd": "Open a project folder before generating the code map.",
+
+  // Gravador de diagnóstico (suporte)
+  "diag.failed": "Could not start recording (disk permission?)",
+  "diag.stopFailed": "Could not stop recording (disk permission?) — it remains active",
+  "diag.exportFailed": "Failed to export the diagnostic package",
+  "diag.ready": "Diagnostic ready: ",
+  "diag.readyNoOpen": "Diagnostic saved to: ",
+  "diag.scopeTech": "Technical logs only",
+  "diag.scopeTechDesc": "system errors and commands",
+  "diag.scopeActions": "Logs + my actions",
+  "diag.scopeActionsDesc": "includes errors that occurred (without typed text or code)",
+  "diag.stop": "Recording… stop",
+  "diag.record": "Record",
+  "diag.recordWhat": "What to record?",
+  "diag.start": "Start recording",
 };

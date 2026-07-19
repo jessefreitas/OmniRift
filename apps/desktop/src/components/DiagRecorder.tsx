@@ -4,6 +4,8 @@ import { Circle, Square } from "lucide-react";
 import { debugModeGet, debugModeSet, diagnosticsExport, revealPath } from "@/lib/debug-client";
 import { getTrailScope, setTrailScope, clearTrail, type TrailScope } from "@/lib/action-trail";
 import { notify } from "@/lib/notify";
+// `markBoot` grava a marca no debug.log (o nome é do 1º uso — boot); é a mesma primitiva.
+import { markBoot } from "@/lib/debug-log";
 import { useT } from "@/lib/i18n";
 
 export function DiagRecorder() {
@@ -80,6 +82,10 @@ export function DiagRecorder() {
 
       setTrailScope(scope);
       clearTrail();
+      // Marca o ponto de partida NO ARQUIVO. Sem isto o export levava os últimos 200 KB
+      // crus — que podem ser de outra sessão, de outro projeto. O cliente aperta "gravar"
+      // e o pacote tem que começar aqui, não no passado dele.
+      await markBoot("INICIO DA GRAVACAO");
       setRecording(true);
       setPopoverOpen(false);
     } catch {
@@ -161,7 +167,10 @@ export function DiagRecorder() {
     {
       value: "actions",
       label: t("diag.scopeActions", "Log + minhas ações"),
-      desc: t("diag.scopeActionsDesc", "inclui o que você clicou (sem textos nem código)"),
+      // Honestidade: hoje a trilha registra ERROS (com arquivo/linha), não cliques. O
+      // texto antigo prometia "o que você clicou" e não entregava — no canal de suporte
+      // isso corrói justamente a confiança que o gravador existe pra construir.
+      desc: t("diag.scopeActionsDesc", "inclui os erros que apareceram (sem textos nem código)"),
     },
   ];
 

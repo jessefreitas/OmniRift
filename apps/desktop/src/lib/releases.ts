@@ -24,6 +24,20 @@ export interface ReleaseEntry {
 /** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.140",
+    date: "2026-07-19",
+    title: "Windows e desempenho: agentes voltam a abrir e app fica mais leve",
+    highlights: [
+      "No Windows, os agentes voltam a abrir normalmente porque as instruções longas agora são lidas de arquivo e o atalho do OmniAgent foi corrigido.",
+      "O aplicativo consome bem menos recursos com vários agentes abertos, pois deixou de ler todos os processos do computador a cada segundo.",
+      "Passear pelo canvas não trava mais, pois o terminal não rouba o foco e o histórico recarregado não passa do que a tela exibe.",
+      "Os servidores de automação de navegador só iniciam nos papéis Frontend e QA, liberando mais de um giga e meio de memória nos demais casos.",
+      "O gravador de diagnóstico agora marca o início da gravação e envia ao suporte apenas o período gravado, avisando quando a marca estiver ausente.",
+      "O gravador de diagnóstico agora está disponível em inglês."
+    ],
+    tag: "fix"
+  },
+  {
     version: "0.1.138",
     date: "2026-07-19",
     title: "Tela de licença mais clara e correções de segurança",

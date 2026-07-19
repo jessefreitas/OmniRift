@@ -1145,4 +1145,19 @@ export const pt: Record<string, string> = {
     "Gera e mostra o mapa do código deste projeto (comunidades, dependências, god nodes) no canvas — a 1ª geração leva ~1-2 min em segundo plano.",
   "graph.pickView": "Escolher a visão do mapa (comunidades, chamadas, deps, risco)",
   "graph.noCwd": "Abra uma pasta de projeto antes de gerar o mapa do código.",
+
+  // Gravador de diagnóstico (suporte)
+  "diag.failed": "Não consegui ligar a gravação (permissão de disco?)",
+  "diag.stopFailed": "Não consegui desligar a gravação (permissão de disco?) — ela continua ativa",
+  "diag.exportFailed": "Falha ao exportar o pacote de diagnóstico",
+  "diag.ready": "Diagnóstico pronto: ",
+  "diag.readyNoOpen": "Diagnóstico salvo em: ",
+  "diag.scopeTech": "Só log técnico",
+  "diag.scopeTechDesc": "erros e comandos do sistema",
+  "diag.scopeActions": "Log + minhas ações",
+  "diag.scopeActionsDesc": "inclui os erros que apareceram (sem textos nem código)",
+  "diag.stop": "Gravando… parar",
+  "diag.record": "Gravar",
+  "diag.recordWhat": "O que gravar?",
+  "diag.start": "Começar a gravar",
 };
