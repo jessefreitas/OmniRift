@@ -232,10 +232,11 @@ export function useTerminalSession({
     // nenhum, que é pior que o bug original. Quem responde `CSI ? 6 n` é o xterm — e
     // como o backend é mudo nela, a autoridade segue única.
     // Esta lista é DERIVADA do fonte do vte 0.15 (`src/ansi.rs`), não escrita de
-    // memória: são os despachos que chamam um handler que responde. Enumerar de cabeça
-    // já deixou DECRQM escapando e respondendo dobrado. Se atualizar o crate, refazer o
-    // grep por `handler.device_status|identify_terminal|report_mode|report_private_mode|
-    // text_area_size|report_modify_other_keys` antes de mexer aqui.
+    // memória. Mas derivar do DISPATCHER do vte é raso demais: a cadeia real é
+    // "vte despacha -> Term implementa -> gera PtyWrite". `report_modify_other_keys`
+    // e despachado pelo vte (ansi.rs:1696) mas tem default VAZIO no trait (ansi.rs:728)
+    // e o Term nao sobrescreve — nao responde nada. Ficou aqui um tempo fechando uma
+    // resposta dupla inexistente. Ao atualizar o crate, cruzar as TRES camadas.
     const queries: { prefix?: string; intermediates?: string; final: string }[] = [
       { final: "n" }, // DSR / CPR              — ansi.rs:1701
       { final: "c" }, // DA1                    — ansi.rs:1573
@@ -243,7 +244,6 @@ export function useTerminalSession({
       { final: "t" }, // tamanho da área        — ansi.rs:1740/1741
       { intermediates: "$", final: "p" }, // DECRQM         — ansi.rs:1705
       { prefix: "?", intermediates: "$", final: "p" }, // DECRQM privado — ansi.rs:1709
-      { prefix: "?", final: "m" }, // modify-other-keys     — ansi.rs:1696
     ];
     for (const id of queries) {
       term.parser.registerCsiHandler(id, () => true);
