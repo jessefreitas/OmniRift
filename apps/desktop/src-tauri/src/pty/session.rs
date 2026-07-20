@@ -1,5 +1,5 @@
-use crate::pty::host::{self, ExecutionHost};
 use crate::pty::emulator::TermEmulator;
+use crate::pty::host::{self, ExecutionHost};
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -262,7 +262,9 @@ impl PtySession {
         // ANTES da thread de leitura: o emulador precisa ver o PRIMEIRO byte. A TUI
         // manda `CSI 6 n` em milissegundos; criar depois perdia a query.
         let emulator = Arc::new(Mutex::new(TermEmulator::new_with_seq(
-            cfg.cols, cfg.rows, Arc::clone(&seq),
+            cfg.cols,
+            cfg.rows,
+            Arc::clone(&seq),
         )));
 
         let id_for_emit = id.clone();
@@ -347,8 +349,8 @@ impl PtySession {
                         },
                     );
                     pending.drain(..cut); // mantém a cauda incompleta pro próximo frame
-                    // Frame fechado: o próximo começa a contar do zero (e sempre trará
-                    // ao menos um chunk novo, o que garante o seq estritamente maior).
+                                          // Frame fechado: o próximo começa a contar do zero (e sempre trará
+                                          // ao menos um chunk novo, o que garante o seq estritamente maior).
                     marcos.clear();
                 }
             }
@@ -586,10 +588,10 @@ fn read_loop(
             Ok(n) => {
                 let chunk = buf[..n].to_vec();
                 parser.lock().process(&chunk); // alimenta o emulador de tela
-                // Emulador alimentado AQUI, síncrono, no mesmo thread que leu os bytes:
-                // é o que garante que a query inicial nunca se perca. As respostas
-                // (DSR/DA/OSC) voltam pra stdin do PTY na hora — o backend é o ÚNICO
-                // respondedor; o xterm consome as queries sem responder.
+                                               // Emulador alimentado AQUI, síncrono, no mesmo thread que leu os bytes:
+                                               // é o que garante que a query inicial nunca se perca. As respostas
+                                               // (DSR/DA/OSC) voltam pra stdin do PTY na hora — o backend é o ÚNICO
+                                               // respondedor; o xterm consome as queries sem responder.
                 let (seq_chunk, respostas) = {
                     let mut emu = emulator.lock();
                     emu.feed(&chunk);
@@ -1539,7 +1541,11 @@ mod tests {
 
     #[test]
     fn seq_do_frame_sem_chunk_mantem_ultimo_emitido() {
-        assert_eq!(super::seq_do_frame(&[], 5), 5, "frame vazio nao avanca o seq");
+        assert_eq!(
+            super::seq_do_frame(&[], 5),
+            5,
+            "frame vazio nao avanca o seq"
+        );
     }
 
     #[test]
@@ -1567,7 +1573,10 @@ mod tests {
         // este frame. Era o bug original (contador global lido no instante do emit).
         for f in [vec![1u64], vec![1, 2], vec![7, 8, 9]] {
             let maior = *f.iter().max().unwrap();
-            assert!(super::seq_do_frame(&f, 0) <= maior, "seq acima do maior chunk do frame");
+            assert!(
+                super::seq_do_frame(&f, 0) <= maior,
+                "seq acima do maior chunk do frame"
+            );
         }
     }
 }

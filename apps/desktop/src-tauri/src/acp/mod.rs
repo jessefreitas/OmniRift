@@ -33,7 +33,10 @@ pub type SessionId = String;
 fn adapter_cmd(provider: &str) -> (&'static str, Vec<&'static str>) {
     match provider {
         "codex" => ("npx", vec!["-y", "@agentclientprotocol/codex-acp"]),
-        "hermes" => ("uvx", vec!["--from", "hermes-agent[acp]==0.17.0", "hermes-acp"]),
+        "hermes" => (
+            "uvx",
+            vec!["--from", "hermes-agent[acp]==0.17.0", "hermes-acp"],
+        ),
         _ => ("npx", vec!["-y", "@agentclientprotocol/claude-agent-acp"]),
     }
 }
@@ -122,7 +125,12 @@ pub struct ProviderConfig {
 /// Mapeia config BYOK do Hermes ACP para as variáveis de ambiente do adapter Hermes.
 /// A env var da key é HOST-GATED por provider (o Hermes só usa `OLLAMA_API_KEY` p/ ollama.com,
 /// `OPENROUTER_API_KEY` p/ openrouter, etc. — não vaza credencial entre endpoints).
-fn hermes_provider_env(provider: &str, model: &str, key: &str, base_url: Option<&str>) -> Vec<(String, String)> {
+fn hermes_provider_env(
+    provider: &str,
+    model: &str,
+    key: &str,
+    base_url: Option<&str>,
+) -> Vec<(String, String)> {
     fn prefix(provider: &str) -> String {
         if provider.starts_with("ollama") {
             "OLLAMA".to_string()
@@ -143,7 +151,10 @@ fn hermes_provider_env(provider: &str, model: &str, key: &str, base_url: Option<
 
     let p = prefix(provider);
     let mut envs = Vec::with_capacity(3);
-    envs.push(("HERMES_INFERENCE_PROVIDER".to_string(), provider.to_string()));
+    envs.push((
+        "HERMES_INFERENCE_PROVIDER".to_string(),
+        provider.to_string(),
+    ));
 
     // NB: HERMES_INFERENCE_MODEL é IGNORADO no modo ACP (o adapter inicia no default do provider).
     // O modelo escolhido no wizard é aplicado via `session/set_model` (formato `provider/model`)
@@ -244,7 +255,12 @@ impl EventLog {
         }
 
         let size = approx_entry_size(event, &payload);
-        self.entries.push_back(EventEntry { seq, event: event.to_string(), payload, size });
+        self.entries.push_back(EventEntry {
+            seq,
+            event: event.to_string(),
+            payload,
+            size,
+        });
         self.bytes += size;
         self.enforce_caps();
         seq
@@ -442,7 +458,16 @@ impl AcpManager {
     /// contexto — um comando Tauri SÍNCRONO roda fora do runtime e panica ("no reactor running").
     /// `resume_session_id`: se presente, faz `session/load` (resume a sessão ACP persistida)
     /// no lugar de `session/new` → recarrega `.claude/agents` MANTENDO a conversa (D2-v2).
-    pub async fn spawn(&self, id: SessionId, provider: Option<String>, cwd: Option<String>, resume_session_id: Option<String>, provider_config: Option<ProviderConfig>, disallowed_tools: Option<Vec<String>>, app: AppHandle) -> Result<SessionId> {
+    pub async fn spawn(
+        &self,
+        id: SessionId,
+        provider: Option<String>,
+        cwd: Option<String>,
+        resume_session_id: Option<String>,
+        provider_config: Option<ProviderConfig>,
+        disallowed_tools: Option<Vec<String>>,
+        app: AppHandle,
+    ) -> Result<SessionId> {
         if self.sessions.contains_key(&id) {
             return Err(anyhow!("sessão acp {id} já existe"));
         }
@@ -490,7 +515,9 @@ impl AcpManager {
                 } else {
                     crate::memory::secret_store::get(&account).unwrap_or_default()
                 };
-                for (k, v) in hermes_provider_env(&pc.provider, &pc.model, &key_eff, pc.base_url.as_deref()) {
+                for (k, v) in
+                    hermes_provider_env(&pc.provider, &pc.model, &key_eff, pc.base_url.as_deref())
+                {
                     cmd.env(k, v);
                 }
             }
@@ -504,9 +531,18 @@ impl AcpManager {
         let mut child = cmd
             .spawn()
             .map_err(|e| anyhow!("falha ao spawnar adapter acp ({bin} {args:?}): {e}"))?;
-        let stdin = child.stdin.take().ok_or_else(|| anyhow!("adapter sem stdin"))?;
-        let stdout = child.stdout.take().ok_or_else(|| anyhow!("adapter sem stdout"))?;
-        let stderr = child.stderr.take().ok_or_else(|| anyhow!("adapter sem stderr"))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow!("adapter sem stdin"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("adapter sem stdout"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| anyhow!("adapter sem stderr"))?;
 
         let session = Arc::new(AcpSession {
             stdin: Arc::new(AsyncMutex::new(stdin)),
@@ -548,7 +584,11 @@ impl AcpManager {
         // O adapter ACP fala MCP "streamable-http" (POST único); o nosso server é SSE clássico
         // (GET /sse + POST /message → POST /sse dá 405). Ponte: mcp-remote (stdio) conecta no
         // nosso SSE e expõe pro adapter via stdio, contornando o mismatch de transport.
-        let mcp_url = format!("http://127.0.0.1:{}/sse?token={}", crate::mcp::MCP_PORT, mcp_token);
+        let mcp_url = format!(
+            "http://127.0.0.1:{}/sse?token={}",
+            crate::mcp::MCP_PORT,
+            mcp_token
+        );
         let mcp_servers = json!([{
             "type": "stdio",
             "name": "omnirift-agents",
@@ -594,7 +634,13 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             while let Ok(Some(line)) = lines.next_line().await {
                 // `acp://raw` NÃO entra no event_log (debug puro, duplicaria os updates) —
                 // a spec F1 loga só os eventos de sessão (ready/update/permission/…).
-                app.emit_typed("acp://raw", RawEvent { session_id: sid.clone(), line: line.clone() });
+                app.emit_typed(
+                    "acp://raw",
+                    RawEvent {
+                        session_id: sid.clone(),
+                        line: line.clone(),
+                    },
+                );
                 let msg: Value = match serde_json::from_str(&line) {
                     Ok(v) => v,
                     Err(_) => continue, // linha não-JSON (ruído) → ignora
@@ -613,14 +659,25 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                         // auto-autenticamos com o método "runtime credentials" (id == provider, ou o 1º
                         // que não seja o setup interativo `type:"terminal"`) — a env key já foi injetada.
                         // Assim a sessão nasce sem mostrar o login. Sem provider_config → login normal.
-                        let auto_mid: Option<String> = pc_loop.as_ref().filter(|_| needs_auth).and_then(|pc| {
-                            auth_arr.and_then(|arr| {
-                                arr.iter()
-                                    .find(|m| m.get("id").and_then(|v| v.as_str()) == Some(pc.provider.as_str()))
-                                    .or_else(|| arr.iter().find(|m| m.get("type").and_then(|t| t.as_str()) != Some("terminal")))
-                                    .and_then(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
-                            })
-                        });
+                        let auto_mid: Option<String> =
+                            pc_loop.as_ref().filter(|_| needs_auth).and_then(|pc| {
+                                auth_arr.and_then(|arr| {
+                                    arr.iter()
+                                        .find(|m| {
+                                            m.get("id").and_then(|v| v.as_str())
+                                                == Some(pc.provider.as_str())
+                                        })
+                                        .or_else(|| {
+                                            arr.iter().find(|m| {
+                                                m.get("type").and_then(|t| t.as_str())
+                                                    != Some("terminal")
+                                            })
+                                        })
+                                        .and_then(|m| {
+                                            m.get("id").and_then(|v| v.as_str()).map(String::from)
+                                        })
+                                })
+                            });
                         if let Some(mid) = auto_mid {
                             log::info!("[acp {sid}] BYOK: auto-authenticate com método '{mid}'");
                             let req = json!({ "jsonrpc": "2.0", "id": 4, "method": "authenticate",
@@ -630,16 +687,24 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                             }
                         } else if needs_auth {
                             let methods = result.get("authMethods").cloned().unwrap_or(Value::Null);
-                            let seq = sess.observed.lock().record("auth-required", methods.clone());
-                            app.emit_typed("acp://auth-required", GenericEvent {
-                                session_id: sid.clone(),
-                                seq,
-                                data: methods,
-                            });
+                            let seq = sess
+                                .observed
+                                .lock()
+                                .record("auth-required", methods.clone());
+                            app.emit_typed(
+                                "acp://auth-required",
+                                GenericEvent {
+                                    session_id: sid.clone(),
+                                    seq,
+                                    data: methods,
+                                },
+                            );
                         } else {
                             let req = match &resume_loop {
-                                Some(rs) => json!({ "jsonrpc": "2.0", "id": 5, "method": "session/load",
-                                    "params": { "sessionId": rs, "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } }),
+                                Some(rs) => {
+                                    json!({ "jsonrpc": "2.0", "id": 5, "method": "session/load",
+                                    "params": { "sessionId": rs, "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } })
+                                }
                                 None => json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
                                     "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } }),
                             };
@@ -661,7 +726,14 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                         }
                         log::info!("[acp {sid}] session/new OK — MCP de orquestracao injetado");
                         let seq = sess.observed.lock().record("ready", result.clone());
-                        app.emit_typed("acp://ready", GenericEvent { session_id: sid.clone(), seq, data: result.clone() });
+                        app.emit_typed(
+                            "acp://ready",
+                            GenericEvent {
+                                session_id: sid.clone(),
+                                seq,
+                                data: result.clone(),
+                            },
+                        );
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] session/new falhou: {err}");
                     }
@@ -675,16 +747,23 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                         if let Some(rs) = &resume_loop {
                             *sess.acp_session_id.lock() = Some(rs.clone());
                         }
-                        log::info!("[acp {sid}] session/load OK — sessao resumida (conversa mantida)");
+                        log::info!(
+                            "[acp {sid}] session/load OK — sessao resumida (conversa mantida)"
+                        );
                         let ready = msg.get("result").cloned().unwrap_or(Value::Null);
                         let seq = sess.observed.lock().record("ready", ready.clone());
-                        app.emit_typed("acp://ready", GenericEvent {
-                            session_id: sid.clone(),
-                            seq,
-                            data: ready,
-                        });
+                        app.emit_typed(
+                            "acp://ready",
+                            GenericEvent {
+                                session_id: sid.clone(),
+                                seq,
+                                data: ready,
+                            },
+                        );
                     } else if let Some(err) = msg.get("error") {
-                        log::error!("[acp {sid}] session/load falhou: {err} — fallback session/new");
+                        log::error!(
+                            "[acp {sid}] session/load falhou: {err} — fallback session/new"
+                        );
                         let new = json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
                             "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } });
                         let _ = write_line(&sess.stdin, &new).await;
@@ -696,8 +775,10 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                 if id_num == Some(4) {
                     if msg.get("result").is_some() {
                         let req = match &resume_loop {
-                            Some(rs) => json!({ "jsonrpc": "2.0", "id": 5, "method": "session/load",
-                                "params": { "sessionId": rs, "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } }),
+                            Some(rs) => {
+                                json!({ "jsonrpc": "2.0", "id": 5, "method": "session/load",
+                                "params": { "sessionId": rs, "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } })
+                            }
                             None => json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
                                 "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } }),
                         };
@@ -705,7 +786,14 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                     } else if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] authenticate falhou: {err}");
                         let seq = sess.observed.lock().record("auth-failed", err.clone());
-                        app.emit_typed("acp://auth-failed", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
+                        app.emit_typed(
+                            "acp://auth-failed",
+                            GenericEvent {
+                                session_id: sid.clone(),
+                                seq,
+                                data: err.clone(),
+                            },
+                        );
                     }
                     continue;
                 }
@@ -714,7 +802,14 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                 if id_num == Some(3) {
                     sess.turn_in_flight.store(false, Ordering::SeqCst); // turno acabou → libera
                     let seq = sess.observed.lock().record("turn-done", msg.clone());
-                    app.emit_typed("acp://turn-done", GenericEvent { session_id: sid.clone(), seq, data: msg.clone() });
+                    app.emit_typed(
+                        "acp://turn-done",
+                        GenericEvent {
+                            session_id: sid.clone(),
+                            seq,
+                            data: msg.clone(),
+                        },
+                    );
                     continue;
                 }
 
@@ -726,7 +821,14 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                     if let Some(err) = msg.get("error") {
                         log::error!("[acp {sid}] set_model/set_config_option (id={id_num:?}) recusado: {err}");
                         let seq = sess.observed.lock().record("model-rejected", err.clone());
-                        app.emit_typed("acp://model-rejected", GenericEvent { session_id: sid.clone(), seq, data: err.clone() });
+                        app.emit_typed(
+                            "acp://model-rejected",
+                            GenericEvent {
+                                session_id: sid.clone(),
+                                seq,
+                                data: err.clone(),
+                            },
+                        );
                     } else {
                         log::info!("[acp {sid}] set_model/set_config_option (id={id_num:?}) OK");
                     }
@@ -735,9 +837,20 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
 
                 // Notificação de progresso (tool_call, agent_message_chunk, plan, …).
                 if method == Some("session/update") {
-                    let update = msg.get("params").and_then(|p| p.get("update")).cloned().unwrap_or(Value::Null);
+                    let update = msg
+                        .get("params")
+                        .and_then(|p| p.get("update"))
+                        .cloned()
+                        .unwrap_or(Value::Null);
                     let seq = sess.observed.lock().record("update", update.clone());
-                    app.emit_typed("acp://update", GenericEvent { session_id: sid.clone(), seq, data: update });
+                    app.emit_typed(
+                        "acp://update",
+                        GenericEvent {
+                            session_id: sid.clone(),
+                            seq,
+                            data: update,
+                        },
+                    );
                     continue;
                 }
 
@@ -746,16 +859,19 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                     let req_id = msg.get("id").cloned().unwrap_or(Value::Null);
                     let params = msg.get("params").cloned().unwrap_or(Value::Null);
                     // Log + pending_permission (payload {reqId, params} — o attach re-exibe).
-                    let seq = sess
-                        .observed
-                        .lock()
-                        .record("permission", json!({ "reqId": req_id.clone(), "params": params.clone() }));
-                    app.emit_typed("acp://permission", PermissionEvent {
-                        session_id: sid.clone(),
-                        seq,
-                        req_id,
-                        params,
-                    });
+                    let seq = sess.observed.lock().record(
+                        "permission",
+                        json!({ "reqId": req_id.clone(), "params": params.clone() }),
+                    );
+                    app.emit_typed(
+                        "acp://permission",
+                        PermissionEvent {
+                            session_id: sid.clone(),
+                            seq,
+                            req_id,
+                            params,
+                        },
+                    );
                     continue;
                 }
 
@@ -776,7 +892,14 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             sess.turn_in_flight.store(false, Ordering::SeqCst); // EOF → nenhum turno sobrevive
             if !sess.killed.load(Ordering::SeqCst) {
                 let seq = sess.observed.lock().record("exit", Value::Null);
-                app.emit_typed("acp://exit", GenericEvent { session_id: sid.clone(), seq, data: Value::Null });
+                app.emit_typed(
+                    "acp://exit",
+                    GenericEvent {
+                        session_id: sid.clone(),
+                        seq,
+                        data: Value::Null,
+                    },
+                );
             }
         });
 
@@ -787,11 +910,9 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
     /// Spike: id=3 fixo (1 prompt por vez); produção usa contador + promptQueueing.
     pub async fn prompt(&self, id: &str, text: String) -> Result<()> {
         let sess = self.session(id)?;
-        let acp_sid = sess
-            .acp_session_id
-            .lock()
-            .clone()
-            .ok_or_else(|| anyhow!("sessão acp {id} ainda não inicializada (aguarde acp://ready)"))?;
+        let acp_sid = sess.acp_session_id.lock().clone().ok_or_else(|| {
+            anyhow!("sessão acp {id} ainda não inicializada (aguarde acp://ready)")
+        })?;
         // Guard de concorrência: 1 turno por sessão (o id JSON-RPC do prompt é FIXO = 3).
         // REJEITA em vez de enfileirar — fila mascararia a origem do prompt e poderia
         // reordenar turnos. Fecha o buraco do `acp.prompt` do relay (steering do mobile),
@@ -838,7 +959,12 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
     /// Troca uma opção de config da sessão (ACP `session/set_config_option`). O adapter do Claude
     /// expõe o MODELO como um configOption (`configId="model"`), não via `models`/`set_model` — daí
     /// o dropdown do OmniAgent Claude troca por aqui (`{configId:"model", value:"sonnet"}`).
-    pub async fn set_config_option(&self, id: &str, config_id: String, value: String) -> Result<()> {
+    pub async fn set_config_option(
+        &self,
+        id: &str,
+        config_id: String,
+        value: String,
+    ) -> Result<()> {
         let sess = self.session(id)?;
         let acp_sid = sess
             .acp_session_id
@@ -852,7 +978,12 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
 
     /// Responde a um `session/request_permission`. `option_id = None` → cancelado.
     /// F1: limpa a `pending_permission` observável (setada no request) se o req_id bate.
-    pub async fn permission_respond(&self, id: &str, req_id: Value, option_id: Option<String>) -> Result<()> {
+    pub async fn permission_respond(
+        &self,
+        id: &str,
+        req_id: Value,
+        option_id: Option<String>,
+    ) -> Result<()> {
         let sess = self.session(id)?;
         sess.observed.lock().clear_permission(&req_id);
         let outcome = match option_id {
@@ -880,8 +1011,8 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
         if let Some((_, sess)) = self.sessions.remove(id) {
             sess.killed.store(true, Ordering::SeqCst);
             sess.turn_in_flight.store(false, Ordering::SeqCst); // turno abortado
-            // Clona o sessionId e SOLTA o guard parking_lot antes de qualquer await:
-            // um guard no scrutinee de `if let` viveria o bloco todo → future !Send.
+                                                                // Clona o sessionId e SOLTA o guard parking_lot antes de qualquer await:
+                                                                // um guard no scrutinee de `if let` viveria o bloco todo → future !Send.
             let acp_sid = sess.acp_session_id.lock().clone();
             if let Some(acp_sid) = acp_sid {
                 let cancel = json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": { "sessionId": acp_sid } });
@@ -1058,14 +1189,17 @@ mod tests {
         *sess.acp_session_id.lock() = Some("acp-1".into());
         mgr.sessions.insert("n1".to_string(), sess.clone());
 
-        let (a, b) = tokio::join!(
-            mgr.prompt("n1", "A".into()),
-            mgr.prompt("n1", "B".into()),
-        );
+        let (a, b) = tokio::join!(mgr.prompt("n1", "A".into()), mgr.prompt("n1", "B".into()),);
 
         let passaram = [a.is_ok(), b.is_ok()].iter().filter(|ok| **ok).count();
-        assert_eq!(passaram, 1, "exatamente 1 prompt deve passar; o outro é rejeitado");
-        assert!(sess.turn_in_flight.load(Ordering::SeqCst), "o turno vencedor fica em voo");
+        assert_eq!(
+            passaram, 1,
+            "exatamente 1 prompt deve passar; o outro é rejeitado"
+        );
+        assert!(
+            sess.turn_in_flight.load(Ordering::SeqCst),
+            "o turno vencedor fica em voo"
+        );
     }
 
     /// Fecha o buraco do `acp.prompt` do relay (steering do mobile), que chama o manager
@@ -1080,18 +1214,27 @@ mod tests {
         mgr.sessions.insert("n1".to_string(), sess.clone());
 
         // 1º prompt: passa e marca o turno em voo.
-        mgr.prompt("n1", "primeiro".into()).await.expect("1o prompt deve passar");
-        assert!(sess.turn_in_flight.load(Ordering::SeqCst), "turno deveria ficar em voo");
+        mgr.prompt("n1", "primeiro".into())
+            .await
+            .expect("1o prompt deve passar");
+        assert!(
+            sess.turn_in_flight.load(Ordering::SeqCst),
+            "turno deveria ficar em voo"
+        );
 
         // 2º prompt CONCORRENTE: rejeitado.
         let err = mgr.prompt("n1", "segundo".into()).await.unwrap_err();
-        assert!(err.to_string().contains("turno em andamento"), "erro inesperado: {err}");
+        assert!(
+            err.to_string().contains("turno em andamento"),
+            "erro inesperado: {err}"
+        );
 
         // Fim de turno (o read-loop faz isso na resposta id=3) → libera o próximo.
         sess.turn_in_flight.store(false, Ordering::SeqCst);
-        mgr.prompt("n1", "terceiro".into()).await.expect("apos o turno, deve passar");
+        mgr.prompt("n1", "terceiro".into())
+            .await
+            .expect("apos o turno, deve passar");
     }
-
 
     #[test]
     fn method_not_found_preserva_id_e_codigo() {
@@ -1099,8 +1242,14 @@ mod tests {
         assert_eq!(r["jsonrpc"], json!("2.0"));
         assert_eq!(r["id"], json!(7));
         assert_eq!(r["error"]["code"], json!(-32601));
-        assert!(r["error"]["message"].as_str().unwrap().contains("fs/read_text_file"));
-        assert!(r.get("result").is_none(), "resposta de erro nunca traz result");
+        assert!(r["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("fs/read_text_file"));
+        assert!(
+            r.get("result").is_none(),
+            "resposta de erro nunca traz result"
+        );
     }
 
     #[test]
@@ -1200,7 +1349,11 @@ mod tests {
         log.record("update", chunk("abc"));
         let before = log.bytes();
         log.record("update", chunk("defg"));
-        assert_eq!(log.bytes(), before + 4, "coalesce soma exatamente o texto adicionado");
+        assert_eq!(
+            log.bytes(),
+            before + 4,
+            "coalesce soma exatamente o texto adicionado"
+        );
     }
 
     #[test]
@@ -1259,23 +1412,50 @@ mod tests {
     fn snapshot_serializa_camel_case() {
         let obs = SessionObserved::default();
         let v = serde_json::to_value(obs.snapshot(None)).unwrap();
-        for key in ["state", "acpSessionId", "lastReady", "pendingPermission", "events", "lastSeq", "truncated"] {
-            assert!(v.get(key).is_some(), "snapshot sem a chave camelCase `{key}`");
+        for key in [
+            "state",
+            "acpSessionId",
+            "lastReady",
+            "pendingPermission",
+            "events",
+            "lastSeq",
+            "truncated",
+        ] {
+            assert!(
+                v.get(key).is_some(),
+                "snapshot sem a chave camelCase `{key}`"
+            );
         }
         assert_eq!(v["state"], json!("running"));
         // EventEntry também cruza camelCase e SEM o campo interno `size`.
         let mut log = EventLog::default();
         log.record("update", chunk("x"));
         let entry = serde_json::to_value(log.entries().next().unwrap()).unwrap();
-        assert!(entry.get("seq").is_some() && entry.get("event").is_some() && entry.get("payload").is_some());
-        assert!(entry.get("size").is_none(), "`size` é interno, não cruza o IPC");
+        assert!(
+            entry.get("seq").is_some()
+                && entry.get("event").is_some()
+                && entry.get("payload").is_some()
+        );
+        assert!(
+            entry.get("size").is_none(),
+            "`size` é interno, não cruza o IPC"
+        );
     }
 
     #[test]
     fn estados_serializam_lowercase() {
-        assert_eq!(serde_json::to_value(AcpSessionState::Running).unwrap(), json!("running"));
-        assert_eq!(serde_json::to_value(AcpSessionState::Sleeping).unwrap(), json!("sleeping"));
-        assert_eq!(serde_json::to_value(AcpSessionState::Dead).unwrap(), json!("dead"));
+        assert_eq!(
+            serde_json::to_value(AcpSessionState::Running).unwrap(),
+            json!("running")
+        );
+        assert_eq!(
+            serde_json::to_value(AcpSessionState::Sleeping).unwrap(),
+            json!("sleeping")
+        );
+        assert_eq!(
+            serde_json::to_value(AcpSessionState::Dead).unwrap(),
+            json!("dead")
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1311,7 +1491,10 @@ mod tests {
         let mut killed = mgr.gc(&["viva".to_string()]).await;
         killed.sort();
         assert_eq!(killed, vec!["orfa-1".to_string(), "orfa-2".to_string()]);
-        assert!(mgr.sessions.contains_key("viva"), "sessão conhecida deve sobreviver ao gc");
+        assert!(
+            mgr.sessions.contains_key("viva"),
+            "sessão conhecida deve sobreviver ao gc"
+        );
         assert!(!mgr.sessions.contains_key("orfa-1"));
         assert!(!mgr.sessions.contains_key("orfa-2"));
     }

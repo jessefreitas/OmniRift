@@ -30,8 +30,8 @@ use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Rgb};
 
-use serde::Serialize;
 use parking_lot::Mutex;
+use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -151,7 +151,12 @@ impl EventListener for BackstopListener {
                 // Célula em pixels não existe no backend (headless): 8x16 é o padrão de
                 // facto. Só afeta quem pergunta o tamanho em PIXELS; em células (CSI 18t)
                 // a resposta é exata.
-                f(WindowSize { num_lines: rows, num_cols: cols, cell_width: 8, cell_height: 16 })
+                f(WindowSize {
+                    num_lines: rows,
+                    num_cols: cols,
+                    cell_width: 8,
+                    cell_height: 16,
+                })
             }
             _ => return,
         };
@@ -335,8 +340,14 @@ impl TermEmulator {
     /// o caminho de produção usa esta; `new` (seq próprio) cobre testes/standalone.
     pub fn new_with_seq(cols: u16, rows: u16, seq: Arc<AtomicU64>) -> Self {
         let (cols, rows) = (cols.max(1), rows.max(1));
-        let config = Config { scrolling_history: SCROLLBACK_LIMIT, ..Config::default() };
-        let size = EmuSize { cols: cols as usize, rows: rows as usize };
+        let config = Config {
+            scrolling_history: SCROLLBACK_LIMIT,
+            ..Config::default()
+        };
+        let size = EmuSize {
+            cols: cols as usize,
+            rows: rows as usize,
+        };
         let pending = Arc::new(Mutex::new(Vec::new()));
         let dims = Arc::new(Mutex::new((cols, rows)));
         let dynamic_colors = Arc::new(Mutex::new(DynamicColors::default()));
@@ -415,7 +426,10 @@ impl TermEmulator {
         self.rows = rows;
         // O backstop lê daqui: sem isto ele responderia o tamanho do nascimento.
         *self.dims.lock() = (cols, rows);
-        self.term.resize(EmuSize { cols: cols as usize, rows: rows as usize });
+        self.term.resize(EmuSize {
+            cols: cols as usize,
+            rows: rows as usize,
+        });
     }
 
     /// Seq atual (último chunk pintado). Exposto pra testes/diagnóstico.
@@ -445,7 +459,11 @@ impl TermEmulator {
         let cols = grid.columns();
         let screen_lines = grid.screen_lines();
         // Em alt-screen, só o viewport (scrollback=0). Senão, até scrollback_rows acima.
-        let history = if is_alt { 0 } else { grid.history_size().min(scrollback_rows) };
+        let history = if is_alt {
+            0
+        } else {
+            grid.history_size().min(scrollback_rows)
+        };
         let top = -(history as i32);
         let bottom = screen_lines as i32 - 1;
 
@@ -480,7 +498,12 @@ impl TermEmulator {
         }
         out.push_str(&lines.join("\r\n"));
 
-        PtySnapshot { data: out, cols: self.cols, rows: self.rows, seq: self.seq.load(Ordering::SeqCst) }
+        PtySnapshot {
+            data: out,
+            cols: self.cols,
+            rows: self.rows,
+            seq: self.seq.load(Ordering::SeqCst),
+        }
     }
 }
 
@@ -651,8 +674,16 @@ mod tests {
         let mut e = TermEmulator::new(80, 24);
         e.feed(b"foo\r\nbar");
         let snap = e.snapshot(SCROLLBACK_LIMIT);
-        assert!(snap.data.contains("foo"), "snapshot deve conter foo: {:?}", snap.data);
-        assert!(snap.data.contains("bar"), "snapshot deve conter bar: {:?}", snap.data);
+        assert!(
+            snap.data.contains("foo"),
+            "snapshot deve conter foo: {:?}",
+            snap.data
+        );
+        assert!(
+            snap.data.contains("bar"),
+            "snapshot deve conter bar: {:?}",
+            snap.data
+        );
     }
 
     #[test]
@@ -683,8 +714,14 @@ mod tests {
             "scrollback bounded: {line_count} linhas (limite {SCROLLBACK_LIMIT} + viewport)"
         );
         // As linhas mais antigas caíram; as recentes ficaram.
-        assert!(snap.data.contains("L19999"), "linha mais recente deve sobreviver");
-        assert!(!snap.data.contains("L0\r\n"), "linha 0 deve ter caído do scrollback bounded");
+        assert!(
+            snap.data.contains("L19999"),
+            "linha mais recente deve sobreviver"
+        );
+        assert!(
+            !snap.data.contains("L0\r\n"),
+            "linha 0 deve ter caído do scrollback bounded"
+        );
     }
 
     #[test]
@@ -721,7 +758,11 @@ mod tests {
         let mut e2 = TermEmulator::new(80, 24);
         e2.feed(snap.data.as_bytes());
         let c = cell_at(&e2, 0, 0);
-        assert!(c.flags.contains(Flags::BOLD), "bold sobrevive ao round-trip, flags {:?}", c.flags);
+        assert!(
+            c.flags.contains(Flags::BOLD),
+            "bold sobrevive ao round-trip, flags {:?}",
+            c.flags
+        );
     }
 
     #[test]
@@ -734,7 +775,11 @@ mod tests {
         //  (b) o snapshot não contém a resposta DA (\x1b[?...c).
         let mut e = TermEmulator::new(80, 24);
         e.feed(b"\x1b[c");
-        assert_eq!(e.seq(), 1, "feed de query incrementa seq como qualquer chunk");
+        assert_eq!(
+            e.seq(),
+            1,
+            "feed de query incrementa seq como qualquer chunk"
+        );
         let snap = e.snapshot(SCROLLBACK_LIMIT);
         // Nenhuma resposta DA do tipo CSI ? ... c foi gerada pelo emulador.
         assert!(
@@ -761,9 +806,22 @@ mod tests {
         let mut e = TermEmulator::new(80, 24);
         e.feed(b"\x1b[6n");
         let resp = e.take_pending_responses();
-        assert_eq!(resp.len(), 1, "DSR sem view deve gerar exatamente uma resposta CPR");
-        assert!(resp[0].starts_with(b"\x1b["), "CPR comeca com CSI: {:?}", resp[0]);
-        assert_eq!(resp[0].last().copied(), Some(b'R'), "CPR termina em R: {:?}", resp[0]);
+        assert_eq!(
+            resp.len(),
+            1,
+            "DSR sem view deve gerar exatamente uma resposta CPR"
+        );
+        assert!(
+            resp[0].starts_with(b"\x1b["),
+            "CPR comeca com CSI: {:?}",
+            resp[0]
+        );
+        assert_eq!(
+            resp[0].last().copied(),
+            Some(b'R'),
+            "CPR termina em R: {:?}",
+            resp[0]
+        );
     }
 
     #[test]
@@ -777,7 +835,10 @@ mod tests {
         let resp = e.take_pending_responses();
         assert_eq!(resp.len(), 1, "CSI 18t sem view deve gerar resposta");
         let txt = String::from_utf8_lossy(&resp[0]).to_string();
-        assert!(txt.contains("40") && txt.contains("120"), "deve refletir 120x40, veio: {txt:?}");
+        assert!(
+            txt.contains("40") && txt.contains("120"),
+            "deve refletir 120x40, veio: {txt:?}"
+        );
     }
 
     #[test]
@@ -785,8 +846,16 @@ mod tests {
         let mut e = TermEmulator::new(80, 24);
         e.feed(b"\x1b[6n");
         e.feed(b"\x1b[6n");
-        assert_eq!(e.take_pending_responses().len(), 2, "duas queries, duas respostas");
-        assert_eq!(e.take_pending_responses().len(), 0, "segunda drenagem vem vazia");
+        assert_eq!(
+            e.take_pending_responses().len(),
+            2,
+            "duas queries, duas respostas"
+        );
+        assert_eq!(
+            e.take_pending_responses().len(),
+            0,
+            "segunda drenagem vem vazia"
+        );
     }
 
     #[test]
@@ -955,7 +1024,11 @@ mod tests {
         let mut e = TermEmulator::new(80, 24);
         e.feed(b"\x1b[?6n");
         let respostas = e.take_pending_responses();
-        assert_eq!(respostas.len(), 1, "DSR privado tem que ser respondido pelo backend");
+        assert_eq!(
+            respostas.len(),
+            1,
+            "DSR privado tem que ser respondido pelo backend"
+        );
         let r = String::from_utf8_lossy(&respostas[0]).to_string();
         assert!(
             r.starts_with("\u{1b}[?") && r.ends_with('R'),
@@ -973,7 +1046,10 @@ mod tests {
     fn detecta_dsr_privado_partido_entre_chunks() {
         let mut detector = DetectorDsrPrivado::default();
         let primeiro = detector.scan(b"\x1b[?");
-        assert_eq!(primeiro, 0, "o prefixo sozinho ainda nao forma uma requisicao completa");
+        assert_eq!(
+            primeiro, 0,
+            "o prefixo sozinho ainda nao forma uma requisicao completa"
+        );
 
         let segundo = detector.scan(b"6n");
         assert_eq!(
@@ -987,7 +1063,11 @@ mod tests {
     #[test]
     fn nao_confunde_com_dectcem() {
         let mut detector = DetectorDsrPrivado::default();
-        assert_eq!(detector.scan(b"\x1b[?25h"), 0, "mostrar cursor (DECTCEM) nao e DSR");
+        assert_eq!(
+            detector.scan(b"\x1b[?25h"),
+            0,
+            "mostrar cursor (DECTCEM) nao e DSR"
+        );
     }
 
     #[test]

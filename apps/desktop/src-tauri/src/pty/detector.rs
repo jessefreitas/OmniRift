@@ -241,7 +241,10 @@ mod tests {
         assert_eq!(classify_fg(Some(100), Some(200)), FgClass::Subprocess);
         let p = profile_for("claude");
         // mesmo quiescente, subprocesso em foreground = trabalhando
-        assert_eq!(classify(AgentState::Idle, true, FgClass::Subprocess, "❯", p), AgentState::Working);
+        assert_eq!(
+            classify(AgentState::Idle, true, FgClass::Subprocess, "❯", p),
+            AgentState::Working
+        );
     }
 
     #[test]
@@ -254,44 +257,71 @@ mod tests {
     fn streaming_output_is_working() {
         let p = profile_for("claude");
         // não quiescente → working
-        assert_eq!(classify(AgentState::Idle, false, FgClass::Root, "tokens...", p), AgentState::Working);
+        assert_eq!(
+            classify(AgentState::Idle, false, FgClass::Root, "tokens...", p),
+            AgentState::Working
+        );
     }
 
     #[test]
     fn confirmation_prompt_is_blocked() {
         let p = profile_for("claude");
         let bottom = "Edit file?\nDo you want to proceed?";
-        assert_eq!(classify(AgentState::Working, true, FgClass::Root, bottom, p), AgentState::Blocked);
+        assert_eq!(
+            classify(AgentState::Working, true, FgClass::Root, bottom, p),
+            AgentState::Blocked
+        );
     }
 
     #[test]
     fn finished_agent_at_ready_prompt_is_done() {
         let p = profile_for("claude");
-        assert_eq!(classify(AgentState::Working, true, FgClass::Root, "result\n❯", p), AgentState::Done);
+        assert_eq!(
+            classify(AgentState::Working, true, FgClass::Root, "result\n❯", p),
+            AgentState::Done
+        );
     }
 
     #[test]
     fn done_stays_done_until_change() {
         let p = profile_for("claude");
-        assert_eq!(classify(AgentState::Done, true, FgClass::Root, "❯", p), AgentState::Done);
+        assert_eq!(
+            classify(AgentState::Done, true, FgClass::Root, "❯", p),
+            AgentState::Done
+        );
     }
 
     #[test]
     fn fresh_agent_at_ready_prompt_is_idle() {
         let p = profile_for("claude");
         // nunca trabalhou (prev Idle) + prompt pronto → idle, não done
-        assert_eq!(classify(AgentState::Idle, true, FgClass::Root, "❯", p), AgentState::Idle);
+        assert_eq!(
+            classify(AgentState::Idle, true, FgClass::Root, "❯", p),
+            AgentState::Idle
+        );
     }
 
     #[test]
     fn shell_at_prompt_is_idle() {
         let p = profile_for("bash");
-        assert_eq!(classify(AgentState::Working, true, FgClass::Root, "user@host:~$ ", p), AgentState::Idle);
+        assert_eq!(
+            classify(AgentState::Working, true, FgClass::Root, "user@host:~$ ", p),
+            AgentState::Idle
+        );
     }
 
     #[test]
     fn quiescent_without_known_prompt_keeps_previous() {
         let p = profile_for("claude");
-        assert_eq!(classify(AgentState::Working, true, FgClass::Root, "no prompt here", p), AgentState::Working);
+        assert_eq!(
+            classify(
+                AgentState::Working,
+                true,
+                FgClass::Root,
+                "no prompt here",
+                p
+            ),
+            AgentState::Working
+        );
     }
 }

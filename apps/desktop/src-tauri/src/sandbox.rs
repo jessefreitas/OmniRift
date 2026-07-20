@@ -35,10 +35,7 @@ pub fn maybe_wrap(
     cwd: Option<&str>,
     is_remote: bool,
 ) -> (String, Vec<String>) {
-    if is_remote
-        || profile_from_env() != SandboxProfile::Workspace
-        || !bwrap_available()
-    {
+    if is_remote || profile_from_env() != SandboxProfile::Workspace || !bwrap_available() {
         return (program, args);
     }
 
@@ -57,10 +54,17 @@ pub fn build_bwrap_argv(program: &str, args: &[String], workspace: Option<&str>)
 
     // Raiz read-only + dispositivos, proc e tmp read-write.
     argv.extend_from_slice(&[
-        String::from("--ro-bind"), String::from("/"), String::from("/"),
-        String::from("--dev-bind"), String::from("/dev"), String::from("/dev"),
-        String::from("--proc"), String::from("/proc"),
-        String::from("--bind"), String::from("/tmp"), String::from("/tmp"),
+        String::from("--ro-bind"),
+        String::from("/"),
+        String::from("/"),
+        String::from("--dev-bind"),
+        String::from("/dev"),
+        String::from("/dev"),
+        String::from("--proc"),
+        String::from("/proc"),
+        String::from("--bind"),
+        String::from("/tmp"),
+        String::from("/tmp"),
     ]);
 
     // Workspace do projeto com permissão de escrita.
@@ -122,10 +126,7 @@ mod tests {
     #[test]
     fn build_bwrap_argv_monta_estrutura_correta() {
         let program = "git";
-        let args = vec![
-            String::from("clone"),
-            String::from("https://repo"),
-        ];
+        let args = vec![String::from("clone"), String::from("https://repo")];
         let workspace = Some("/repo/workspace");
         let argv = build_bwrap_argv(program, &args, workspace);
 
@@ -143,10 +144,7 @@ mod tests {
 
         if let Ok(home) = std::env::var("HOME") {
             if !home.is_empty() {
-                let ssh_tmpfs = vec![
-                    String::from("--tmpfs"),
-                    format!("{}/.ssh", home),
-                ];
+                let ssh_tmpfs = vec![String::from("--tmpfs"), format!("{}/.ssh", home)];
                 assert!(
                     argv.windows(2).any(|w| w == ssh_tmpfs),
                     "deve esconder ~/.ssh com tmpfs vazio"

@@ -26,7 +26,11 @@ pub struct ProcInfo {
 /// RSS do processo (Linux: /proc/<pid>/statm campo 2 = páginas residentes).
 fn read_rss_kb(pid: u32) -> u64 {
     let statm = std::fs::read_to_string(format!("/proc/{pid}/statm")).unwrap_or_default();
-    let pages: u64 = statm.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let pages: u64 = statm
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     pages * 4 // página de 4096 B = 4 KB
 }
 
@@ -115,7 +119,8 @@ impl PtyManager {
     }
 
     pub fn kill(&self, id: &str) -> Result<()> {
-        let (_, session) = self.sessions
+        let (_, session) = self
+            .sessions
             .remove(id)
             .ok_or_else(|| anyhow!("sessão {id} não encontrada"))?;
         // Mata o processo filho ANTES de soltar a sessão: fecha o slave → o read_loop
@@ -133,10 +138,9 @@ impl PtyManager {
     /// Snapshot serializado (scrollback+viewport em ANSI) do emulador de uma sessão.
     /// Erro claro se a sessão não tem emulador → o front degrada pro fluxo ao vivo atual.
     pub fn snapshot(&self, id: &str, scrollback_rows: usize) -> Result<PtySnapshot> {
-        let emu = self
-            .emulators
-            .get(id)
-            .ok_or_else(|| anyhow!("sessão {id} sem emulador (sem snapshot — degrade pro fluxo ao vivo)"))?;
+        let emu = self.emulators.get(id).ok_or_else(|| {
+            anyhow!("sessão {id} sem emulador (sem snapshot — degrade pro fluxo ao vivo)")
+        })?;
         let snap = emu.lock().snapshot(scrollback_rows);
         Ok(snap)
     }
@@ -219,14 +223,16 @@ impl PtyManager {
     }
 
     pub fn subscribe_by_id(&self, id: &str) -> anyhow::Result<broadcast::Receiver<Vec<u8>>> {
-        Ok(self.sessions
+        Ok(self
+            .sessions
             .get(id)
             .ok_or_else(|| anyhow::anyhow!("sessão '{id}' não encontrada"))?
             .subscribe())
     }
 
     pub fn read_screen(&self, id: &str) -> Result<String> {
-        Ok(self.sessions
+        Ok(self
+            .sessions
             .get(id)
             .ok_or_else(|| anyhow!("sessão '{id}' não encontrada"))?
             .read_screen())
@@ -236,12 +242,17 @@ impl PtyManager {
         &self,
         src: &str,
         dst: &str,
-    ) -> Result<(broadcast::Receiver<Vec<u8>>, Arc<Mutex<Box<dyn Write + Send>>>)> {
-        let rx = self.sessions
+    ) -> Result<(
+        broadcast::Receiver<Vec<u8>>,
+        Arc<Mutex<Box<dyn Write + Send>>>,
+    )> {
+        let rx = self
+            .sessions
             .get(src)
             .ok_or_else(|| anyhow!("sessão origem '{src}' não encontrada"))?
             .subscribe();
-        let writer = self.sessions
+        let writer = self
+            .sessions
             .get(dst)
             .ok_or_else(|| anyhow!("sessão destino '{dst}' não encontrada"))?
             .writer_arc();
@@ -257,14 +268,21 @@ impl PtyManager {
 
     pub fn pipe_remove(&self, src: &str, dst: &str) -> Result<()> {
         let key = (src.to_string(), dst.to_string());
-        let handle = self.pipes.lock().remove(&key)
+        let handle = self
+            .pipes
+            .lock()
+            .remove(&key)
             .ok_or_else(|| anyhow!("pipe '{src}'→'{dst}' não existe"))?;
         handle.abort();
         Ok(())
     }
 
     pub fn pipe_list(&self) -> Vec<[SessionId; 2]> {
-        self.pipes.lock().keys().map(|(s, d)| [s.clone(), d.clone()]).collect()
+        self.pipes
+            .lock()
+            .keys()
+            .map(|(s, d)| [s.clone(), d.clone()])
+            .collect()
     }
 }
 
@@ -297,7 +315,9 @@ pub(crate) async fn relay_task(
                     match bytes[i] {
                         0x1b => {
                             i += 1;
-                            if i >= bytes.len() { break; }
+                            if i >= bytes.len() {
+                                break;
+                            }
                             match bytes[i] {
                                 b'[' => {
                                     i += 1;
@@ -309,12 +329,20 @@ pub(crate) async fn relay_task(
                                         let cmd = bytes[i];
                                         let param = std::str::from_utf8(&bytes[param_start..i])
                                             .unwrap_or("");
-                                        let n: usize = param.split(';').next()
-                                            .unwrap_or("1").parse().unwrap_or(1);
+                                        let n: usize = param
+                                            .split(';')
+                                            .next()
+                                            .unwrap_or("1")
+                                            .parse()
+                                            .unwrap_or(1);
                                         match cmd {
-                                            b'A' | b'K' => { line_buf.clear(); }
+                                            b'A' | b'K' => {
+                                                line_buf.clear();
+                                            }
                                             b'C' => {
-                                                for _ in 0..n.min(40) { line_buf.push(b' '); }
+                                                for _ in 0..n.min(40) {
+                                                    line_buf.push(b' ');
+                                                }
                                             }
                                             _ => {}
                                         }
@@ -324,17 +352,23 @@ pub(crate) async fn relay_task(
                                 b']' => {
                                     i += 1;
                                     while i < bytes.len() {
-                                        if bytes[i] == 0x07 { i += 1; break; }
+                                        if bytes[i] == 0x07 {
+                                            i += 1;
+                                            break;
+                                        }
                                         if bytes[i] == 0x1b
                                             && i + 1 < bytes.len()
                                             && bytes[i + 1] == b'\\'
                                         {
-                                            i += 2; break;
+                                            i += 2;
+                                            break;
                                         }
                                         i += 1;
                                     }
                                 }
-                                _ => { i += 1; }
+                                _ => {
+                                    i += 1;
+                                }
                             }
                         }
                         b'\r' => {
@@ -360,7 +394,10 @@ pub(crate) async fn relay_task(
                                 line_buf.clear();
                             }
                         }
-                        0x08 => { line_buf.pop(); i += 1; }
+                        0x08 => {
+                            line_buf.pop();
+                            i += 1;
+                        }
                         b'\n' => {
                             // \n bare (sem \r precedente) — flush
                             let has_content = line_buf.iter().any(|&b| b.is_ascii_graphic());
@@ -378,7 +415,10 @@ pub(crate) async fn relay_task(
                             line_buf.clear();
                             i += 1;
                         }
-                        b => { line_buf.push(b); i += 1; }
+                        b => {
+                            line_buf.push(b);
+                            i += 1;
+                        }
                     }
                 }
             }
@@ -417,8 +457,16 @@ mod tests {
         m.insert_emulator_for_test("s1", emu);
 
         let snap = m.snapshot("s1", SCROLLBACK_LIMIT).expect("snapshot ok");
-        assert!(snap.data.contains("hello"), "snapshot deve conter hello: {:?}", snap.data);
-        assert!(snap.data.contains("world"), "snapshot deve conter world: {:?}", snap.data);
+        assert!(
+            snap.data.contains("hello"),
+            "snapshot deve conter hello: {:?}",
+            snap.data
+        );
+        assert!(
+            snap.data.contains("world"),
+            "snapshot deve conter world: {:?}",
+            snap.data
+        );
         assert_eq!(snap.seq, expected_seq, "seq do snapshot = seq pintado");
         assert_eq!(snap.cols, 80);
         assert_eq!(snap.rows, 24);
@@ -429,6 +477,9 @@ mod tests {
         // Degrade limpo: sessão sem emulador → erro (não panic) → o front cai pro fluxo ao vivo.
         let m = PtyManager::new();
         let err = m.snapshot("nope", SCROLLBACK_LIMIT).unwrap_err();
-        assert!(err.to_string().contains("sem emulador"), "erro claro: {err}");
+        assert!(
+            err.to_string().contains("sem emulador"),
+            "erro claro: {err}"
+        );
     }
 }

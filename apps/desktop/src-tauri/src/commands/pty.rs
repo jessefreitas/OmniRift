@@ -25,7 +25,9 @@ pub fn pty_write(
     data: String,
     manager: State<'_, std::sync::Arc<PtyManager>>,
 ) -> Result<(), String> {
-    manager.write(&session_id, data.as_bytes()).map_err(|e| format!("{e:#}"))
+    manager
+        .write(&session_id, data.as_bytes())
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -35,7 +37,9 @@ pub fn pty_resize(
     rows: u16,
     manager: State<'_, std::sync::Arc<PtyManager>>,
 ) -> Result<(), String> {
-    manager.resize(&session_id, cols, rows).map_err(|e| format!("{e:#}"))
+    manager
+        .resize(&session_id, cols, rows)
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -85,7 +89,9 @@ pub fn pty_read_screen(
     session_id: SessionId,
     manager: State<'_, std::sync::Arc<PtyManager>>,
 ) -> Result<String, String> {
-    manager.read_screen(&session_id).map_err(|e| format!("{e:#}"))
+    manager
+        .read_screen(&session_id)
+        .map_err(|e| format!("{e:#}"))
 }
 
 /// Snapshot serializado (scrollback+viewport em ANSI re-hidratado) do emulador VT
@@ -123,7 +129,13 @@ pub async fn pty_pipe_create(
         .pipe_parts(&source_id, &target_id)
         .map_err(|e| format!("{e:#}"))?;
     let label = source_label.unwrap_or_else(|| source_id.clone());
-    let handle = tokio::spawn(relay_task(rx, writer, source_id.clone(), target_id.clone(), label));
+    let handle = tokio::spawn(relay_task(
+        rx,
+        writer,
+        source_id.clone(),
+        target_id.clone(),
+        label,
+    ));
     manager.pipe_store(source_id, target_id, handle);
     Ok(())
 }
@@ -134,7 +146,9 @@ pub fn pty_pipe_remove(
     target_id: SessionId,
     manager: State<'_, std::sync::Arc<PtyManager>>,
 ) -> Result<(), String> {
-    manager.pipe_remove(&source_id, &target_id).map_err(|e| format!("{e:#}"))
+    manager
+        .pipe_remove(&source_id, &target_id)
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
