@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::io::{Read, Write};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -20,6 +20,16 @@ pub(crate) const PATH_SEP: &str = ";";
 pub(crate) const PATH_SEP: &str = ":";
 
 pub type SessionId = String;
+
+/// Por que o processo filho terminou — a resposta que o log de diagnóstico NÃO dava.
+/// No Windows o `ChildKiller` do portable-pty mata via `TerminateProcess(_, 1)`, então
+/// um kill do próprio app sai com `código 1` — INDISTINGUÍVEL de um crash real que
+/// também sai 1. Sem rastrear o motivo, todo teardown (fechar card, fechar app,
+/// recarregar o webview) vira uma linha "saiu: código 1" que parece falha. Marcamos o
+/// motivo ANTES de chamar `kill()` e o waiter o imprime junto do exit code.
+const KILL_NONE: u8 = 0; // saiu por conta própria (não fomos nós)
+const KILL_EXPLICIT: u8 = 1; // kill_child(): fechar o card, manager.kill(), etc.
+const KILL_DROP: u8 = 2; // Drop backstop: o Arc caiu (reload/teardown do app)
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct PtySpawnConfig {
@@ -174,6 +184,9 @@ pub struct PtySession {
     /// instante do child.wait(). Cross-platform de propósito: o /proc/<pid> usado antes não existe
     /// no Windows, então lá o alive mentia sempre.
     exited: Arc<std::sync::atomic::AtomicBool>,
+    /// Motivo do encerramento (KILL_NONE/EXPLICIT/DROP), setado antes do `kill()` e lido
+    /// pela thread waiter para desambiguar `código 1` (kill do app) de crash real no log.
+    kill_reason: Arc<AtomicU8>,
 }
 
 impl PtySession {
@@ -377,15 +390,26 @@ impl PtySession {
         let app_for_waiter = app.clone();
         let exited = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let exited_for_waiter = Arc::clone(&exited);
+        let kill_reason = Arc::new(AtomicU8::new(KILL_NONE));
+        let kill_reason_for_waiter = Arc::clone(&kill_reason);
 
         std::thread::spawn(move || {
             let status = child.wait();
-            // Código de saída + QUANTO viveu. Um processo que morre em milissegundos é
-            // binário ausente / erro de spawn; um que viveu minutos saiu normal. É a
-            // pergunta que o log tinha que responder e não respondia.
+            // Código de saída + QUANTO viveu + POR QUE morreu. Um processo que morre em
+            // milissegundos é binário ausente / erro de spawn; um que viveu minutos saiu
+            // normal. E `código 1` no Windows tanto pode ser crash quanto o nosso próprio
+            // kill (TerminateProcess=1) — o motivo abaixo desfaz essa ambiguidade, que já
+            // levou o diagnóstico a interpretar teardown do app como falha de PTY.
+            // Acquire pareado com o Release dos stores em kill_child()/Drop: garante que,
+            // se o motivo foi publicado antes do processo morrer, o waiter o enxergue.
+            let reason = match kill_reason_for_waiter.load(Ordering::Acquire) {
+                KILL_EXPLICIT => " (morto pelo app: kill_child)",
+                KILL_DROP => " (morto pelo app: Drop/teardown)",
+                _ => "", // saída própria — não fomos nós
+            };
             match &status {
                 Ok(st) => log::info!(
-                    "PTY {id_for_waiter} saiu: código {} após {:?}",
+                    "PTY {id_for_waiter} saiu: código {} após {:?}{reason}",
                     st.exit_code(),
                     spawned_at.elapsed()
                 ),
@@ -465,6 +489,7 @@ impl PtySession {
             seq,
             killer: Mutex::new(killer),
             exited,
+            kill_reason,
         })
     }
 
@@ -482,6 +507,10 @@ impl PtySession {
     /// por EOF → as threads (read/emit/feeder/detector) encerram e o waiter reapeia o
     /// zumbi. Idempotente: matar 2× é inofensivo (o 2º kill num morto só erra → ignorado).
     pub(crate) fn kill_child(&self) {
+        // Marca ANTES do kill: o waiter pode reapear o child no mesmo instante em que o
+        // kill retorna, então o motivo precisa já estar visível quando ele logar.
+        // Release pareado com o Acquire do load no waiter.
+        self.kill_reason.store(KILL_EXPLICIT, Ordering::Release);
         let _ = self.killer.lock().kill();
     }
 
@@ -544,6 +573,19 @@ impl Drop for PtySession {
         // Backstop: se a sessão for dropada sem passar pelo kill() explícito (ex.:
         // panic, ou o Arc cair por outro caminho), ainda mata o filho — sem isto o
         // processo do agente vazaria.
+        // Só marca DROP se (a) ninguém marcou antes — um fechar-card chama kill_child()
+        // (EXPLICIT) e SÓ DEPOIS dropa o Arc, não queremos mascarar aquele motivo — e
+        // (b) o processo ainda estava vivo: se ele já saiu por conta própria, o waiter já
+        // logou com KILL_NONE e marcar DROP aqui só rotularia uma morte natural como
+        // "morto pelo app". O kill() abaixo continua incondicional (idempotente num morto).
+        if !self.exited.load(Ordering::Acquire) {
+            let _ = self.kill_reason.compare_exchange(
+                KILL_NONE,
+                KILL_DROP,
+                Ordering::Release,
+                Ordering::Relaxed,
+            );
+        }
         let _ = self.killer.lock().kill();
     }
 }
@@ -667,22 +709,27 @@ pub(crate) fn login_shell_path() -> Option<&'static str> {
 const CMD_LINE_SAFE_LIMIT: usize = 7000;
 
 /// Troca `--append-system-prompt <texto-gigante>` por `--append-system-prompt-file`
-/// `<caminho>` quando a linha de comando montada passaria do teto do cmd.exe.
+/// `<caminho>` quando a linha inline não sobreviveria ao `cmd.exe /s /c`.
 ///
-/// Só age quando PRECISA — linha curta segue inline, que é o comportamento testado no
-/// Linux; devolve os args inalterados se não achar a flag, se o valor for pequeno, ou se
-/// a gravação falhar, porque um agente com prompt truncado ainda é melhor que um agente
-/// que nem sobe.
+/// Dois gatilhos, ambos específicos do cmd.exe (esta fn só roda com `dir=Some` no
+/// Windows — no Linux `build_command` passa `None` e o inline testado fica intocado):
+///   1. TAMANHO: a linha montada passaria do teto de 8191 do cmd → truncada em silêncio;
+///   2. QUEBRA DE LINHA: um `\n`/`\r` CRU na tail do `cmd /s /c` ENCERRA o comando ali —
+///      o resto do prompt vira "comando" seguinte. O agente sobe sem o prompt (ou com
+///      lixo) e cai com código 1. Era o caso do claude/codex de dev no cliente Windows:
+///      ~4210 chars (ABAIXO do teto de tamanho) mas 28 quebras de linha — passava do
+///      gate de tamanho e quebrava mesmo assim. O `--append-system-prompt-file` põe o
+///      prompt num arquivo, então a linha do cmd nunca mais contém a quebra.
+///
+/// Só age quando PRECISA — prompt curto e de uma linha segue inline (comportamento
+/// testado no Linux). Devolve os args inalterados se não achar a flag, se nada disparar,
+/// ou se a gravação falhar, porque um agente com prompt truncado ainda é melhor que um
+/// agente que nem sobe.
 fn spill_system_prompt_to_file(
     args: Vec<String>,
     dir: &std::path::Path,
     session_id: &str,
 ) -> Vec<String> {
-    let total_len: usize = args.iter().map(|a| a.len() + 3).sum();
-    if total_len <= CMD_LINE_SAFE_LIMIT {
-        return args;
-    }
-
     let Some(idx) = args.iter().position(|a| a == "--append-system-prompt") else {
         return args;
     };
@@ -690,22 +737,56 @@ fn spill_system_prompt_to_file(
         return args;
     }
 
+    // Gate: só spilla se a linha estouraria o teto OU o prompt tem quebra de linha.
+    // Um \n cru na tail do `cmd /c` corta o comando; \r sozinho também é tratado como
+    // fim de linha pelo cmd, então cobrimos os dois. Checamos por referência ANTES de
+    // clonar — prompt curto de uma linha não paga alocação nenhuma.
+    // `+3` por arg ≈ o separador + as aspas que cada token ganha na linha do `cmd /s /c`;
+    // é uma cota grosseira e conservadora (o teto real do cmd é 8191 e o limite é 7000).
+    let prompt_ref = &args[idx + 1];
+    let total_len: usize = args.iter().map(|a| a.len() + 3).sum();
+    let tem_quebra = prompt_ref.contains('\n') || prompt_ref.contains('\r');
+    if total_len <= CMD_LINE_SAFE_LIMIT && !tem_quebra {
+        return args;
+    }
+
     let prompt = args[idx + 1].clone();
-    let path = dir.join(format!("agent-prompt-{session_id}.txt"));
+    // session_id sanitizado no nome do arquivo: só [A-Za-z0-9_-]. Os ids são gerados
+    // internamente (nanoid), mas nunca interpolar um id cru num path — um `/`/`\`/`..`
+    // desviaria a gravação. Defesa em profundidade, custo zero.
+    let safe_id: String = session_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let path = dir.join(format!("agent-prompt-{safe_id}.txt"));
 
     if let Err(e) = std::fs::create_dir_all(dir) {
         log::warn!(
             "spill_system_prompt_to_file: falha ao criar diretório {}: {e}",
             dir.display()
         );
-        return args;
+        return spill_fallback(args, idx, tem_quebra);
     }
     if let Err(e) = std::fs::write(&path, &prompt) {
         log::warn!(
             "spill_system_prompt_to_file: falha ao escrever {}: {e}",
             path.display()
         );
-        return args;
+        return spill_fallback(args, idx, tem_quebra);
+    }
+
+    // O prompt é contexto do sistema (persona, regras): restringe leitura ao dono no Unix.
+    // No Windows o arquivo já nasce sob o perfil do usuário (app_data_dir) — sem ACL extra.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     }
 
     log::info!(
@@ -718,6 +799,19 @@ fn spill_system_prompt_to_file(
     new_args[idx] = "--append-system-prompt-file".to_string();
     new_args[idx + 1] = path.display().to_string();
     new_args
+}
+
+/// Último recurso quando o spill-pra-arquivo falha (disco cheio, permissão). Se o gatilho
+/// foi QUEBRA DE LINHA, devolver o prompt inline cru reintroduziria exatamente o bug que
+/// queríamos evitar (o `\n` corta a linha do `cmd /c`). Então, só nesse caso, troca `\n`/`\r`
+/// por espaço no arg inline — o agente sobe com o prompt levemente alterado, o que é melhor
+/// que subir sem prompt. Se o gatilho foi só TAMANHO, não há o que sanear: devolve cru
+/// (a linha longa é problema do cmd, não temos como encurtar sem perder conteúdo).
+fn spill_fallback(mut args: Vec<String>, idx: usize, tinha_quebra: bool) -> Vec<String> {
+    if tinha_quebra {
+        args[idx + 1] = args[idx + 1].replace(['\n', '\r'], " ");
+    }
+    args
 }
 
 fn build_command(
@@ -1495,6 +1589,44 @@ mod tests {
             assert!(std::path::Path::new(&out[1]).exists());
             let content = std::fs::read_to_string(&out[1]).unwrap();
             assert_eq!(content.len(), 10_000);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        /// Regressão do cliente Windows: prompt CURTO (abaixo do teto de tamanho) mas com
+        /// quebra de linha tem que virar arquivo — um `\n` cru na tail do `cmd /s /c`
+        /// encerra o comando e o agente (claude/codex de dev) sobe sem prompt e cai.
+        /// Antes do fix este caso passava inline e quebrava só no Windows.
+        #[test]
+        fn prompt_curto_com_quebra_de_linha_vira_arquivo() {
+            let dir = dir_temp_unico("multilinha");
+            let _ = std::fs::remove_dir_all(&dir);
+            let prompt = "Você é um agente.\nRegra 1: X.\nRegra 2: Y.";
+            let args = vec!["--append-system-prompt".into(), prompt.into()];
+            let out = spill_system_prompt_to_file(args, &dir, "ml");
+            assert_eq!(
+                out[0], "--append-system-prompt-file",
+                "prompt com \\n tem que virar arquivo mesmo curto"
+            );
+            assert!(out[1].ends_with(".txt"), "esperava caminho .txt: {out:?}");
+            let content = std::fs::read_to_string(&out[1]).unwrap();
+            assert_eq!(content, prompt, "o prompt no arquivo tem que ser fiel");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        /// O segundo gatilho: `\r` sozinho também encerra a linha no cmd, então um prompt
+        /// só com carriage-return (sem `\n`) precisa spillar igual.
+        #[test]
+        fn prompt_curto_com_cr_isolado_vira_arquivo() {
+            let dir = dir_temp_unico("cr");
+            let _ = std::fs::remove_dir_all(&dir);
+            let prompt = "linha um\rlinha dois";
+            let args = vec!["--append-system-prompt".into(), prompt.into()];
+            let out = spill_system_prompt_to_file(args, &dir, "cr");
+            assert_eq!(out.len(), 2, "esperava 2 elementos após spill");
+            assert_eq!(out[0], "--append-system-prompt-file");
+            assert!(out[1].ends_with(".txt"));
+            let content = std::fs::read_to_string(&out[1]).unwrap();
+            assert_eq!(content, prompt, "o \\r tem que ser preservado no arquivo");
             let _ = std::fs::remove_dir_all(&dir);
         }
 
