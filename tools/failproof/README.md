@@ -1,6 +1,6 @@
 # failproof
 
-Sistema de busca de erros e correções que torna sessões Claude Code à prova de falhas. Três camadas independentes que falham isoladas: **Failbase** (banco SQLite local de erro→fix), **Hooks** (4 hooks Claude Code de disciplina), e **Watchdog** (vigia progressiva para sessões unattended). 100% standalone, stdlib only — OmniMemory é opcional para sincronização remota.
+Sistema de busca de erros e correções que torna sessões de agente resistentes a falso sucesso. A V2 tem três camadas independentes: **Failbase** (SQLite local de erro→fix), **Hooks** (6 registros de disciplina e ciclo de vida) e **Watchdog** (vigia sessões unattended). É 100% standalone e stdlib only; OmniMemory continua opcional.
 
 ## Instalação
 
@@ -11,7 +11,7 @@ cd tools/failproof
 ./install.sh
 ```
 
-O script registra os 4 hooks no `~/.claude/settings.json` (merge idempotente, preserva configurações existentes) e ativa o watchdog via systemd user timer (ou imprime instrução cron).
+O script cria um backup recuperável, registra os 6 hooks no `~/.claude/settings.json` (merge idempotente, preserva configurações existentes) e ativa o watchdog via systemd user timer (ou imprime instrução cron).
 
 Base de dados: `~/.claude/failbase/failbase.db`
 
@@ -19,11 +19,13 @@ Base de dados: `~/.claude/failbase/failbase.db`
 
 | Camada | Módulo | O quê | Onde |
 |--------|--------|-------|------|
-| **1. Failbase** | `failbase.py` | SQLite FTS5 + CLI (add, search, stats, export) | `~/.claude/failbase/` |
+| **1. Failbase** | `failbase.py` | SQLite FTS5 + CLI (add, search, stats, doctor, sanitize, export) | `~/.claude/failbase/` |
 | **2. Hooks** | `posttool_failure_capture.py` | PostToolUse: par falha→fix automático | `~/.claude/hooks/failproof_posttool_...` |
 | | | `userprompt_correction_detector.py` | UserPromptSubmit: correção humana registra |  |
 | | | `stop_evidence_gate.py` | Stop: bloqueia sucesso sem execução verde |  |
 | | | `sessionstart_known_failures.py` | SessionStart: injeta top-10 erros do projeto |  |
+| | | `watch_register.py` | UserPromptSubmit: registra sessão unattended |  |
+| | | `watch_cleanup.py` | Stop: remove o registro ao terminar normalmente |  |
 | **3. Watchdog** | `watchdog.py` | Vigia sessões unattended, escala strike 1→2→3 + sync OmniMemory | cron a cada 5 min ou systemd timer |
 
 ## Confiança — observado × validado
@@ -114,9 +116,22 @@ Para sessões que rodam sem intervenção humana (cron, FleetView, batch):
 ```
 
 **Strike progressiva:**
-- **Strike 1:** Detecta inatividade (>20 min) → mata PID, relança com postmortem
-- **Strike 2:** Detecta loop (mesma falha 3x) → mata, relança com postmortem + análise
-- **Strike 3:** Terceira falha → mata, grava postmortem na failbase, notifica admin, remove arquivo de watch
+- **Strike 1:** detecta inatividade ou loop atual e gera diagnóstico.
+- **Strike 2:** amplia o postmortem e recomenda mudança de estratégia.
+- **Strike 3:** grava postmortem na failbase, notifica e remove o watch.
+
+O watchdog é **observer-only por padrão**: ele não envia sinal nem relança processo. Ação destrutiva exige `FAILPROOF_ALLOW_KILL=1`, identidade de PID revalidada (start time + hash de cmdline) e comando de relaunch explícito.
+
+## Plugin Codex global
+
+A distribuição Codex vive em `~/plugins/failproof-v2` e no marketplace pessoal. Ela inclui skill implícita, hooks `SessionStart`, `PostToolUse`, `UserPromptSubmit` e `Stop`, além de banco próprio em `PLUGIN_DATA`.
+
+```bash
+codex plugin add failproof-v2@personal
+codex plugin list
+```
+
+O marketplace marca o plugin como `INSTALLED_BY_DEFAULT`. Depois da instalação, abra uma nova thread e aprove os hooks em `/hooks`; sem essa confiança explícita o Codex mantém o plugin habilitado, mas não executa seus hooks.
 
 **Postmortem:** `~/.claude/failbase/postmortems/<session_id>.txt` — relatório com:
 - Últimos erros (signatures FTS)
@@ -174,7 +189,7 @@ cd tools/failproof
 python3 -m pytest tests/ -v
 ```
 
-Cobertura: 72 testes cobrem failbase, CLI, hooks, watchdog, CI, plugins, falha-aberto invariante, instalação, modelo de confiança (observado/validado + framing), sync OmniMemory e fumaça.
+Cobertura atual: 152 testes cobrem failbase, migração, sanitização, CLI, hooks, watchdog, CI, plugins, falha-aberto, instalação, paridade da cópia ativa, confiança observado/validado, sync OmniMemory e fumaça. O plugin Codex possui uma suíte adicional própria.
 
 ## Desinstalar
 

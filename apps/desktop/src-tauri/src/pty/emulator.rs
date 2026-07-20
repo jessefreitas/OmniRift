@@ -133,12 +133,92 @@ impl EventListener for BackstopListener {
     }
 }
 
+/// Estados da maquina de estados para detectar a requisicao DSR privado (DECXCPR).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum EstadoDsr {
+    #[default]
+    Ocioso,
+    ViuEsc,
+    ViuColchete,
+    ViuInterrogacao,
+}
+
+/// Detector de requisicoes DSR privado no fluxo de bytes.
+///
+/// O VTE nao despacha `CSI ? <params> n`, entao precisamos detectar no stream
+/// para responder com DECXCPR (`ESC [ ? <linha> ; <coluna> ; 1 R`).
+#[derive(Debug, Default)]
+pub struct DetectorDsrPrivado {
+    estado: EstadoDsr,
+}
+
+impl DetectorDsrPrivado {
+    /// Escaneia um pedaco de bytes e devolve quantas requisicoes DSR privado
+    /// completas foram encontradas. A sequencia pode estar partida entre
+    /// chamadas; o estado persiste na struct.
+    pub fn scan(&mut self, bytes: &[u8]) -> usize {
+        let mut encontradas = 0usize;
+
+        for &byte in bytes {
+            match self.estado {
+                EstadoDsr::Ocioso => {
+                    if byte == 0x1B {
+                        self.estado = EstadoDsr::ViuEsc;
+                    }
+                    // Qualquer outro byte: continua ocioso.
+                }
+                EstadoDsr::ViuEsc => {
+                    if byte == b'[' {
+                        self.estado = EstadoDsr::ViuColchete;
+                    } else if byte == 0x1B {
+                        // ESC repetido reinicia o escape.
+                        self.estado = EstadoDsr::ViuEsc;
+                    } else {
+                        self.estado = EstadoDsr::Ocioso;
+                    }
+                }
+                EstadoDsr::ViuColchete => {
+                    if byte == b'?' {
+                        self.estado = EstadoDsr::ViuInterrogacao;
+                    } else if byte == 0x1B {
+                        self.estado = EstadoDsr::ViuEsc;
+                    } else {
+                        self.estado = EstadoDsr::Ocioso;
+                    }
+                }
+                EstadoDsr::ViuInterrogacao => {
+                    if byte.is_ascii_digit() || byte == b';' {
+                        // Continua coletando parametros.
+                        self.estado = EstadoDsr::ViuInterrogacao;
+                    } else if byte == b'n' {
+                        // Requisicao DSR privado completa.
+                        encontradas += 1;
+                        self.estado = EstadoDsr::Ocioso;
+                    } else if byte == 0x1B {
+                        self.estado = EstadoDsr::ViuEsc;
+                    } else {
+                        // Ex: `ESC [ ? 25 h` (DECTCEM) nao e DSR.
+                        self.estado = EstadoDsr::Ocioso;
+                    }
+                }
+            }
+        }
+
+        encontradas
+    }
+}
+
+#[cfg(test)]
+
 pub struct TermEmulator {
     term: Term<BackstopListener>,
     pending: Arc<Mutex<Vec<Vec<u8>>>>,
     /// Dimensões vistas pelo respondedor, atualizadas no `resize`.
     dims: Arc<Mutex<(u16, u16)>>,
     parser: Processor,
+    /// Detector de `CSI ? .. n` (DSR privado). O vte NAO despacha essa variante, entao
+    /// sem isto ninguem responde e a TUI headless morre esperando o DECXCPR.
+    dsr_privado: DetectorDsrPrivado,
     /// `seq` monotônico por sessão, em `Arc<AtomicU64>` pra ser COMPARTILHADO com o
     /// thread de emit do `pty://output` (em `session.rs`) — assim o evento ao vivo
     /// carrega o MESMO seq que o emulador pintou, e o front deduplica os chunks ao
@@ -171,13 +251,28 @@ impl TermEmulator {
             dims: Arc::clone(&dims),
         };
         let term = Term::new(config, &size, listener);
-        Self { term, parser: Processor::new(), seq, cols, rows, pending, dims }
+        Self { term, parser: Processor::new(), dsr_privado: DetectorDsrPrivado::default(), seq, cols, rows, pending, dims }
     }
 
     /// Alimenta bytes do PTY no grid. `seq += 1` por chamada (1 chunk pintado). O
     /// `VoidListener` garante que nenhuma resposta de query saia daqui (só o grid muda).
     pub fn feed(&mut self, bytes: &[u8]) {
         self.parser.advance(&mut self.term, bytes);
+        // DSR privado: o vte nao despacha `CSI ? .. n`, entao detectamos e sintetizamos
+        // o DECXCPR aqui. Sem view montada (eager-spawn) nao existe xterm pra responder,
+        // e a TUI fica esperando ate morrer com codigo 1 — o defeito original.
+        let pedidos = self.dsr_privado.scan(bytes);
+        if pedidos > 0 {
+            let ponto = self.term.grid().cursor.point;
+            let resposta = format!("\x1b[?{};{};1R", ponto.line.0 + 1, ponto.column.0 + 1);
+            let mut pend = self.pending.lock();
+            for _ in 0..pedidos {
+                if pend.len() >= MAX_PENDING_RESPONSES {
+                    break;
+                }
+                pend.push(resposta.clone().into_bytes());
+            }
+        }
         self.seq.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -594,8 +689,7 @@ mod tests {
     fn backend_fica_mudo_no_que_e_do_xterm() {
         // Queries que o xterm responde; o backend deve ignorar para evitar resposta dupla.
         let queries: &[(&[u8], &str)] = &[
-            (b"\x1b[?6n", "DSR privado"),
-            (b"\x1b]4;1;?\x07", "OSC 4 paleta"),
+                (b"\x1b]4;1;?\x07", "OSC 4 paleta"),
             (b"\x1b]12;?\x07", "OSC 12 cursor"),
         ];
 
@@ -612,14 +706,64 @@ mod tests {
     }
 
     #[test]
-    fn dsr_privado_nao_pode_ficar_sem_respondedor() {
-        // Documenta o motivo de nao registrar handler no front para a sequencia privada.
+    fn dsr_privado_e_respondido_pelo_backend() {
+        // O vte NAO despacha `CSI ? .. n` (ansi.rs:1701 casa so `('n', [])`), entao o
+        // backend detecta no stream e SINTETIZA o DECXCPR. Sem isto, no eager-spawn
+        // (sem xterm montado) ninguem respondia e a TUI morria esperando — era o
+        // defeito original sobrevivendo nesta sequencia.
         let mut e = TermEmulator::new(80, 24);
         e.feed(b"\x1b[?6n");
         let respostas = e.take_pending_responses();
+        assert_eq!(respostas.len(), 1, "DSR privado tem que ser respondido pelo backend");
+        let r = String::from_utf8_lossy(&respostas[0]).to_string();
         assert!(
-            respostas.is_empty(),
-            "backend nao responde a DSR privado; por isso o front NAO pode registrar handler pra {{prefix:\"?\",final:\"n\"}} — se registrasse, a sequencia ficaria sem respondedor NENHUM e a TUI travaria esperando, que e pior que o bug original"
+            r.starts_with("\u{1b}[?") && r.ends_with('R'),
+            "DECXCPR tem formato ESC [ ? linha ; coluna ; 1 R, veio: {r:?}"
         );
+    }
+
+    #[test]
+    fn detecta_dsr_privado_em_um_chunk() {
+        let mut detector = DetectorDsrPrivado::default();
+        assert_eq!(detector.scan(b"\x1b[?6n"), 1);
+    }
+
+    #[test]
+    fn detecta_dsr_privado_partido_entre_chunks() {
+        let mut detector = DetectorDsrPrivado::default();
+        let primeiro = detector.scan(b"\x1b[?");
+        assert_eq!(primeiro, 0, "o prefixo sozinho ainda nao forma uma requisicao completa");
+
+        let segundo = detector.scan(b"6n");
+        assert_eq!(
+            segundo, 1,
+            "sequencia partida entre chunks: o PTY entrega pedacos arbitrarios, \
+             entao um contains() simples falharia neste caso real; a maquina de estados \
+             persiste e detecta corretamente"
+        );
+    }
+
+    #[test]
+    fn nao_confunde_com_dectcem() {
+        let mut detector = DetectorDsrPrivado::default();
+        assert_eq!(detector.scan(b"\x1b[?25h"), 0, "mostrar cursor (DECTCEM) nao e DSR");
+    }
+
+    #[test]
+    fn conta_multiplas_no_mesmo_chunk() {
+        let mut detector = DetectorDsrPrivado::default();
+        assert_eq!(detector.scan(b"\x1b[?6n\x1b[?6n"), 2);
+    }
+
+    #[test]
+    fn texto_comum_nao_dispara() {
+        let mut detector = DetectorDsrPrivado::default();
+        assert_eq!(detector.scan(b"ola mundo\n"), 0);
+    }
+
+    #[test]
+    fn esc_repetido_nao_quebra() {
+        let mut detector = DetectorDsrPrivado::default();
+        assert_eq!(detector.scan(b"\x1b\x1b[?6n"), 1);
     }
 }

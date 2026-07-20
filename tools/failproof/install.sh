@@ -29,7 +29,9 @@ mkdir -p "$FB/plugins" && cp "$SRC"/plugins/*.py "$FB/plugins/"
 mkdir -p "$FB/tests" && cp "$SRC"/tests/*.py "$FB/tests/"
 
 # hooks com prefixo failproof_ em ~/.claude/hooks
+mkdir -p "$FB/hooks"
 for h in "$SRC"/hooks/*.py; do
+  cp "$h" "$FB/hooks/$(basename "$h")"
   cp "$h" "$CLAUDE/hooks/failproof_$(basename "$h")"
 done
 
@@ -65,7 +67,10 @@ print("settings.json: hooks failproof registrados")
 PY
 
 # watchdog: systemd user timer se disponível, senão instrução de cron
-if command -v systemctl >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; then
+# FAILPROOF_SKIP_SYSTEMD evita efeitos globais em testes com HOME temporário.
+if [ "${FAILPROOF_SKIP_SYSTEMD:-0}" = "1" ]; then
+  echo "watchdog: systemd ignorado por FAILPROOF_SKIP_SYSTEMD"
+elif command -v systemctl >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; then
   mkdir -p "$HOME/.config/systemd/user"
   cat > "$HOME/.config/systemd/user/failproof-watchdog.service" <<EOF
 [Unit]

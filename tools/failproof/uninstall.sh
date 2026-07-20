@@ -20,7 +20,7 @@ if os.path.exists(path):
         json.dump(settings, f, indent=2, ensure_ascii=False)
 PY
 
-if command -v systemctl >/dev/null 2>&1; then
+if [ "${FAILPROOF_SKIP_SYSTEMD:-0}" != "1" ] && command -v systemctl >/dev/null 2>&1; then
   systemctl --user disable --now failproof-watchdog.timer 2>/dev/null || true
   rm -f "$HOME/.config/systemd/user/failproof-watchdog".{service,timer}
   systemctl --user daemon-reload 2>/dev/null || true
