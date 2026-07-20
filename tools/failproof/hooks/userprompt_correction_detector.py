@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 """UserPromptSubmit: detecta correção humana e manda o modelo registrar na failbase."""
 import json
+import os
 import re
 import sys
+
+_HOME = os.environ.get("FAILBASE_HOME") or os.path.expanduser("~/.claude/failbase")
+if _HOME not in sys.path:
+    sys.path.insert(0, _HOME)
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO not in sys.path:
+    sys.path.insert(0, _REPO)
+import failbase
 
 _CORRECTION_RE = re.compile(
     r"((t[aá]|est[aá])\s+errad[oa])"
@@ -23,20 +32,40 @@ def is_correction(prompt):
     return bool(_CORRECTION_RE.search(prompt or ""))
 
 
-def build_instruction():
+def _last_failure_signature(session_id):
+    path = os.path.join(failbase.failbase_home(), "session_buffer",
+                        failbase.safe_session_key(session_id) + ".jsonl")
+    try:
+        with open(path) as fh:
+            entries = [json.loads(line) for line in fh if line.strip()]
+        for entry in reversed(entries):
+            if entry.get("failed"):
+                return entry.get("sig") or ""
+    except Exception:
+        pass
+    return ""
+
+
+def build_instruction(signature="", project=""):
+    identity = ""
+    if signature:
+        identity = " --signature \"{}\"".format(signature)
     return (
         "[failproof] O usuário está corrigindo você. Antes de refazer o trabalho: "
         "registre o erro na failbase com o comando "
         "`python3 ~/.claude/failbase/failbase.py add --source human-feedback --validated "
         "--symptom \"<o que você fez de errado>\" --root-cause \"<por que errou>\" "
-        "--fix \"<entendimento correto>\" --project <slug>`. "
-        "Depois aplique a correção. Não repita o padrão que causou a correção.")
+        "--fix \"<entendimento correto>\" --project \"{}\"{}`. "
+        "Depois aplique a correção. Não repita o padrão que causou a correção."
+    ).format(project or "global", identity)
 
 
 def main():
     payload = json.load(sys.stdin)
     if is_correction(payload.get("prompt", "")):
-        print(build_instruction())
+        project = os.path.basename(payload.get("cwd") or "")
+        signature = _last_failure_signature(payload.get("session_id"))
+        print(build_instruction(signature, project))
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ import re
 import sqlite3
 import sys
 
+SCHEMA_VERSION = 2
+
 
 def failbase_home():
     return os.environ.get("FAILBASE_HOME") or os.path.expanduser("~/.claude/failbase")
@@ -15,6 +17,11 @@ def failbase_home():
 
 def default_db_path():
     return os.path.join(failbase_home(), "failbase.db")
+
+
+def safe_session_key(session_id):
+    """Nome de arquivo estável sem permitir traversal via session_id."""
+    return hashlib.sha256(str(session_id or "unknown").encode()).hexdigest()[:24]
 
 
 _PATH_RE = re.compile(r"(/[\w.\-~+]+)+")
@@ -53,6 +60,15 @@ CREATE TABLE IF NOT EXISTS failures (
 CREATE INDEX IF NOT EXISTS idx_failures_signature ON failures(signature);
 CREATE VIRTUAL TABLE IF NOT EXISTS failures_fts
   USING fts5(symptom, root_cause, fix, failure_id UNINDEXED);
+CREATE TABLE IF NOT EXISTS failure_observations (
+  id            INTEGER PRIMARY KEY,
+  failure_id    INTEGER NOT NULL REFERENCES failures(id) ON DELETE CASCADE,
+  source        TEXT NOT NULL,
+  project       TEXT DEFAULT '',
+  fix_validated INTEGER DEFAULT 0,
+  observed_fix  TEXT DEFAULT '',
+  observed_at   TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -120,8 +136,47 @@ class FailBase:
         # busy_timeout: espera o lock em vez de estourar "database is locked".
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA busy_timeout=3000")
+        self.db.execute("PRAGMA foreign_keys=ON")
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self):
+        """Migra bases V1 em lugar, sem apagar conhecimento existente."""
+        cols = {r[1] for r in self.db.execute("PRAGMA table_info(failures)")}
+        additions = {
+            "validated_source": "TEXT DEFAULT ''",
+            "validated_at": "TEXT",
+            "command_family": "TEXT DEFAULT ''",
+        }
+        for name, definition in additions.items():
+            if name not in cols:
+                self.db.execute("ALTER TABLE failures ADD COLUMN {} {}".format(name, definition))
+
+        # Bases antigas não tinham unicidade. Consolida duplicatas exatas antes
+        # de criar o índice que torna add() seguro sob concorrência.
+        duplicates = self.db.execute(
+            "SELECT signature, project FROM failures GROUP BY signature, project HAVING COUNT(*)>1"
+        ).fetchall()
+        for signature, project in duplicates:
+            rows = self.db.execute(
+                "SELECT * FROM failures WHERE signature=? AND project=? "
+                "ORDER BY fix_validated DESC, last_seen_at DESC, id ASC",
+                (signature, project),
+            ).fetchall()
+            keeper = rows[0]
+            total_hits = sum(int(r["hits"] or 0) for r in rows)
+            self.db.execute("UPDATE failures SET hits=? WHERE id=?", (total_hits, keeper["id"]))
+            for duplicate in rows[1:]:
+                self.db.execute("DELETE FROM failures_fts WHERE failure_id=?", (duplicate["id"],))
+                self.db.execute("DELETE FROM failures WHERE id=?", (duplicate["id"],))
+
+        self.db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_failures_signature_project "
+            "ON failures(signature, project)"
+        )
+        self.db.execute("PRAGMA user_version={}".format(SCHEMA_VERSION))
+        self.db.commit()
 
     def add(self, symptom, fix="", root_cause="", source="session", project="",
             error_class="", fix_validated=False, signature=None, command=""):
@@ -133,33 +188,64 @@ class FailBase:
         fix = redact_secrets(fix)
         root_cause = redact_secrets(root_cause)
         symptom = (symptom or "")[:2048]
-        row = self.lookup(sig)
-        if row:
-            self.db.execute(
-                "UPDATE failures SET hits=hits+1, last_seen_at=datetime('now'), synced=0,"
-                " fix=CASE WHEN ?!='' THEN ? ELSE fix END,"
-                " root_cause=CASE WHEN ?!='' THEN ? ELSE root_cause END,"
-                " fix_validated=MAX(fix_validated, ?) WHERE id=?",
-                (fix, fix, root_cause, root_cause, int(fix_validated), row["id"]))
-            self.db.execute("DELETE FROM failures_fts WHERE failure_id=?", (row["id"],))
-            fresh = self.lookup(sig)
-            self.db.execute(
-                "INSERT INTO failures_fts (symptom, root_cause, fix, failure_id) VALUES (?,?,?,?)",
-                (fresh["symptom"], fresh["root_cause"], fresh["fix"], row["id"]))
-            self.db.commit()
-            return row["id"]
-        cur = self.db.execute(
+        project = project or ""
+        family = (command.strip().split() or [""])[0]
+        validated = int(bool(fix_validated))
+        self.db.execute(
             "INSERT INTO failures (signature, error_class, symptom, root_cause, fix,"
-            " fix_validated, source, project) VALUES (?,?,?,?,?,?,?,?)",
-            (sig, error_class, symptom, root_cause, fix, int(fix_validated), source, project))
+            " fix_validated, source, project, validated_source, validated_at, command_family) "
+            "VALUES (?,?,?,?,?,?,?,?,?,CASE WHEN ?=1 THEN datetime('now') END,?) "
+            "ON CONFLICT(signature, project) DO UPDATE SET "
+            "hits=failures.hits+1, last_seen_at=datetime('now'), synced=0, "
+            "error_class=CASE WHEN excluded.error_class!='' THEN excluded.error_class ELSE failures.error_class END, "
+            "fix=CASE "
+            "  WHEN excluded.fix_validated=1 AND excluded.fix!='' THEN excluded.fix "
+            "  WHEN failures.fix_validated=0 AND excluded.fix!='' THEN excluded.fix "
+            "  ELSE failures.fix END, "
+            "root_cause=CASE "
+            "  WHEN excluded.fix_validated=1 AND excluded.root_cause!='' THEN excluded.root_cause "
+            "  WHEN failures.fix_validated=0 AND excluded.root_cause!='' THEN excluded.root_cause "
+            "  ELSE failures.root_cause END, "
+            "fix_validated=MAX(failures.fix_validated, excluded.fix_validated), "
+            "validated_source=CASE WHEN excluded.fix_validated=1 THEN excluded.source ELSE failures.validated_source END, "
+            "validated_at=CASE WHEN excluded.fix_validated=1 THEN datetime('now') ELSE failures.validated_at END, "
+            "command_family=CASE WHEN excluded.command_family!='' THEN excluded.command_family ELSE failures.command_family END",
+            (sig, error_class, symptom, root_cause, fix, validated, source, project,
+             source if validated else "", validated, family),
+        )
+        row = self.lookup_exact(sig, project)
+        fid = row["id"]
+        self.db.execute("DELETE FROM failures_fts WHERE failure_id=?", (fid,))
         self.db.execute(
             "INSERT INTO failures_fts (symptom, root_cause, fix, failure_id) VALUES (?,?,?,?)",
-            (symptom, root_cause, fix, cur.lastrowid))
+            (row["symptom"], row["root_cause"], row["fix"], fid))
+        self.db.execute(
+            "INSERT INTO failure_observations "
+            "(failure_id, source, project, fix_validated, observed_fix) VALUES (?,?,?,?,?)",
+            (fid, source, project, validated, fix),
+        )
         self.db.commit()
-        return cur.lastrowid
+        return fid
 
-    def lookup(self, signature):
-        r = self.db.execute("SELECT * FROM failures WHERE signature=?", (signature,)).fetchone()
+    def lookup_exact(self, signature, project=""):
+        r = self.db.execute(
+            "SELECT * FROM failures WHERE signature=? AND project=?",
+            (signature, project or ""),
+        ).fetchone()
+        return dict(r) if r else None
+
+    def lookup(self, signature, project=None):
+        if project is not None:
+            r = self.db.execute(
+                "SELECT * FROM failures WHERE signature=? AND project IN (?, '') "
+                "ORDER BY CASE WHEN project=? THEN 0 ELSE 1 END, fix_validated DESC LIMIT 1",
+                (signature, project or "", project or ""),
+            ).fetchone()
+        else:
+            r = self.db.execute(
+                "SELECT * FROM failures WHERE signature=? ORDER BY fix_validated DESC, last_seen_at DESC LIMIT 1",
+                (signature,),
+            ).fetchone()
         return dict(r) if r else None
 
     def search(self, query, limit=5):
@@ -188,7 +274,66 @@ class FailBase:
             "SELECT COUNT(*) FROM failures WHERE fix_validated=1").fetchone()[0]
         by_source = dict(self.db.execute(
             "SELECT source, COUNT(*) FROM failures GROUP BY source").fetchall())
-        return {"total": total, "validated": validated, "by_source": by_source}
+        return {"schema_version": SCHEMA_VERSION, "total": total,
+                "validated": validated, "by_source": by_source}
+
+    def doctor(self):
+        integrity = self.db.execute("PRAGMA integrity_check").fetchone()[0]
+        duplicates = self.db.execute(
+            "SELECT COUNT(*) FROM (SELECT signature, project FROM failures "
+            "GROUP BY signature, project HAVING COUNT(*)>1)"
+        ).fetchone()[0]
+        secret_rows = 0
+        for row in self.db.execute("SELECT symptom, root_cause, fix FROM failures"):
+            if any(redact_secrets(value or "") != (value or "") for value in row):
+                secret_rows += 1
+        result = self.stats()
+        result.update({"integrity": integrity, "duplicates": duplicates,
+                       "secret_pattern_rows": secret_rows})
+        return result
+
+    def sanitize(self):
+        """Redige segredos legados em transação e reconstrói o índice FTS."""
+        changed_failures = 0
+        changed_observations = 0
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            rows = self.db.execute(
+                "SELECT id, symptom, root_cause, fix FROM failures").fetchall()
+            for row in rows:
+                cleaned = tuple(redact_secrets(row[name] or "")
+                                for name in ("symptom", "root_cause", "fix"))
+                original = tuple(row[name] or ""
+                                 for name in ("symptom", "root_cause", "fix"))
+                if cleaned != original:
+                    self.db.execute(
+                        "UPDATE failures SET symptom=?, root_cause=?, fix=?, synced=0 WHERE id=?",
+                        cleaned + (row["id"],),
+                    )
+                    changed_failures += 1
+
+            observations = self.db.execute(
+                "SELECT id, observed_fix FROM failure_observations").fetchall()
+            for row in observations:
+                cleaned = redact_secrets(row["observed_fix"] or "")
+                if cleaned != (row["observed_fix"] or ""):
+                    self.db.execute(
+                        "UPDATE failure_observations SET observed_fix=? WHERE id=?",
+                        (cleaned, row["id"]),
+                    )
+                    changed_observations += 1
+
+            self.db.execute("DELETE FROM failures_fts")
+            self.db.execute(
+                "INSERT INTO failures_fts (symptom, root_cause, fix, failure_id) "
+                "SELECT symptom, root_cause, fix, id FROM failures"
+            )
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return {"failures_redacted": changed_failures,
+                "observations_redacted": changed_observations}
 
 
 def main(argv=None):
@@ -204,6 +349,7 @@ def main(argv=None):
     pa.add_argument("--project", default="")
     pa.add_argument("--error-class", default="")
     pa.add_argument("--command", default="")
+    pa.add_argument("--signature", default="")
     pa.add_argument("--validated", action="store_true")
 
     ps = sub.add_parser("search")
@@ -211,6 +357,8 @@ def main(argv=None):
     ps.add_argument("--limit", type=int, default=5)
 
     sub.add_parser("stats")
+    sub.add_parser("doctor")
+    sub.add_parser("sanitize")
     sub.add_parser("export")
 
     args = p.parse_args(argv)
@@ -218,12 +366,17 @@ def main(argv=None):
     if args.cmd == "add":
         fid = fb.add(symptom=args.symptom, fix=args.fix, root_cause=args.root_cause,
                      source=args.source, project=args.project, error_class=args.error_class,
-                     command=args.command, fix_validated=args.validated)
+                     command=args.command, signature=args.signature or None,
+                     fix_validated=args.validated)
         print(json.dumps({"id": fid}))
     elif args.cmd == "search":
         print(json.dumps(fb.search(args.query, args.limit), ensure_ascii=False))
     elif args.cmd == "stats":
         print(json.dumps(fb.stats(), ensure_ascii=False))
+    elif args.cmd == "doctor":
+        print(json.dumps(fb.doctor(), ensure_ascii=False))
+    elif args.cmd == "sanitize":
+        print(json.dumps(fb.sanitize(), ensure_ascii=False))
     elif args.cmd == "export":
         for row in fb.db.execute("SELECT * FROM failures ORDER BY id"):
             print(json.dumps(dict(row), ensure_ascii=False))

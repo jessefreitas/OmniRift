@@ -17,6 +17,7 @@ _ERROR_MARKERS = re.compile(
     r"traceback \(most recent call last\)|command not found|permission denied"
     r"|fatal:|error:|failed|exit code [1-9]|panicked at|segmentation fault", re.IGNORECASE)
 _PAIR_WINDOW = 10          # quantas entradas do buffer olhar pra trás
+_PAIR_SECONDS = 15 * 60    # correlação velha não é correção do erro atual
 _OUTPUT_TAIL = 1500        # bytes do output guardados
 
 
@@ -46,14 +47,33 @@ def detect_failure(tool_response, command=""):
 def _buffer_path(session_id):
     d = os.path.join(failbase.failbase_home(), "session_buffer")
     os.makedirs(d, mode=0o700, exist_ok=True)  # buffer guarda comandos → só o dono lê
-    return os.path.join(d, "{}.jsonl".format(session_id))
+    return os.path.join(d, "{}.jsonl".format(failbase.safe_session_key(session_id)))
 
 
 def _read_buffer(path):
     if not os.path.exists(path):
         return []
+    entries = []
     with open(path) as f:
-        return [json.loads(l) for l in f if l.strip()]
+        for line in f:
+            try:
+                if line.strip():
+                    entries.append(json.loads(line))
+            except (TypeError, ValueError):
+                continue
+    return entries
+
+
+def _response_text(response):
+    if not isinstance(response, dict):
+        return str(response)
+    values = []
+    for key in ("stdout", "stderr", "output", "content"):
+        value = response.get(key)
+        if value:
+            values.append(value if isinstance(value, str)
+                          else json.dumps(value, ensure_ascii=False))
+    return "\n".join(values) or json.dumps(response, ensure_ascii=False)
 
 
 def _same_family(cmd_a, cmd_b):
@@ -69,8 +89,7 @@ def process(payload):
     response = payload.get("tool_response") or {}
     session = payload.get("session_id", "unknown")
     project = os.path.basename(payload.get("cwd") or "")
-    output = (response.get("stdout", "") if isinstance(response, dict)
-              else str(response))[-_OUTPUT_TAIL:]
+    output = _response_text(response)[-_OUTPUT_TAIL:]
     failed = detect_failure(response, command)
     sig = failbase.normalize_signature(output, command)
     buf_path = _buffer_path(session)
@@ -79,9 +98,10 @@ def process(payload):
     fb = failbase.FailBase()
 
     if failed:
-        known = fb.lookup(sig)
+        known = fb.lookup(sig, project)
+        # Toda falha entra na base, mesmo antes de existir um fix.
+        fb.add(symptom=output, signature=sig, command=command, project=project)
         if known and known["fix"]:
-            fb.add(symptom=output, signature=sig, command=command, project=project)
             hits = known["hits"] + 1
             if known["fix_validated"]:
                 # sinal forte (confirmado por humano/CI) — ainda assim peça confirmação.
@@ -97,11 +117,13 @@ def process(payload):
         for e in reversed(entries[-_PAIR_WINDOW:]):
             # comando idêntico que passou na 2ª tentativa = flaky/retry, não é "fix".
             if (e.get("failed") and not e.get("resolved")
+                    and time.time() - float(e.get("ts") or 0) <= _PAIR_SECONDS
                     and _same_family(e["command"], command)
                     and e["command"].strip() != command.strip()):
                 # correlação temporal ≠ prova. Guarda como OBSERVADO (fix_validated=False);
                 # só human-feedback/CI promovem a validado.
                 fb.add(symptom=e["output"], fix=command, command=e["command"],
+                       signature=e.get("sig") or None,
                        source="session", project=project, fix_validated=False)
                 e["resolved"] = True
                 resolved_any = True
@@ -112,8 +134,9 @@ def process(payload):
                     f.write(json.dumps(x, ensure_ascii=False) + "\n")
 
     with open(buf_path, "a") as f:
-        f.write(json.dumps({"ts": time.time(), "command": command, "sig": sig,
-                            "failed": failed, "output": output, "resolved": False},
+        f.write(json.dumps({"ts": time.time(), "command": failbase.redact_secrets(command),
+                            "sig": sig, "failed": failed,
+                            "output": failbase.redact_secrets(output), "resolved": False},
                            ensure_ascii=False) + "\n")
     return context
 

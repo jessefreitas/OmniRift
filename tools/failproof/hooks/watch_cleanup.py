@@ -3,6 +3,7 @@
 """Remove o registro de sessao do watchdog ao termino normal da sessao."""
 
 import json
+import hashlib
 import os
 import sys
 
@@ -38,7 +39,8 @@ def main():
     if not session_id:
         return
 
-    watch_file = os.path.join(_HOME, "watch", f"{session_id}.json")
+    key = hashlib.sha256(str(session_id).encode()).hexdigest()[:24]
+    watch_file = os.path.join(_HOME, "watch", f"{key}.json")
     try:
         if os.path.exists(watch_file):
             os.remove(watch_file)

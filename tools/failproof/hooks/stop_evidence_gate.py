@@ -6,8 +6,8 @@ da edicao — a evidencia precisa COBRIR a claim. Comandos de leitura/inspecao
 (ls, cat, grep, find) e validacoes fracas (py_compile, python -c) provam pouco:
 py_compile confirma SINTAXE, nao resolucao de nomes nem comportamento.
 
-Politica: blacklist de validacao insuficiente (nao whitelist). Evidencia
-desconhecida continua liberando — o gate e fail-open.
+Politica V2: evidência precisa ser uma validação reconhecida ou carregar um
+resultado verde inequívoco. Comando arbitrário bem-sucedido não prova a claim.
 """
 import json
 import re
@@ -33,7 +33,19 @@ _INSUFFICIENT_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
-_EDIT_TOOLS = {"Edit", "Write", "NotebookEdit"}
+_VALIDATION_RE = re.compile(
+    r"\b(?:pytest|phpunit|vitest|jest|playwright|ruff|eslint|tsc|mypy|cargo\s+(?:test|check|clippy)"
+    r"|go\s+test|dotnet\s+test|mvn\s+test|gradle\w*\s+test|php\s+artisan\s+test"
+    r"|(?:npm|pnpm|yarn)\s+(?:run\s+)?(?:test|build|lint|typecheck)|make\s+(?:test|check)"
+    r"|bash\s+-n)\b",
+    re.IGNORECASE,
+)
+_GREEN_EVIDENCE_RE = re.compile(
+    r"\b\d+\s+passed\b|\btests?\s+passed\b|\bbuild\s+(?:ok|succeeded|successful)\b|built\s+in\s+\d",
+    re.IGNORECASE,
+)
+
+_EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "apply_patch"}
 _READ_TOOLS = {"Read", "Glob", "Grep"}
 _TAIL_EVENTS = 200
 
@@ -42,11 +54,14 @@ def claims_success(text: str) -> bool:
     return bool(_SUCCESS_RE.search(text or ""))
 
 
-def is_insufficient(cmd: str, tool_name: str = "") -> bool:
+def is_insufficient(cmd: str, tool_name: str = "", result_text: str = "") -> bool:
     """True se a evidencia nao cobre uma claim de sucesso."""
     if tool_name in _READ_TOOLS:
         return True
-    return bool(cmd and _INSUFFICIENT_RE.search(cmd))
+    if cmd and _INSUFFICIENT_RE.search(cmd):
+        return True
+    return not (bool(_VALIDATION_RE.search(cmd or ""))
+                or bool(_GREEN_EVIDENCE_RE.search(result_text or "")))
 
 
 def parse_transcript(path: str):
@@ -83,6 +98,7 @@ def parse_transcript(path: str):
                     cmd = tool_input.get("command") or ""
                 events.append({
                     "kind": "tool_use",
+                    "id": block.get("id", ""),
                     "name": block.get("name", ""),
                     "cmd": cmd,
                     "text": "",
@@ -93,6 +109,7 @@ def parse_transcript(path: str):
                 text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
                 events.append({
                     "kind": "tool_result",
+                    "tool_use_id": block.get("tool_use_id", ""),
                     "name": "",
                     "cmd": "",
                     "text": text,
@@ -111,6 +128,11 @@ def parse_transcript(path: str):
 
 def _originating_use(tail, idx):
     """tool_use mais proximo antes de tail[idx] que produziu o resultado."""
+    result_id = tail[idx].get("tool_use_id")
+    if result_id:
+        for event in tail:
+            if event.get("kind") == "tool_use" and event.get("id") == result_id:
+                return event
     for j in range(idx - 1, -1, -1):
         if tail[j]["kind"] == "tool_use":
             return tail[j]
@@ -141,7 +163,7 @@ def should_block(events) -> bool:
             continue
 
         use = _originating_use(tail, i)
-        if use and is_insufficient(use.get("cmd", ""), use.get("name", "")):
+        if is_insufficient((use or {}).get("cmd", ""), (use or {}).get("name", ""), e["text"]):
             continue
 
         return False

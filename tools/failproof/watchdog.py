@@ -6,7 +6,9 @@ Rodar a cada 5 min via systemd user timer ou cron:
 Sessões se registram criando $FAILBASE_HOME/watch/<session_id>.json.
 """
 import json
+import hashlib
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -40,13 +42,31 @@ def _stale_min():
 
 STALE_MIN_DEFAULT = _stale_min()
 LOOP_REPEATS = 3
+_EXPLICIT_RED = re.compile(
+    r"\bexit[_\s]?code\s*[:=]\s*[1-9]\d*\b|(?:^|\n)\s*(?:error|fatal|failed)\b|traceback",
+    re.IGNORECASE,
+)
+_EXPLICIT_GREEN = re.compile(r"\bexit[_\s]?code\s*[:=]\s*0\b", re.IGNORECASE)
 
 
 def detect_stale(mtime, now, threshold_min=STALE_MIN_DEFAULT):
     return (now - mtime) > threshold_min * 60
 
 
-def _tail_error_sigs(transcript_path, limit=30):
+def _result_status(block):
+    """Retorna failure/success/unknown sem inferir falha de texto arbitrário."""
+    if block.get("is_error") is True:
+        return "failure"
+    raw = block.get("content", "")
+    text = raw if isinstance(raw, str) else json.dumps(raw)
+    if _EXPLICIT_RED.search(text):
+        return "failure"
+    if _EXPLICIT_GREEN.search(text):
+        return "success"
+    return "unknown"
+
+
+def _tail_error_sigs(transcript_path, limit=30, consecutive=False):
     sigs = []
     try:
         with open(transcript_path) as f:
@@ -62,13 +82,17 @@ def _tail_error_sigs(transcript_path, limit=30):
             if isinstance(block, dict) and block.get("type") == "tool_result":
                 raw = block.get("content", "")
                 text = raw if isinstance(raw, str) else json.dumps(raw)
-                if "error" in text.lower() or "failed" in text.lower():
+                status = _result_status(block)
+                if status == "success" and consecutive:
+                    sigs = []
+                elif status == "failure":
                     sigs.append(failbase.normalize_signature(text))
     return sigs[-limit:]
 
 
 def detect_loop_from_transcript(transcript_path):
-    sigs = _tail_error_sigs(transcript_path)
+    # Só falhas consecutivas desde o último sucesso explícito contam como loop.
+    sigs = _tail_error_sigs(transcript_path, consecutive=True)
     return len(sigs) >= LOOP_REPEATS and len(set(sigs[-LOOP_REPEATS:])) == 1
 
 
@@ -116,11 +140,29 @@ class Executor:
                 notify_fn = lambda msg: None
         self.notify_fn = notify_fn
 
-    def kill(self, pid):
+    @staticmethod
+    def _identity_matches(pid, identity):
+        try:
+            with open("/proc/{}/stat".format(pid), encoding="utf-8") as fh:
+                start_time = fh.read().split()[21]
+            with open("/proc/{}/cmdline".format(pid), "rb") as fh:
+                digest = hashlib.sha256(fh.read()).hexdigest()
+            return (str(identity.get("pid_start_time", "")) == start_time
+                    and identity.get("pid_cmdline_sha256") == digest)
+        except Exception:
+            return False
+
+    def kill(self, pid, identity=None):
         # pid <= 0 tem semântica especial no os.kill (0 = process group do caller —
         # SIGTERMaria o próprio watchdog; -1 = todos). Registro sem pid → não mata nada.
         if not isinstance(pid, int) or pid <= 0:
             self.actions.append(("kill_skipped", pid))
+            return
+        if not self.dry_run and os.environ.get("FAILPROOF_ALLOW_KILL") != "1":
+            self.actions.append(("kill_skipped_policy", pid))
+            return
+        if not self.dry_run and not self._identity_matches(pid, identity or {}):
+            self.actions.append(("kill_skipped_identity", pid))
             return
         self.actions.append(("kill", pid))
         if not self.dry_run:
@@ -163,15 +205,25 @@ def handle(entry, strike, executor):
     pm_path = os.path.join(pm_dir, "{}.txt".format(sid))
     with open(pm_path, "w") as f:
         f.write(pm)
+    os.chmod(pm_path, 0o600)
+    identity = {
+        "pid_start_time": entry.get("pid_start_time"),
+        "pid_cmdline_sha256": entry.get("pid_cmdline_sha256"),
+    }
     if strike in (1, 2):
-        executor.kill(entry.get("pid") or 0)
-        executor.relaunch(entry.get("relaunch_cmd", ""), pm_path)
+        # Sem relaunch explícito, matar piora a situação. Default V2 é observar.
+        if entry.get("relaunch_cmd"):
+            executor.kill(entry.get("pid") or 0, identity)
+            executor.relaunch(entry["relaunch_cmd"], pm_path)
+        else:
+            executor.actions.append(("observe_only", sid))
     else:
-        executor.kill(entry.get("pid") or 0)
+        executor.kill(entry.get("pid") or 0, identity)
         executor.failbase_add(pm, sid)
         executor.notify("[failproof] sessão {} parada após 3 strikes. Postmortem: {}"
                         .format(sid, pm_path))
-        watch_file = os.path.join(failbase.failbase_home(), "watch", "{}.json".format(sid))
+        watch_file = os.path.join(failbase.failbase_home(), "watch",
+                                  "{}.json".format(failbase.safe_session_key(sid)))
         if os.path.exists(watch_file):
             os.remove(watch_file)
 

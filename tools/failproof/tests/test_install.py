@@ -23,6 +23,10 @@ def test_install_cria_estrutura_e_registra_hooks(tmp_path):
                for h in settings["hooks"]["Stop"])
     assert any("failproof_posttool_failure_capture" in json.dumps(h)
                for h in settings["hooks"]["PostToolUse"])
+    assert any("failproof_watch_register" in json.dumps(h)
+               for h in settings["hooks"]["UserPromptSubmit"])
+    assert any("failproof_watch_cleanup" in json.dumps(h)
+               for h in settings["hooks"]["Stop"])
 
 
 def test_install_preserva_settings_existentes(tmp_path):
