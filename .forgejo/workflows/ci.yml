@@ -110,6 +110,12 @@ jobs:
           find . -name '*.tsbuildinfo' -delete 2>/dev/null || true
           npx tsc -b --force
 
+      # Gate do consumidor: garante que OSC 10/11 mistos deixam o builtin do xterm
+      # aplicar os SETs e barram somente as respostas de QUERY já cobertas pelo backend.
+      - name: terminal query authority (frontend)
+        working-directory: apps/desktop
+        run: npm run test:terminal-query-authority
+
       # Tipos NOSSOS devem ser .ts, não .d.ts: com skipLibCheck o TS alarga nomes
       # não-resolvidos em .d.ts pra `any` silenciosamente (ref P2 #13). Exceções são
       # shims AMBIENT de pacote externo (idioma correto = .d.ts), na allowlist abaixo:

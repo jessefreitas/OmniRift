@@ -12,8 +12,8 @@
 //!   xterm — a query se perdia e a TUI morria com código 1 esperando o CPR. Tentar
 //!   alternar a autoridade por flag (`view_attached`) tem corrida irredutível: os
 //!   bytes chegam aqui na hora e no xterm ~16ms depois (debounce), então quando o
-//!   xterm vê a query o backend já respondeu. Agora o xterm CONSOME as queries sem
-//!   responder (`registerCsiHandler`) e a autoridade é só daqui — sem janela.
+//!   xterm vê a query o backend já respondeu. Agora o front bloqueia suas respostas
+//!   locais (CSI no parser; OSC 10/11 no `onData`) e a autoridade é só daqui — sem janela.
 //! - **Scrollback bounded 10_000** (`Config::scrolling_history`) → MBs, não GBs.
 //! - **`seq: u64` monotônico** por sessão, incrementa a cada `feed` — chave do dedup do
 //!   front (descarta chunks ao vivo com `seq <= snapshot.seq`, mata o scrollback dobrado).
@@ -43,6 +43,34 @@ pub const SCROLLBACK_LIMIT: usize = 10_000;
 /// Cap de segurança do snapshot serializado (bytes). Evita IPC gigante mesmo com
 /// linhas largas/coloridas. ~4 MB cobre 10k linhas com SGR folgado.
 pub const SNAPSHOT_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+/// Tema inicial compartilhado com `useTerminalSession`. Estes valores também são o
+/// fallback depois de OSC 110/111 (reset da cor dinâmica).
+const DEFAULT_FOREGROUND: Rgb = Rgb {
+    r: 0xed,
+    g: 0xee,
+    b: 0xf0,
+};
+const DEFAULT_BACKGROUND: Rgb = Rgb {
+    r: 0x0a,
+    g: 0x10,
+    b: 0x14,
+};
+
+#[derive(Debug, Clone, Copy)]
+struct DynamicColors {
+    foreground: Rgb,
+    background: Rgb,
+}
+
+impl Default for DynamicColors {
+    fn default() -> Self {
+        Self {
+            foreground: DEFAULT_FOREGROUND,
+            background: DEFAULT_BACKGROUND,
+        }
+    }
+}
 
 /// Snapshot serializado do grid+scrollback, cruzando o IPC pro front re-hidratar.
 /// `data` = ANSI re-hidratado (SGR por célula + reentra alt-screen se ativo).
@@ -82,13 +110,16 @@ impl Dimensions for EmuSize {
 /// um sob `Mutex` pra leitura concorrente do `snapshot`.
 /// Respondedor de queries da sessão (DSR/DA/OSC). Acumula as respostas que o `Term`
 /// computa; o `read_loop` drena e escreve na stdin do PTY logo após cada `feed`.
-/// É o ÚNICO respondedor — o xterm do front consome as queries sem responder.
+/// É o ÚNICO respondedor — o front barra as respostas locais antes de chegarem ao PTY.
 #[derive(Clone)]
 pub struct BackstopListener {
     pending: Arc<Mutex<Vec<Vec<u8>>>>,
     /// Compartilhado com o TermEmulator: o `resize` atualiza aqui, senão responderia
     /// TextAreaSizeRequest com o tamanho de quando a sessão nasceu.
     dims: Arc<Mutex<(u16, u16)>>,
+    /// Estado dinâmico de OSC 10/11. O listener não enxerga diretamente o `Term`,
+    /// portanto o emulador sincroniza este espelho depois de cada OSC completo.
+    dynamic_colors: Arc<Mutex<DynamicColors>>,
 }
 
 /// Teto do buffer de respostas: se ninguém drenar (sessão morta), não crescemos sem
@@ -99,19 +130,18 @@ impl EventListener for BackstopListener {
     fn send_event(&self, event: Event) {
         let resposta = match event {
             Event::PtyWrite(s) => s,
-            // Cor REAL do tema da view (useTerminalSession: bg #0a1014, fg #edeef0):
-            // responder preto pra tudo fazia a TUI calcular contraste em cima de uma
-            // cor que não é a da tela.
+            // SÓ foreground (OSC 10) e background (OSC 11). A resposta precisa refletir
+            // SET/RESET anteriores, não apenas o tema de nascimento da view.
             //
-            // SÓ foreground (OSC 10) e background (OSC 11). Paleta (OSC 4) e cursor
-            // (OSC 12) também chegam como ColorRequest, mas quem responde essas é o
-            // xterm — ele conhece a paleta real, e o front só consome 10/11. Responder
-            // tudo aqui dava resposta DUPLA e errada nessas duas.
+            // OSC 4/12 ficam deliberadamente sem backstop: com view, o xterm responde;
+            // no eager-spawn não há respondedor. Isso é risco aceito e explícito, não
+            // resolvido. Responder aqui sem uma paleta/cursor autoritativos seria errado.
             Event::ColorRequest(idx, f) => {
+                let colors = *self.dynamic_colors.lock();
                 if idx == NamedColor::Foreground as usize {
-                    f(Rgb { r: 0xed, g: 0xee, b: 0xf0 })
+                    f(colors.foreground)
                 } else if idx == NamedColor::Background as usize {
-                    f(Rgb { r: 0x0a, g: 0x10, b: 0x14 })
+                    f(colors.background)
                 } else {
                     return;
                 }
@@ -208,14 +238,77 @@ impl DetectorDsrPrivado {
     }
 }
 
-#[cfg(test)]
+/// Estado mínimo para achar o fim de OSC sem reimplementar o parser VT. Usamos as
+/// fronteiras para sincronizar as cores depois de cada OSC completo; isso preserva a
+/// ordem quando um mesmo chunk contém `SET`, depois `QUERY`.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum EstadoOsc {
+    #[default]
+    Fora,
+    ViuEscFora,
+    Dentro,
+    ViuEscDentro,
+}
+
+#[derive(Debug, Default)]
+struct DetectorFimOsc {
+    estado: EstadoOsc,
+}
+
+impl DetectorFimOsc {
+    /// Devolve offsets EXCLUSIVOS das terminações de OSC encontradas neste chunk.
+    /// O estado persiste para sequências partidas entre reads do PTY.
+    fn boundaries(&mut self, bytes: &[u8]) -> Vec<usize> {
+        let mut ends = Vec::new();
+
+        for (index, &byte) in bytes.iter().enumerate() {
+            self.estado = match self.estado {
+                EstadoOsc::Fora => match byte {
+                    0x1b => EstadoOsc::ViuEscFora,
+                    0x9d => EstadoOsc::Dentro, // C1 OSC
+                    _ => EstadoOsc::Fora,
+                },
+                EstadoOsc::ViuEscFora => match byte {
+                    b']' => EstadoOsc::Dentro,
+                    0x1b => EstadoOsc::ViuEscFora,
+                    0x9d => EstadoOsc::Dentro,
+                    _ => EstadoOsc::Fora,
+                },
+                EstadoOsc::Dentro => match byte {
+                    0x07 | 0x9c => {
+                        ends.push(index + 1); // BEL ou C1 ST
+                        EstadoOsc::Fora
+                    }
+                    0x1b => EstadoOsc::ViuEscDentro,
+                    _ => EstadoOsc::Dentro,
+                },
+                EstadoOsc::ViuEscDentro => match byte {
+                    b'\\' => {
+                        ends.push(index + 1); // ESC \\ (ST)
+                        EstadoOsc::Fora
+                    }
+                    0x07 | 0x9c => {
+                        ends.push(index + 1);
+                        EstadoOsc::Fora
+                    }
+                    0x1b => EstadoOsc::ViuEscDentro,
+                    _ => EstadoOsc::Dentro,
+                },
+            };
+        }
+
+        ends
+    }
+}
 
 pub struct TermEmulator {
     term: Term<BackstopListener>,
     pending: Arc<Mutex<Vec<Vec<u8>>>>,
     /// Dimensões vistas pelo respondedor, atualizadas no `resize`.
     dims: Arc<Mutex<(u16, u16)>>,
+    dynamic_colors: Arc<Mutex<DynamicColors>>,
     parser: Processor,
+    osc_boundaries: DetectorFimOsc,
     /// Detector de `CSI ? .. n` (DSR privado). O vte NAO despacha essa variante, entao
     /// sem isto ninguem responde e a TUI headless morre esperando o DECXCPR.
     dsr_privado: DetectorDsrPrivado,
@@ -246,18 +339,44 @@ impl TermEmulator {
         let size = EmuSize { cols: cols as usize, rows: rows as usize };
         let pending = Arc::new(Mutex::new(Vec::new()));
         let dims = Arc::new(Mutex::new((cols, rows)));
+        let dynamic_colors = Arc::new(Mutex::new(DynamicColors::default()));
         let listener = BackstopListener {
             pending: Arc::clone(&pending),
             dims: Arc::clone(&dims),
+            dynamic_colors: Arc::clone(&dynamic_colors),
         };
         let term = Term::new(config, &size, listener);
-        Self { term, parser: Processor::new(), dsr_privado: DetectorDsrPrivado::default(), seq, cols, rows, pending, dims }
+        Self {
+            term,
+            parser: Processor::new(),
+            osc_boundaries: DetectorFimOsc::default(),
+            dsr_privado: DetectorDsrPrivado::default(),
+            seq,
+            cols,
+            rows,
+            pending,
+            dims,
+            dynamic_colors,
+        }
     }
 
     /// Alimenta bytes do PTY no grid. `seq += 1` por chamada (1 chunk pintado). O
-    /// `VoidListener` garante que nenhuma resposta de query saia daqui (só o grid muda).
+    /// backstop acumula respostas de query para o read-loop devolver ao PTY.
     pub fn feed(&mut self, bytes: &[u8]) {
-        self.parser.advance(&mut self.term, bytes);
+        // Um read pode trazer `OSC 10;cor`, depois `OSC 10;?`. Se entregássemos tudo
+        // ao parser de uma vez e sincronizássemos só no fim, a query responderia a cor
+        // velha. Cortamos apenas nas terminações OSC: não alimentamos o parser byte a
+        // byte no fluxo normal.
+        let boundaries = self.osc_boundaries.boundaries(bytes);
+        let mut start = 0usize;
+        for end in boundaries {
+            self.parser.advance(&mut self.term, &bytes[start..end]);
+            self.sync_dynamic_colors();
+            start = end;
+        }
+        if start < bytes.len() {
+            self.parser.advance(&mut self.term, &bytes[start..]);
+        }
         // DSR privado: o vte nao despacha `CSI ? .. n`, entao detectamos e sintetizamos
         // o DECXCPR aqui. Sem view montada (eager-spawn) nao existe xterm pra responder,
         // e a TUI fica esperando ate morrer com codigo 1 — o defeito original.
@@ -274,6 +393,13 @@ impl TermEmulator {
             }
         }
         self.seq.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn sync_dynamic_colors(&self) {
+        let colors = self.term.colors();
+        let mut dynamic = self.dynamic_colors.lock();
+        dynamic.foreground = colors[NamedColor::Foreground].unwrap_or(DEFAULT_FOREGROUND);
+        dynamic.background = colors[NamedColor::Background].unwrap_or(DEFAULT_BACKGROUND);
     }
 
     /// Drena as respostas de query acumuladas pelo backstop. O read-loop chama isto
@@ -505,6 +631,16 @@ fn encode_named(base: u8, fg: bool) -> String {
 mod tests {
     use super::*;
 
+    fn single_response(emu: &TermEmulator) -> String {
+        let responses = emu.take_pending_responses();
+        assert_eq!(
+            responses.len(),
+            1,
+            "esperava exatamente uma resposta: {responses:?}"
+        );
+        String::from_utf8(responses.into_iter().next().unwrap()).unwrap()
+    }
+
     /// Acha a célula `(line, col)` no grid re-parseado, pra checar cor/estilo round-trip.
     fn cell_at(emu: &TermEmulator, line: i32, col: usize) -> Cell {
         emu.term.grid()[Point::new(Line(line), Column(col))].clone()
@@ -686,10 +822,115 @@ mod tests {
     }
 
     #[test]
-    fn backend_fica_mudo_no_que_e_do_xterm() {
-        // Queries que o xterm responde; o backend deve ignorar para evitar resposta dupla.
+    fn osc_10_e_11_respondem_a_cor_dinamica_e_reset_restabelece_o_tema() {
+        let mut e = TermEmulator::new(80, 24);
+
+        e.feed(b"\x1b]10;#123456\x07");
+        assert!(
+            e.take_pending_responses().is_empty(),
+            "SET nao gera resposta"
+        );
+        e.feed(b"\x1b]10;?\x07");
+        assert!(
+            single_response(&e).contains("10;rgb:1212/3434/5656"),
+            "OSC 10 deve refletir o foreground alterado",
+        );
+
+        e.feed(b"\x1b]11;#abcdef\x07");
+        assert!(
+            e.take_pending_responses().is_empty(),
+            "SET nao gera resposta"
+        );
+        e.feed(b"\x1b]11;?\x07");
+        assert!(
+            single_response(&e).contains("11;rgb:abab/cdcd/efef"),
+            "OSC 11 deve refletir o background alterado",
+        );
+
+        e.feed(b"\x1b]110\x07\x1b]111\x07");
+        e.feed(b"\x1b]10;?\x07\x1b]11;?\x07");
+        let responses = e.take_pending_responses();
+        assert_eq!(responses.len(), 2);
+        let fg = String::from_utf8_lossy(&responses[0]);
+        let bg = String::from_utf8_lossy(&responses[1]);
+        assert!(
+            fg.contains("10;rgb:eded/eeee/f0f0"),
+            "reset OSC 110: {fg:?}"
+        );
+        assert!(
+            bg.contains("11;rgb:0a0a/1010/1414"),
+            "reset OSC 111: {bg:?}"
+        );
+    }
+
+    #[test]
+    fn osc_set_e_query_no_mesmo_read_preservam_a_ordem() {
+        let mut e = TermEmulator::new(80, 24);
+
+        // Sem as fronteiras OSC, o listener responderia a cor inicial porque o espelho
+        // so seria sincronizado depois do chunk inteiro.
+        e.feed(b"\x1b]10;#123456\x07\x1b]10;?\x07");
+        assert!(
+            single_response(&e).contains("10;rgb:1212/3434/5656"),
+            "a query posterior ao SET deve enxergar o novo foreground",
+        );
+
+        // A ordem inversa deve consultar o estado antigo e so entao aplicar o SET.
+        e.feed(b"\x1b]11;?\x07\x1b]11;#abcdef\x07");
+        assert!(
+            single_response(&e).contains("11;rgb:0a0a/1010/1414"),
+            "a query anterior ao SET deve enxergar o background antigo",
+        );
+        e.feed(b"\x1b]11;?\x07");
+        assert!(single_response(&e).contains("11;rgb:abab/cdcd/efef"));
+    }
+
+    #[test]
+    fn osc_partido_entre_reads_sincroniza_so_apos_o_terminador() {
+        let mut e = TermEmulator::new(80, 24);
+
+        // O read do PTY pode cortar inclusive o ST (ESC \\) ao meio.
+        e.feed(b"\x1b]10;#12");
+        e.feed(b"3456\x1b");
+        e.feed(b"\\");
+        e.feed(b"\x1b]10;?\x1b\\");
+
+        assert!(
+            single_response(&e).contains("10;rgb:1212/3434/5656"),
+            "a máquina de estados deve sobreviver a qualquer fronteira de read",
+        );
+    }
+
+    #[test]
+    fn osc_empilhado_interpreta_cada_parametro_por_posicao() {
+        let mut e = TermEmulator::new(80, 24);
+
+        // OSC 10 empilha: parametro 0=foreground, 1=background.
+        e.feed(b"\x1b]10;#123456;?\x07");
+        assert!(
+            single_response(&e).contains("11;rgb:0a0a/1010/1414"),
+            "10;#cor;? consulta background, nao foreground",
+        );
+        e.feed(b"\x1b]10;?\x07");
+        assert!(single_response(&e).contains("10;rgb:1212/3434/5656"));
+
+        let mut e = TermEmulator::new(80, 24);
+        e.feed(b"\x1b]10;?;#abcdef\x07");
+        assert!(
+            single_response(&e).contains("10;rgb:eded/eeee/f0f0"),
+            "10;?;#cor consulta foreground e ainda aplica o SET do background",
+        );
+        e.feed(b"\x1b]11;?\x07");
+        assert!(single_response(&e).contains("11;rgb:abab/cdcd/efef"));
+    }
+
+    #[test]
+    fn osc_4_e_12_seguem_com_risco_aceito_no_eager_spawn() {
+        // Com view montada o xterm responde. No eager-spawn nao existe xterm, portanto
+        // estas queries ficam sem respondedor: risco aceito e EXPLICITO, nao resolvido.
+        // O backend ignora porque nao possui paleta/cursor autoritativos para responder.
         let queries: &[(&[u8], &str)] = &[
-                (b"\x1b]4;1;?\x07", "OSC 4 paleta"),
+            (b"\x1b]4;1;?\x07", "OSC 4 paleta"),
             (b"\x1b]12;?\x07", "OSC 12 cursor"),
         ];
 
@@ -699,7 +940,7 @@ mod tests {
             let respostas = e.take_pending_responses();
             assert!(
                 respostas.is_empty(),
-                "o backend NAO deve responder a '{}' (o xterm ja responde; responder aqui daria resposta dupla). No DSR privado o vte nem despacha a sequencia.",
+                "o backend NAO deve responder a '{}' (risco aceito no eager-spawn)",
                 nome
             );
         }

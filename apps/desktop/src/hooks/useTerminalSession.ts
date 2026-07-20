@@ -32,6 +32,7 @@ import {
   TERMINAL_VIEW_SCROLLBACK_ROWS,
 } from "@/lib/pty-client";
 import { registerTerminalView, unregisterTerminalView } from "@/lib/terminal-sessions";
+import { installTerminalQueryAuthority } from "@/lib/terminal-query-authority";
 import { useCanvasStore } from "@/store/canvas-store";
 import { sessionStart, sessionEvent, sessionEnd } from "@/lib/session-client";
 import { scheduleReindex } from "@/lib/omnifs-client";
@@ -248,11 +249,15 @@ export function useTerminalSession({
     for (const id of queries) {
       term.parser.registerCsiHandler(id, () => true);
     }
-    // OSC 10/11 = foreground/background. Só a QUERY (`?`) é consumida: engolir tudo
-    // mataria também o SET de cor, e o app perderia como mudar o tema do terminal.
-    for (const osc of [10, 11]) {
-      term.parser.registerOscHandler(osc, (data) => data.trim().startsWith("?"));
-    }
+    // OSC 10/11 empilham parâmetros por POSIÇÃO (10=#fg, 11=#bg, 12=#cursor).
+    // O handler retorna false para o xterm processar a sequência inteira: assim SETs
+    // misturados continuam atualizando a view. Antes do builtin rodar, marcamos somente
+    // as respostas automáticas de QUERY 10/11; o router de onData abaixo as descarta,
+    // pois o backend já respondeu. Não há decisão all-or-nothing pelo payload inteiro.
+    // Instala cedo: output pode chegar entre o attach/spawn e o fim do setup async.
+    // Sem este router, a resposta do xterm escaparia nessa janela ou deixaria uma
+    // marca pendente capaz de afetar input posterior.
+    const queryAuthority = installTerminalQueryAuthority(term);
 
     term.open(containerRef.current);
     // Renderer GPU (WebGL2): ordens de grandeza mais leve que o DOM renderer default
@@ -324,7 +329,6 @@ export function useTerminalSession({
     };
     let disposed = false;
     disposedRef.current = false; // reset no (re)mount [GLM-audit #3]
-    let dataDisposable: { dispose: () => void } | null = null;
     let disposeImeGuard: (() => void) | null = null;
 
     // --- Pipeline assíncrono: fit → spawn → listeners → stdin -----------
@@ -548,7 +552,7 @@ export function useTerminalSession({
         let keySeq = 0;
         let lastEmit: { data: string; seq: number } | null = null;
 
-        dataDisposable = term.onData((data) => {
+        queryAuthority.setForwarder((data) => {
           if (lastEmit && lastEmit.data === data && lastEmit.seq === keySeq) {
             lastEmit = null; // 2ª emissão da MESMA tecla (duplicata IBus) → dropa
             return;
@@ -654,7 +658,7 @@ export function useTerminalSession({
       pendingDuringSnapshotRef.current = [];
       pendingDuringSnapshotCharsRef.current = 0;
       disposeImeGuard?.();
-      dataDisposable?.dispose();
+      queryAuthority.dispose();
       unlistenOutput?.();
       unlistenStatus?.();
       unlistenExit?.();
