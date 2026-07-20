@@ -1,10 +1,11 @@
 use crate::pty::host::{self, ExecutionHost};
+use crate::pty::emulator::TermEmulator;
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -151,15 +152,17 @@ pub struct PtySession {
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     output_tx: broadcast::Sender<Vec<u8>>,
+    /// Emulador VT da sessão. Criado ANTES da thread de leitura e alimentado DENTRO
+    /// dela — sem broadcast no caminho, nenhum byte inicial pode se perder. O manager
+    /// lê o snapshot daqui.
+    emulator: Arc<Mutex<TermEmulator>>,
     root_pid: Option<u32>,
     /// Emulador de tela: reconstrói a tela visível processando cursor/clears/etc.
     /// (line-mode não funciona para TUIs full-screen como Claude Code).
     parser: Arc<Mutex<vt100::Parser>>,
-    /// Seq monotônico do emulador VT headless (ref P0 #2). COMPARTILHADO com o
-    /// `TermEmulator` (via `new_with_seq` no manager): o feeder do emulador o
-    /// incrementa por chunk pintado; o thread de emit do `pty://output` lê o valor
-    /// atual pra estampar cada evento ao vivo. Assim `pty://output.seq` e
-    /// `snapshot.seq` falam a MESMA escala → o front deduplica corretamente.
+    /// Seq monotônico do grid, compartilhado com o `TermEmulator` e com o thread de
+    /// emit do `pty://output` — as duas escalas batem e o front deduplica correto.
+    #[allow(dead_code)]
     seq: Arc<AtomicU64>,
     /// Killer do processo filho (portable-pty): clonado ANTES do `child` ser movido
     /// pra thread waiter. É o que permite o `kill()` matar o filho DE VERDADE — sem
@@ -236,11 +239,17 @@ impl PtySession {
             .context("falha ao tomar writer do master")?;
         let writer = Arc::new(Mutex::new(writer));
 
+        // Capacidade 64 (~256 KB com chunks de 4 KB). Mantida de propósito: desde que o
+        // emulador passou a ser alimentado DENTRO do read_loop, o snapshot não depende
+        // mais deste canal — sobraram o StateDetector (só carimba timestamp, nunca
+        // atrasa) e os pipes (podem travar se o destino for lento). Os dois tratam
+        // `Lagged` de forma visível e se recuperam, então aumentar isto sem um caso
+        // medido só empurraria memória pra frente sem corrigir nada.
         let (output_tx, _) = broadcast::channel::<Vec<u8>>(64);
         let tx_for_reader = output_tx.clone();
 
         // Canal std (não precisa de runtime tokio): debounce de 16ms antes de emitir evento Tauri
-        let (emit_tx, emit_rx) = mpsc::channel::<Vec<u8>>();
+        let (emit_tx, emit_rx) = mpsc::channel::<(Vec<u8>, u64)>();
 
         // Seq compartilhado com o emulador VT (ref P0 #2). O emulador (no manager) é
         // criado via `new_with_seq` com ESTE Arc; o feeder dele o incrementa por chunk
@@ -250,18 +259,27 @@ impl PtySession {
         // estamos emitindo → o snapshot tirado nesse instante já contém esses bytes,
         // então o front pode descartar com segurança os live com `seq <= snapshot.seq`.
         let seq = Arc::new(AtomicU64::new(0));
-        let seq_for_emit = Arc::clone(&seq);
+        // ANTES da thread de leitura: o emulador precisa ver o PRIMEIRO byte. A TUI
+        // manda `CSI 6 n` em milissegundos; criar depois perdia a query.
+        let emulator = Arc::new(Mutex::new(TermEmulator::new_with_seq(
+            cfg.cols, cfg.rows, Arc::clone(&seq),
+        )));
 
         let id_for_emit = id.clone();
         let app_for_emit = app.clone();
         std::thread::spawn(move || {
             const DEBOUNCE: Duration = Duration::from_millis(16);
             let mut pending: Vec<u8> = Vec::new();
+            // Seqs dos chunks que entraram neste frame — o frame leva o do ÚLTIMO.
+            let mut marcos: Vec<u64> = Vec::new();
+            // Último seq já emitido: fallback quando nenhum chunk coube inteiro no corte.
+            let mut ultimo_seq: u64 = 0;
             loop {
                 // Bloqueia até chegar o primeiro chunk do frame
                 match emit_rx.recv() {
-                    Ok(bytes) => {
+                    Ok((bytes, seq_chunk)) => {
                         pending.extend_from_slice(&bytes);
+                        marcos.push(seq_chunk);
                     }
                     Err(_) => {
                         // Canal fechado — emite o que sobrou e encerra
@@ -272,7 +290,7 @@ impl PtySession {
                                 PtyOutputEvent {
                                     session_id: id_for_emit.clone(),
                                     data: text,
-                                    seq: seq_for_emit.load(Ordering::SeqCst),
+                                    seq: seq_do_frame(&marcos, ultimo_seq),
                                 },
                             );
                         }
@@ -287,8 +305,9 @@ impl PtySession {
                         break;
                     }
                     match emit_rx.recv_timeout(remaining) {
-                        Ok(more) => {
+                        Ok((more, seq_chunk)) => {
                             pending.extend_from_slice(&more);
+                            marcos.push(seq_chunk);
                         }
                         Err(_) => break,
                     }
@@ -309,16 +328,28 @@ impl PtySession {
                     pending.len()
                 };
                 if cut > 0 {
+                    // O seq TEM que ser o do último chunk cujos bytes saíram INTEIROS
+                    // neste frame. Antes lia-se o contador global no instante do emit —
+                    // que já podia ter avançado por chunks ainda não emitidos, fazendo o
+                    // frame carregar um seq do futuro. O front descarta ao vivo tudo com
+                    // `seq <= snapshot.seq`, então um seq inflado derrubava frame legítimo
+                    // (tela incompleta/vazia). Cauda UTF-8 partida = chunk incompleto:
+                    // fica de fora da conta e leva o seq do anterior.
+                    let seq_frame = seq_do_frame(&marcos, ultimo_seq);
+                    ultimo_seq = seq_frame;
                     let text = String::from_utf8_lossy(&pending[..cut]).to_string();
                     let _ = app_for_emit.emit(
                         "pty://output",
                         PtyOutputEvent {
                             session_id: id_for_emit.clone(),
                             data: text,
-                            seq: seq_for_emit.load(Ordering::SeqCst),
+                            seq: seq_frame,
                         },
                     );
                     pending.drain(..cut); // mantém a cauda incompleta pro próximo frame
+                    // Frame fechado: o próximo começa a contar do zero (e sempre trará
+                    // ao menos um chunk novo, o que garante o seq estritamente maior).
+                    marcos.clear();
                 }
             }
         });
@@ -326,6 +357,8 @@ impl PtySession {
         let parser = Arc::new(Mutex::new(vt100::Parser::new(cfg.rows, cfg.cols, 0)));
         let parser_for_reader = Arc::clone(&parser);
         let id_for_reader = id.clone();
+        let emulator_for_reader = Arc::clone(&emulator);
+        let writer_for_reader = Arc::clone(&writer);
         std::thread::spawn(move || {
             read_loop(
                 id_for_reader,
@@ -333,6 +366,8 @@ impl PtySession {
                 tx_for_reader,
                 emit_tx,
                 parser_for_reader,
+                emulator_for_reader,
+                writer_for_reader,
             );
         });
 
@@ -422,12 +457,18 @@ impl PtySession {
             master,
             writer,
             output_tx,
+            emulator,
             root_pid,
             parser,
             seq,
             killer: Mutex::new(killer),
             exited,
         })
+    }
+
+    /// Emulador VT da sessão (fonte da verdade do scrollback); o manager usa no snapshot.
+    pub(crate) fn emulator_arc(&self) -> Arc<Mutex<TermEmulator>> {
+        Arc::clone(&self.emulator)
     }
 
     /// true enquanto o processo filho está vivo; não consulta o SO, lê a flag do waiter.
@@ -487,10 +528,10 @@ impl PtySession {
         Arc::clone(&self.parser)
     }
 
-    /// Seq monotônico do emulador VT (ref P0 #2). O manager passa este Arc pro
-    /// `TermEmulator::new_with_seq` — assim o feeder do emulador e o thread de emit do
-    /// `pty://output` compartilham o MESMO contador, e o front deduplica os chunks ao
-    /// vivo contra `snapshot.seq`.
+    /// Seq monotônico do emulador VT (ref P0 #2). Mantido para o thread de emit do
+    /// `pty://output`, que estampa cada evento com o seq do grid — o front deduplica
+    /// os chunks ao vivo contra `snapshot.seq`.
+    #[allow(dead_code)]
     pub(crate) fn seq_arc(&self) -> Arc<AtomicU64> {
         Arc::clone(&self.seq)
     }
@@ -505,12 +546,35 @@ impl Drop for PtySession {
     }
 }
 
+/// Seq que um frame do `pty://output` deve carregar: o do ÚLTIMO chunk recebido neste
+/// frame. `marcos` = os seqs dos chunks que entraram, em ordem.
+///
+/// Duas armadilhas que este contrato evita, nesta ordem de descoberta:
+///
+/// 1. Ler o contador GLOBAL no instante do emit entrega um seq do futuro — o read_loop
+///    já avançou chunks que ainda não foram emitidos. O front descarta ao vivo tudo com
+///    `seq <= lastSeq`, então seq inflado derruba frame legítimo (tela incompleta).
+///
+/// 2. Usar o último chunk COMPLETO (descartando o partido pela cauda UTF-8) parece mais
+///    conservador e é pior: pode repetir o seq do frame anterior, e com dedup `<=` frame
+///    repetido é frame DESCARTADO — perda de bytes, não segurança.
+///
+/// O último recebido resolve os dois: é estritamente crescente por construção (o emit
+/// bloqueia em `recv`, então todo frame traz ao menos um chunk novo) e nunca pertence a
+/// bytes que o read_loop não entregou a este frame. O custo é reaplicar no máximo a
+/// cauda de um chunk quando um snapshot cai exatamente no meio dele.
+fn seq_do_frame(marcos: &[u64], ultimo_seq: u64) -> u64 {
+    marcos.last().copied().unwrap_or(ultimo_seq)
+}
+
 fn read_loop(
     id: SessionId,
     mut reader: Box<dyn Read + Send>,
     tx: broadcast::Sender<Vec<u8>>,
-    emit_tx: mpsc::Sender<Vec<u8>>,
+    emit_tx: mpsc::Sender<(Vec<u8>, u64)>,
     parser: Arc<Mutex<vt100::Parser>>,
+    emulator: Arc<Mutex<TermEmulator>>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
 ) {
     let mut buf = [0u8; 4096];
     loop {
@@ -522,8 +586,28 @@ fn read_loop(
             Ok(n) => {
                 let chunk = buf[..n].to_vec();
                 parser.lock().process(&chunk); // alimenta o emulador de tela
+                // Emulador alimentado AQUI, síncrono, no mesmo thread que leu os bytes:
+                // é o que garante que a query inicial nunca se perca. As respostas
+                // (DSR/DA/OSC) voltam pra stdin do PTY na hora — o backend é o ÚNICO
+                // respondedor; o xterm consome as queries sem responder.
+                let (seq_chunk, respostas) = {
+                    let mut emu = emulator.lock();
+                    emu.feed(&chunk);
+                    // Seq DESTE chunk, lido sob o mesmo lock do feed: é o que o emit
+                    // carimba no frame. Ler depois (fora do lock) já pegaria o valor
+                    // avançado por outro chunk.
+                    (emu.seq(), emu.take_pending_responses())
+                };
+                // Locks nunca sobrepostos (emulador solto antes do writer) → sem deadlock.
+                if !respostas.is_empty() {
+                    let mut w = writer.lock();
+                    for r in &respostas {
+                        let _ = w.write_all(r);
+                    }
+                    let _ = w.flush();
+                }
                 let _ = tx.send(chunk.clone()); // broadcast imediato (MCP/pipes)
-                let _ = emit_tx.send(chunk); // debounced → Tauri event
+                let _ = emit_tx.send((chunk, seq_chunk)); // debounced → Tauri event
             }
             Err(e) => {
                 log::warn!("erro lendo do PTY {id}: {e}");
@@ -1445,6 +1529,45 @@ mod tests {
             assert_eq!(out[4], "--settings");
             assert_eq!(out[5], "/tmp/s.json");
             let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    #[test]
+    fn seq_do_frame_leva_o_ultimo_chunk_recebido() {
+        assert_eq!(super::seq_do_frame(&[1, 2, 3], 0), 3);
+    }
+
+    #[test]
+    fn seq_do_frame_sem_chunk_mantem_ultimo_emitido() {
+        assert_eq!(super::seq_do_frame(&[], 5), 5, "frame vazio nao avanca o seq");
+    }
+
+    #[test]
+    fn seq_do_frame_e_estritamente_crescente_entre_frames() {
+        // Invariante central. O emit bloqueia em `recv`, entao TODO frame traz ao menos
+        // um chunk novo. Se o seq repetisse, o front descartaria o frame seguinte no
+        // filtro `seq <= lastSeq` e perderia bytes — foi exatamente o furo da tentativa
+        // anterior, que usava "ultimo chunk COMPLETO" e repetia quando a cauda UTF-8
+        // partia um chunk entre dois frames.
+        let frames = [vec![1u64], vec![2, 3], vec![4], vec![5, 6, 7]];
+        let mut anterior = 0u64;
+        for f in &frames {
+            let s = super::seq_do_frame(f, anterior);
+            assert!(
+                s > anterior,
+                "frame {f:?} devolveu {s}, nao maior que {anterior} — o front descartaria e perderia bytes"
+            );
+            anterior = s;
+        }
+    }
+
+    #[test]
+    fn seq_do_frame_nunca_devolve_seq_do_futuro() {
+        // O outro lado: o seq nunca pode passar do maior chunk realmente entregue a
+        // este frame. Era o bug original (contador global lido no instante do emit).
+        for f in [vec![1u64], vec![1, 2], vec![7, 8, 9]] {
+            let maior = *f.iter().max().unwrap();
+            assert!(super::seq_do_frame(&f, 0) <= maior, "seq acima do maior chunk do frame");
         }
     }
 }

@@ -64,7 +64,6 @@ impl PtyManager {
             return Err(anyhow!("sessão {id} já existe"));
         }
         let profile = profile_for(&cfg.command);
-        let (cols, rows) = (cfg.cols, cfg.rows);
         let session = Arc::new(PtySession::spawn(id.clone(), cfg, app.clone())?);
         self.sessions.insert(id.clone(), session.clone());
         // Estado inicial explícito: agent_state nunca devolve None (sem "unknown").
@@ -78,19 +77,10 @@ impl PtyManager {
         // o feeder (abaixo) incrementa-o por chunk pintado E o thread de emit do
         // `pty://output` (em session.rs) lê o mesmo valor pra estampar cada evento ao
         // vivo → `pty://output.seq` e `snapshot.seq` na MESMA escala (dedup do front).
-        let emulator = Arc::new(Mutex::new(TermEmulator::new_with_seq(cols, rows, session.seq_arc())));
-        self.emulators.insert(id.clone(), emulator.clone());
-        let mut feed_rx = session.subscribe();
-        tauri::async_runtime::spawn(async move {
-            use tokio::sync::broadcast::error::RecvError;
-            loop {
-                match feed_rx.recv().await {
-                    Ok(bytes) => emulator.lock().feed(&bytes),
-                    Err(RecvError::Lagged(_)) => {} // perdeu chunks: snapshot só fica defasado
-                    Err(RecvError::Closed) => break, // PTY EOF → fim do feeder
-                }
-            }
-        });
+        // O emulador é criado DENTRO do PtySession, antes da thread de leitura, e
+        // alimentado lá mesmo — sem feeder task e sem broadcast no caminho. Era ali
+        // que a query inicial se perdia (subscribe tardio) e o agente morria.
+        self.emulators.insert(id.clone(), session.emulator_arc());
 
         StateDetector::spawn(
             id.clone(),

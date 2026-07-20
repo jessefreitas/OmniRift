@@ -38,6 +38,55 @@ fn adapter_cmd(provider: &str) -> (&'static str, Vec<&'static str>) {
     }
 }
 
+/// Resolve o argv final do adapter ACP: comando do provider + wrapper do Windows +
+/// sandbox. Pura e testável — a fiação do sandbox no caminho ACP vive AQUI, e não
+/// espalhada no spawn. ACP é sempre local (não existe host remoto neste caminho),
+/// por isso is_remote = false.
+fn adapter_argv(provider: &str, cwd: &str) -> (String, Vec<String>) {
+    let (bin, args) = adapter_cmd(provider);
+    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    let (bin, args) = crate::proc_win::wrap_for_windows(bin, &args);
+    crate::sandbox::maybe_wrap(bin, args, Some(cwd), false)
+}
+
+#[cfg(test)]
+mod sandbox_wiring_tests {
+    use super::*;
+
+    #[test]
+    fn adapter_argv_envelopa_com_bwrap_quando_sandbox_ativo() {
+        if !crate::sandbox::bwrap_available() {
+            return;
+        }
+
+        let previous = std::env::var("OMNIRIFT_SANDBOX").ok();
+        std::env::set_var("OMNIRIFT_SANDBOX", "workspace");
+
+        let (bin, args) = adapter_argv("claude", "/tmp");
+
+        // Restaura ANTES dos asserts para não sujar o ambiente de outros testes.
+        match previous {
+            Some(v) => std::env::set_var("OMNIRIFT_SANDBOX", v),
+            None => std::env::remove_var("OMNIRIFT_SANDBOX"),
+        }
+
+        assert_eq!(
+            bin, "bwrap",
+            "o adapter ACP tem que nascer envelopado no sandbox igual ao caminho PTY, senão o agente ACP roda solto"
+        );
+
+        assert!(
+            args.contains(&String::from("--die-with-parent")),
+            "o argv final do ACP deve conter --die-with-parent do bwrap"
+        );
+
+        assert!(
+            args.iter().any(|a| a == "npx"),
+            "o comando original tem que continuar presente no argv final, depois do separador do bwrap"
+        );
+    }
+}
+
 /// `npx` resolve no PATH? O bridge de orquestração (server `omnirift-agents`) sobe via
 /// `npx -y mcp-remote <url>` dentro do adapter ACP. App GUI no Linux pode nascer sem o
 /// PATH de login completo (Node via nvm/volta fica fora do PATH do systemd/launcher) —
@@ -408,14 +457,13 @@ impl AcpManager {
                 .unwrap_or_else(|_| "/".to_string()),
         };
 
-        let (bin, args) = adapter_cmd(provider.as_deref().unwrap_or("claude"));
         // No Windows o adapter é quase sempre `npx`, que o npm instala como shim `.cmd` —
         // e o CreateProcessW só carrega imagens PE. `Command::new("npx")` falhava com
         // "program not found", quebrando TODO OmniAgent ACP no Windows. O caminho de PTY
         // já resolvia isso por conta própria (portable-pty); este é o mesmo tratamento
         // pro spawn assíncrono. Fora do Windows é no-op — nada muda no Linux/macOS.
-        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-        let (bin, args) = crate::proc_win::wrap_for_windows(bin, &args);
+        // A fiação do sandbox mora em adapter_argv (junto do wrapper do Windows).
+        let (bin, args) = adapter_argv(provider.as_deref().unwrap_or("claude"), &cwd_abs);
         let mut cmd = Command::new(&bin);
         cmd.args(&args);
         cmd.current_dir(&cwd_abs);

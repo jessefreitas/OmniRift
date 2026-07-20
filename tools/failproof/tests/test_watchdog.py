@@ -37,6 +37,19 @@ def test_detect_loop_mesma_falha_3x(monkeypatch, tmp_path):
     assert m.detect_loop_from_transcript(_transcript(tmp_path, ["A", "A"])) is False
 
 
+def test_sucesso_explicito_quebra_sequencia_de_loop(monkeypatch, tmp_path):
+    m = _mod(monkeypatch, tmp_path)
+    t = tmp_path / "resolved.jsonl"
+    rows = []
+    for _ in range(3):
+        rows.append({"message": {"content": [
+            {"type": "tool_result", "content": "error: A\nexit_code: 1"}]}})
+        rows.append({"message": {"content": [
+            {"type": "tool_result", "content": "5 passed\nexit_code: 0"}]}})
+    t.write_text("\n".join(json.dumps(row) for row in rows))
+    assert m.detect_loop_from_transcript(str(t)) is False
+
+
 def test_escala_de_strikes(monkeypatch, tmp_path):
     m = _mod(monkeypatch, tmp_path)
     state = {}
@@ -109,7 +122,12 @@ def test_kill_pid_ausente_nao_sigterma_process_group(monkeypatch, tmp_path):
     assert chamado == []                                  # nunca chamou os.kill
     assert [a[0] for a in ex.actions] == ["kill_skipped", "kill_skipped"]
     ex.kill(12345)
-    assert chamado == [12345]                             # pid real ainda mata
+    assert chamado == []                                  # V2 é observe-only por default
+    assert ex.actions[-1][0] == "kill_skipped_policy"
+    monkeypatch.setenv("FAILPROOF_ALLOW_KILL", "1")
+    monkeypatch.setattr(ex, "_identity_matches", lambda pid, identity: True)
+    ex.kill(12345, {"pid_start_time": "x", "pid_cmdline_sha256": "y"})
+    assert chamado == [12345]                             # opt-in + identidade válida
 
 
 def test_stale_min_ajustavel_por_env(monkeypatch):

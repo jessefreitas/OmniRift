@@ -23,3 +23,9 @@ def test_build_instruction_menciona_failbase():
     out = m.build_instruction()
     assert "failbase" in out.lower()
     assert "human-feedback" in out
+
+
+def test_build_instruction_amarra_assinatura_original():
+    out = m.build_instruction("abc123", "projeto")
+    assert '--signature "abc123"' in out
+    assert '--project "projeto"' in out

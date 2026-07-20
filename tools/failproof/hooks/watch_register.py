@@ -2,6 +2,7 @@
 """Registra sessoes unattended para vigilancia do watchdog da failbase."""
 
 import json
+import hashlib
 import os
 import sys
 import time
@@ -21,7 +22,9 @@ def _ler_payload():
 
 
 def _e_unattended():
-    """Importa helper de deteccao unattended; em falha considera False."""
+    """Detecção standalone; helper OmniForge é apenas fallback opcional."""
+    if str(os.environ.get("OMNI_UNATTENDED", "")).strip().lower() in {"1", "true", "yes", "on"}:
+        return True
     lib_dir = os.path.expanduser("~/.claude/hooks/lib")
     if lib_dir not in sys.path:
         sys.path.insert(0, lib_dir)
@@ -30,6 +33,21 @@ def _e_unattended():
         return bool(is_unattended())
     except Exception:
         return False
+
+
+def _pid_identity(pid):
+    """Identidade Linux do processo para rejeitar PID reciclado no momento do kill."""
+    try:
+        with open("/proc/{}/stat".format(pid), encoding="utf-8") as fh:
+            start_time = fh.read().split()[21]
+        with open("/proc/{}/cmdline".format(pid), "rb") as fh:
+            cmdline = fh.read()
+        return {
+            "pid_start_time": start_time,
+            "pid_cmdline_sha256": hashlib.sha256(cmdline).hexdigest(),
+        }
+    except Exception:
+        return {}
 
 
 def _pid_do_claude():
@@ -129,11 +147,15 @@ def main():
     pid = _pid_do_claude()
     if pid:
         registro["pid"] = pid
+        registro.update(_pid_identity(pid))
 
     # relaunch_cmd fica vazio de proposito: o watchdog executa com shell=True,
     # entao o relancamento automatico so deve ser ligado por decisao explicita.
-    destino = os.path.join(watch_dir, f"{session_id}.json")
+    # Hash evita traversal se um runtime fornecer session_id hostil.
+    key = hashlib.sha256(str(session_id).encode()).hexdigest()[:24]
+    destino = os.path.join(watch_dir, f"{key}.json")
     _escrever_atomico(destino, registro)
+    os.chmod(destino, 0o600)
 
 
 if __name__ == "__main__":
@@ -142,4 +164,3 @@ if __name__ == "__main__":
     except Exception:
         pass
     sys.exit(0)
-

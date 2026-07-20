@@ -99,6 +99,7 @@ export async function ptySnapshot(
   return invoke<PtySnapshot>("pty_snapshot", { sessionId, scrollbackRows });
 }
 
+
 /**
  * Inscreve um listener para os outputs de UMA sessão específica.
  * Filtra na borda — o Rust emite globalmente, mas o consumidor só vê o que importa.

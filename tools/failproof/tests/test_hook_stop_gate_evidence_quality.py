@@ -55,6 +55,11 @@ def test_bloqueia_claim_validada_so_por_grep():
     assert m.should_block(events) is True
 
 
+def test_bloqueia_comando_true_como_falsa_evidencia():
+    events = [EDIT, _use("true"), _out("exit_code: 0"), _claim()]
+    assert m.should_block(events) is True
+
+
 def test_libera_claim_com_pytest_verde():
     """Validacao real e verde -> conclusao legitima passa."""
     events = [EDIT, _use("python3 -m pytest tests/ -q"), _out("5 passed\nexit_code: 0"), _claim()]

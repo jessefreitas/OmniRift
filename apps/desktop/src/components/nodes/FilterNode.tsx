@@ -125,7 +125,7 @@ function FilterNodeImpl({ data, selected }: NodeProps<FilterRfNode>) {
       <Handle type="target" position={Position.Left} className="!bg-sky-400 !border-surface1" />
       <Handle type="source" position={Position.Right} className="!bg-sky-400 !border-surface1" />
 
-      <div className="node-drag-handle flex items-center gap-1.5 border-b border-white/10 px-2 py-1.5">
+      <div className="node-drag-handle flex items-center gap-1.5 border-b border-white/10 px-2 py-1.5 cursor-grab active:cursor-grabbing select-none">
         <Filter size={13} className="text-sky-400" />
         <span className="flex-1 truncate font-semibold text-text">{data.label ?? "Filtro"}</span>
         {evalStatus === "evaluating" && <Sparkles size={11} className="animate-pulse text-purple-400" />}

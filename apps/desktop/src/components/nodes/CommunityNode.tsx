@@ -73,7 +73,7 @@ function CommunityNodeImpl({ data, selected }: NodeProps<CommunityRfNode>) {
       <Handle type="target" position={Position.Left} className="!border-surface1" style={{ background: color }} />
       <Handle type="source" position={Position.Right} className="!border-surface1" style={{ background: color }} />
 
-      <div className="node-drag-handle flex items-center gap-1.5 border-b border-white/10 px-2 py-1.5">
+      <div className="node-drag-handle flex items-center gap-1.5 border-b border-white/10 px-2 py-1.5 cursor-grab active:cursor-grabbing select-none">
         <Network size={13} style={{ color }} />
         <span className="flex-1 truncate font-semibold text-text" title={data.name}>
           {data.name}

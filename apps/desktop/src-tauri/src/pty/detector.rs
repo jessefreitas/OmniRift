@@ -177,7 +177,22 @@ impl StateDetector {
                             }
                             break;
                         }
-                        Err(broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            // `Lagged` só acontece quando há output DEMAIS — o consumidor
+                            // não deu conta do ritmo. Engolir calado invertia o sinal: sem
+                            // atualizar `last_activity`, o detector concluía "quieto" no
+                            // exato momento em que o agente estava inundando a saída, e o
+                            // marcava Idle. Perder chunk aqui é, por definição, ATIVIDADE.
+                            log::warn!("detector {session_id}: {n} chunks perdidos (output acima do ritmo)");
+                            last_activity = Instant::now();
+                            if spawned_at.elapsed() > STARTUP_GRACE
+                                && prev != AgentState::Working
+                                && prev != AgentState::Dead
+                            {
+                                prev = AgentState::Working;
+                                emit(AgentState::Working, None);
+                            }
+                        }
                     },
                     _ = ticker.tick() => {
                         if spawned_at.elapsed() < STARTUP_GRACE {

@@ -32,6 +32,7 @@ import {
   TERMINAL_VIEW_SCROLLBACK_ROWS,
 } from "@/lib/pty-client";
 import { registerTerminalView, unregisterTerminalView } from "@/lib/terminal-sessions";
+import { installTerminalQueryAuthority } from "@/lib/terminal-query-authority";
 import { useCanvasStore } from "@/store/canvas-store";
 import { sessionStart, sessionEvent, sessionEnd } from "@/lib/session-client";
 import { scheduleReindex } from "@/lib/omnifs-client";
@@ -210,6 +211,54 @@ export function useTerminalSession({
     term.loadAddon(fitAddon);
     term.loadAddon(webLinks);
 
+    // O BACKEND é o único respondedor de queries do terminal. Aqui só CONSUMIMOS as
+    // queries (handler devolve true = "tratei", o xterm não responde).
+    //
+    // Por quê: no eager-spawn o nó ainda não montou, então não existe xterm nenhum —
+    // a TUI mandava `CSI 6 n`, ninguém respondia e ela morria com código 1 depois de
+    // ~30s. Alternar a autoridade por flag tem corrida irredutível: os bytes chegam
+    // ao emulador do backend na hora e aqui ~16ms depois (debounce), então quando o
+    // xterm vê a query o backend já respondeu — daria resposta dupla na stdin do
+    // shell, que é justamente o que corrompe tema/valores. Autoridade única resolve.
+    //
+    // O identificador do handler inclui PREFIXO, não só o char final — o xterm registra
+    // `{prefix:"?",final:"n"}` (DSR privado) e `{prefix:">",final:"c"}` (DA2) separados
+    // dos sem prefixo. Cobrir só o final deixava essas duas escapando pro respondedor
+    // nativo, mantendo a autoridade dupla que o pivô veio matar.
+    //
+    // O que NÃO está aqui é tão importante quanto o que está: `{prefix:"?",final:"n"}`
+    // (DSR privado) fica de fora DE PROPÓSITO. O VTE só despacha `('n', [])` — sem
+    // prefixo (vte-0.15.0/src/ansi.rs:1701); a variante privada cai em `unhandled!()`
+    // e o backend NUNCA responde. Consumir aqui deixaria a sequência sem respondedor
+    // nenhum, que é pior que o bug original. Quem responde `CSI ? 6 n` é o xterm — e
+    // como o backend é mudo nela, a autoridade segue única.
+    // Esta lista é DERIVADA do fonte do vte 0.15 (`src/ansi.rs`), não escrita de
+    // memória. Mas derivar do DISPATCHER do vte é raso demais: a cadeia real é
+    // "vte despacha -> Term implementa -> gera PtyWrite". `report_modify_other_keys`
+    // e despachado pelo vte (ansi.rs:1696) mas tem default VAZIO no trait (ansi.rs:728)
+    // e o Term nao sobrescreve — nao responde nada. Ficou aqui um tempo fechando uma
+    // resposta dupla inexistente. Ao atualizar o crate, cruzar as TRES camadas.
+    const queries: { prefix?: string; intermediates?: string; final: string }[] = [
+      { final: "n" }, // DSR / CPR              — ansi.rs:1701
+      { final: "c" }, // DA1                    — ansi.rs:1573
+      { prefix: ">", final: "c" }, // DA2       — ansi.rs:1573
+      { final: "t" }, // tamanho da área        — ansi.rs:1740/1741
+      { intermediates: "$", final: "p" }, // DECRQM         — ansi.rs:1705
+      { prefix: "?", intermediates: "$", final: "p" }, // DECRQM privado — ansi.rs:1709
+    ];
+    for (const id of queries) {
+      term.parser.registerCsiHandler(id, () => true);
+    }
+    // OSC 10/11 empilham parâmetros por POSIÇÃO (10=#fg, 11=#bg, 12=#cursor).
+    // O handler retorna false para o xterm processar a sequência inteira: assim SETs
+    // misturados continuam atualizando a view. Antes do builtin rodar, marcamos somente
+    // as respostas automáticas de QUERY 10/11; o router de onData abaixo as descarta,
+    // pois o backend já respondeu. Não há decisão all-or-nothing pelo payload inteiro.
+    // Instala cedo: output pode chegar entre o attach/spawn e o fim do setup async.
+    // Sem este router, a resposta do xterm escaparia nessa janela ou deixaria uma
+    // marca pendente capaz de afetar input posterior.
+    const queryAuthority = installTerminalQueryAuthority(term);
+
     term.open(containerRef.current);
     // Renderer GPU (WebGL2): ordens de grandeza mais leve que o DOM renderer default
     // com N terminais vivos no canvas. WebKitGTK varia por GPU/driver → try/catch com
@@ -280,7 +329,6 @@ export function useTerminalSession({
     };
     let disposed = false;
     disposedRef.current = false; // reset no (re)mount [GLM-audit #3]
-    let dataDisposable: { dispose: () => void } | null = null;
     let disposeImeGuard: (() => void) | null = null;
 
     // --- Pipeline assíncrono: fit → spawn → listeners → stdin -----------
@@ -504,7 +552,7 @@ export function useTerminalSession({
         let keySeq = 0;
         let lastEmit: { data: string; seq: number } | null = null;
 
-        dataDisposable = term.onData((data) => {
+        queryAuthority.setForwarder((data) => {
           if (lastEmit && lastEmit.data === data && lastEmit.seq === keySeq) {
             lastEmit = null; // 2ª emissão da MESMA tecla (duplicata IBus) → dropa
             return;
@@ -584,6 +632,8 @@ export function useTerminalSession({
         }
 
         if (!disposed) {
+          // A view esta pronta (listener de output + term.onData instalados): ela assume
+          // as queries do shell e o backstop do backend se cala (nada de resposta dupla).
           setReady(true);
           void emit("pty://ready", { id: sessionId });
         }
@@ -608,7 +658,7 @@ export function useTerminalSession({
       pendingDuringSnapshotRef.current = [];
       pendingDuringSnapshotCharsRef.current = 0;
       disposeImeGuard?.();
-      dataDisposable?.dispose();
+      queryAuthority.dispose();
       unlistenOutput?.();
       unlistenStatus?.();
       unlistenExit?.();

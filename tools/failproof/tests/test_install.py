@@ -7,7 +7,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def _run_install(home):
     return subprocess.run(["bash", os.path.join(ROOT, "install.sh")],
-                          env=dict(os.environ, HOME=str(home)),
+                          env=dict(os.environ, HOME=str(home), FAILPROOF_SKIP_SYSTEMD="1"),
                           capture_output=True, text=True, timeout=60)
 
 
@@ -23,6 +23,10 @@ def test_install_cria_estrutura_e_registra_hooks(tmp_path):
                for h in settings["hooks"]["Stop"])
     assert any("failproof_posttool_failure_capture" in json.dumps(h)
                for h in settings["hooks"]["PostToolUse"])
+    assert any("failproof_watch_register" in json.dumps(h)
+               for h in settings["hooks"]["UserPromptSubmit"])
+    assert any("failproof_watch_cleanup" in json.dumps(h)
+               for h in settings["hooks"]["Stop"])
 
 
 def test_install_preserva_settings_existentes(tmp_path):
@@ -51,7 +55,7 @@ def test_install_e_idempotente(tmp_path):
 def test_uninstall_remove_tudo_e_preserva_alheio(tmp_path):
     _run_install(tmp_path)
     proc = subprocess.run(["bash", os.path.join(ROOT, "uninstall.sh")],
-                          env=dict(os.environ, HOME=str(tmp_path)),
+                          env=dict(os.environ, HOME=str(tmp_path), FAILPROOF_SKIP_SYSTEMD="1"),
                           capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
     claude = tmp_path / ".claude"

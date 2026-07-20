@@ -65,7 +65,7 @@ function SubagentNodeImpl({ data, selected }: NodeProps<SubagentRfNode>) {
   return (
     <div
       className={cn(
-        "node-drag-handle flex h-full w-full flex-col rounded-lg border bg-bg/95 text-xs",
+        "node-drag-handle flex h-full w-full flex-col rounded-lg border bg-bg/95 text-xs cursor-grab active:cursor-grabbing select-none",
         selected ? "border-amber-400" : "border-amber-500/30",
       )}
     >

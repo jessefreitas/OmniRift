@@ -1298,7 +1298,9 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const inner = (
     <>
       {/* header */}
-      <div className="node-drag-handle flex items-center gap-1.5 border-b border-white/10 px-2 py-1.5">
+      {/* alça de arrasto — select-none é obrigatório: sem ele, apertar e arrastar em cima
+          do nome inicia SELEÇÃO DE TEXTO e o nó não move. cursor-grab dá a pista visual. */}
+      <div className="node-drag-handle flex items-center gap-1.5 border-b border-white/10 px-2 py-2 cursor-grab active:cursor-grabbing select-none">
         <Brain size={13} className="text-brand" />
         <span className="font-semibold text-text">{data.label ?? "OmniAgent"}</span>
         <select

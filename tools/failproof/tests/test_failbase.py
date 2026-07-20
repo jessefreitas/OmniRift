@@ -37,6 +37,72 @@ def test_add_duplicado_incrementa_hits_e_preserva_fix(fb):
     assert row["fix_validated"] == 1
 
 
+def test_fix_observado_nunca_sobrescreve_validado(fb):
+    fb.add(symptom="erro X", fix="fix confirmado", command="make",
+           source="human-feedback", fix_validated=True)
+    fb.add(symptom="erro X", fix="palpite posterior", command="make",
+           source="session", fix_validated=False)
+    row = fb.lookup(failbase.normalize_signature("erro X", "make"))
+    assert row["fix"] == "fix confirmado"
+    assert row["fix_validated"] == 1
+    assert row["validated_source"] == "human-feedback"
+
+
+def test_mesma_assinatura_fica_escopada_por_projeto(fb):
+    sig = failbase.normalize_signature("connection refused 42", "curl")
+    fb.add(symptom="connection refused 42", fix="fix A", command="curl",
+           project="projeto-a", fix_validated=True)
+    assert fb.lookup(sig, "projeto-b") is None
+    fb.add(symptom="connection refused 99", fix="fix B", command="curl",
+           project="projeto-b", fix_validated=True)
+    assert fb.lookup(sig, "projeto-a")["fix"] == "fix A"
+    assert fb.lookup(sig, "projeto-b")["fix"] == "fix B"
+
+
+def test_promocao_por_assinatura_atualiza_registro_original(fb):
+    sig = failbase.normalize_signature("falha de rede", "curl")
+    fb.add(symptom="falha de rede", fix="talvez", command="curl",
+           project="p", fix_validated=False)
+    fb.add(symptom="correção humana", fix="fix certo", signature=sig,
+           source="human-feedback", project="p", fix_validated=True)
+    row = fb.lookup(sig, "p")
+    assert row["fix"] == "fix certo"
+    assert row["validated_source"] == "human-feedback"
+    assert fb.db.execute("SELECT COUNT(*) FROM failures").fetchone()[0] == 1
+
+
+def test_sanitize_redige_legado_e_reconstroi_fts(fb):
+    fb.db.execute(
+        "INSERT INTO failures(signature, symptom, fix, project) VALUES (?,?,?,?)",
+        ("legacy", "token=segredo-muito-perigoso", "fix", "projeto"),
+    )
+    fid = fb.db.execute(
+        "SELECT id FROM failures WHERE signature='legacy'").fetchone()[0]
+    fb.db.execute(
+        "INSERT INTO failures_fts(symptom, root_cause, fix, failure_id) VALUES (?,?,?,?)",
+        ("token=segredo-muito-perigoso", "", "fix", fid),
+    )
+    fb.db.execute(
+        "INSERT INTO failure_observations(failure_id, source, observed_fix) VALUES (?,?,?)",
+        (fid, "session", "PASSWORD=outra-coisa-secreta"),
+    )
+    fb.db.commit()
+
+    result = fb.sanitize()
+
+    row = fb.lookup_exact("legacy", "projeto")
+    observation = fb.db.execute(
+        "SELECT observed_fix FROM failure_observations WHERE failure_id=?", (fid,)
+    ).fetchone()[0]
+    fts = fb.db.execute(
+        "SELECT symptom FROM failures_fts WHERE failure_id=?", (fid,)
+    ).fetchone()[0]
+    assert result == {"failures_redacted": 1, "observations_redacted": 1}
+    assert "segredo" not in row["symptom"]
+    assert "outra-coisa" not in observation
+    assert "segredo" not in fts
+
+
 def test_symptom_truncado_em_2kb(fb):
     fb.add(symptom="x" * 10000, command="cmd")
     sig = failbase.normalize_signature("x" * 10000, "cmd")

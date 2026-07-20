@@ -7,10 +7,13 @@
 //! backend; o front vira view descartável que re-hidrata via `snapshot()`.
 //!
 //! ## Pontos finos (do RE `docs/research/ref-re/02-terminal.md`)
-//! - **NÃO responde queries** (DA1/DSR/OSC10-11): usamos `event::VoidListener`, um
-//!   EventListener no-op. Se o emulador respondesse, a resposta dele ganharia a corrida
-//!   na stdin do shell contra a do xterm do front → tema/valores errados. Só o xterm
-//!   do front responde queries.
+//! - **RESPONDE queries** (DA1/DSR/OSC10-11) e é o ÚNICO respondedor da sessão. O
+//!   desenho anterior delegava isso ao xterm do front, mas no eager-spawn não existe
+//!   xterm — a query se perdia e a TUI morria com código 1 esperando o CPR. Tentar
+//!   alternar a autoridade por flag (`view_attached`) tem corrida irredutível: os
+//!   bytes chegam aqui na hora e no xterm ~16ms depois (debounce), então quando o
+//!   xterm vê a query o backend já respondeu. Agora o front bloqueia suas respostas
+//!   locais (CSI no parser; OSC 10/11 no `onData`) e a autoridade é só daqui — sem janela.
 //! - **Scrollback bounded 10_000** (`Config::scrolling_history`) → MBs, não GBs.
 //! - **`seq: u64` monotônico** por sessão, incrementa a cada `feed` — chave do dedup do
 //!   front (descarta chunks ao vivo com `seq <= snapshot.seq`, mata o scrollback dobrado).
@@ -20,7 +23,7 @@
 //! `grid().iter_from(Point::new(topmost_line, Column(0)))` → `Indexed<&Cell>`,
 //! `Cell { c, fg, bg, flags }`, `Color::{Named,Spec,Indexed}`, `TermMode::ALT_SCREEN`.
 
-use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
@@ -28,6 +31,7 @@ use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Rgb};
 
 use serde::Serialize;
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -39,6 +43,34 @@ pub const SCROLLBACK_LIMIT: usize = 10_000;
 /// Cap de segurança do snapshot serializado (bytes). Evita IPC gigante mesmo com
 /// linhas largas/coloridas. ~4 MB cobre 10k linhas com SGR folgado.
 pub const SNAPSHOT_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+/// Tema inicial compartilhado com `useTerminalSession`. Estes valores também são o
+/// fallback depois de OSC 110/111 (reset da cor dinâmica).
+const DEFAULT_FOREGROUND: Rgb = Rgb {
+    r: 0xed,
+    g: 0xee,
+    b: 0xf0,
+};
+const DEFAULT_BACKGROUND: Rgb = Rgb {
+    r: 0x0a,
+    g: 0x10,
+    b: 0x14,
+};
+
+#[derive(Debug, Clone, Copy)]
+struct DynamicColors {
+    foreground: Rgb,
+    background: Rgb,
+}
+
+impl Default for DynamicColors {
+    fn default() -> Self {
+        Self {
+            foreground: DEFAULT_FOREGROUND,
+            background: DEFAULT_BACKGROUND,
+        }
+    }
+}
 
 /// Snapshot serializado do grid+scrollback, cruzando o IPC pro front re-hidratar.
 /// `data` = ANSI re-hidratado (SGR por célula + reentra alt-screen se ativo).
@@ -76,9 +108,210 @@ impl Dimensions for EmuSize {
 /// bounded) + um `Processor` (parser ANSI stateful). Single-threaded por design: o
 /// caller serializa os `feed` (1 read-loop por sessão); o `PtyManager` guarda cada
 /// um sob `Mutex` pra leitura concorrente do `snapshot`.
+/// Respondedor de queries da sessão (DSR/DA/OSC). Acumula as respostas que o `Term`
+/// computa; o `read_loop` drena e escreve na stdin do PTY logo após cada `feed`.
+/// É o ÚNICO respondedor — o front barra as respostas locais antes de chegarem ao PTY.
+#[derive(Clone)]
+pub struct BackstopListener {
+    pending: Arc<Mutex<Vec<Vec<u8>>>>,
+    /// Compartilhado com o TermEmulator: o `resize` atualiza aqui, senão responderia
+    /// TextAreaSizeRequest com o tamanho de quando a sessão nasceu.
+    dims: Arc<Mutex<(u16, u16)>>,
+    /// Estado dinâmico de OSC 10/11. O listener não enxerga diretamente o `Term`,
+    /// portanto o emulador sincroniza este espelho depois de cada OSC completo.
+    dynamic_colors: Arc<Mutex<DynamicColors>>,
+}
+
+/// Teto do buffer de respostas: se ninguém drenar (sessão morta), não crescemos sem
+/// limite — descartamos em vez de segurar memória.
+const MAX_PENDING_RESPONSES: usize = 256;
+
+impl EventListener for BackstopListener {
+    fn send_event(&self, event: Event) {
+        let resposta = match event {
+            Event::PtyWrite(s) => s,
+            // SÓ foreground (OSC 10) e background (OSC 11). A resposta precisa refletir
+            // SET/RESET anteriores, não apenas o tema de nascimento da view.
+            //
+            // OSC 4/12 ficam deliberadamente sem backstop: com view, o xterm responde;
+            // no eager-spawn não há respondedor. Isso é risco aceito e explícito, não
+            // resolvido. Responder aqui sem uma paleta/cursor autoritativos seria errado.
+            Event::ColorRequest(idx, f) => {
+                let colors = *self.dynamic_colors.lock();
+                if idx == NamedColor::Foreground as usize {
+                    f(colors.foreground)
+                } else if idx == NamedColor::Background as usize {
+                    f(colors.background)
+                } else {
+                    return;
+                }
+            }
+            Event::TextAreaSizeRequest(f) => {
+                let (cols, rows) = *self.dims.lock();
+                // Célula em pixels não existe no backend (headless): 8x16 é o padrão de
+                // facto. Só afeta quem pergunta o tamanho em PIXELS; em células (CSI 18t)
+                // a resposta é exata.
+                f(WindowSize { num_lines: rows, num_cols: cols, cell_width: 8, cell_height: 16 })
+            }
+            _ => return,
+        };
+        let mut pend = self.pending.lock();
+        if pend.len() >= MAX_PENDING_RESPONSES {
+            return;
+        }
+        pend.push(resposta.into_bytes());
+    }
+}
+
+/// Estados da maquina de estados para detectar a requisicao DSR privado (DECXCPR).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum EstadoDsr {
+    #[default]
+    Ocioso,
+    ViuEsc,
+    ViuColchete,
+    ViuInterrogacao,
+}
+
+/// Detector de requisicoes DSR privado no fluxo de bytes.
+///
+/// O VTE nao despacha `CSI ? <params> n`, entao precisamos detectar no stream
+/// para responder com DECXCPR (`ESC [ ? <linha> ; <coluna> ; 1 R`).
+#[derive(Debug, Default)]
+pub struct DetectorDsrPrivado {
+    estado: EstadoDsr,
+}
+
+impl DetectorDsrPrivado {
+    /// Escaneia um pedaco de bytes e devolve quantas requisicoes DSR privado
+    /// completas foram encontradas. A sequencia pode estar partida entre
+    /// chamadas; o estado persiste na struct.
+    pub fn scan(&mut self, bytes: &[u8]) -> usize {
+        let mut encontradas = 0usize;
+
+        for &byte in bytes {
+            match self.estado {
+                EstadoDsr::Ocioso => {
+                    if byte == 0x1B {
+                        self.estado = EstadoDsr::ViuEsc;
+                    }
+                    // Qualquer outro byte: continua ocioso.
+                }
+                EstadoDsr::ViuEsc => {
+                    if byte == b'[' {
+                        self.estado = EstadoDsr::ViuColchete;
+                    } else if byte == 0x1B {
+                        // ESC repetido reinicia o escape.
+                        self.estado = EstadoDsr::ViuEsc;
+                    } else {
+                        self.estado = EstadoDsr::Ocioso;
+                    }
+                }
+                EstadoDsr::ViuColchete => {
+                    if byte == b'?' {
+                        self.estado = EstadoDsr::ViuInterrogacao;
+                    } else if byte == 0x1B {
+                        self.estado = EstadoDsr::ViuEsc;
+                    } else {
+                        self.estado = EstadoDsr::Ocioso;
+                    }
+                }
+                EstadoDsr::ViuInterrogacao => {
+                    if byte.is_ascii_digit() || byte == b';' {
+                        // Continua coletando parametros.
+                        self.estado = EstadoDsr::ViuInterrogacao;
+                    } else if byte == b'n' {
+                        // Requisicao DSR privado completa.
+                        encontradas += 1;
+                        self.estado = EstadoDsr::Ocioso;
+                    } else if byte == 0x1B {
+                        self.estado = EstadoDsr::ViuEsc;
+                    } else {
+                        // Ex: `ESC [ ? 25 h` (DECTCEM) nao e DSR.
+                        self.estado = EstadoDsr::Ocioso;
+                    }
+                }
+            }
+        }
+
+        encontradas
+    }
+}
+
+/// Estado mínimo para achar o fim de OSC sem reimplementar o parser VT. Usamos as
+/// fronteiras para sincronizar as cores depois de cada OSC completo; isso preserva a
+/// ordem quando um mesmo chunk contém `SET`, depois `QUERY`.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum EstadoOsc {
+    #[default]
+    Fora,
+    ViuEscFora,
+    Dentro,
+    ViuEscDentro,
+}
+
+#[derive(Debug, Default)]
+struct DetectorFimOsc {
+    estado: EstadoOsc,
+}
+
+impl DetectorFimOsc {
+    /// Devolve offsets EXCLUSIVOS das terminações de OSC encontradas neste chunk.
+    /// O estado persiste para sequências partidas entre reads do PTY.
+    fn boundaries(&mut self, bytes: &[u8]) -> Vec<usize> {
+        let mut ends = Vec::new();
+
+        for (index, &byte) in bytes.iter().enumerate() {
+            self.estado = match self.estado {
+                EstadoOsc::Fora => match byte {
+                    0x1b => EstadoOsc::ViuEscFora,
+                    0x9d => EstadoOsc::Dentro, // C1 OSC
+                    _ => EstadoOsc::Fora,
+                },
+                EstadoOsc::ViuEscFora => match byte {
+                    b']' => EstadoOsc::Dentro,
+                    0x1b => EstadoOsc::ViuEscFora,
+                    0x9d => EstadoOsc::Dentro,
+                    _ => EstadoOsc::Fora,
+                },
+                EstadoOsc::Dentro => match byte {
+                    0x07 | 0x9c => {
+                        ends.push(index + 1); // BEL ou C1 ST
+                        EstadoOsc::Fora
+                    }
+                    0x1b => EstadoOsc::ViuEscDentro,
+                    _ => EstadoOsc::Dentro,
+                },
+                EstadoOsc::ViuEscDentro => match byte {
+                    b'\\' => {
+                        ends.push(index + 1); // ESC \\ (ST)
+                        EstadoOsc::Fora
+                    }
+                    0x07 | 0x9c => {
+                        ends.push(index + 1);
+                        EstadoOsc::Fora
+                    }
+                    0x1b => EstadoOsc::ViuEscDentro,
+                    _ => EstadoOsc::Dentro,
+                },
+            };
+        }
+
+        ends
+    }
+}
+
 pub struct TermEmulator {
-    term: Term<VoidListener>,
+    term: Term<BackstopListener>,
+    pending: Arc<Mutex<Vec<Vec<u8>>>>,
+    /// Dimensões vistas pelo respondedor, atualizadas no `resize`.
+    dims: Arc<Mutex<(u16, u16)>>,
+    dynamic_colors: Arc<Mutex<DynamicColors>>,
     parser: Processor,
+    osc_boundaries: DetectorFimOsc,
+    /// Detector de `CSI ? .. n` (DSR privado). O vte NAO despacha essa variante, entao
+    /// sem isto ninguem responde e a TUI headless morre esperando o DECXCPR.
+    dsr_privado: DetectorDsrPrivado,
     /// `seq` monotônico por sessão, em `Arc<AtomicU64>` pra ser COMPARTILHADO com o
     /// thread de emit do `pty://output` (em `session.rs`) — assim o evento ao vivo
     /// carrega o MESMO seq que o emulador pintou, e o front deduplica os chunks ao
@@ -104,15 +337,75 @@ impl TermEmulator {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let config = Config { scrolling_history: SCROLLBACK_LIMIT, ..Config::default() };
         let size = EmuSize { cols: cols as usize, rows: rows as usize };
-        let term = Term::new(config, &size, VoidListener);
-        Self { term, parser: Processor::new(), seq, cols, rows }
+        let pending = Arc::new(Mutex::new(Vec::new()));
+        let dims = Arc::new(Mutex::new((cols, rows)));
+        let dynamic_colors = Arc::new(Mutex::new(DynamicColors::default()));
+        let listener = BackstopListener {
+            pending: Arc::clone(&pending),
+            dims: Arc::clone(&dims),
+            dynamic_colors: Arc::clone(&dynamic_colors),
+        };
+        let term = Term::new(config, &size, listener);
+        Self {
+            term,
+            parser: Processor::new(),
+            osc_boundaries: DetectorFimOsc::default(),
+            dsr_privado: DetectorDsrPrivado::default(),
+            seq,
+            cols,
+            rows,
+            pending,
+            dims,
+            dynamic_colors,
+        }
     }
 
     /// Alimenta bytes do PTY no grid. `seq += 1` por chamada (1 chunk pintado). O
-    /// `VoidListener` garante que nenhuma resposta de query saia daqui (só o grid muda).
+    /// backstop acumula respostas de query para o read-loop devolver ao PTY.
     pub fn feed(&mut self, bytes: &[u8]) {
-        self.parser.advance(&mut self.term, bytes);
+        // Um read pode trazer `OSC 10;cor`, depois `OSC 10;?`. Se entregássemos tudo
+        // ao parser de uma vez e sincronizássemos só no fim, a query responderia a cor
+        // velha. Cortamos apenas nas terminações OSC: não alimentamos o parser byte a
+        // byte no fluxo normal.
+        let boundaries = self.osc_boundaries.boundaries(bytes);
+        let mut start = 0usize;
+        for end in boundaries {
+            self.parser.advance(&mut self.term, &bytes[start..end]);
+            self.sync_dynamic_colors();
+            start = end;
+        }
+        if start < bytes.len() {
+            self.parser.advance(&mut self.term, &bytes[start..]);
+        }
+        // DSR privado: o vte nao despacha `CSI ? .. n`, entao detectamos e sintetizamos
+        // o DECXCPR aqui. Sem view montada (eager-spawn) nao existe xterm pra responder,
+        // e a TUI fica esperando ate morrer com codigo 1 — o defeito original.
+        let pedidos = self.dsr_privado.scan(bytes);
+        if pedidos > 0 {
+            let ponto = self.term.grid().cursor.point;
+            let resposta = format!("\x1b[?{};{};1R", ponto.line.0 + 1, ponto.column.0 + 1);
+            let mut pend = self.pending.lock();
+            for _ in 0..pedidos {
+                if pend.len() >= MAX_PENDING_RESPONSES {
+                    break;
+                }
+                pend.push(resposta.clone().into_bytes());
+            }
+        }
         self.seq.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn sync_dynamic_colors(&self) {
+        let colors = self.term.colors();
+        let mut dynamic = self.dynamic_colors.lock();
+        dynamic.foreground = colors[NamedColor::Foreground].unwrap_or(DEFAULT_FOREGROUND);
+        dynamic.background = colors[NamedColor::Background].unwrap_or(DEFAULT_BACKGROUND);
+    }
+
+    /// Drena as respostas de query acumuladas pelo backstop. O read-loop chama isto
+    /// depois de cada `feed` e escreve o resultado na stdin do PTY.
+    pub fn take_pending_responses(&self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut *self.pending.lock())
     }
 
     /// Redimensiona o grid (o read-loop chama junto com o resize do PTY master).
@@ -120,6 +413,8 @@ impl TermEmulator {
         let (cols, rows) = (cols.max(1), rows.max(1));
         self.cols = cols;
         self.rows = rows;
+        // O backstop lê daqui: sem isto ele responderia o tamanho do nascimento.
+        *self.dims.lock() = (cols, rows);
         self.term.resize(EmuSize { cols: cols as usize, rows: rows as usize });
     }
 
@@ -336,6 +631,16 @@ fn encode_named(base: u8, fg: bool) -> String {
 mod tests {
     use super::*;
 
+    fn single_response(emu: &TermEmulator) -> String {
+        let responses = emu.take_pending_responses();
+        assert_eq!(
+            responses.len(),
+            1,
+            "esperava exatamente uma resposta: {responses:?}"
+        );
+        String::from_utf8(responses.into_iter().next().unwrap()).unwrap()
+    }
+
     /// Acha a célula `(line, col)` no grid re-parseado, pra checar cor/estilo round-trip.
     fn cell_at(emu: &TermEmulator, line: i32, col: usize) -> Cell {
         emu.term.grid()[Point::new(Line(line), Column(col))].clone()
@@ -421,11 +726,12 @@ mod tests {
 
     #[test]
     fn da1_query_produces_no_response_bytes() {
-        // DA1 (\x1b[c) é uma query: um terminal "vivo" responderia bytes na stdin.
-        // O emulador headless (VoidListener) NÃO responde — só atualiza (não imprime nada).
-        // Não há canal de saída no TermEmulator, então a "prova" é dupla:
+        // DA1 (\x1b[c) é uma query. Desde o backstop, o emulador PODE responder — mas a
+        // resposta vai pro buffer de `take_pending_responses`, nunca pro grid. Este teste
+        // trava exatamente isso: resposta de query não pode CONTAMINAR o snapshot, senão
+        // o front re-hidrataria a view com bytes de protocolo virando lixo na tela.
         //  (a) feed de DA1 não panica e o seq incrementa normalmente;
-        //  (b) o snapshot não contém a resposta DA (\x1b[?...c) que um vt vivo emitiria.
+        //  (b) o snapshot não contém a resposta DA (\x1b[?...c).
         let mut e = TermEmulator::new(80, 24);
         e.feed(b"\x1b[c");
         assert_eq!(e.seq(), 1, "feed de query incrementa seq como qualquer chunk");
@@ -446,5 +752,259 @@ mod tests {
         let snap = e.snapshot(SCROLLBACK_LIMIT);
         assert_eq!(snap.cols, 100);
         assert_eq!(snap.rows, 40);
+    }
+
+    #[test]
+    fn dsr_sempre_responde_cpr() {
+        // Sem view anexada ninguem responde o CPR: a TUI espera e morre com codigo 1
+        // depois de ~30s (bug real, Windows, v0.1.141). O backstop cobre essa janela.
+        let mut e = TermEmulator::new(80, 24);
+        e.feed(b"\x1b[6n");
+        let resp = e.take_pending_responses();
+        assert_eq!(resp.len(), 1, "DSR sem view deve gerar exatamente uma resposta CPR");
+        assert!(resp[0].starts_with(b"\x1b["), "CPR comeca com CSI: {:?}", resp[0]);
+        assert_eq!(resp[0].last().copied(), Some(b'R'), "CPR termina em R: {:?}", resp[0]);
+    }
+
+    #[test]
+    fn backstop_reporta_dimensoes_atuais_apos_resize() {
+        // CSI 18 t = "reporte o tamanho da área de texto em caracteres". As dims do
+        // backstop são compartilhadas com o emulador; sem o update no `resize` ele
+        // responderia pra sempre o tamanho de quando a sessão nasceu.
+        let mut e = TermEmulator::new(80, 24);
+        e.resize(120, 40);
+        e.feed(b"\x1b[18t");
+        let resp = e.take_pending_responses();
+        assert_eq!(resp.len(), 1, "CSI 18t sem view deve gerar resposta");
+        let txt = String::from_utf8_lossy(&resp[0]).to_string();
+        assert!(txt.contains("40") && txt.contains("120"), "deve refletir 120x40, veio: {txt:?}");
+    }
+
+    #[test]
+    fn take_pending_responses_drena() {
+        let mut e = TermEmulator::new(80, 24);
+        e.feed(b"\x1b[6n");
+        e.feed(b"\x1b[6n");
+        assert_eq!(e.take_pending_responses().len(), 2, "duas queries, duas respostas");
+        assert_eq!(e.take_pending_responses().len(), 0, "segunda drenagem vem vazia");
+    }
+
+    #[test]
+    fn backend_responde_as_queries_que_sao_dele() {
+        // Conjunto de queries que o backend deve responder sozinho.
+        let queries: &[(&[u8], &str)] = &[
+            (b"\x1b[6n", "DSR / CPR"),
+            (b"\x1b[c", "DA1"),
+            (b"\x1b[>c", "DA2"),
+            (b"\x1b[18t", "tamanho em celulas"),
+            (b"\x1b]10;?\x07", "OSC 10 foreground"),
+            (b"\x1b]11;?\x07", "OSC 11 background"),
+        ];
+
+        for (bytes, nome) in queries {
+            let mut e = TermEmulator::new(80, 24);
+            e.feed(bytes);
+            let respostas = e.take_pending_responses();
+            assert!(
+                !respostas.is_empty(),
+                "o backend deveria responder a query '{}'",
+                nome
+            );
+
+            if *nome == "DSR / CPR" {
+                let ultima = respostas.last().expect("resposta deveria existir");
+                assert!(
+                    ultima.ends_with(b"R"),
+                    "resposta ao DSR/CPR deveria terminar em 'R'"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn osc_10_e_11_respondem_a_cor_dinamica_e_reset_restabelece_o_tema() {
+        let mut e = TermEmulator::new(80, 24);
+
+        e.feed(b"\x1b]10;#123456\x07");
+        assert!(
+            e.take_pending_responses().is_empty(),
+            "SET nao gera resposta"
+        );
+        e.feed(b"\x1b]10;?\x07");
+        assert!(
+            single_response(&e).contains("10;rgb:1212/3434/5656"),
+            "OSC 10 deve refletir o foreground alterado",
+        );
+
+        e.feed(b"\x1b]11;#abcdef\x07");
+        assert!(
+            e.take_pending_responses().is_empty(),
+            "SET nao gera resposta"
+        );
+        e.feed(b"\x1b]11;?\x07");
+        assert!(
+            single_response(&e).contains("11;rgb:abab/cdcd/efef"),
+            "OSC 11 deve refletir o background alterado",
+        );
+
+        e.feed(b"\x1b]110\x07\x1b]111\x07");
+        e.feed(b"\x1b]10;?\x07\x1b]11;?\x07");
+        let responses = e.take_pending_responses();
+        assert_eq!(responses.len(), 2);
+        let fg = String::from_utf8_lossy(&responses[0]);
+        let bg = String::from_utf8_lossy(&responses[1]);
+        assert!(
+            fg.contains("10;rgb:eded/eeee/f0f0"),
+            "reset OSC 110: {fg:?}"
+        );
+        assert!(
+            bg.contains("11;rgb:0a0a/1010/1414"),
+            "reset OSC 111: {bg:?}"
+        );
+    }
+
+    #[test]
+    fn osc_set_e_query_no_mesmo_read_preservam_a_ordem() {
+        let mut e = TermEmulator::new(80, 24);
+
+        // Sem as fronteiras OSC, o listener responderia a cor inicial porque o espelho
+        // so seria sincronizado depois do chunk inteiro.
+        e.feed(b"\x1b]10;#123456\x07\x1b]10;?\x07");
+        assert!(
+            single_response(&e).contains("10;rgb:1212/3434/5656"),
+            "a query posterior ao SET deve enxergar o novo foreground",
+        );
+
+        // A ordem inversa deve consultar o estado antigo e so entao aplicar o SET.
+        e.feed(b"\x1b]11;?\x07\x1b]11;#abcdef\x07");
+        assert!(
+            single_response(&e).contains("11;rgb:0a0a/1010/1414"),
+            "a query anterior ao SET deve enxergar o background antigo",
+        );
+        e.feed(b"\x1b]11;?\x07");
+        assert!(single_response(&e).contains("11;rgb:abab/cdcd/efef"));
+    }
+
+    #[test]
+    fn osc_partido_entre_reads_sincroniza_so_apos_o_terminador() {
+        let mut e = TermEmulator::new(80, 24);
+
+        // O read do PTY pode cortar inclusive o ST (ESC \\) ao meio.
+        e.feed(b"\x1b]10;#12");
+        e.feed(b"3456\x1b");
+        e.feed(b"\\");
+        e.feed(b"\x1b]10;?\x1b\\");
+
+        assert!(
+            single_response(&e).contains("10;rgb:1212/3434/5656"),
+            "a máquina de estados deve sobreviver a qualquer fronteira de read",
+        );
+    }
+
+    #[test]
+    fn osc_empilhado_interpreta_cada_parametro_por_posicao() {
+        let mut e = TermEmulator::new(80, 24);
+
+        // OSC 10 empilha: parametro 0=foreground, 1=background.
+        e.feed(b"\x1b]10;#123456;?\x07");
+        assert!(
+            single_response(&e).contains("11;rgb:0a0a/1010/1414"),
+            "10;#cor;? consulta background, nao foreground",
+        );
+        e.feed(b"\x1b]10;?\x07");
+        assert!(single_response(&e).contains("10;rgb:1212/3434/5656"));
+
+        let mut e = TermEmulator::new(80, 24);
+        e.feed(b"\x1b]10;?;#abcdef\x07");
+        assert!(
+            single_response(&e).contains("10;rgb:eded/eeee/f0f0"),
+            "10;?;#cor consulta foreground e ainda aplica o SET do background",
+        );
+        e.feed(b"\x1b]11;?\x07");
+        assert!(single_response(&e).contains("11;rgb:abab/cdcd/efef"));
+    }
+
+    #[test]
+    fn osc_4_e_12_seguem_com_risco_aceito_no_eager_spawn() {
+        // Com view montada o xterm responde. No eager-spawn nao existe xterm, portanto
+        // estas queries ficam sem respondedor: risco aceito e EXPLICITO, nao resolvido.
+        // O backend ignora porque nao possui paleta/cursor autoritativos para responder.
+        let queries: &[(&[u8], &str)] = &[
+            (b"\x1b]4;1;?\x07", "OSC 4 paleta"),
+            (b"\x1b]12;?\x07", "OSC 12 cursor"),
+        ];
+
+        for (bytes, nome) in queries {
+            let mut e = TermEmulator::new(80, 24);
+            e.feed(bytes);
+            let respostas = e.take_pending_responses();
+            assert!(
+                respostas.is_empty(),
+                "o backend NAO deve responder a '{}' (risco aceito no eager-spawn)",
+                nome
+            );
+        }
+    }
+
+    #[test]
+    fn dsr_privado_e_respondido_pelo_backend() {
+        // O vte NAO despacha `CSI ? .. n` (ansi.rs:1701 casa so `('n', [])`), entao o
+        // backend detecta no stream e SINTETIZA o DECXCPR. Sem isto, no eager-spawn
+        // (sem xterm montado) ninguem respondia e a TUI morria esperando — era o
+        // defeito original sobrevivendo nesta sequencia.
+        let mut e = TermEmulator::new(80, 24);
+        e.feed(b"\x1b[?6n");
+        let respostas = e.take_pending_responses();
+        assert_eq!(respostas.len(), 1, "DSR privado tem que ser respondido pelo backend");
+        let r = String::from_utf8_lossy(&respostas[0]).to_string();
+        assert!(
+            r.starts_with("\u{1b}[?") && r.ends_with('R'),
+            "DECXCPR tem formato ESC [ ? linha ; coluna ; 1 R, veio: {r:?}"
+        );
+    }
+
+    #[test]
+    fn detecta_dsr_privado_em_um_chunk() {
+        let mut detector = DetectorDsrPrivado::default();
+        assert_eq!(detector.scan(b"\x1b[?6n"), 1);
+    }
+
+    #[test]
+    fn detecta_dsr_privado_partido_entre_chunks() {
+        let mut detector = DetectorDsrPrivado::default();
+        let primeiro = detector.scan(b"\x1b[?");
+        assert_eq!(primeiro, 0, "o prefixo sozinho ainda nao forma uma requisicao completa");
+
+        let segundo = detector.scan(b"6n");
+        assert_eq!(
+            segundo, 1,
+            "sequencia partida entre chunks: o PTY entrega pedacos arbitrarios, \
+             entao um contains() simples falharia neste caso real; a maquina de estados \
+             persiste e detecta corretamente"
+        );
+    }
+
+    #[test]
+    fn nao_confunde_com_dectcem() {
+        let mut detector = DetectorDsrPrivado::default();
+        assert_eq!(detector.scan(b"\x1b[?25h"), 0, "mostrar cursor (DECTCEM) nao e DSR");
+    }
+
+    #[test]
+    fn conta_multiplas_no_mesmo_chunk() {
+        let mut detector = DetectorDsrPrivado::default();
+        assert_eq!(detector.scan(b"\x1b[?6n\x1b[?6n"), 2);
+    }
+
+    #[test]
+    fn texto_comum_nao_dispara() {
+        let mut detector = DetectorDsrPrivado::default();
+        assert_eq!(detector.scan(b"ola mundo\n"), 0);
+    }
+
+    #[test]
+    fn esc_repetido_nao_quebra() {
+        let mut detector = DetectorDsrPrivado::default();
+        assert_eq!(detector.scan(b"\x1b\x1b[?6n"), 1);
     }
 }
