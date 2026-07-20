@@ -3885,7 +3885,7 @@ dependencies = [
 
 [[package]]
 name = "omnirift"
-version = "0.1.141"
+version = "0.1.142"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
