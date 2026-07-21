@@ -189,9 +189,15 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // nasce como nó-filho privado e materializa um .claude/agents/<role>.md na pasta do pai.
   function addSubagentHere(e: React.MouseEvent) {
     e.stopPropagation();
+    // Geometria FRESCA do store: o comparador do memo (agentPropsEqual) ignora position/size,
+    // então o `data` deste render pode estar defasado nesses campos após um arrasto. O menu do
+    // subagente abre logo ABAIXO do nó — precisa da posição/altura atuais pra cair no lugar certo.
+    const live = useCanvasStore.getState().parallels.flatMap((p) => p.nodes).find((n) => n.id === data.id);
+    const pos = live?.position ?? data.position;
+    const sz = live?.size ?? data.size;
     openConnectMenu({
       fromNodeId: data.id,
-      flow: { x: (data.position?.x ?? 0) + 24, y: (data.position?.y ?? 0) + (data.size?.height ?? 480) + 48 },
+      flow: { x: (pos?.x ?? 0) + 24, y: (pos?.y ?? 0) + (sz?.height ?? 480) + 48 },
       screen: { x: e.clientX, y: e.clientY },
       mode: "subagent",
     });
@@ -1902,4 +1908,28 @@ function LoopForm({
   );
 }
 
-export const AgentNode = memo(AgentNodeImpl);
+// P0 (tela preta WebKitGTK) — comparador ESTÁVEL do memo. O AgentNode é o card mais PESADO do
+// canvas (árvore enorme, portais, ~30 hooks/efeitos). O React Flow reescreve a POSIÇÃO deste nó
+// no store a CADA frame do arrasto (~60×/s) e `data` É o CanvasNode inteiro (position/size
+// incluídos, ver FloorCanvas `data: n`) → com o memo padrão (shallow) `data` ganha referência
+// nova a cada frame e o card inteiro re-renderiza 60×/s, saturando a main thread do WebKitGTK →
+// tela preta (o detector acusava ~61 renders/s). A posição NÃO é desenhada por este componente
+// (o React Flow posiciona o WRAPPER via transform), então mudança só-de-position/size é
+// irrelevante pro render. Mesmo espírito do fix do FilterNode (matar o re-render de churn):
+// re-renderiza só quando um campo REALMENTE exibido muda. Campos novos entram no compare por
+// padrão (patchNode preserva a ref dos campos não-alterados → Object.is os detecta), sem risco de
+// stale; onde um handler precisa de position/size fresco, lê do store (ver addSubagentHere).
+function agentPropsEqual(prev: AgentNodeProps, next: AgentNodeProps): boolean {
+  if (prev.selected !== next.selected) return false;
+  const a = prev.data as Record<string, unknown>;
+  const b = next.data as Record<string, unknown>;
+  if (a === b) return true;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if (k === "position" || k === "size") continue; // churn de arrasto/resize — não afeta o render
+    if (!Object.is(a[k], b[k])) return false;
+  }
+  return true;
+}
+
+export const AgentNode = memo(AgentNodeImpl, agentPropsEqual);
