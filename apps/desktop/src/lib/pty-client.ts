@@ -18,6 +18,12 @@ import type {
   SessionId,
 } from "@/types/pty";
 import { getFlag } from "@/lib/feature-flags";
+import {
+  isMissingSessionError,
+  isSessionDead,
+  markSessionDead,
+  markSessionLive,
+} from "@/lib/pty-session-registry";
 
 /**
  * Histórico que uma view xterm mantém e reidrata ao voltar ao viewport.
@@ -49,7 +55,20 @@ export async function ptySpawn(
   id: SessionId,
   config: PtySpawnConfig,
 ): Promise<SessionId> {
-  return invoke<SessionId>("pty_spawn", { id, config: await withAgentConfigDir(config) });
+  try {
+    const result = await invoke<SessionId>("pty_spawn", { id, config: await withAgentConfigDir(config) });
+    // (Re)nasceu com este id → limpa qualquer marca de morto de uma encarnação
+    // anterior (reconnect/wake/restore reusam o MESMO id). Sem isto, um id reciclado
+    // ficaria bloqueado no guard de ptyWrite pra sempre.
+    markSessionLive(id);
+    return result;
+  } catch (e) {
+    // "sessão já existe" = a sessão ESTÁ viva (corrida eager-spawn × mount do nó) →
+    // também limpa a marca; o caller trata esse erro como "attach". Demais erros: a
+    // sessão pode não existir, mantém a marca como estava.
+    if (String(e).includes("já existe")) markSessionLive(id);
+    throw e;
+  }
 }
 
 /** Envia bytes (string UTF-8) para o stdin do PTY. */
@@ -57,7 +76,21 @@ export async function ptyWrite(
   sessionId: SessionId,
   data: string,
 ): Promise<void> {
-  return invoke("pty_write", { sessionId, data });
+  // Guard anti-spam do reload: o backend reapeia as PtySession no teardown/gc, mas o
+  // front seguia com ids antigos e escrevia neles a cada keystroke/tick → o PtyManager
+  // devolvia "sessão X não encontrada" dezenas de vezes por sessão. Marcada morta
+  // (ptyKill/gc ou pelo self-heal abaixo), a escrita vira no-op silencioso — cala o IPC
+  // inútil, não só o log — até a sessão renascer (ptySpawn limpa a marca).
+  if (isSessionDead(sessionId)) return;
+  try {
+    await invoke("pty_write", { sessionId, data });
+  } catch (e) {
+    // Self-heal: o backend CONFIRMOU que a sessão sumiu → marca morta pra a PRÓXIMA
+    // escrita já cair no no-op acima (colapsa o spam a NO MÁXIMO 1 erro por sessão).
+    // Cobre reaps iniciados no backend (MCP/orquestrador) que não passam por ptyKill.
+    if (isMissingSessionError(e)) markSessionDead(sessionId);
+    throw e;
+  }
 }
 
 /** Redimensiona o PTY — chame quando o xterm.js fit() recalcular. */
@@ -71,6 +104,12 @@ export async function ptyResize(
 
 /** Encerra a sessão (e mata o processo filho). */
 export async function ptyKill(sessionId: SessionId): Promise<void> {
+  // Reap explícito: marca morta ANTES do IPC pra qualquer escrita concorrente (keystroke
+  // no respiro do reconnect, tick do dock do Orquestrador) virar no-op na hora, sem
+  // esperar o 1º erro voltar do backend. É o que zera o spam no caminho de reload
+  // (restore → gcPtySessions → ptyKill dos ids órfãos). ptySpawn limpa se a sessão
+  // renascer com o mesmo id (reconnect/wake).
+  markSessionDead(sessionId);
   return invoke("pty_kill", { sessionId });
 }
 

@@ -21,7 +21,8 @@
     "test:pipeline-edit": "node scripts/run-pipeline-edit-tests.mjs",
     "test:action-trail": "node scripts/run-action-trail-tests.mjs",
     "test:boot-armor": "node scripts/run-boot-armor-tests.mjs",
-    "test:terminal-query-authority": "node scripts/run-terminal-query-authority-tests.mjs"
+    "test:terminal-query-authority": "node scripts/run-terminal-query-authority-tests.mjs",
+    "test:pty-session-registry": "node scripts/run-pty-session-registry-tests.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
