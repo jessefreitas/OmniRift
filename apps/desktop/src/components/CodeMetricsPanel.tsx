@@ -60,7 +60,6 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
   const [fnData, setFnData] = useState<CodeMetrics | null>(null);
   const [fnLoading, setFnLoading] = useState(false);
   const [fnError, setFnError] = useState<string | null>(null);
-  const [analyzePath, setAnalyzePath] = useState<string | null>(null);
 
   // Token para descartar scans antigos
   const scanToken = useRef(0);
@@ -374,7 +373,7 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
                   <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setAnalyzePath(f.path); analyzeFile(f.path); }}
+                      onClick={(e) => { e.stopPropagation(); analyzeFile(f.path); }}
                       className="flex items-center gap-0.5 text-[10px] text-brand hover:underline"
                       title={t("cpx.analyze", "analisar IA")}
                     >
