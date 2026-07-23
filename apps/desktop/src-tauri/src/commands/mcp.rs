@@ -78,7 +78,7 @@ pub fn save_paste_image(bytes: Vec<u8>) -> Result<String, String> {
         .map(|d| d.as_millis())
         .unwrap_or(0);
 
-    let dir = std::env::temp_dir().join("omnirift-pastes");
+    let dir = std::env::temp_dir().join(format!("{}-pastes", crate::channel::TEMP_NAMESPACE));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     let path = dir.join(format!("paste-{millis}.png"));

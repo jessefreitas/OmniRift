@@ -140,12 +140,8 @@ const CONTEXT7_MCP_JSON: &str =
     r#"{"mcpServers":{"context7":{"type":"http","url":"https://mcp.context7.com/mcp"}}}"#;
 
 fn context7_config_path() -> Result<String, String> {
-    #[cfg(windows)]
-    let home = std::env::var("USERPROFILE").map_err(|_| "sem HOME".to_string())?;
-    #[cfg(not(windows))]
-    let home = std::env::var("HOME").map_err(|_| "sem HOME".to_string())?;
-    let dir = std::path::PathBuf::from(home).join(".omnirift");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("criar .omnirift: {e}"))?;
+    let dir = crate::channel::user_state_root().ok_or_else(|| "sem HOME".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("criar estado do canal: {e}"))?;
     let path = dir.join("learn-context7-mcp.json");
     std::fs::write(&path, CONTEXT7_MCP_JSON).map_err(|e| format!("escrever mcp-config: {e}"))?;
     Ok(path.to_string_lossy().to_string())

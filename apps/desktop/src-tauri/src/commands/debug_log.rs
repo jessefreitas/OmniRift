@@ -9,21 +9,8 @@ use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 
-#[cfg(windows)]
-fn home_dir() -> Option<String> {
-    std::env::var("USERPROFILE").ok()
-}
-#[cfg(not(windows))]
-fn home_dir() -> Option<String> {
-    std::env::var("HOME").ok()
-}
-
 fn log_path() -> Option<PathBuf> {
-    Some(
-        PathBuf::from(home_dir()?)
-            .join(".omnirift")
-            .join("debug.log"),
-    )
+    Some(crate::channel::user_state_root()?.join("debug.log"))
 }
 
 /// Appenda uma linha no debug.log (cria o dir/arquivo se preciso). Best-effort.

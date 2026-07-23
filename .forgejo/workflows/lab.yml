@@ -1,0 +1,52 @@
+name: lab
+
+on:
+  push:
+    branches: ["lab", "lab/**"]
+  pull_request:
+    branches: ["lab"]
+
+jobs:
+  isolation:
+    name: isolamento Lab
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust e dependências Tauri
+        run: |
+          set -e
+          SUDO=$(command -v sudo || true)
+          export DEBIAN_FRONTEND=noninteractive
+          $SUDO apt-get update
+          $SUDO apt-get install -y curl build-essential \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libasound2-dev libdbus-1-dev pkg-config
+          if ! command -v cargo >/dev/null && [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - run: npm ci
+
+      - name: Guard de isolamento
+        run: npm run lab:guard
+
+      - name: Build frontend Lab
+        run: npm run build:lab --workspace=apps/desktop
+
+      - name: Testes e check backend Lab
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          T="$(rustc -vV | sed -n 's/host: //p')"
+          mkdir -p apps/desktop/src-tauri/binaries
+          for b in omnicompress-proxy omnicompress-mcp omnicompress; do
+            : > "apps/desktop/src-tauri/binaries/$b-$T"
+          done
+          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --features lab channel::tests
+          cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --features lab

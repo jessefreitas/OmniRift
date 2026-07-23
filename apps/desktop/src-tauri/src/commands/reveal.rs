@@ -13,17 +13,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::Manager;
 
-// home_dir(): USERPROFILE no windows, HOME no resto (mesmo padrão do debug_mode.rs).
-#[cfg(windows)]
-fn home_dir() -> Option<String> {
-    std::env::var("USERPROFILE").ok()
-}
-
-#[cfg(not(windows))]
-fn home_dir() -> Option<String> {
-    std::env::var("HOME").ok()
-}
-
 /// Valida que `path` existe e cai dentro de uma das pastas permitidas.
 /// Devolve o caminho CANONICALIZADO (é ele que vai pro Command — não o cru, senão
 /// um `..` no meio driblaria a checagem).
@@ -78,8 +67,8 @@ fn allowed_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
         dirs.push(dir);
     }
 
-    if let Some(home) = home_dir() {
-        dirs.push(PathBuf::from(home).join(".omnirift"));
+    if let Some(root) = crate::channel::user_state_root() {
+        dirs.push(root);
     }
 
     dirs

@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "OmniRift Lab",
+  "identifier": "com.omniforge.omnirift.lab",
+  "build": {
+    "beforeDevCommand": "npm run dev:lab",
+    "beforeBuildCommand": "npm run build:lab"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "OmniRift Lab"
+      }
+    ]
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "signingIdentity": "-"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/jessefreitas/OmniRift/releases/download/lab-latest/latest.json"
+      ]
+    }
+  }
+}

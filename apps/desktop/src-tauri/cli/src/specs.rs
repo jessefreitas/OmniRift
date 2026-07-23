@@ -303,7 +303,7 @@ pub fn render_help() -> String {
     out.push_str("\nFLAGS GLOBAIS:\n");
     out.push_str("  --json      Imprime a resposta JSON crua (em vez de texto humano).\n");
     out.push_str("  --help, -h  Mostra ajuda (deste comando, se houver um).\n");
-    out.push_str("\nDescoberta: lê ~/.omnirift/runtime.json (escrito pelo app rodando).\n");
+    out.push_str("\nDescoberta: lê ~/.omnirift/runtime.json; com OMNIRIFT_CHANNEL=lab, lê ~/.omnirift-lab/runtime.json.\n");
     out
 }
 

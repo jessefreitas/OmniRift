@@ -20,6 +20,10 @@ jobs:
     outputs:
       published: ${{ steps.chk.outputs.published }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Release já publicado?
         id: chk
         env:
@@ -31,6 +35,19 @@ jobs:
           draft=$(gh release view "${{ github.ref_name }}" -R "${{ github.repository }}" --json isDraft -q .isDraft 2>/dev/null || echo missing)
           echo "release '${{ github.ref_name }}' isDraft=$draft"
           if [ "$draft" = "false" ]; then echo "published=true" >> "$GITHUB_OUTPUT"; else echo "published=false" >> "$GITHUB_OUTPUT"; fi
+
+      # Uma tag v* criada por engano numa branch Lab jamais pode publicar código
+      # experimental no canal Stable. A tag precisa apontar para um commit já
+      # pertencente à main remota.
+      - name: Tag Stable pertence à main
+        if: steps.chk.outputs.published != 'true' && github.event_name != 'workflow_dispatch'
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "❌ tag Stable aponta para commit fora da main — release bloqueado"
+            exit 1
+          fi
+          echo "✓ commit da tag pertence à main"
 
       # Recusa release cuja versão NÃO seja estritamente > a última publicada — protege
       # o auto-update de downgrade acidental (ref P2 #16). Só p/ release novo, não manual.

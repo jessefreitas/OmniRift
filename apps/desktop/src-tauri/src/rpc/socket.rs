@@ -27,7 +27,7 @@ use tauri::AppHandle;
 pub fn socket_path() -> Option<PathBuf> {
     let path = if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
         if !xdg.is_empty() {
-            PathBuf::from(xdg).join("omnirift.sock")
+            PathBuf::from(xdg).join(crate::channel::RPC_SOCKET_FILE)
         } else {
             fallback_socket_path()?
         }
@@ -51,8 +51,11 @@ pub fn socket_path() -> Option<PathBuf> {
 
 #[cfg(unix)]
 fn fallback_socket_path() -> Option<PathBuf> {
-    let home = home_dir()?;
-    Some(PathBuf::from(home).join(".omnirift").join("run").join("omnirift.sock"))
+    Some(
+        crate::channel::user_state_root()?
+            .join("run")
+            .join(crate::channel::RPC_SOCKET_FILE),
+    )
 }
 
 /// Nome do named pipe da sessão (Windows). Formato `\\.\pipe\omnirift-<8 hex do pid>` —
@@ -62,14 +65,12 @@ fn fallback_socket_path() -> Option<PathBuf> {
 /// hex (8 chars, zero-pad) — derivado de info de runtime, sem precisar do token aqui.
 #[cfg(windows)]
 pub fn pipe_name() -> String {
-    format!(r"\\.\pipe\omnirift-{:08x}", std::process::id())
-}
-
-// `home_dir` só é usado pelo `fallback_socket_path` (Unix); no Windows o transporte é o
-// named pipe (sem caminho de FS), então a função é Unix-only — não há fallback de HOME lá.
-#[cfg(unix)]
-fn home_dir() -> Option<String> {
-    std::env::var("HOME").ok()
+    let prefix = if crate::channel::is_lab() {
+        "omnirift-lab"
+    } else {
+        "omnirift"
+    };
+    format!(r"\\.\pipe\{prefix}-{:08x}", std::process::id())
 }
 
 /// Sobe o listener Unix socket no runtime tokio do Tauri. Retorna o path em que ficou
@@ -431,12 +432,17 @@ mod tests {
     #[test]
     fn pipe_name_has_canonical_prefix_and_pid_suffix() {
         let name = pipe_name();
+        let prefix = if crate::channel::is_lab() {
+            r"\\.\pipe\omnirift-lab-"
+        } else {
+            r"\\.\pipe\omnirift-"
+        };
         assert!(
-            name.starts_with(r"\\.\pipe\omnirift-"),
+            name.starts_with(prefix),
             "pipe name deve usar o prefixo canônico do named pipe: {name}"
         );
         // sufixo = pid em hex de 8 chars (zero-pad).
-        let suffix = name.trim_start_matches(r"\\.\pipe\omnirift-");
+        let suffix = name.trim_start_matches(prefix);
         assert_eq!(suffix.len(), 8, "sufixo = pid em hex 8 chars: {suffix}");
         assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()));
     }

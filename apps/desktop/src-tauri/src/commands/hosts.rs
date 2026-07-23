@@ -23,21 +23,11 @@ pub struct SshHostEntry {
     pub ssh_target: String,
 }
 
-/// HOME cross-platform (USERPROFILE no Windows) — mesmo padrão de `rpc/metadata.rs`.
-#[cfg(windows)]
-fn home_dir() -> Option<String> {
-    std::env::var("USERPROFILE").ok()
-}
-
-#[cfg(not(windows))]
-fn home_dir() -> Option<String> {
-    std::env::var("HOME").ok()
-}
-
 /// `~/.omnirift/hosts.json` — mesmo diretório canônico do `runtime.json`.
 fn hosts_path() -> Result<PathBuf, String> {
-    let home = home_dir().ok_or_else(|| "HOME indisponível".to_string())?;
-    Ok(Path::new(&home).join(".omnirift").join("hosts.json"))
+    Ok(crate::channel::user_state_root()
+        .ok_or_else(|| "HOME indisponível".to_string())?
+        .join("hosts.json"))
 }
 
 /// Lê o registry de um path (testável). Arquivo ausente / vazio → lista vazia

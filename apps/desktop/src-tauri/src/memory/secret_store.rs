@@ -8,8 +8,6 @@
 
 use keyring::Entry;
 
-const SERVICE: &str = "OmniRift";
-
 /// Permite desligar o keychain (testes, headless, ou preferência do usuário).
 fn disabled() -> bool {
     std::env::var_os("OMNIRIFT_NO_KEYCHAIN").is_some()
@@ -19,7 +17,19 @@ fn entry(account: &str) -> Option<Entry> {
     if disabled() {
         return None;
     }
-    Entry::new(SERVICE, account).ok()
+    Entry::new(crate::channel::KEYRING_SERVICE, account).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn service_follows_build_channel() {
+        if crate::channel::is_lab() {
+            assert_eq!(crate::channel::KEYRING_SERVICE, "OmniRift-Lab");
+        } else {
+            assert_eq!(crate::channel::KEYRING_SERVICE, "OmniRift");
+        }
+    }
 }
 
 /// Grava o token no keychain. `true` = gravado; `false` = indisponível → fallback.

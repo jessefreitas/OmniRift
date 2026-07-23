@@ -35,25 +35,12 @@ pub struct RuntimeMetadata {
 /// em si (ver socket.rs); o metadata fica sempre em `~/.omnirift/` pro CLI ter um
 /// único lugar canônico de descoberta.
 pub fn omnirift_home() -> Option<PathBuf> {
-    let home = home_dir()?;
-    Some(Path::new(&home).join(".omnirift"))
+    crate::channel::user_state_root()
 }
 
 /// Caminho canônico do `runtime.json` (`~/.omnirift/runtime.json`).
 pub fn metadata_path() -> Option<PathBuf> {
     Some(omnirift_home()?.join("runtime.json"))
-}
-
-/// HOME cross-platform (USERPROFILE no Windows) — mesmo padrão do resto do app
-/// (`mcp/serena_pool.rs`).
-#[cfg(windows)]
-fn home_dir() -> Option<String> {
-    std::env::var("USERPROFILE").ok()
-}
-
-#[cfg(not(windows))]
-fn home_dir() -> Option<String> {
-    std::env::var("HOME").ok()
 }
 
 /// Token aleatório da sessão (hex de 32 bytes), direto do RNG do SO.
@@ -154,6 +141,15 @@ mod tests {
         assert_eq!(a.len(), 64, "SHA-256 hex = 64 chars");
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
         assert_ne!(a, b, "tokens consecutivos devem diferir (counter + tempo)");
+    }
+
+    #[test]
+    fn runtime_home_is_namespaced_by_channel() {
+        let root = crate::channel::user_state_root_from("/home/tester");
+        assert_eq!(
+            root.file_name().and_then(|v| v.to_str()),
+            Some(crate::channel::USER_STATE_DIR)
+        );
     }
 
     #[test]

@@ -79,6 +79,7 @@ import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib
 import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { EditableLabel } from "@/components/EditableLabel";
 import { UpdaterButton } from "@/components/UpdaterButton";
+import { IS_LAB_BUILD } from "@/lib/build-channel";
 import { TrajectoryEvalModal } from "@/components/TrajectoryEvalModal";
 import { SubagentEditModal } from "@/components/SubagentEditModal";
 import { PromptModal } from "@/components/PromptModal";
@@ -2546,7 +2547,10 @@ export function Sidebar() {
             </button>
           )}
         </div>
-        <div className="opacity-70 mt-0.5"><AppVersion /> · {tr("sidebar.localBuild", "build local")}</div>
+        <div className="opacity-70 mt-0.5">
+          <AppVersion /> · {tr("sidebar.localBuild", "build local")}
+          {IS_LAB_BUILD && <span className="ml-1 rounded bg-amber-500/20 px-1 text-amber-400">LAB</span>}
+        </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <UpdaterButton />
           <span className="opacity-40">·</span>

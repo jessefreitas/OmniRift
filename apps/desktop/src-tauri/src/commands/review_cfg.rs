@@ -413,7 +413,7 @@ pub fn agent_config_dir() -> Option<String> {
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()?;
     let home = std::path::Path::new(&home);
-    let dir = home.join(".omnirift").join("agent-claude-home");
+    let dir = crate::channel::user_state_root_from(home).join("agent-claude-home");
     std::fs::create_dir_all(&dir).ok()?;
 
     // Estado principal (~/.claude.json: conta OAuth + onboarding concluído) — só se

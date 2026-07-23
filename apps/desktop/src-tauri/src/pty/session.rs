@@ -916,6 +916,10 @@ fn build_command(
     for (k, v) in &cfg.env {
         cmd.env(k, v);
     }
+    // A CLI `omnirift` usa este canal para descobrir o runtime correto. No Lab,
+    // impede que um agente leia ~/.omnirift/runtime.json e converse por engano
+    // com a instalação Stable aberta em paralelo. Compile-time vence cfg.env.
+    cmd.env("OMNIRIFT_CHANNEL", crate::channel::NAME);
     // Limpa o env de GUI do workaround do `tauri:dev` (snap/glibc) pros processos
     // filhos — esses LD_PRELOAD/GTK_MODULES são só pra WebKitGTK do maestri; vazar
     // pro claude e pro Chromium do Playwright (que o agente dirige) pode quebrá-los.

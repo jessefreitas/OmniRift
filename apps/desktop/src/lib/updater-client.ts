@@ -7,6 +7,7 @@
 
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { UPDATER_ENABLED } from "@/lib/build-channel";
 
 export interface UpdateInfo {
   available: boolean;
@@ -17,6 +18,7 @@ export interface UpdateInfo {
 
 /** Procura update. Devolve o handle (pra instalar) + um resumo serializável. */
 export async function checkForUpdate(): Promise<{ info: UpdateInfo; update: Update | null }> {
+  if (!UPDATER_ENABLED) throw new Error("Updater desabilitado no OmniRift Lab");
   const update = await check();
   if (!update) return { info: { available: false }, update: null };
   return {
@@ -32,6 +34,7 @@ export async function checkForUpdate(): Promise<{ info: UpdateInfo; update: Upda
 
 /** Baixa + instala o update (reportando %) e relança o app. */
 export async function installUpdate(update: Update, onProgress?: (pct: number) => void): Promise<void> {
+  if (!UPDATER_ENABLED) throw new Error("Updater desabilitado no OmniRift Lab");
   let downloaded = 0;
   let total = 0;
   await update.downloadAndInstall((event) => {

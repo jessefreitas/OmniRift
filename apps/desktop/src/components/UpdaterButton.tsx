@@ -9,6 +9,7 @@ import { Check, Download, RefreshCw } from "lucide-react";
 import type { Update } from "@tauri-apps/plugin-updater";
 
 import { checkForUpdate, installUpdate, type UpdateInfo } from "@/lib/updater-client";
+import { UPDATER_ENABLED } from "@/lib/build-channel";
 import { useT } from "@/lib/i18n";
 
 type State = "idle" | "checking" | "uptodate" | "available" | "installing" | "error";
@@ -20,6 +21,8 @@ export function UpdaterButton() {
   const [update, setUpdate] = useState<Update | null>(null);
   const [pct, setPct] = useState(0);
   const [err, setErr] = useState("");
+
+  if (!UPDATER_ENABLED) return null;
 
   async function onCheck() {
     setState("checking");

@@ -1,0 +1,68 @@
+name: lab
+
+on:
+  push:
+    branches: [lab, "lab/**"]
+  pull_request:
+    branches: [lab]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolation:
+    name: isolamento + build Lab
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Dependências Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libasound2-dev libdbus-1-dev libfuse3-dev pkg-config
+
+      - run: npm ci
+
+      - name: Guard de isolamento
+        run: npm run lab:guard
+
+      - name: Build frontend no modo Lab
+        run: npm run build:lab --workspace=apps/desktop
+
+      # tauri-build valida externalBin já no cargo check; stubs bastam porque
+      # este job não executa nem empacota sidecars.
+      - name: Preparar stubs dos sidecars
+        shell: bash
+        run: |
+          T="$(rustc -vV | sed -n 's/host: //p')"
+          mkdir -p apps/desktop/src-tauri/binaries
+          for b in omnicompress-proxy omnicompress-mcp omnicompress; do
+            : > "apps/desktop/src-tauri/binaries/$b-$T"
+          done
+
+      - name: Testes do canal Stable
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml channel::tests
+
+      - name: Testes do canal Lab
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --features lab channel::tests
+
+      - name: Compilação backend Lab
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --features lab

@@ -96,10 +96,21 @@ fn home_dir() -> Option<String> {
     std::env::var("HOME").ok()
 }
 
-/// Caminho canônico do `runtime.json` (`~/.omnirift/runtime.json`). Espelha
-/// `metadata_path()` do #8A.
+fn metadata_path_from(home: &str, channel: Option<&str>) -> std::path::PathBuf {
+    let state_dir = if channel == Some("lab") {
+        ".omnirift-lab"
+    } else {
+        ".omnirift"
+    };
+    std::path::Path::new(home).join(state_dir).join("runtime.json")
+}
+
+/// Caminho canônico do `runtime.json`. `OMNIRIFT_CHANNEL=lab` seleciona
+/// `~/.omnirift-lab/runtime.json`; ausente/qualquer outro valor preserva Stable.
 pub fn metadata_path() -> Option<std::path::PathBuf> {
-    Some(std::path::Path::new(&home_dir()?).join(".omnirift").join("runtime.json"))
+    let home = home_dir()?;
+    let channel = std::env::var("OMNIRIFT_CHANNEL").ok();
+    Some(metadata_path_from(&home, channel.as_deref()))
 }
 
 /// Lê e desserializa o `runtime.json`. Ausente → `NotRunning` (mensagem amigável:
@@ -302,6 +313,18 @@ mod tests {
     use serde_json::json;
 
     // --- runtime.json (descoberta) ---
+    #[test]
+    fn metadata_path_separates_stable_and_lab() {
+        assert_eq!(
+            metadata_path_from("/home/tester", None),
+            std::path::PathBuf::from("/home/tester/.omnirift/runtime.json")
+        );
+        assert_eq!(
+            metadata_path_from("/home/tester", Some("lab")),
+            std::path::PathBuf::from("/home/tester/.omnirift-lab/runtime.json")
+        );
+    }
+
     #[test]
     fn parse_metadata_reads_camelcase() {
         let raw = r#"{"socketPath":"/run/x.sock","token":"abc","pid":42,"version":"0.1.34"}"#;

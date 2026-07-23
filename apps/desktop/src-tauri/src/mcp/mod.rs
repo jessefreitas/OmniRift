@@ -16,7 +16,7 @@ pub use server::mcp_router;
 
 /// Porta do servidor MCP local (loopback). Fonte ÚNICA: o bind em `lib.rs`, a URL
 /// em `mcp_server_url` e os push-hooks de status (`agent_settings_config`) usam isto.
-pub const MCP_PORT: u16 = 7844;
+pub const MCP_PORT: u16 = crate::channel::MCP_PORT;
 
 /// Comando Tauri de teste do pool Serena (Fase 9b): spawna/reusa a instância do
 /// projeto, faz o handshake MCP e lista as tools — devolve um resumo legível.

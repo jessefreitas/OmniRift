@@ -1,22 +1,11 @@
 use std::fs;
 use std::path::PathBuf;
 
-// home_dir(): USERPROFILE no windows, HOME no resto (mesmo padrão do debug_log.rs).
-#[cfg(windows)]
-fn home_dir() -> Option<String> {
-    std::env::var("USERPROFILE").ok()
-}
-
-#[cfg(not(windows))]
-fn home_dir() -> Option<String> {
-    std::env::var("HOME").ok()
-}
-
 // Marcador em ~/.omnirift/debug-mode. Arquivo existe = ligado.
 // Marcador (e não config JSON) porque precisa ser lido no boot com custo zero e
 // sem parser — se o arquivo de config estiver corrompido o app ainda sobe.
 fn marker_path() -> Option<PathBuf> {
-    home_dir().map(|home| PathBuf::from(home).join(".omnirift").join("debug-mode"))
+    Some(crate::channel::user_state_root()?.join("debug-mode"))
 }
 
 /// Modo debug está ligado? Lido no BOOT (lib.rs) pra escolher o LevelFilter, e

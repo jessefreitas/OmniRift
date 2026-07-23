@@ -707,18 +707,11 @@ pub struct GodNodeAlert {
 /// Caminho do baseline de god nodes de um projeto: `~/.omnirift/omnigraph-godnodes/<sha256(cwd)>.json`.
 /// Mesmo padrão de slot-por-hash do `pipeline.rs` (não polui o repo do usuário; estável por cwd).
 fn god_nodes_baseline_path(cwd: &str) -> Option<PathBuf> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()?;
+    let root = crate::channel::user_state_root()?;
     let mut h = Sha256::new();
     h.update(cwd.as_bytes());
     let hex = format!("{:x}", h.finalize());
-    Some(
-        Path::new(&home)
-            .join(".omnirift")
-            .join("omnigraph-godnodes")
-            .join(format!("{hex}.json")),
-    )
+    Some(root.join("omnigraph-godnodes").join(format!("{hex}.json")))
 }
 
 /// Núcleo PURO do alerta de dívida (sem IO): dados os god nodes ATUAIS (id, label, grau) e o
@@ -857,18 +850,11 @@ const GRAPH_SNAPSHOT_CAP: usize = 20;
 /// Diretório de histórico de snapshots de um projeto: `~/.omnirift/omnigraph-history/<sha256(cwd)>/`.
 /// Slot-por-hash estável (mesmo idioma do `god_nodes_baseline_path`) — não toca o repo do usuário.
 fn omnigraph_history_dir(cwd: &str) -> Option<PathBuf> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()?;
+    let root = crate::channel::user_state_root()?;
     let mut h = Sha256::new();
     h.update(cwd.as_bytes());
     let hex = format!("{:x}", h.finalize());
-    Some(
-        Path::new(&home)
-            .join(".omnirift")
-            .join("omnigraph-history")
-            .join(hex),
-    )
+    Some(root.join("omnigraph-history").join(hex))
 }
 
 /// Epoch em MILISSEGUNDOS (SystemTime, igual ao resto do OmniFS) — vira o nome do snapshot.

@@ -27,19 +27,11 @@ pub struct LlmProvider {
     pub has_key: bool,
 }
 
-#[cfg(windows)]
-fn home_dir() -> Option<String> {
-    std::env::var("USERPROFILE").ok()
-}
-#[cfg(not(windows))]
-fn home_dir() -> Option<String> {
-    std::env::var("HOME").ok()
-}
-
 /// `~/.omnirift/llm_providers.json` — mesmo diretório canônico do `hosts.json`.
 fn providers_path() -> Result<PathBuf, String> {
-    let home = home_dir().ok_or_else(|| "HOME indisponível".to_string())?;
-    Ok(Path::new(&home).join(".omnirift").join("llm_providers.json"))
+    Ok(crate::channel::user_state_root()
+        .ok_or_else(|| "HOME indisponível".to_string())?
+        .join("llm_providers.json"))
 }
 
 fn read_at(path: &Path) -> Result<Vec<LlmProvider>, String> {

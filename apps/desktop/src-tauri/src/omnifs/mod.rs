@@ -88,10 +88,10 @@ fn socket_path_from(overr: Option<String>, xdg: Option<String>, home: Option<Str
         return PathBuf::from(o);
     }
     if let Some(x) = xdg.filter(|s| !s.trim().is_empty()) {
-        return Path::new(&x).join("omnifs.sock");
+        return Path::new(&x).join(crate::channel::OMNIFS_SOCKET_FILE);
     }
     let base = home.unwrap_or_else(|| ".".into());
-    Path::new(&base).join(".omnirift").join("omnifs.sock")
+    crate::channel::user_state_root_from(base).join(crate::channel::OMNIFS_SOCKET_FILE)
 }
 
 /// O daemon está atendendo no socket? Connect em unix socket local é imediato
@@ -320,7 +320,7 @@ pub struct OmniFsConfig {
 }
 
 fn config_path() -> Option<PathBuf> {
-    Some(Path::new(&home_dir()?).join(".omnirift").join("omnifs.json"))
+    Some(crate::channel::user_state_root()?.join("omnifs.json"))
 }
 
 pub fn read_config() -> Option<OmniFsConfig> {
@@ -553,8 +553,8 @@ pub fn ensure_daemon(store: &Path, mount: &Path, sock: &Path) -> Result<(), Stri
 
     // stderr do daemon → ~/.omnirift/omnifs-daemon.log (o daemon loga tudo no
     // stderr; sem isto o diagnóstico de "não subiu" seria cego).
-    let stderr = home_dir()
-        .map(|h| Path::new(&h).join(".omnirift").join("omnifs-daemon.log"))
+    let stderr = crate::channel::user_state_root()
+        .map(|root| root.join("omnifs-daemon.log"))
         .and_then(|p| {
             std::fs::create_dir_all(p.parent()?).ok()?;
             std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
@@ -614,10 +614,12 @@ pub fn ensure_daemon(_store: &Path, _mount: &Path, _sock: &Path) -> Result<(), S
 /// mount (default `~/OmniRift/Projetos`), grava a config e sobe/reusa o daemon.
 pub fn provision(mount_dir: Option<String>) -> Result<DaemonStatus, String> {
     let home = home_dir().ok_or_else(|| "HOME indisponível".to_string())?;
-    let store = Path::new(&home).join(".omnirift").join("omnifs-drive");
+    let store = crate::channel::user_state_root_from(&home).join("omnifs-drive");
     let mount = match mount_dir.filter(|s| !s.trim().is_empty()) {
         Some(m) => PathBuf::from(m),
-        None => Path::new(&home).join("OmniRift").join("Projetos"),
+        None => Path::new(&home)
+            .join(crate::channel::DEFAULT_PROJECTS_DIR)
+            .join("Projetos"),
     };
     let sock = socket_path();
 
@@ -648,7 +650,7 @@ pub struct SnapshotLedgerEntry {
 }
 
 fn ledger_path() -> Option<PathBuf> {
-    Some(Path::new(&home_dir()?).join(".omnirift").join("omnifs-snapshots.json"))
+    Some(crate::channel::user_state_root()?.join("omnifs-snapshots.json"))
 }
 
 pub fn read_ledger() -> Vec<SnapshotLedgerEntry> {
@@ -970,16 +972,21 @@ mod tests {
     #[test]
     fn socket_path_usa_xdg_runtime_dir() {
         let p = socket_path_from(None, Some("/run/user/1000".into()), Some("/home/x".into()));
-        assert_eq!(p, PathBuf::from("/run/user/1000/omnifs.sock"));
+        assert_eq!(
+            p,
+            PathBuf::from("/run/user/1000").join(crate::channel::OMNIFS_SOCKET_FILE)
+        );
     }
 
     #[test]
     fn socket_path_fallback_home_sem_xdg() {
         let p = socket_path_from(None, None, Some("/home/x".into()));
-        assert_eq!(p, PathBuf::from("/home/x/.omnirift/omnifs.sock"));
+        let expected = crate::channel::user_state_root_from("/home/x")
+            .join(crate::channel::OMNIFS_SOCKET_FILE);
+        assert_eq!(p, expected);
         // Override vazio = ignorado (env setada mas em branco não conta).
         let p2 = socket_path_from(Some("  ".into()), Some(String::new()), Some("/home/x".into()));
-        assert_eq!(p2, PathBuf::from("/home/x/.omnirift/omnifs.sock"));
+        assert_eq!(p2, expected);
     }
 
     #[test]

@@ -23,22 +23,13 @@ fn acct(provider_id: &str) -> String {
     format!("git.{provider_id}.token")
 }
 
-#[cfg(windows)]
-fn home_dir() -> Option<String> {
-    std::env::var("USERPROFILE").ok()
-}
-#[cfg(not(windows))]
-fn home_dir() -> Option<String> {
-    std::env::var("HOME").ok()
-}
-
 /// Arquivo do fallback ofuscado. `OMNIRIFT_GIT_TOKENS_PATH` permite override
 /// (testes + deploys headless que queiram um caminho fixo).
 fn fallback_store_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("OMNIRIFT_GIT_TOKENS_PATH") {
         return Some(PathBuf::from(p));
     }
-    Some(Path::new(&home_dir()?).join(".omnirift").join("git_tokens.json"))
+    Some(crate::channel::user_state_root()?.join("git_tokens.json"))
 }
 
 fn read_map(path: &Path) -> BTreeMap<String, String> {

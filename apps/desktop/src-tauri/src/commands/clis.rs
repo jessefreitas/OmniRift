@@ -396,8 +396,7 @@ fn emit_progress(app: &tauri::AppHandle, id: &str, stage: &str, message: String,
 /// `~/.omnirift/tools` — prefixo onde npm/pipx/cargo instalam CLIs SEM sudo.
 /// None se `$HOME`/`%USERPROFILE%` não estiver setado (fallback = global de antes).
 pub(crate) fn tools_prefix() -> Option<std::path::PathBuf> {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    Some(std::path::PathBuf::from(home).join(".omnirift").join("tools"))
+    Some(crate::channel::user_state_root()?.join("tools"))
 }
 
 /// `~/.omnirift/tools/bin` — onde os binários instalados aparecem (npm/cargo/pipx).

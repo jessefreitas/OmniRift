@@ -4,23 +4,14 @@
 
 use sha2::{Digest, Sha256};
 use std::io::Write;
-use std::path::{Path, PathBuf};
-
-#[cfg(windows)]
-fn home_dir() -> Option<String> {
-    std::env::var("USERPROFILE").ok()
-}
-#[cfg(not(windows))]
-fn home_dir() -> Option<String> {
-    std::env::var("HOME").ok()
-}
+use std::path::PathBuf;
 
 fn slot_path(cwd: &str) -> Result<PathBuf, String> {
-    let home = home_dir().ok_or_else(|| "HOME indisponível".to_string())?;
+    let root = crate::channel::user_state_root().ok_or_else(|| "HOME indisponível".to_string())?;
     let mut h = Sha256::new();
     h.update(cwd.as_bytes());
     let hex = format!("{:x}", h.finalize());
-    Ok(Path::new(&home).join(".omnirift").join("pipelines").join(format!("{hex}.json")))
+    Ok(root.join("pipelines").join(format!("{hex}.json")))
 }
 
 /// Grava o plano de pipeline (JSON) atrelado a um projeto (cwd). cwd vazio = usa slot "global".

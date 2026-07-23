@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod audio;
+pub mod channel;
 pub mod code;
 pub mod commands;
 pub mod compress;
@@ -190,6 +191,10 @@ fn inherit_login_shell_path() {
 fn inherit_login_shell_path() {}
 
 pub fn run() {
+    // Fonte compile-time do canal para todos os subprocessos (PTY, ACP, hooks e
+    // CLI). Sobrescreve qualquer valor externo para uma build Lab jamais descobrir
+    // ou modificar o runtime Stable por acidente.
+    std::env::set_var("OMNIRIFT_CHANNEL", crate::channel::NAME);
     // P0 debug: grava panics do backend em ~/.omnirift/debug.log (mesmo arquivo do
     // frontend) — antes de qualquer coisa, pra pegar até panic no boot.
     commands::debug_log::init_panic_hook();
@@ -226,7 +231,7 @@ pub fn run() {
     let mcp_fm = Arc::clone(&floor_mirror);
     let mcp_claims = Arc::clone(&claims_registry);
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .setup(move |app| {
             let app_handle = app.handle().clone();
             let data_dir = app.path().app_data_dir();
@@ -361,7 +366,7 @@ pub fn run() {
                 // Arquivo no app log dir do SO → "omnirift.log" (resolvido por
                 // app.path().app_log_dir() — mesmo path lido pelo collect_diagnostics).
                 tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
-                    file_name: Some("omnirift".into()),
+                    file_name: Some(crate::channel::LOG_FILE_STEM.into()),
                 }),
             ];
             // Stdout SÓ em dev: o app instalado (.deb, launcher gráfico) roda sem console
@@ -397,8 +402,15 @@ pub fn run() {
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_fs::init());
+
+    // O Lab não registra nem os comandos nativos do updater. A config aponta para
+    // um feed Lab inexistente e a UI também bloqueia chamadas, mas retirar o plugin
+    // fecha a última rota programática para o canal Stable.
+    #[cfg(not(feature = "lab"))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![

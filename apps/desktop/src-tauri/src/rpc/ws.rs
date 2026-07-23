@@ -45,7 +45,7 @@ use tauri::AppHandle;
 
 // --- Constantes VERBATIM (ref) ---
 /// Porta padrão do relay LAN.
-pub const DEFAULT_WS_PORT: u16 = 6768;
+pub const DEFAULT_WS_PORT: u16 = crate::channel::MOBILE_WS_PORT;
 /// Teto por frame (protege TODO o tráfego, inclusive pré-auth). Imposto pelo tungstenite.
 pub const MAX_WS_MESSAGE_BYTES: usize = 1024 * 1024; // 1 MiB
 /// Máx de conexões simultâneas (semáforo).
@@ -537,7 +537,10 @@ mod tests {
 
     #[test]
     fn constants_match_ref_verbatim() {
-        assert_eq!(DEFAULT_WS_PORT, 6768);
+        assert_eq!(
+            DEFAULT_WS_PORT,
+            if crate::channel::is_lab() { 16768 } else { 6768 }
+        );
         assert_eq!(MAX_WS_MESSAGE_BYTES, 1024 * 1024);
         assert_eq!(MAX_WS_CONNECTIONS, 128);
         assert_eq!(PRE_AUTH_TIMEOUT_MS, 10_000);

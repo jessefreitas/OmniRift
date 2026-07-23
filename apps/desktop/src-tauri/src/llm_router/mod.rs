@@ -10,7 +10,7 @@ pub mod server;
 pub mod table;
 
 /// Porta loopback do OmniSwitch (fixa, como o MCP em 7844).
-pub const ROUTER_PORT: u16 = 7845;
+pub const ROUTER_PORT: u16 = crate::channel::ROUTER_PORT;
 
 use std::collections::HashMap;
 

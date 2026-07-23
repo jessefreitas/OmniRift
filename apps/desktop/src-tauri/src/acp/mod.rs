@@ -553,6 +553,10 @@ impl AcpManager {
             }
         }
 
+        // Mantém a descoberta da CLI/runtime no mesmo canal do binário Tauri.
+        // Um adapter Lab nunca deve cair no ~/.omnirift/runtime.json Stable.
+        cmd.env("OMNIRIFT_CHANNEL", crate::channel::NAME);
+
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
