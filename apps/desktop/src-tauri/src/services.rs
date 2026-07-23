@@ -65,6 +65,13 @@ pub struct ServiceDefinition {
     #[serde(default)]
     pub auth_header: String,
     #[serde(default)]
+    pub auth_prefix: String,
+    /// Referência privada no cofre OmniMemory. Nunca entra no catálogo dos agentes.
+    #[serde(default)]
+    pub credential_project: String,
+    #[serde(default)]
+    pub credential_key: String,
+    #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub operations: Vec<ServiceOperation>,
@@ -108,6 +115,9 @@ pub fn ensure_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
             base_url        TEXT NOT NULL,
             auth_kind       TEXT NOT NULL DEFAULT 'none',
             auth_header     TEXT NOT NULL DEFAULT '',
+            auth_prefix     TEXT NOT NULL DEFAULT '',
+            credential_project TEXT NOT NULL DEFAULT '',
+            credential_key  TEXT NOT NULL DEFAULT '',
             enabled         INTEGER NOT NULL DEFAULT 0,
             operations_json TEXT NOT NULL DEFAULT '[]',
             created_at      TEXT NOT NULL DEFAULT (datetime('now')),
@@ -128,6 +138,24 @@ pub fn ensure_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_service_requests_status
             ON company_service_requests(status, created_at DESC);",
     )?;
+    // Migração aditiva para bancos criados antes do suporte ao cofre OmniMemory.
+    let columns = {
+        let mut stmt = conn.prepare("PRAGMA table_info(company_services)")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+        rows.collect::<rusqlite::Result<HashSet<_>>>()?
+    };
+    for (name, ddl) in [
+        ("auth_prefix", "TEXT NOT NULL DEFAULT ''"),
+        ("credential_project", "TEXT NOT NULL DEFAULT ''"),
+        ("credential_key", "TEXT NOT NULL DEFAULT ''"),
+    ] {
+        if !columns.contains(name) {
+            conn.execute(
+                &format!("ALTER TABLE company_services ADD COLUMN {name} {ddl}"),
+                [],
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -147,6 +175,14 @@ fn valid_id(value: &str) -> bool {
         && value
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_'))
+}
+
+fn valid_credential_ref(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 160
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
 }
 
 fn validate_base_url(raw: &str) -> Result<Url> {
@@ -223,6 +259,8 @@ pub fn validate_service(service: &mut ServiceDefinition) -> Result<()> {
     service.base_url = service.base_url.trim().trim_end_matches('/').to_string();
     service.auth_kind = service.auth_kind.trim().to_ascii_lowercase();
     service.auth_header = service.auth_header.trim().to_string();
+    service.credential_project = service.credential_project.trim().to_string();
+    service.credential_key = service.credential_key.trim().to_string();
 
     if !valid_id(&service.id) {
         return Err(anyhow!(
@@ -241,10 +279,28 @@ pub fn validate_service(service: &mut ServiceDefinition) -> Result<()> {
     }
     if service.auth_kind == "header" {
         validate_header_name(&service.auth_header)?;
+        if service.auth_prefix.len() > 64 || service.auth_prefix.contains(['\r', '\n']) {
+            return Err(anyhow!("prefixo de autenticação inválido"));
+        }
     } else if service.auth_kind == "bearer" {
         service.auth_header = "Authorization".into();
+        service.auth_prefix.clear();
     } else {
         service.auth_header.clear();
+        service.auth_prefix.clear();
+        service.credential_project.clear();
+        service.credential_key.clear();
+    }
+    if service.credential_project.is_empty() != service.credential_key.is_empty() {
+        return Err(anyhow!(
+            "credentialProject e credentialKey precisam ser informados juntos"
+        ));
+    }
+    if !service.credential_project.is_empty()
+        && (!valid_credential_ref(&service.credential_project)
+            || !valid_credential_ref(&service.credential_key))
+    {
+        return Err(anyhow!("referência de credencial OmniMemory inválida"));
     }
 
     let mut ids = HashSet::new();
@@ -273,12 +329,15 @@ pub fn upsert(
         ensure_schema(conn)?;
         conn.execute(
             "INSERT INTO company_services
-                (id, name, category, description, base_url, auth_kind, auth_header, enabled, operations_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                (id, name, category, description, base_url, auth_kind, auth_header,
+                 auth_prefix, credential_project, credential_key, enabled, operations_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name, category=excluded.category, description=excluded.description,
                 base_url=excluded.base_url, auth_kind=excluded.auth_kind,
-                auth_header=excluded.auth_header, enabled=excluded.enabled,
+                auth_header=excluded.auth_header, auth_prefix=excluded.auth_prefix,
+                credential_project=excluded.credential_project,
+                credential_key=excluded.credential_key, enabled=excluded.enabled,
                 operations_json=excluded.operations_json, updated_at=datetime('now')",
             rusqlite::params![
                 service.id,
@@ -288,6 +347,9 @@ pub fn upsert(
                 service.base_url,
                 service.auth_kind,
                 service.auth_header,
+                service.auth_prefix,
+                service.credential_project,
+                service.credential_key,
                 service.enabled as i64,
                 operations_json,
             ],
@@ -295,16 +357,20 @@ pub fn upsert(
         Ok(())
     })?;
 
-    service.has_credential =
-        crate::memory::secret_store::get(&credential_account(&service.id)).is_some();
+    service.has_credential = crate::memory::secret_store::get(&credential_account(&service.id))
+        .is_some()
+        || !service.credential_key.is_empty();
     Ok(service)
 }
 
 fn map_service(row: &rusqlite::Row<'_>) -> rusqlite::Result<ServiceDefinition> {
-    let operations_json: String = row.get(8)?;
+    let operations_json: String = row.get(11)?;
     let id: String = row.get(0)?;
+    let credential_project: String = row.get(8)?;
+    let credential_key: String = row.get(9)?;
     Ok(ServiceDefinition {
-        has_credential: crate::memory::secret_store::get(&credential_account(&id)).is_some(),
+        has_credential: crate::memory::secret_store::get(&credential_account(&id)).is_some()
+            || !credential_key.is_empty(),
         id,
         name: row.get(1)?,
         category: row.get(2)?,
@@ -312,7 +378,10 @@ fn map_service(row: &rusqlite::Row<'_>) -> rusqlite::Result<ServiceDefinition> {
         base_url: row.get(4)?,
         auth_kind: row.get(5)?,
         auth_header: row.get(6)?,
-        enabled: row.get::<_, i64>(7)? != 0,
+        auth_prefix: row.get(7)?,
+        credential_project,
+        credential_key,
+        enabled: row.get::<_, i64>(10)? != 0,
         operations: serde_json::from_str(&operations_json).unwrap_or_default(),
     })
 }
@@ -321,10 +390,12 @@ pub fn list(db: &Db, enabled_only: bool) -> Result<Vec<ServiceDefinition>> {
     db.with_conn(|conn| {
         ensure_schema(conn)?;
         let sql = if enabled_only {
-            "SELECT id,name,category,description,base_url,auth_kind,auth_header,enabled,operations_json
+            "SELECT id,name,category,description,base_url,auth_kind,auth_header,auth_prefix,
+                    credential_project,credential_key,enabled,operations_json
              FROM company_services WHERE enabled=1 ORDER BY category,name"
         } else {
-            "SELECT id,name,category,description,base_url,auth_kind,auth_header,enabled,operations_json
+            "SELECT id,name,category,description,base_url,auth_kind,auth_header,auth_prefix,
+                    credential_project,credential_key,enabled,operations_json
              FROM company_services ORDER BY category,name"
         };
         let mut stmt = conn.prepare(sql)?;
@@ -338,7 +409,8 @@ pub fn get(db: &Db, id: &str) -> Result<Option<ServiceDefinition>> {
     db.with_conn(|conn| {
         ensure_schema(conn)?;
         conn.query_row(
-            "SELECT id,name,category,description,base_url,auth_kind,auth_header,enabled,operations_json
+            "SELECT id,name,category,description,base_url,auth_kind,auth_header,auth_prefix,
+                    credential_project,credential_key,enabled,operations_json
              FROM company_services WHERE id=?1",
             [id],
             map_service,
@@ -498,10 +570,190 @@ fn build_url(
     validate_base_url(&raw)
 }
 
+fn parse_mcp_payload(content_type: &str, body: &str) -> Result<Value> {
+    if !content_type.contains("text/event-stream") {
+        return serde_json::from_str(body).context("resposta JSON inválida do OmniMemory MCP");
+    }
+    let normalized = body.replace("\r\n", "\n");
+    let mut last = None;
+    for event in normalized.split("\n\n") {
+        let data = event
+            .lines()
+            .filter_map(|line| line.strip_prefix("data:").map(str::trim_start))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !data.is_empty() {
+            last =
+                Some(serde_json::from_str(&data).context("evento SSE inválido do OmniMemory MCP")?);
+        }
+    }
+    last.ok_or_else(|| anyhow!("OmniMemory MCP respondeu sem evento JSON"))
+}
+
+async fn mcp_json_request(
+    client: &reqwest::Client,
+    endpoint: &str,
+    token: &str,
+    session_id: Option<&str>,
+    body: &Value,
+) -> Result<(Value, Option<String>)> {
+    let mut request = client
+        .post(endpoint)
+        .bearer_auth(token)
+        .header("Accept", "application/json, text/event-stream")
+        .json(body);
+    if let Some(session_id) = session_id {
+        request = request.header("Mcp-Session-Id", session_id);
+    }
+    let response = request.send().await?;
+    let status = response.status();
+    let response_session = response
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_owned();
+    let text = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        // Nunca inclua o corpo: uma falha do cofre pode carregar dados sensíveis.
+        return Err(anyhow!("OmniMemory MCP retornou HTTP {}", status.as_u16()));
+    }
+    Ok((parse_mcp_payload(&content_type, &text)?, response_session))
+}
+
+fn secret_from_tool_response(response: &Value) -> Result<String> {
+    if response
+        .pointer("/result/isError")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Err(anyhow!("OmniMemory recusou a leitura da credencial"));
+    }
+    if let Some(value) = response
+        .pointer("/result/structuredContent/result/value")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(value.to_owned());
+    }
+    if let Some(blocks) = response
+        .pointer("/result/content")
+        .and_then(Value::as_array)
+    {
+        for block in blocks {
+            let Some(text) = block.get("text").and_then(Value::as_str) else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_str::<Value>(text) else {
+                continue;
+            };
+            if let Some(secret) = value
+                .get("value")
+                .and_then(Value::as_str)
+                .filter(|secret| !secret.is_empty())
+            {
+                return Ok(secret.to_owned());
+            }
+        }
+    }
+    Err(anyhow!(
+        "credencial não disponível no OmniMemory; verifique referência e capability"
+    ))
+}
+
+async fn fetch_omnimemory_credential(
+    registry: &crate::memory::MemoryRegistry,
+    project: &str,
+    key: &str,
+) -> Result<String> {
+    let cfg = registry.connection(crate::memory::ProviderKind::OmniMemory)?;
+    let endpoint = cfg
+        .endpoint
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("conexão OmniMemory sem endpoint"))?;
+    let token = cfg
+        .token
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("conexão OmniMemory sem token"))?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let initialize = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": { "name": "omnirift-company-services", "version": env!("CARGO_PKG_VERSION") }
+        }
+    });
+    let (_, session_id) = mcp_json_request(&client, endpoint, token, None, &initialize).await?;
+    let session_id = session_id.ok_or_else(|| anyhow!("OmniMemory MCP não criou sessão"))?;
+    let initialized = client
+        .post(endpoint)
+        .bearer_auth(token)
+        .header("Accept", "application/json, text/event-stream")
+        .header("Mcp-Session-Id", &session_id)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }))
+        .send()
+        .await?;
+    if !initialized.status().is_success() {
+        return Err(anyhow!("OmniMemory MCP recusou a inicialização da sessão"));
+    }
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "get_secret",
+            "arguments": { "project": project, "key": key }
+        }
+    });
+    let (response, _) =
+        mcp_json_request(&client, endpoint, token, Some(&session_id), &call).await?;
+    secret_from_tool_response(&response)
+}
+
+async fn resolve_credential(
+    service: &ServiceDefinition,
+    registry: Option<&crate::memory::MemoryRegistry>,
+) -> Result<Option<String>> {
+    if service.auth_kind == "none" {
+        return Ok(None);
+    }
+    if let Some(secret) = crate::memory::secret_store::get(&credential_account(&service.id)) {
+        return Ok(Some(secret));
+    }
+    if !service.credential_key.is_empty() {
+        let registry = registry.ok_or_else(|| anyhow!("registry OmniMemory indisponível"))?;
+        return fetch_omnimemory_credential(
+            registry,
+            &service.credential_project,
+            &service.credential_key,
+        )
+        .await
+        .map(Some);
+    }
+    Err(anyhow!("credencial ausente para {}", service.name))
+}
+
 async fn execute(
     service: &ServiceDefinition,
     operation: &ServiceOperation,
     input: Value,
+    registry: Option<&crate::memory::MemoryRegistry>,
 ) -> Result<(u16, Value, u128)> {
     let mut object = input
         .as_object()
@@ -523,18 +775,14 @@ async fn execute(
     let mut request = client
         .request(method.clone(), url)
         .header("Accept", "application/json");
-    let credential = if service.auth_kind == "none" {
-        None
-    } else {
-        Some(
-            crate::memory::secret_store::get(&credential_account(&service.id))
-                .ok_or_else(|| anyhow!("credencial ausente para {}", service.name))?,
-        )
-    };
+    let credential = resolve_credential(service, registry).await?;
     if let Some(secret) = credential.as_deref() {
         request = match service.auth_kind.as_str() {
             "bearer" => request.bearer_auth(secret),
-            "header" => request.header(HeaderName::from_str(&service.auth_header)?, secret),
+            "header" => request.header(
+                HeaderName::from_str(&service.auth_header)?,
+                format!("{}{}", service.auth_prefix, secret),
+            ),
             _ => request,
         };
     }
@@ -627,6 +875,7 @@ pub async fn call(
     operation_id: &str,
     input: Value,
     source: &str,
+    registry: Option<&crate::memory::MemoryRegistry>,
 ) -> Result<ServiceCallResult> {
     let service =
         get(db, service_id)?.ok_or_else(|| anyhow!("serviço não encontrado: {service_id}"))?;
@@ -651,7 +900,7 @@ pub async fn call(
         }
         "auto" => {
             let id = insert_request(db, service_id, operation_id, &input, source, "executing")?;
-            match execute(&service, &operation, input).await {
+            match execute(&service, &operation, input, registry).await {
                 Ok((http_status, body, duration_ms)) => {
                     let preview = serde_json::to_string(&body).unwrap_or_default();
                     update_request(
@@ -678,7 +927,12 @@ pub async fn call(
     }
 }
 
-pub async fn decide(db: &Db, request_id: &str, approve: bool) -> Result<ServiceCallResult> {
+pub async fn decide(
+    db: &Db,
+    request_id: &str,
+    approve: bool,
+    registry: Option<&crate::memory::MemoryRegistry>,
+) -> Result<ServiceCallResult> {
     let request = requests(db, None)?
         .into_iter()
         .find(|item| item.id == request_id)
@@ -704,7 +958,7 @@ pub async fn decide(db: &Db, request_id: &str, approve: bool) -> Result<ServiceC
     }
     let service = get(db, &request.service_id)?.ok_or_else(|| anyhow!("serviço não encontrado"))?;
     let operation = find_operation(&service, &request.operation_id)?.clone();
-    match execute(&service, &operation, request.input).await {
+    match execute(&service, &operation, request.input, registry).await {
         Ok((http_status, body, duration_ms)) => {
             let preview = serde_json::to_string(&body).unwrap_or_default();
             update_request(
@@ -804,7 +1058,16 @@ pub async fn mcp_dispatch(state: &crate::mcp::server::McpState, tool: &str, args
             if service.is_empty() || operation.is_empty() {
                 return "❌ 'service' e 'operation' são obrigatórios".into();
             }
-            match call(&db, service, operation, input, "agent").await {
+            match call(
+                &db,
+                service,
+                operation,
+                input,
+                "agent",
+                Some(state.memory_registry.as_ref()),
+            )
+            .await
+            {
                 Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".into()),
                 Err(error) => format!("❌ {error:#}"),
             }
@@ -826,6 +1089,9 @@ mod tests {
             base_url: "https://example.com/api".into(),
             auth_kind: "header".into(),
             auth_header: "X-Api-Key".into(),
+            auth_prefix: String::new(),
+            credential_project: String::new(),
+            credential_key: String::new(),
             enabled: true,
             operations: vec![ServiceOperation {
                 id: "buscar".into(),
@@ -896,12 +1162,69 @@ mod tests {
         item.auth_kind = "none".into();
         item.auth_header.clear();
         upsert(&db, item, None).unwrap();
-        let queued = call(&db, "consulta-cnpj", "buscar", json!({}), "test")
+        let queued = call(&db, "consulta-cnpj", "buscar", json!({}), "test", None)
             .await
             .unwrap();
         assert_eq!(queued.status, "pending_approval");
-        let denied = decide(&db, &queued.request_id, false).await.unwrap();
+        let denied = decide(&db, &queued.request_id, false, None).await.unwrap();
         assert_eq!(denied.status, "denied");
-        assert!(decide(&db, &queued.request_id, false).await.is_err());
+        assert!(decide(&db, &queued.request_id, false, None).await.is_err());
+    }
+
+    #[test]
+    fn parses_sse_secret_without_exposing_other_fields() {
+        let body = concat!(
+            "event: message\r\n",
+            "data: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{",
+            "\"structuredContent\":{\"result\":{\"value\":\"fixture-secret\"}},",
+            "\"isError\":false}}\r\n\r\n"
+        );
+        let value = parse_mcp_payload("text/event-stream", body).unwrap();
+        assert_eq!(secret_from_tool_response(&value).unwrap(), "fixture-secret");
+    }
+
+    #[test]
+    fn validates_complete_omnimemory_reference() {
+        let mut item = service("GET", "auto");
+        item.credential_project = "claude-memory".into();
+        item.credential_key = "credential.example.api_token".into();
+        validate_service(&mut item).unwrap();
+        item.credential_key.clear();
+        assert!(validate_service(&mut item).is_err());
+    }
+
+    #[test]
+    fn preserves_auth_prefix_spacing() {
+        let mut item = service("GET", "auto");
+        item.auth_prefix = "token ".into();
+        validate_service(&mut item).unwrap();
+        assert_eq!(item.auth_prefix, "token ");
+    }
+
+    #[tokio::test]
+    async fn resolves_real_omnimemory_reference_when_env_is_present() {
+        let (Ok(endpoint), Ok(token), Ok(project), Ok(key)) = (
+            std::env::var("OMNIRIFT_TEST_MEMORY_ENDPOINT"),
+            std::env::var("OMNIRIFT_TEST_MEMORY_TOKEN"),
+            std::env::var("OMNIRIFT_TEST_SECRET_PROJECT"),
+            std::env::var("OMNIRIFT_TEST_SECRET_KEY"),
+        ) else {
+            return;
+        };
+        std::env::set_var("OMNIRIFT_NO_KEYCHAIN", "1");
+        let dir = tempfile::tempdir().unwrap();
+        let db = std::sync::Arc::new(Db::open(dir.path()).unwrap());
+        let registry = crate::memory::MemoryRegistry::new(db);
+        registry
+            .upsert_connection(crate::memory::ConnectionConfig {
+                kind: crate::memory::ProviderKind::OmniMemory,
+                endpoint: Some(endpoint),
+                token: Some(token),
+            })
+            .unwrap();
+        let value = fetch_omnimemory_credential(&registry, &project, &key)
+            .await
+            .unwrap();
+        assert!(!value.is_empty());
     }
 }

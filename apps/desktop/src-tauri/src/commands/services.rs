@@ -3,6 +3,7 @@
 use crate::db::Db;
 use crate::services::{ServiceCallResult, ServiceDefinition, ServiceRequest};
 use serde_json::Value;
+use std::sync::Arc;
 use tauri::State;
 
 #[tauri::command]
@@ -41,22 +42,33 @@ pub fn company_service_requests(
 #[tauri::command]
 pub async fn company_service_call(
     db: State<'_, Db>,
+    registry: State<'_, Arc<crate::memory::MemoryRegistry>>,
     service_id: String,
     operation_id: String,
     input: Value,
 ) -> Result<ServiceCallResult, String> {
-    crate::services::call(&db, &service_id, &operation_id, input, "human")
-        .await
-        .map_err(|error| format!("{error:#}"))
+    let registry = registry.inner().clone();
+    crate::services::call(
+        &db,
+        &service_id,
+        &operation_id,
+        input,
+        "human",
+        Some(registry.as_ref()),
+    )
+    .await
+    .map_err(|error| format!("{error:#}"))
 }
 
 #[tauri::command]
 pub async fn company_service_request_decide(
     db: State<'_, Db>,
+    registry: State<'_, Arc<crate::memory::MemoryRegistry>>,
     request_id: String,
     approve: bool,
 ) -> Result<ServiceCallResult, String> {
-    crate::services::decide(&db, &request_id, approve)
+    let registry = registry.inner().clone();
+    crate::services::decide(&db, &request_id, approve, Some(registry.as_ref()))
         .await
         .map_err(|error| format!("{error:#}"))
 }

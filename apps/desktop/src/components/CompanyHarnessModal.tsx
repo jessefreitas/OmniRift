@@ -61,6 +61,9 @@ const emptyService = (): CompanyService => ({
   baseUrl: "https://",
   authKind: "none",
   authHeader: "",
+  authPrefix: "",
+  credentialProject: "",
+  credentialKey: "",
   enabled: true,
   operations: [],
   hasCredential: false,
@@ -327,6 +330,11 @@ export function CompanyHarnessModal({ onClose }: { onClose: () => void }) {
                 <label className="col-span-2"><span className={label}>Base URL</span><input className={input} value={draft.baseUrl} placeholder="https://api.empresa.com/v1" onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} /></label>
                 <label><span className={label}>Autenticação</span><select className={input} value={draft.authKind} onChange={(event) => setDraft({ ...draft, authKind: event.target.value as CompanyService["authKind"] })}><option value="none">Sem autenticação</option><option value="bearer">Bearer token</option><option value="header">Header custom</option></select></label>
                 <label><span className={label}>Header</span><input className={input} disabled={draft.authKind !== "header"} value={draft.authHeader} placeholder="X-Api-Key" onChange={(event) => setDraft({ ...draft, authHeader: event.target.value })} /></label>
+                {draft.authKind === "header" && <label className="col-span-2"><span className={label}>Prefixo do valor do header</span><input className={input} value={draft.authPrefix} placeholder="Ex.: token ou PVEAPIToken=" onChange={(event) => setDraft({ ...draft, authPrefix: event.target.value })} /></label>}
+                {draft.authKind !== "none" && <>
+                  <label><span className={label}>Projeto no cofre OmniMemory</span><input className={input} value={draft.credentialProject} placeholder="OmniForge" onChange={(event) => setDraft({ ...draft, credentialProject: event.target.value })} /></label>
+                  <label><span className={label}>Chave no cofre OmniMemory</span><input className={input} value={draft.credentialKey} placeholder="credential.servico.api_token" onChange={(event) => setDraft({ ...draft, credentialKey: event.target.value })} /></label>
+                </>}
                 {draft.authKind !== "none" && <label className="col-span-2"><span className={label}>Credencial {draft.hasCredential && "(já configurada; vazio mantém)"}</span><div className="flex gap-2"><input type="password" autoComplete="new-password" className={input} value={credential} onChange={(event) => setCredential(event.target.value)} /><button onClick={() => void removeCredential()} disabled={!draft.hasCredential} title="Remover do keychain" className="rounded border border-border px-2 text-textMuted hover:text-red-300 disabled:opacity-30"><KeyRound size={14} /></button></div></label>}
               </div>
 

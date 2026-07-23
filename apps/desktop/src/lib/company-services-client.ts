@@ -29,6 +29,9 @@ export interface CompanyService {
   baseUrl: string;
   authKind: "none" | "bearer" | "header";
   authHeader: string;
+  authPrefix: string;
+  credentialProject: string;
+  credentialKey: string;
   enabled: boolean;
   operations: CompanyServiceOperation[];
   hasCredential: boolean;
