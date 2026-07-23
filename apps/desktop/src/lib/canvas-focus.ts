@@ -97,7 +97,31 @@ export function fitToNodes(ids: string[]): void {
   const s = useCanvasStore.getState();
   const inst = instances.get(s.activeParallelId);
   if (!inst) return;
-  setTimeout(() => {
-    void inst.fitView({ nodes: ids.map((id) => ({ id })), duration: 400, padding: 0.25, maxZoom: 1 });
-  }, 60);
+
+  // Templates grandes (como o Conselho, com 24 AgentNodes) levam mais de um frame
+  // para montar e medir. Um fit precoce enquadrava só o primeiro card já medido,
+  // fazendo parecer que os demais agentes não tinham sido criados. Aguarda todos os
+  // alvos medidos, com timeout curto e fit final mesmo em degradação.
+  const wanted = new Set(ids);
+  let attempt = 0;
+  const fitWhenMeasured = () => {
+    const targets = inst.getNodes().filter((node) => wanted.has(node.id));
+    const measured = targets.filter((node) => {
+      const width = node.measured?.width ?? node.width ?? 0;
+      const height = node.measured?.height ?? node.height ?? 0;
+      return width > 0 && height > 0;
+    });
+    attempt += 1;
+    if (measured.length < ids.length && attempt < 24) {
+      setTimeout(fitWhenMeasured, 100);
+      return;
+    }
+    void inst.fitView({
+      nodes: ids.map((id) => ({ id })),
+      duration: 500,
+      padding: 0.18,
+      maxZoom: 1,
+    });
+  };
+  setTimeout(fitWhenMeasured, 100);
 }

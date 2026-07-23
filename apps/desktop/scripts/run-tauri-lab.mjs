@@ -20,6 +20,14 @@ if (process.platform === "linux") {
   env.GTK_MODULES = "";
   const pthread = "/lib/x86_64-linux-gnu/libpthread.so.0";
   if (existsSync(pthread)) env.LD_PRELOAD = pthread;
+
+  // VS Code/Codex empacotado por Snap injeta XDG_DATA_HOME dentro de
+  // ~/snap/code/<rev>/.local/share. Sem neutralizar isso, o Lab aberto pelo terminal
+  // integrado usa outro SQLite e parece perder Conselho, serviços e conexões.
+  const xdgDataHome = env.XDG_DATA_HOME ?? "";
+  if (xdgDataHome.includes("/snap/code/")) {
+    env.XDG_DATA_HOME = join(homedir(), ".local", "share");
+  }
 }
 
 const executable = process.platform === "win32" ? "tauri.cmd" : "tauri";

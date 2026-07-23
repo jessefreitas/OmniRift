@@ -560,6 +560,8 @@ export function Sidebar() {
   }
   const [showConnections, setShowConnections] = useState(false);
   const [showCompanyHarness, setShowCompanyHarness] = useState(false);
+  const [companyHarnessInitialTab, setCompanyHarnessInitialTab] =
+    useState<"services" | "knowledge" | "approvals">("services");
   const [showLlmProviders, setShowLlmProviders] = useState(false);
   const [showPipeline, setShowPipeline] = useState(false);
   const [showMobile, setShowMobile] = useState(false);
@@ -625,12 +627,19 @@ export function Sidebar() {
   // Seções da sidebar reordenáveis (CSS order + popover). v2: Projeto/Workspace no topo.
   const secReorder = useReorderable("omnirift-sections-order-v2", SECTION_IDS);
   const secStyle = (id: string) => ({ order: secReorder.order.indexOf(id) });
+  const openCompanyHarness = useCallback(
+    (initialTab: "services" | "knowledge" | "approvals" = "services") => {
+      setCompanyHarnessInitialTab(initialTab);
+      setShowCompanyHarness(true);
+    },
+    [],
+  );
   const runTool: Record<string, () => void> = {
     companion: () => setShowCompanion(true),
     conductor: () => setConstructorMode(!constructorMode),
     git: () => setShowGitRepos(true),
     connections: () => setShowConnections(true),
-    "company-harness": () => setShowCompanyHarness(true),
+    "company-harness": () => openCompanyHarness("services"),
     "llm-providers": () => setShowLlmProviders(true),
     pipeline: () => setShowPipeline(true),
     mobile: () => setShowMobile(true),
@@ -680,7 +689,7 @@ export function Sidebar() {
         case "memory": setShowMemory(true); break;
         case "history": setShowHistory(true); break;
         case "connections": setShowConnections(true); break;
-        case "company-harness": setShowCompanyHarness(true); break;
+        case "company-harness": openCompanyHarness("services"); break;
         case "llm-providers": setShowLlmProviders(true); break;
         case "pipeline": setShowPipeline(true); break;
         case "mobile": setShowMobile(true); break;
@@ -701,7 +710,7 @@ export function Sidebar() {
     };
     window.addEventListener("omnirift:open-tool", h);
     return () => window.removeEventListener("omnirift:open-tool", h);
-  }, []);
+  }, [openCompanyHarness]);
 
   // "Enviar pro TURBO" de um agente (CustomEvent "omnirift:turbo-seed" {goal}): abre o
   // painel TURBO já com o objetivo pré-preenchido (ex.: seleção do terminal do agente).
@@ -2152,6 +2161,34 @@ export function Sidebar() {
         </div>
       </div>
 
+      {IS_LAB_BUILD && (
+        <div className="border-b border-border px-3 py-3" style={secStyle("tools")}>
+          <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-textMuted/90">
+            Empresa
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => openCompanyHarness("knowledge")}
+              className="flex min-h-16 flex-col items-start justify-center rounded-lg border border-brand/35 bg-brand/10 px-3 py-2 text-left text-xs text-text transition-colors hover:bg-brand/20"
+            >
+              <span className="mb-1 flex items-center gap-1.5 font-semibold text-brand">
+                <Bot size={14} /> Conselho de Guerra
+              </span>
+              <span className="text-[10px] leading-tight text-textMuted">22 especialistas, áreas ou conselho completo</span>
+            </button>
+            <button
+              onClick={() => openCompanyHarness("services")}
+              className="flex min-h-16 flex-col items-start justify-center rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-left text-xs text-text transition-colors hover:bg-emerald-400/20"
+            >
+              <span className="mb-1 flex items-center gap-1.5 font-semibold text-emerald-300">
+                <Plug size={14} /> APIs &amp; Serviços
+              </span>
+              <span className="text-[10px] leading-tight text-textMuted">Pagamentos, consultas e sistemas internos</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
       <ToolsSection
         toolDefs={TOOL_DEFS}
@@ -2656,7 +2693,12 @@ export function Sidebar() {
       {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
       {showOrchestratorStream && <OrchestratorStream onClose={() => setShowOrchestratorStream(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
-      {showCompanyHarness && <CompanyHarnessModal onClose={() => setShowCompanyHarness(false)} />}
+      {showCompanyHarness && (
+        <CompanyHarnessModal
+          initialTab={companyHarnessInitialTab}
+          onClose={() => setShowCompanyHarness(false)}
+        />
+      )}
       {showLlmProviders && <ProvidersCentralModal onClose={() => setShowLlmProviders(false)} />}
       {showPipeline && <PipelineArchitectModal onClose={() => setShowPipeline(false)} />}
       {showMobile && <MobileDevicesModal onClose={() => setShowMobile(false)} />}

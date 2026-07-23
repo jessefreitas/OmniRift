@@ -88,8 +88,16 @@ const KNOWLEDGE_KINDS: Array<{ id: KnowledgeKind; label: string }> = [
   { id: "other", label: "Outro" },
 ];
 
-export function CompanyHarnessModal({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<"services" | "knowledge" | "approvals">("services");
+type HarnessTab = "services" | "knowledge" | "approvals";
+
+export function CompanyHarnessModal({
+  onClose,
+  initialTab = "services",
+}: {
+  onClose: () => void;
+  initialTab?: HarnessTab;
+}) {
+  const [tab, setTab] = useState<HarnessTab>(initialTab);
   const [services, setServices] = useState<CompanyService[]>([]);
   const [knowledge, setKnowledge] = useState<CompanyKnowledgeSummary[]>([]);
   const [requests, setRequests] = useState<CompanyServiceRequest[]>([]);
@@ -124,7 +132,10 @@ export function CompanyHarnessModal({ onClose }: { onClose: () => void }) {
         };
       },
     });
-    void notify(`🏛️ ${area?.label ?? "Conselho"}: ${inserted.nodeCount} agentes e ${inserted.edgeCount} conexões.`);
+    void notify(
+      `🏛️ ${area?.label ?? "Conselho"}: ${inserted.nodeCount} cards no canvas ` +
+      `(${Math.max(0, inserted.nodeCount - 2)} especialistas + Cérebro + Relator) e ${inserted.edgeCount} conexões.`,
+    );
     onClose();
   }
 
@@ -283,7 +294,7 @@ export function CompanyHarnessModal({ onClose }: { onClose: () => void }) {
           <BookOpen size={16} className="text-brand" />
           <div className="flex-1">
             <div className="text-sm font-semibold text-text">Harness Empresarial</div>
-            <div className="text-[10px] text-textMuted">Biblioteca de serviços compartilhada pelos agentes — segredos ficam no keychain</div>
+            <div className="text-[10px] text-textMuted">Conselho e APIs compartilhados pelos agentes — segredos ficam no OmniMemory/keychain</div>
           </div>
           <select value={councilArea} onChange={(event) => setCouncilArea(event.target.value as CouncilAreaId)} aria-label="Área do Conselho" className="mr-2 rounded border border-border bg-bg px-2 py-1.5 text-[11px] text-text">
             {COUNCIL_AREAS.map((area) => <option key={area.id} value={area.id}>{area.label}</option>)}
