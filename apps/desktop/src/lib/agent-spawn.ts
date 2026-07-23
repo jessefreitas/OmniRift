@@ -11,7 +11,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { AgentRole } from "@/types/pty";
-import { ROLE_CLIS, type AgentRoleDef, type RoleCli } from "@/lib/agent-roles";
+import { ROLE_CLIS, businessRolePrompt, type AgentRoleDef, type RoleCli } from "@/lib/agent-roles";
 import { workerClaudeArgs } from "@/lib/agent-contract";
 import { agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
 import { loadGlobalSkills } from "@/lib/global-skills";
@@ -83,6 +83,7 @@ export async function buildRoleSpawn(
   }
 
   const { command, prefixArgs } = resolveRoleCommand(role, cli.command);
+  const rolePrompt = businessRolePrompt(role);
 
   // União das skills GLOBAIS (todo agente recebe) com as do role/override. Vazio →
   // mantém a invariante no-skills (sem invoke, sem args/env extras).
@@ -118,7 +119,7 @@ export async function buildRoleSpawn(
   // Wrapper (ex.: claudefast / claude-ollama) que JÁ injeta system-prompt: não anexar
   // --append-system-prompt; persona (+ index de skills) vai como 1ª mensagem.
   if (role.selfSystemPrompt) {
-    const firstMessage = indexText ? `${role.prompt}\n\n${indexText}` : role.prompt;
+    const firstMessage = indexText ? `${rolePrompt}\n\n${indexText}` : rolePrompt;
     return {
       command,
       args: prefixArgs.length || pluginArgs.length ? [...prefixArgs, ...pluginArgs] : undefined,
@@ -132,8 +133,8 @@ export async function buildRoleSpawn(
   if (cli.systemPromptFlag) {
     const baseArgs =
       cli.role === "claude-code"
-        ? workerClaudeArgs(roleMcpPath, role.prompt, await agentSettingsConfig(role.name).catch(() => null))
-        : [cli.systemPromptFlag, role.prompt];
+        ? workerClaudeArgs(roleMcpPath, rolePrompt, await agentSettingsConfig(role.name).catch(() => null))
+        : [cli.systemPromptFlag, rolePrompt];
     return {
       command,
       args: [...prefixArgs, ...baseArgs, ...pluginArgs],
@@ -145,7 +146,7 @@ export async function buildRoleSpawn(
 
   // CLI sem flag de system-prompt (codex/opencode/antigravity): persona (+ indexText das
   // skills) vai como 1ª mensagem quando o terminal fica ready.
-  const firstMessage = indexText ? `${role.prompt}\n\n${indexText}` : role.prompt;
+  const firstMessage = indexText ? `${rolePrompt}\n\n${indexText}` : rolePrompt;
   return {
     command,
     args: prefixArgs.length ? prefixArgs : undefined,

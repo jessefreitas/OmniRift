@@ -12,11 +12,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Workflow } from "lucide-react";
 
-import { useCanvasStore } from "@/store/canvas-store";
 import { Tooltip } from "@/components/Tooltip";
 import { notify } from "@/lib/notify";
-import { viewportCenterFlow, fitToNodes } from "@/lib/canvas-focus";
 import { WORKFLOW_TEMPLATES, type WorkflowTemplate } from "@/lib/workflow-templates";
+import { insertWorkflowTemplate } from "@/lib/workflow-insert";
 import { useT } from "@/lib/i18n";
 
 export function WorkflowTemplatesMenu() {
@@ -42,33 +41,10 @@ export function WorkflowTemplatesMenu() {
   }, [open]);
 
   function insert(tpl: WorkflowTemplate): void {
-    const store = useCanvasStore.getState();
-    const origin = viewportCenterFlow();
-    const { nodes, edges } = tpl.build(origin);
-    // key local do template → id real do nó criado (nanoid do store).
-    const idByKey = new Map<string, string>();
-    for (const spec of nodes) {
-      if (spec.kind === "filter") {
-        const node = store.addFilterNode({ position: spec.position });
-        idByKey.set(spec.key, node.id);
-      } else {
-        const node = store.addAgent({ label: spec.label, persona: spec.persona, position: spec.position });
-        idByKey.set(spec.key, node.id);
-      }
-    }
-    let wired = 0;
-    for (const e of edges) {
-      const from = idByKey.get(e.from);
-      const to = idByKey.get(e.to);
-      if (from && to) {
-        store.addEdge(from, to, "generic");
-        wired++;
-      }
-    }
-    fitToNodes([...idByKey.values()]);
+    const inserted = insertWorkflowTemplate(tpl);
     setOpen(false);
     void notify(
-      `${tpl.emoji} ${tpl.name}: ${nodes.length} ${t("workflow.nodes", "nós")} + ${wired} ${t("workflow.edges", "conexões")}.`,
+      `${tpl.emoji} ${tpl.name}: ${inserted.nodeCount} ${t("workflow.nodes", "nós")} + ${inserted.edgeCount} ${t("workflow.edges", "conexões")}.`,
     );
   }
 

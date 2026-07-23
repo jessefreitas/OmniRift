@@ -122,6 +122,7 @@ const OrchestratorStream = lazy(() => import("@/components/OrchestratorStream").
 const AppearanceModal = lazy(() => import("@/components/AppearanceModal").then((m) => ({ default: m.AppearanceModal })));
 const UsageModal = lazy(() => import("@/components/UsageModal").then((m) => ({ default: m.UsageModal })));
 const ConnectionsModal = lazy(() => import("@/components/ConnectionsModal").then((m) => ({ default: m.ConnectionsModal })));
+const CompanyHarnessModal = lazy(() => import("@/components/CompanyHarnessModal").then((m) => ({ default: m.CompanyHarnessModal })));
 const ProvidersCentralModal = lazy(() => import("@/components/ProvidersCentralModal").then((m) => ({ default: m.ProvidersCentralModal })));
 const PipelineArchitectModal = lazy(() => import("@/components/PipelineArchitectModal").then((m) => ({ default: m.PipelineArchitectModal })));
 const MobileDevicesModal = lazy(() => import("@/components/MobileDevicesModal").then((m) => ({ default: m.MobileDevicesModal })));
@@ -183,6 +184,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "compressors", icon: Gauge, label: "Compressores de token", desc: "Instalar/gerenciar compressores (RTK, Headroom) que cortam tokens dos agentes" },
   { id: "skills", icon: Sparkles, label: "Skills dos agentes", desc: "Selecionar skills globais (todo agente recebe) e por agente (cada role escolhe as suas)" },
   { id: "connections", icon: Plug, label: "Conexões de memória", desc: "Conectar o cérebro de memória — Local, OmniMemory ou Obsidian" },
+  { id: "company-harness", icon: BookOpen, label: "Harness Empresarial", desc: "Serviços, aprovações e sistemas internos compartilhados pelo time de agentes da empresa" },
   { id: "llm-providers", icon: KeyRound, label: "Central de API", desc: "Chaves de API dos providers de LLM — cadastra 1x, usa no Hermes, OmniPartner e review" },
   { id: "omniswitch", icon: KeyRound, label: "OmniSwitch (roteador de chave)", desc: "Roteador interno de chave LLM: tabela de classes → alvos com fallback + rotação, e saúde por chave. Liga a flag omniswitch pra apontar os agentes pra cá" },
   { id: "snippets", icon: ClipboardList, label: "Central de copia-cola", desc: "Snippets persistentes (texto, código, imagem) — cola da área de transferência, copia ou arrasta pra qualquer nó" },
@@ -219,7 +221,7 @@ const TOOL_CATS: { id: string; emoji: string; label: string }[] = [
 ];
 /** id da ferramenta → categoria. Sem entrada = cai em "system" (nunca some do menu). */
 const TOOL_CAT: Record<string, string> = {
-  pipeline: "orchestrate", turbo: "orchestrate", kanban: "orchestrate", routines: "orchestrate", bench: "orchestrate",
+  pipeline: "orchestrate", turbo: "orchestrate", kanban: "orchestrate", routines: "orchestrate", bench: "orchestrate", "company-harness": "orchestrate",
   clis: "agents", skills: "agents", mcpservers: "agents", compressors: "agents", memory: "agents", connections: "agents",
   "llm-providers": "ai", companion: "ai", "review-ai": "ai", omniswitch: "ai",
   git: "files", omnifs: "files", "code-metrics": "files", snapshots: "files", history: "files", snippets: "files", reminders: "files", hooks: "files",
@@ -557,6 +559,7 @@ export function Sidebar() {
     setOrchMenu(false);
   }
   const [showConnections, setShowConnections] = useState(false);
+  const [showCompanyHarness, setShowCompanyHarness] = useState(false);
   const [showLlmProviders, setShowLlmProviders] = useState(false);
   const [showPipeline, setShowPipeline] = useState(false);
   const [showMobile, setShowMobile] = useState(false);
@@ -627,6 +630,7 @@ export function Sidebar() {
     conductor: () => setConstructorMode(!constructorMode),
     git: () => setShowGitRepos(true),
     connections: () => setShowConnections(true),
+    "company-harness": () => setShowCompanyHarness(true),
     "llm-providers": () => setShowLlmProviders(true),
     pipeline: () => setShowPipeline(true),
     mobile: () => setShowMobile(true),
@@ -676,6 +680,7 @@ export function Sidebar() {
         case "memory": setShowMemory(true); break;
         case "history": setShowHistory(true); break;
         case "connections": setShowConnections(true); break;
+        case "company-harness": setShowCompanyHarness(true); break;
         case "llm-providers": setShowLlmProviders(true); break;
         case "pipeline": setShowPipeline(true); break;
         case "mobile": setShowMobile(true); break;
@@ -2651,6 +2656,7 @@ export function Sidebar() {
       {showCompanion && <CompanionModal onClose={() => setShowCompanion(false)} />}
       {showOrchestratorStream && <OrchestratorStream onClose={() => setShowOrchestratorStream(false)} />}
       {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
+      {showCompanyHarness && <CompanyHarnessModal onClose={() => setShowCompanyHarness(false)} />}
       {showLlmProviders && <ProvidersCentralModal onClose={() => setShowLlmProviders(false)} />}
       {showPipeline && <PipelineArchitectModal onClose={() => setShowPipeline(false)} />}
       {showMobile && <MobileDevicesModal onClose={() => setShowMobile(false)} />}

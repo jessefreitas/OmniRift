@@ -38,6 +38,7 @@ const SHORTCUTS: { tool: string; label: string; icon: typeof Palette; desc: stri
   { tool: "llm-providers", label: "Providers de IA", icon: Server, desc: "Chaves e modelos dos provedores de LLM (BYOK)" },
   { tool: "feature-flags", label: "Feature flags", icon: Flag, desc: "Liga/desliga recursos por máquina (kill-switch, beta)" },
   { tool: "connections", label: "Memória & Conexões", icon: Network, desc: "Cérebro de memória plugável (OmniMemory/Obsidian)" },
+  { tool: "company-harness", label: "Harness Empresarial", icon: Server, desc: "Biblioteca de serviços e aprovações dos agentes empresariais" },
 ];
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {

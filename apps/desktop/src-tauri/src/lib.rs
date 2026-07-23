@@ -7,6 +7,7 @@ pub mod compress;
 pub mod db;
 pub mod git;
 pub mod health;
+pub mod knowledge;
 // Contrato Socrático do OmniPartner Aprender (Fase 9, A1): system-prompt canônico
 // + garantia anti-vazamento TESTÁVEL (a solução não sai antes do nível máximo).
 pub mod learn;
@@ -34,6 +35,7 @@ pub mod sandbox;
 // sessão + 3 métodos (status / agents.list / pty.snapshot). Subido no setup() via
 // tauri::async_runtime::spawn; degrade limpo se o socket não bindar.
 pub mod rpc;
+pub mod services;
 pub mod spec;
 pub mod turbo;
 
@@ -61,6 +63,7 @@ use commands::git_secret::{git_token_delete, git_token_get, git_token_set};
 use commands::gitremote::{git_clone, git_list_repos};
 use commands::github_auth::{github_device_poll, github_device_start};
 use commands::http::http_request;
+use commands::knowledge::{company_knowledge_delete, company_knowledge_get, company_knowledge_list, company_knowledge_save};
 use commands::omniswitch::{omniswitch_url, omniswitch_config_get, omniswitch_config_set, omniswitch_health};
 use health::ai::{health_analyze_file, health_db_report_get, health_report_get, health_reports_list};
 use health::backup::{health_backup, health_backup_list, health_backup_restore};
@@ -92,6 +95,11 @@ use commands::mcp_servers::{
 };
 use commands::scheduler::{scheduler_install, scheduler_list, scheduler_uninstall};
 use commands::serena::serena_ensure_project;
+use commands::services::{
+    company_service_call, company_service_credential_delete, company_service_delete,
+    company_service_request_decide, company_service_requests, company_service_save,
+    company_services_list,
+};
 use commands::git::{
     parallel_git_create, parallel_git_diff, parallel_git_land, parallel_git_remove, parallel_git_status,
     parallel_run_hook, git_repo_info,
@@ -241,6 +249,8 @@ pub fn run() {
                 Ok(dir) => match crate::db::Db::open(dir) {
                     Ok(db) => {
                         crate::orchestrator::init(&db);
+                        crate::knowledge::init(&db);
+                        crate::services::init(&db);
                         app.manage(db);
                     }
                     Err(e) => log::error!("falha ao abrir DB de persistência: {e:#}"),
@@ -623,6 +633,17 @@ pub fn run() {
             scheduler_install,
             scheduler_uninstall,
             scheduler_list,
+            company_knowledge_list,
+            company_knowledge_get,
+            company_knowledge_save,
+            company_knowledge_delete,
+            company_services_list,
+            company_service_save,
+            company_service_delete,
+            company_service_credential_delete,
+            company_service_requests,
+            company_service_call,
+            company_service_request_decide,
             routines_list,
             routines_upsert,
             routines_delete,
