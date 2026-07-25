@@ -115,9 +115,13 @@ function withFirstValueGreeting(body: string | undefined, ctx: FirstValueCtx): s
 - [x] `orchestrator://spawn-agent` injeta greeting pós-ready
 - [x] Zero dependência AIOX
 
+**Nota M1 (follow-up Code Reviewer):** triplicação wait-ready→inject extraída para
+`injectWhenPtyReady` em `apps/desktop/src/lib/inject-when-pty-ready.ts`
+(Sidebar / TerminalNode / orchestration-client). Feito junto com M2.
+
 ---
 
-## M2 — Handoff tipado
+## M2 — Handoff tipado ✅
 
 ### Objetivo
 
@@ -128,8 +132,8 @@ não-consumido.
 
 ```ts
 type MissionHandoff = {
-  from: string;
-  to: string;
+  from_agent: string;
+  to_agent: string;
   last_command: string;
   decisions: string[];
   files_modified: string[];
@@ -139,36 +143,50 @@ type MissionHandoff = {
   timestamp: string; // ISO
 };
 // key: handoff:<missionId>:<from>:<to>
+// storage: agent_memory kind=mission_handoff (Local / SQLite)
 ```
 
 ### API
 
 | Camada | Superfície |
 |---|---|
-| Rust | `mission::handoff::{save, load_pending, mark_consumed}` sobre `Db` / MemoryProvider |
+| Rust | `mission::handoff::{save, load_pending, load_pending_for_agent, mark_consumed}` |
 | MCP | `mission_handoff_write`, `mission_handoff_read`, `mission_handoff_consume` |
-| TS | `mission-client.ts` + `first-value` lê pending pro `nextStep` |
+| Tauri | mesmos nomes (UI / `mission-client.ts`) |
+| TS | `mission-handoff.ts` + `resolveFirstValueWithHandoff` + first-value via `nextStep` |
 
 ### Arquivos
 
-- `apps/desktop/src-tauri/src/mission/handoff.rs` (+ `mod.rs`)
-- `mcp/tools.rs` + `mcp/server.rs` schemas/handlers
-- `mission-client.ts`
-- `first-value` / AgentNode: se pending handoff → `nextStep` aponta chave
-- Testes Rust unitários no módulo + TS puro do parser
+- [x] `apps/desktop/src-tauri/src/mission/handoff.rs` (+ `mod.rs`)
+- [x] `mcp/tools.rs` schemas/handlers
+- [x] `commands/mission.rs` + registro em `lib.rs`
+- [x] `mission-client.ts` + `mission-handoff.ts`
+- [x] runner: write após settle; cite+consume no dispatch do sucessor
+- [x] greeting/first-value: `buildRoleSpawn` / Sidebar shell / AgentNode / orchestration-client
+  citam pending (lookup por `to_agent`) e consomem após inject
+- [x] eventos `handoff_written` / `handoff_consumed` (não quebram `validate_chain`)
+- [x] Testes Rust + TS (`npm run test:mission-handoff`)
 
 ### Testes
 
-- [ ] round-trip JSON no key `handoff:…`
-- [ ] `consumed=true` some da lista pending
-- [ ] greeting do alvo inclui `next_action` do handoff
-- [ ] validate: campos obrigatórios rejeitam vazio `from`/`to`
+- [x] round-trip JSON no key `handoff:…`
+- [x] `consumed=true` some da lista pending
+- [x] greeting do alvo inclui `next_action` do handoff
+- [x] validate: campos obrigatórios rejeitam vazio `from`/`to`
+- [x] `load_pending_for_agent` cross-mission
 
 ### Critério de done
 
-- Handoff gravado sem prosa solta; próximo agente consome uma vez; evento
-  opcional `handoff_written` / `handoff_consumed` na cadeia (se couber sem
-  quebrar `validate_chain` atual).
+- [x] Handoff gravado sem prosa solta; próximo agente consome uma vez; eventos
+  `handoff_written` / `handoff_consumed` na cadeia (não quebram `validate_chain`).
+- [x] First-value do alvo cita `handoff pending <key>: <next_action>` quando há pending.
+
+### Nota omp T1 (mesmo ciclo)
+
+Summarize > dump nas tools MCP `memory_recall` / `memory_list`:
+default summary (240 chars) + `offset`/`limit` + `raw`/`full` + footer `meta.truncation`.
+Ver `docs/superpowers/specs/2026-07-25-oh-my-pi-aprendizados-design.md` §3.1.
+**Status T1:** feito neste ciclo (junto com M2). T2/T4 não.
 
 ---
 

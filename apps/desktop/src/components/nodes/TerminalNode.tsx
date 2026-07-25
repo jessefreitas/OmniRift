@@ -26,6 +26,7 @@ import { CLI_CATALOG, clisList, type CliInfo } from "@/lib/clis-client";
 import { agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
 import { ROLE_CLIS, extractPersona, buildCliSwitch, loadRoles, type AgentRoleDef } from "@/lib/agent-roles";
 import { buildRoleSpawn } from "@/lib/agent-spawn";
+import { injectWhenPtyReady } from "@/lib/inject-when-pty-ready";
 import { cn } from "@/lib/cn";
 import { useFloorActive } from "@/lib/floor-activity";
 import { trackNodeMount } from "@/lib/debug-log";
@@ -290,32 +291,11 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
         }, delay);
       };
       const injectWhenReady = (text: string) => {
-        if (!text.trim()) return;
-        let ready = false;
-        let done = false;
-        const finish = () => {
-          if (done) return;
-          done = true;
-          unsub();
-          clearTimeout(graceT);
-          clearTimeout(killT);
-          sendLine(text, 150);
-        };
-        const unsub = useCanvasStore.subscribe((s) => {
-          const st = s.terminalStatuses[sid];
-          if (ready && (st === "idle" || st === "done")) finish();
+        injectWhenPtyReady(text, {
+          getStatus: () => useCanvasStore.getState().terminalStatuses[sid],
+          subscribe: (cb) => useCanvasStore.subscribe(cb),
+          write: (t) => sendLine(t, 0),
         });
-        const graceT = setTimeout(() => {
-          ready = true;
-          const st = useCanvasStore.getState().terminalStatuses[sid];
-          if (st === "idle" || st === "done") finish();
-        }, 1500);
-        const killT = setTimeout(() => {
-          if (!done) {
-            done = true;
-            unsub();
-          }
-        }, 120000);
       };
       // SHELL: roda o COMANDO AO ABRIR do role (ex: claude-glm52) e injeta a persona —
       // wrapper claude → nativa via --append-system-prompt; senão como 1ª mensagem. Sem

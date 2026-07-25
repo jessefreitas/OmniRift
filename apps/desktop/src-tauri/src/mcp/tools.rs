@@ -200,12 +200,15 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "path": { "type": "string", "description": "Caminho absoluto do .md da spec/plan." } },
                 "required": ["path"] } }),
         json!({ "name": "memory_recall",
-            "description": "ANTES de codar/decidir: busca memórias relevantes (fatos do blackboard + erros já cometidos) pra não repetir engano. Faça isso no começo de cada tarefa.",
+            "description": "ANTES de codar/decidir: busca memórias relevantes (fatos do blackboard + erros já cometidos) pra não repetir engano. Faça isso no começo de cada tarefa. Default = summary truncado; use raw/full=true pro dump completo.",
             "inputSchema": { "type": "object", "properties": {
                 "query": { "type": "string", "description": "Termos do que você vai fazer (ex: 'auth jwt refresh')." },
                 "kind": { "type": "string", "description": "Filtra: fact | error | note (opcional)." },
                 "scope": { "type": "string", "description": "Filtra por floor/projeto (opcional)." },
-                "limit": { "type": "number" } },
+                "limit": { "type": "number", "description": "Máx. itens por página (default 10)." },
+                "offset": { "type": "number", "description": "Offset de paginação (default 0)." },
+                "raw": { "type": "boolean", "description": "true = dump completo do value (alias: full)." },
+                "full": { "type": "boolean", "description": "Alias de raw." } },
                 "required": ["query"] } }),
         json!({ "name": "memory_remember",
             "description": "Grava um fato durável no blackboard compartilhado entre agentes (ex: decisão de arquitetura, convenção, endpoint). Outro agente recupera com memory_recall.",
@@ -228,9 +231,14 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "agent": { "type": "string" } },
                 "required": ["what", "fix"] } }),
         json!({ "name": "memory_list",
-            "description": "Lista as memórias gravadas (filtro opcional por kind/scope).",
+            "description": "Lista as memórias gravadas (filtro opcional por kind/scope). Default = summary; raw/full=true pro dump.",
             "inputSchema": { "type": "object", "properties": {
-                "kind": { "type": "string" }, "scope": { "type": "string" }, "limit": { "type": "number" } } } }),
+                "kind": { "type": "string" },
+                "scope": { "type": "string" },
+                "limit": { "type": "number", "description": "Máx. itens por página (default 20)." },
+                "offset": { "type": "number", "description": "Offset de paginação (default 0)." },
+                "raw": { "type": "boolean" },
+                "full": { "type": "boolean" } } } }),
         json!({ "name": "memory_forget",
             "description": "Apaga uma memória por id (ex: fato obsoleto).",
             "inputSchema": { "type": "object", "properties": {
@@ -367,6 +375,35 @@ pub fn terminal_tool_defs() -> Vec<Value> {
             "inputSchema": { "type": "object", "properties": {
                 "mission_id": { "type": "string" } },
                 "required": ["mission_id"] } }),
+        json!({ "name": "mission_handoff_write",
+            "description": "Grava handoff tipado no blackboard (chave handoff:<mission>:<from>:<to>). \
+                Consumível uma vez pelo próximo agente.",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" },
+                "from_agent": { "type": "string" },
+                "to_agent": { "type": "string" },
+                "last_command": { "type": "string" },
+                "next_action": { "type": "string" },
+                "decisions": { "type": "array", "items": { "type": "string" } },
+                "files_modified": { "type": "array", "items": { "type": "string" } },
+                "blockers": { "type": "array", "items": { "type": "string" } } },
+                "required": ["mission_id", "from_agent", "to_agent", "next_action"] } }),
+        json!({ "name": "mission_handoff_read",
+            "description": "Lê handoffs pendentes (consumed=false) da missão. Filtra por to_agent se informado. \
+                Escopo por mission_id (não faz lookup cross-mission).",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" },
+                "to_agent": { "type": "string", "description": "destinatário (opcional)" },
+                "key": { "type": "string", "description": "chave exata (opcional; se presente ignora filtro)" } },
+                "required": ["mission_id"] } }),
+        json!({ "name": "mission_handoff_consume",
+            "description": "Marca handoff como consumido (lido/aplicado). Idempotente.",
+            "inputSchema": { "type": "object", "properties": {
+                "key": { "type": "string", "description": "handoff:<mission>:<from>:<to>" },
+                "mission_id": { "type": "string", "description": "alternativa: monta key com from+to" },
+                "from_agent": { "type": "string" },
+                "to_agent": { "type": "string" } },
+                "required": [] } }),
     ]
 }
 
@@ -512,16 +549,130 @@ pub fn claim_dispatch(state: &McpState, tool: &str, args: Value) -> String {
     }
 }
 
-/// Formata uma lista de memórias pro agente ler.
-fn fmt_memories(rows: &[crate::db::MemoryRow], title: &str) -> String {
+/// Cap default do value em modo summary (T1 summarize > dump).
+pub(crate) const MEMORY_SUMMARY_CHARS: usize = 240;
+/// Cap de fetch interno antes de paginar (evita carregar o blackboard inteiro).
+pub(crate) const MEMORY_FETCH_CAP: i64 = 200;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MemoryFmtOpts {
+    pub offset: usize,
+    pub limit: usize,
+    pub raw: bool,
+}
+
+impl Default for MemoryFmtOpts {
+    fn default() -> Self {
+        Self {
+            offset: 0,
+            limit: 10,
+            raw: false,
+        }
+    }
+}
+
+/// Lê offset/limit/raw|full dos args MCP.
+pub(crate) fn memory_fmt_opts(args: &Value, default_limit: usize) -> MemoryFmtOpts {
+    let offset = args
+        .get("offset")
+        .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|n| n.max(0) as u64)))
+        .unwrap_or(0) as usize;
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|n| n.max(0) as u64)))
+        .unwrap_or(default_limit as u64)
+        .clamp(1, 100) as usize;
+    let raw = args.get("raw").and_then(|v| v.as_bool()).unwrap_or(false)
+        || args.get("full").and_then(|v| v.as_bool()).unwrap_or(false);
+    MemoryFmtOpts { offset, limit, raw }
+}
+
+/// Resume um value: 1ª linha útil, truncada a `cap` chars.
+pub(crate) fn summarize_memory_value(value: &str, cap: usize) -> (String, bool) {
+    let flat = value
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+        .replace('\t', " ");
+    if flat.chars().count() <= cap {
+        let truncated = flat.chars().count() < value.chars().count() || value.contains('\n');
+        return (flat, truncated && !value.trim().is_empty());
+    }
+    let mut out: String = flat.chars().take(cap.saturating_sub(1)).collect();
+    out.push('…');
+    (out, true)
+}
+
+fn memory_meta_footer(
+    mode: &str,
+    offset: usize,
+    limit: usize,
+    returned: usize,
+    total_matched: usize,
+    any_value_truncated: bool,
+) -> String {
+    let next_offset = if offset + returned < total_matched {
+        Some(offset + returned)
+    } else {
+        None
+    };
+    let truncation = any_value_truncated || next_offset.is_some();
+    let meta = json!({
+        "truncation": truncation,
+        "mode": mode,
+        "offset": offset,
+        "limit": limit,
+        "returned": returned,
+        "total_matched": total_matched,
+        "next_offset": next_offset,
+    });
+    format!("\n---\nmeta: {meta}")
+}
+
+/// Formata memórias Local com summary default + paginação + meta.truncation (T1).
+pub(crate) fn fmt_memories(rows: &[crate::db::MemoryRow], title: &str, opts: &MemoryFmtOpts) -> String {
     if rows.is_empty() {
         return format!("Nada na memória pra '{title}'.");
     }
-    let mut s = format!("{} resultado(s) — {title}:\n", rows.len());
-    for m in rows {
-        let key = m.mem_key.as_deref().map(|k| format!(" [{k}]")).unwrap_or_default();
-        s.push_str(&format!("\n#{} ({}){key}\n{}\n", m.id, m.kind, m.value));
+    let total = rows.len();
+    let page = rows.iter().skip(opts.offset).take(opts.limit).collect::<Vec<_>>();
+    if page.is_empty() {
+        return format!(
+            "Nada na página offset={} (total_matched={total}) pra '{title}'.{}",
+            opts.offset,
+            memory_meta_footer(
+                if opts.raw { "raw" } else { "summary" },
+                opts.offset,
+                opts.limit,
+                0,
+                total,
+                false,
+            )
+        );
     }
+    let mode = if opts.raw { "raw" } else { "summary" };
+    let mut any_trunc = false;
+    let mut s = format!("{} resultado(s) — {title} [{mode}]:\n", page.len());
+    for m in &page {
+        let key = m.mem_key.as_deref().map(|k| format!(" [{k}]")).unwrap_or_default();
+        let body = if opts.raw {
+            m.value.clone()
+        } else {
+            let (sum, trunc) = summarize_memory_value(&m.value, MEMORY_SUMMARY_CHARS);
+            any_trunc |= trunc;
+            sum
+        };
+        s.push_str(&format!("\n#{} ({}){key}\n{}\n", m.id, m.kind, body));
+    }
+    s.push_str(&memory_meta_footer(
+        mode,
+        opts.offset,
+        opts.limit,
+        page.len(),
+        total,
+        any_trunc,
+    ));
     s
 }
 
@@ -583,25 +734,28 @@ fn memory_dispatch_local(state: &McpState, tool: &str, args: Value) -> String {
             if query.is_empty() {
                 return "❌ 'query' é obrigatório".into();
             }
-            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
+            let opts = memory_fmt_opts(&args, 10);
+            // Fetch um pouco além da página pra poder reportar next_offset/total.
+            let fetch = ((opts.offset + opts.limit) as i64 + 1).clamp(1, MEMORY_FETCH_CAP);
             match db.memory_recall(
                 &query,
                 arg_opt(&args, "kind").as_deref(),
                 arg_opt(&args, "scope").as_deref(),
-                limit,
+                fetch,
             ) {
-                Ok(rows) => fmt_memories(&rows, &format!("recall '{query}'")),
+                Ok(rows) => fmt_memories(&rows, &format!("recall '{query}'"), &opts),
                 Err(e) => format!("❌ {e}"),
             }
         }
         "memory_list" => {
-            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(50);
+            let opts = memory_fmt_opts(&args, 20);
+            let fetch = ((opts.offset + opts.limit) as i64 + 1).clamp(1, MEMORY_FETCH_CAP);
             match db.memory_list(
                 arg_opt(&args, "kind").as_deref(),
                 arg_opt(&args, "scope").as_deref(),
-                limit,
+                fetch,
             ) {
-                Ok(rows) => fmt_memories(&rows, "memórias"),
+                Ok(rows) => fmt_memories(&rows, "memórias", &opts),
                 Err(e) => format!("❌ {e}"),
             }
         }
@@ -662,22 +816,32 @@ async fn memory_dispatch_provider(state: &McpState, tool: &str, args: Value) -> 
             if query.is_empty() {
                 return "❌ 'query' é obrigatório".into();
             }
-            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10).max(1) as usize;
+            let opts = memory_fmt_opts(&args, 10);
+            let fetch = (opts.offset + opts.limit + 1).clamp(1, MEMORY_FETCH_CAP as usize);
             match p
-                .search(MemoryQuery { query: query.clone(), project: arg_opt(&args, "scope"), limit })
+                .search(MemoryQuery {
+                    query: query.clone(),
+                    project: arg_opt(&args, "scope"),
+                    limit: fetch,
+                })
                 .await
             {
-                Ok(recs) => fmt_records(&recs, &format!("recall '{query}'")),
+                Ok(recs) => fmt_records(&recs, &format!("recall '{query}'"), &opts),
                 Err(e) => format!("❌ {e}"),
             }
         }
         "memory_list" => {
-            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(50).max(1) as usize;
+            let opts = memory_fmt_opts(&args, 20);
+            let fetch = (opts.offset + opts.limit + 1).clamp(1, MEMORY_FETCH_CAP as usize);
             match p
-                .search(MemoryQuery { query: String::new(), project: arg_opt(&args, "scope"), limit })
+                .search(MemoryQuery {
+                    query: String::new(),
+                    project: arg_opt(&args, "scope"),
+                    limit: fetch,
+                })
                 .await
             {
-                Ok(recs) => fmt_records(&recs, "memórias"),
+                Ok(recs) => fmt_records(&recs, "memórias", &opts),
                 Err(e) => format!("❌ {e}"),
             }
         }
@@ -699,15 +863,52 @@ async fn memory_dispatch_provider(state: &McpState, tool: &str, args: Value) -> 
     }
 }
 
-/// Formata MemoryRecords (provider remoto) pro agente ler.
-fn fmt_records(recs: &[crate::memory::MemoryRecord], title: &str) -> String {
+/// Formata MemoryRecords (provider remoto) — mesma disciplina T1 do Local.
+pub(crate) fn fmt_records(
+    recs: &[crate::memory::MemoryRecord],
+    title: &str,
+    opts: &MemoryFmtOpts,
+) -> String {
     if recs.is_empty() {
         return format!("Nada na memória pra '{title}'.");
     }
-    let mut s = format!("{} resultado(s) — {title}:\n", recs.len());
-    for m in recs {
-        s.push_str(&format!("\n#{} ({})\n{}\n", m.id, m.category, m.content));
+    let total = recs.len();
+    let page = recs.iter().skip(opts.offset).take(opts.limit).collect::<Vec<_>>();
+    if page.is_empty() {
+        return format!(
+            "Nada na página offset={} (total_matched={total}) pra '{title}'.{}",
+            opts.offset,
+            memory_meta_footer(
+                if opts.raw { "raw" } else { "summary" },
+                opts.offset,
+                opts.limit,
+                0,
+                total,
+                false,
+            )
+        );
     }
+    let mode = if opts.raw { "raw" } else { "summary" };
+    let mut any_trunc = false;
+    let mut s = format!("{} resultado(s) — {title} [{mode}]:\n", page.len());
+    for m in &page {
+        let body = if opts.raw {
+            m.content.clone()
+        } else {
+            let (sum, trunc) = summarize_memory_value(&m.content, MEMORY_SUMMARY_CHARS);
+            any_trunc |= trunc;
+            sum
+        };
+        s.push_str(&format!("\n#{} ({})\n{}\n", m.id, m.category, body));
+    }
+    s.push_str(&memory_meta_footer(
+        mode,
+        opts.offset,
+        opts.limit,
+        page.len(),
+        total,
+        any_trunc,
+    ));
     s
 }
 
@@ -1924,6 +2125,73 @@ pub async fn mission_dispatch(state: &McpState, tool: &str, args: Value) -> Stri
             let report = crate::mission::verify::verify(&work, &pkg.acceptance);
             serde_json::to_string_pretty(&report).unwrap_or_else(|e| format!("❌ {e}"))
         }
+        "mission_handoff_write" => {
+            let mission_id = arg_str(&args, "mission_id");
+            let from_agent = arg_str(&args, "from_agent");
+            let to_agent = arg_str(&args, "to_agent");
+            let next_action = arg_str(&args, "next_action");
+            if mission_id.is_empty() || from_agent.is_empty() || to_agent.is_empty() {
+                return "❌ mission_id, from_agent e to_agent são obrigatórios".into();
+            }
+            if next_action.is_empty() {
+                return "❌ next_action é obrigatório".into();
+            }
+            let h = crate::mission::handoff::MissionHandoff {
+                from_agent,
+                to_agent,
+                last_command: arg_str(&args, "last_command"),
+                decisions: json_str_array(&args, "decisions"),
+                files_modified: json_str_array(&args, "files_modified"),
+                blockers: json_str_array(&args, "blockers"),
+                next_action,
+                consumed: false,
+                timestamp: String::new(),
+                mission_id: mission_id.clone(),
+            };
+            match crate::mission::handoff::save(&db, &mission_id, h) {
+                Ok(key) => format!("✅ handoff gravado key={key}"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "mission_handoff_read" => {
+            let key = arg_str(&args, "key");
+            if !key.is_empty() {
+                return match crate::mission::handoff::load(&db, &key) {
+                    Some(h) => serde_json::to_string_pretty(&h)
+                        .unwrap_or_else(|e| format!("❌ {e}")),
+                    None => format!("❌ handoff '{key}' não encontrado"),
+                };
+            }
+            let mission_id = arg_str(&args, "mission_id");
+            if mission_id.is_empty() {
+                return "❌ 'mission_id' é obrigatório (ou passe 'key')".into();
+            }
+            let to = arg_str(&args, "to_agent");
+            let to_opt = if to.is_empty() { None } else { Some(to.as_str()) };
+            let pending = crate::mission::handoff::load_pending(&db, &mission_id, to_opt);
+            let items: Vec<Value> = pending
+                .into_iter()
+                .map(|(k, h)| json!({ "key": k, "handoff": h }))
+                .collect();
+            serde_json::to_string_pretty(&items).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "mission_handoff_consume" => {
+            let mut key = arg_str(&args, "key");
+            if key.is_empty() {
+                let mission_id = arg_str(&args, "mission_id");
+                let from = arg_str(&args, "from_agent");
+                let to = arg_str(&args, "to_agent");
+                if mission_id.is_empty() || from.is_empty() || to.is_empty() {
+                    return "❌ informe 'key' ou (mission_id + from_agent + to_agent)".into();
+                }
+                key = crate::mission::handoff::handoff_key(&mission_id, &from, &to);
+            }
+            match crate::mission::handoff::mark_consumed(&db, &key) {
+                Ok(true) => format!("✅ handoff consumido key={key}"),
+                Ok(false) => format!("❌ handoff '{key}' não encontrado"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
         other => format!("❌ tool desconhecida: {other}"),
     }
 }
@@ -2573,6 +2841,96 @@ mod tests {
     fn evict_threshold_is_about_20k_chars() {
         // Guard de regressão: ~5k tokens por proxy de chars (deepagents-style).
         assert_eq!(EVICT_THRESHOLD_CHARS, 20_000);
+    }
+
+    // ── T1 summarize > dump (memory_*) ──────────────────────────────────────
+
+    fn mem_row(id: i64, value: &str) -> crate::db::MemoryRow {
+        crate::db::MemoryRow {
+            id,
+            scope: None,
+            agent_id: None,
+            kind: "fact".into(),
+            mem_key: Some(format!("k{id}")),
+            value: value.into(),
+            tags: None,
+            created_at: "2026-07-25T00:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn summarize_memory_value_truncates_long_and_multiline() {
+        let (s, trunc) = summarize_memory_value("short ok", 240);
+        assert_eq!(s, "short ok");
+        assert!(!trunc);
+
+        let long = "x".repeat(300);
+        let (s2, trunc2) = summarize_memory_value(&long, 240);
+        assert!(trunc2);
+        assert!(s2.ends_with('…'));
+        assert!(s2.chars().count() <= 240);
+
+        let (s3, trunc3) = summarize_memory_value("linha1\nlinha2 bem longa", 240);
+        assert_eq!(s3, "linha1");
+        assert!(trunc3);
+    }
+
+    #[test]
+    fn memory_fmt_opts_reads_raw_full_offset_limit() {
+        let opts = memory_fmt_opts(
+            &json!({ "offset": 5, "limit": 3, "raw": true }),
+            10,
+        );
+        assert_eq!(opts.offset, 5);
+        assert_eq!(opts.limit, 3);
+        assert!(opts.raw);
+
+        let full = memory_fmt_opts(&json!({ "full": true }), 20);
+        assert!(full.raw);
+        assert_eq!(full.limit, 20);
+    }
+
+    #[test]
+    fn fmt_memories_summary_paginates_and_emits_meta() {
+        let rows: Vec<_> = (1..=5)
+            .map(|i| mem_row(i, &format!("fato {i} {}", "y".repeat(300))))
+            .collect();
+        let out = fmt_memories(
+            &rows,
+            "memórias",
+            &MemoryFmtOpts {
+                offset: 0,
+                limit: 2,
+                raw: false,
+            },
+        );
+        assert!(out.contains("[summary]"), "modo summary no header");
+        assert!(out.contains("#1 (fact)"));
+        assert!(out.contains("#2 (fact)"));
+        assert!(!out.contains("#3 (fact)"), "página limita a 2");
+        assert!(out.contains("\"truncation\":true"));
+        assert!(out.contains("\"next_offset\":2"));
+        assert!(out.contains("\"mode\":\"summary\""));
+        // value longo não aparece inteiro no summary
+        assert!(!out.contains(&"y".repeat(300)));
+    }
+
+    #[test]
+    fn fmt_memories_raw_dumps_full_value() {
+        let rows = vec![mem_row(1, "linha1\nlinha2 completa")];
+        let out = fmt_memories(
+            &rows,
+            "recall 'x'",
+            &MemoryFmtOpts {
+                offset: 0,
+                limit: 10,
+                raw: true,
+            },
+        );
+        assert!(out.contains("[raw]"));
+        assert!(out.contains("linha1\nlinha2 completa"));
+        assert!(out.contains("\"mode\":\"raw\""));
+        assert!(out.contains("\"next_offset\":null") || out.contains("\"next_offset\": null"));
     }
 
     // ── Estágio 1 · pré-flight determinístico (parsers puros + decisão GO/NO-GO) ──

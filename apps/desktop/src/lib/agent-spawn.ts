@@ -116,9 +116,13 @@ export async function buildRoleSpawn(
       ? ((await agentMcpConfig(role.mcpServers, role.needsBrowser).catch(() => null)) ?? mcpFallback)
       : ((await agentMcpConfig().catch(() => null)) ?? mcpFallback);
 
-  // M1 first-value: todo spawn de role recebe greeting estruturado na 1ª mensagem
-  // (mesmo quando o system-prompt já foi nos args — senão o nó fica mudo).
-  const fv = { label: role.name, role: role.name, kind: "worker" as const };
+  // M1 first-value: greeting na 1ª mensagem. Handoff (M2) exige missionId — o runner
+  // cita+consome no dispatch do sucessor; spawn genérico sem missão não faz lookup.
+  const fv = {
+    label: role.name,
+    role: role.name,
+    kind: "worker" as const,
+  };
 
   // Wrapper (ex.: claudefast / claude-ollama) que JÁ injeta system-prompt: não anexar
   // --append-system-prompt; persona (+ index de skills) vai como 1ª mensagem.
@@ -145,7 +149,6 @@ export async function buildRoleSpawn(
       role: cli.role,
       env,
       compressor,
-      // System-prompt nos args → greeting sozinho como 1ª mensagem (first-value).
       firstMessage: withFirstValueGreeting(undefined, fv),
     };
   }

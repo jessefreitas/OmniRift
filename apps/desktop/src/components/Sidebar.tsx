@@ -77,6 +77,7 @@ import { loadGlobalSkills } from "@/lib/global-skills";
 import { type SkillWiring } from "@/lib/agent-skills";
 import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
 import { buildFirstValueGreeting, withFirstValueGreeting } from "@/lib/first-value";
+import { injectWhenPtyReady } from "@/lib/inject-when-pty-ready";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { EditableLabel } from "@/components/EditableLabel";
 import { UpdaterButton } from "@/components/UpdaterButton";
@@ -1390,15 +1391,14 @@ export function Sidebar() {
         kind: "orchestrator",
         floor: floorName,
       }) : orchGreeting;
-      let ready = false, done = false;
-      const send = () => {
-        invoke("pty_write", { sessionId: sid, data: text }).catch(console.warn);
-        setTimeout(() => invoke("pty_write", { sessionId: sid, data: "\r" }).catch(console.warn), 200);
-      };
-      const finish = () => { if (done) return; done = true; unsub(); clearTimeout(g); clearTimeout(k); setTimeout(send, 150); };
-      const unsub = useCanvasStore.subscribe((s) => { const st = s.terminalStatuses[sid]; if (ready && (st === "idle" || st === "done")) finish(); });
-      const g = setTimeout(() => { ready = true; const st = useCanvasStore.getState().terminalStatuses[sid]; if (st === "idle" || st === "done") finish(); }, 1500);
-      const k = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
+      injectWhenPtyReady(text, {
+        getStatus: () => useCanvasStore.getState().terminalStatuses[sid],
+        subscribe: (cb) => useCanvasStore.subscribe(cb),
+        write: (t) => {
+          invoke("pty_write", { sessionId: sid, data: t }).catch(console.warn);
+          setTimeout(() => invoke("pty_write", { sessionId: sid, data: "\r" }).catch(console.warn), 200);
+        },
+      });
     };
     if (cli.role === "claude-code") {
       const settingsConfigPath = await settingsFor("Orquestrador");
@@ -1467,23 +1467,11 @@ export function Sidebar() {
       }, delay);
     };
     const injectWhenReady = (sid: string, text: string) => {
-      if (!text.trim()) return;
-      let ready = false, done = false;
-      const finish = () => {
-        if (done) return;
-        done = true; unsub(); clearTimeout(graceT); clearTimeout(killT);
-        sendLine(sid, text, 150);
-      };
-      const unsub = useCanvasStore.subscribe((s) => {
-        const st = s.terminalStatuses[sid];
-        if (ready && (st === "idle" || st === "done")) finish();
+      injectWhenPtyReady(text, {
+        getStatus: () => useCanvasStore.getState().terminalStatuses[sid],
+        subscribe: (cb) => useCanvasStore.subscribe(cb),
+        write: (t) => sendLine(sid, t, 0),
       });
-      const graceT = setTimeout(() => {
-        ready = true;
-        const st = useCanvasStore.getState().terminalStatuses[sid];
-        if (st === "idle" || st === "done") finish();
-      }, 1500);
-      const killT = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
     };
     const shellQuote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
 

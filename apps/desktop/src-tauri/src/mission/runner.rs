@@ -4,6 +4,7 @@ use crate::db::Db;
 use crate::mcp::server::McpState;
 use crate::mission::dag::{plan_dag, DagNode};
 use crate::mission::events::{self, EventKind};
+use crate::mission::handoff;
 use crate::mission::verify::{self, AcceptanceRule};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -128,15 +129,47 @@ pub async fn run_mission(state: &McpState, db: &Db, mission_id: &str) -> RunRepo
                 None => continue,
             };
             let target = format!("@{}", node.role);
+
+            // M2: handoffs pending (fan-in: todos) → cita no task; consome após dispatch.
+            let pending = handoff::load_pending(db, mission_id, Some(&node.role));
+            let consume_keys: Vec<String> = pending.iter().map(|(k, _)| k.clone()).collect();
+            let task_body = if pending.is_empty() {
+                node.task.clone()
+            } else {
+                let blocks: Vec<String> = pending
+                    .iter()
+                    .map(|(key, h)| {
+                        format!(
+                            "[handoff pending {key}]\n\
+                             from: {}\n\
+                             last_command: {}\n\
+                             next_action: {}\n\
+                             decisions: {}\n\
+                             blockers: {}",
+                            h.from_agent,
+                            h.last_command,
+                            h.next_action,
+                            h.decisions.join("; "),
+                            h.blockers.join("; "),
+                        )
+                    })
+                    .collect();
+                format!("{}\n\n{}", blocks.join("\n\n"), node.task)
+            };
+
             let result = crate::orchestrator::dispatch_task(
                 state,
                 db,
                 &target,
-                &node.task,
+                &task_body,
                 None,
                 "blocking",
             )
             .await;
+
+            for key in &consume_keys {
+                let _ = handoff::mark_consumed(db, key);
+            }
 
             events::append_event(
                 db,
@@ -147,6 +180,7 @@ pub async fn run_mission(state: &McpState, db: &Db, mission_id: &str) -> RunRepo
                     "role": node.role,
                     "capability": node.capability,
                     "result_excerpt": truncate(&result, 400),
+                    "handoff_consumed": consume_keys,
                 }),
             );
 
@@ -161,6 +195,25 @@ pub async fn run_mission(state: &McpState, db: &Db, mission_id: &str) -> RunRepo
                         "sha256": sha,
                         "bytes": sha.len(),
                     }),
+                );
+            }
+
+            // M2: após settle do nó, handoff tipado para sucessores (deps → este id).
+            let successors: Vec<(String, String, String)> = pkg
+                .nodes
+                .iter()
+                .filter(|n| n.deps.iter().any(|d| d == &node.id || d == &node.role))
+                .map(|n| (n.id.clone(), n.role.clone(), n.task.clone()))
+                .collect();
+            if !successors.is_empty() {
+                let _ = handoff::write_after_settle(
+                    db,
+                    mission_id,
+                    &node.id,
+                    &node.role,
+                    &format!("dispatch {}", node.id),
+                    &truncate(&result, 400),
+                    &successors,
                 );
             }
         }
@@ -242,8 +295,11 @@ pub fn status_json(db: &Db, mission_id: &str) -> Value {
 
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max])
+        return s.to_string();
     }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &s[..end])
 }

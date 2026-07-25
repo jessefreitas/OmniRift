@@ -318,7 +318,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             // arquivo ainda não existe — o agente o cria on-demand (instrução abaixo)
           }
         }
-        // M1 first-value: bloco curto antes da persona (orientação imediata pós-ready).
+        // M1 first-value: bloco curto antes da persona. Handoff M2 no mission_run.
         const body = [
           `A partir de agora você atua com este papel/persona (mantenha-o independente do modelo):\n\n${persona}`,
           agentsMdInstruction(label),

@@ -1,9 +1,9 @@
-//! Commands Tauri da camada Missão (capabilities + eventos + verify).
+//! Commands Tauri da camada Missão (capabilities + eventos + verify + handoff).
 //! `mission_run` fica no MCP (precisa do settle PTY do control plane).
 
 use crate::db::Db;
-use crate::mission::{capabilities, events, runner, verify};
-use serde_json::Value;
+use crate::mission::{capabilities, events, handoff, runner, verify};
+use serde_json::{json, Value};
 use tauri::State;
 
 type CmdResult<T> = Result<T, String>;
@@ -74,4 +74,39 @@ pub fn mission_events_list(
     mission_id: String,
 ) -> CmdResult<Vec<events::MissionEvent>> {
     Ok(events::list_events(&db, &mission_id))
+}
+
+#[tauri::command]
+pub fn mission_handoff_write(
+    db: State<'_, Db>,
+    mission_id: String,
+    handoff_json: String,
+) -> CmdResult<String> {
+    let h: handoff::MissionHandoff =
+        serde_json::from_str(&handoff_json).map_err(|e| format!("handoff JSON inválido: {e}"))?;
+    handoff::save(&db, &mission_id, h)
+}
+
+#[tauri::command]
+pub fn mission_handoff_read(
+    db: State<'_, Db>,
+    mission_id: String,
+    to_agent: Option<String>,
+) -> CmdResult<Value> {
+    let mid = mission_id.trim();
+    if mid.is_empty() {
+        return Err("mission_id é obrigatório".into());
+    }
+    // Escopo por missão — evita spawn genérico roubar handoff de outra missão.
+    let pending = handoff::load_pending(&db, mid, to_agent.as_deref());
+    let items: Vec<Value> = pending
+        .into_iter()
+        .map(|(k, h)| json!({ "key": k, "handoff": h }))
+        .collect();
+    Ok(json!(items))
+}
+
+#[tauri::command]
+pub fn mission_handoff_consume(db: State<'_, Db>, key: String) -> CmdResult<bool> {
+    handoff::mark_consumed(&db, &key)
 }

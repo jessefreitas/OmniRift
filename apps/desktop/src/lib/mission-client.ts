@@ -1,5 +1,13 @@
-// Cliente tipado da camada Missão (capabilities + eventos + verify).
+// Cliente tipado da camada Missão (capabilities + eventos + verify + handoff).
 import { invoke } from "@tauri-apps/api/core";
+import {
+  mergeHandoffIntoFirstValue,
+  nextStepFromHandoff,
+  parseMissionHandoff,
+  type FirstValueHandoffCtx,
+  type MissionHandoff,
+  type PendingHandoff,
+} from "@/lib/mission-handoff";
 
 export type SearchSignal =
   | { signal: "high"; id: string; score: number }
@@ -85,6 +93,94 @@ export async function missionEventsList(missionId: string): Promise<MissionEvent
 export async function missionVerify(missionId: string): Promise<unknown> {
   return invoke("mission_verify", { missionId });
 }
+
+export async function missionHandoffWrite(
+  missionId: string,
+  handoff: MissionHandoff,
+): Promise<string> {
+  return invoke("mission_handoff_write", {
+    missionId,
+    handoffJson: JSON.stringify(handoff),
+  });
+}
+
+export async function missionHandoffRead(
+  missionId: string,
+  toAgent?: string,
+): Promise<PendingHandoff[]> {
+  const mid = missionId.trim();
+  if (!mid) return [];
+  const raw = await invoke<unknown>("mission_handoff_read", {
+    missionId: mid,
+    toAgent: toAgent ?? null,
+  });
+  if (!Array.isArray(raw)) return [];
+  const out: PendingHandoff[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as { key?: string; handoff?: unknown };
+    const key = String(rec.key ?? "");
+    const h = parseMissionHandoff(rec.handoff);
+    if (key && h && !h.consumed) out.push({ key, handoff: h });
+  }
+  return out;
+}
+
+export async function missionHandoffConsume(key: string): Promise<boolean> {
+  return invoke("mission_handoff_consume", { key });
+}
+
+/**
+ * Lê o primeiro handoff pending pro agente. Exige missionId (sem cross-mission).
+ * Consumir só após write do greeting.
+ */
+export async function pendingHandoffForAgent(
+  toAgent: string,
+  missionId?: string | null,
+): Promise<{ key: string; nextStep: string; handoff: MissionHandoff } | null> {
+  const agent = toAgent.trim();
+  const mid = missionId?.trim();
+  if (!agent || !mid) return null;
+  const pending = await missionHandoffRead(mid, agent);
+  const first = pending[0];
+  if (!first) return null;
+  return {
+    key: first.key,
+    nextStep: nextStepFromHandoff(first.handoff, first.key),
+    handoff: first.handoff,
+  };
+}
+
+/**
+ * Resolve first-value citando handoff pending. Só com ctx.missionId.
+ */
+export async function resolveFirstValueWithHandoff<T extends FirstValueHandoffCtx>(
+  ctx: T,
+): Promise<{ ctx: T; consumeKey: string | null }> {
+  const agent = (ctx.role || ctx.label || "").trim();
+  const mid = ctx.missionId?.trim();
+  if (!agent || !mid) return { ctx, consumeKey: null };
+  try {
+    const pending = await pendingHandoffForAgent(agent, mid);
+    if (!pending) return { ctx, consumeKey: null };
+    return {
+      ctx: mergeHandoffIntoFirstValue(ctx, {
+        key: pending.key,
+        handoff: pending.handoff,
+      }),
+      consumeKey: pending.key,
+    };
+  } catch {
+    return { ctx, consumeKey: null };
+  }
+}
+
+/** Consome handoff após o greeting ter sido aplicado. Fail-soft. */
+export function consumeHandoffAfterGreeting(key: string | null | undefined): void {
+  if (!key?.trim()) return;
+  void missionHandoffConsume(key).catch(() => {});
+}
+
 
 /** Converte um plano de pipeline (waves/deps) em MissionPackage JSON. */
 export function pipelinePlanToMissionPackage(

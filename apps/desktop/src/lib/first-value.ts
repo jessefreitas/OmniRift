@@ -33,11 +33,18 @@ export function defaultKeyCommands(kind: FirstValueKind): string[] {
         "capability_search",
         "mission_create",
         "mission_run",
+        "mission_handoff_read",
         "orchestrator_dispatch",
         "orchestrator_status",
       ];
     case "worker":
-      return ["memory_recall", "claim_acquire", "review_current", "memory_remember"];
+      return [
+        "memory_recall",
+        "mission_handoff_read",
+        "claim_acquire",
+        "review_current",
+        "memory_remember",
+      ];
     default:
       return ["memory_recall", "orchestrator_status"];
   }

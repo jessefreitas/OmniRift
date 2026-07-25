@@ -6,6 +6,7 @@
 pub mod capabilities;
 pub mod dag;
 pub mod events;
+pub mod handoff;
 pub mod runner;
 pub mod verify;
 

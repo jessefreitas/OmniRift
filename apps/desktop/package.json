@@ -26,7 +26,8 @@
     "test:pty-session-registry": "node scripts/run-pty-session-registry-tests.mjs",
     "test:i18n": "node scripts/run-i18n-tests.mjs",
     "test:canvas-fluency": "node scripts/run-canvas-fluency-tests.mjs",
-    "test:first-value": "node scripts/run-first-value-tests.mjs"
+    "test:first-value": "node scripts/run-first-value-tests.mjs",
+    "test:mission-handoff": "node scripts/run-mission-handoff-tests.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
