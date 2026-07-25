@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
 import {
+  Activity,
   Bookmark,
   Bot,
   ChevronDown,
@@ -147,6 +148,7 @@ const KanbanPanel = lazy(() => import("@/components/KanbanPanel").then((m) => ({
 const SnippetsPanel = lazy(() => import("@/components/SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })));
 const ProjectHealthPanel = lazy(() => import("@/components/health/ProjectHealthPanel").then((m) => ({ default: m.ProjectHealthPanel })));
 const TurboPanel = lazy(() => import("@/components/turbo/TurboPanel").then((m) => ({ default: m.TurboPanel })));
+const CodeMetricsPanel = lazy(() => import("@/components/CodeMetricsPanel").then((m) => ({ default: m.CodeMetricsPanel })));
 import { ToolsSection } from "@/components/sidebar/ToolsSection";
 import { SpecsSection } from "@/components/sidebar/SpecsSection";
 import { RolesSection } from "@/components/sidebar/RolesSection";
@@ -195,6 +197,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "memory", icon: Brain, label: "Memória dos agentes", desc: "Ver e editar o que os agentes lembram (blackboard SQLite)" },
   { id: "releases", icon: Rocket, label: "Novidades", desc: "Histórico completo de versões do OmniRift — o que mudou em cada release (timeline + busca)" },
   { id: "omnifs", icon: HardDrive, label: "OmniFS — Pasta de agentes", desc: "Drive versionado dos agentes: status do daemon, espaço, snapshots (com restauração humana) e reindexação da busca semântica" },
+  { id: "code-metrics", icon: Activity, label: "Complexidade do Projeto", desc: "Painel de métricas de complexidade por arquivo (ciclomática, cognitiva, MI, severidade) com drill-down por função e análise com IA" },
   { id: "companion", icon: Sparkles, label: "OmniPartner (IA)", desc: "Chat IA lateral que enxerga o canvas e ajuda a operar" },
   { id: "conductor", icon: Radio, label: "Modo Conductor", desc: "Barra de orquestração por texto — despache tarefas com @, pipe e cria agentes no fluxo" },
   { id: "git", icon: GitFork, label: "Repositórios Git", desc: "Clonar e abrir repositórios Git do projeto" },
@@ -218,7 +221,7 @@ const TOOL_CAT: Record<string, string> = {
   pipeline: "orchestrate", turbo: "orchestrate", kanban: "orchestrate", routines: "orchestrate", bench: "orchestrate",
   clis: "agents", skills: "agents", mcpservers: "agents", compressors: "agents", memory: "agents", connections: "agents",
   "llm-providers": "ai", companion: "ai", "review-ai": "ai", omniswitch: "ai",
-  git: "files", omnifs: "files", snapshots: "files", history: "files", snippets: "files", reminders: "files", hooks: "files",
+  git: "files", omnifs: "files", "code-metrics": "files", snapshots: "files", history: "files", snippets: "files", reminders: "files", hooks: "files",
   settings: "system", appearance: "system", usage: "system", mobile: "system", "feature-flags": "system", releases: "system", help: "system",
 };
 
@@ -564,6 +567,7 @@ export function Sidebar() {
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showReviewAi, setShowReviewAi] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
+  const [showCodeMetrics, setShowCodeMetrics] = useState(false);
   const [showTurbo, setShowTurbo] = useState(false);
   const [turboSeed, setTurboSeed] = useState<string | undefined>(undefined);
   const [showAppearance, setShowAppearance] = useState(false);
@@ -640,6 +644,7 @@ export function Sidebar() {
     mcpservers: () => setShowMcpServers(true),
     omniswitch: () => setShowOmniSwitch(true),
     omnifs: () => setShowOmniFs(true),
+    "code-metrics": () => setShowCodeMetrics(true),
     clis: () => setShowClis(true),
     compressors: () => setShowCompressors(true),
     skills: () => setShowSkillsCenter(true),
@@ -678,6 +683,7 @@ export function Sidebar() {
         case "settings": setShowSettings(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "project-health": setShowHealth(true); break;
+        case "code-metrics": setShowCodeMetrics(true); break;
         case "turbo": setShowTurbo(true); break;
         case "appearance": setShowAppearance(true); break;
         case "usage": setShowUsage(true); break;
@@ -2711,6 +2717,7 @@ export function Sidebar() {
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
       {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
       {showHealth && <ProjectHealthPanel onClose={() => setShowHealth(false)} />}
+      {showCodeMetrics && <CodeMetricsPanel onClose={() => setShowCodeMetrics(false)} />}
       {showTurbo && <TurboPanel seedGoal={turboSeed} onClose={() => { setShowTurbo(false); setTurboSeed(undefined); }} />}
       {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}
       {showUsage && <UsageModal onClose={() => setShowUsage(false)} activeProject={currentCwd} />}
