@@ -76,6 +76,7 @@ import { buildRoleSpawn } from "@/lib/agent-spawn";
 import { loadGlobalSkills } from "@/lib/global-skills";
 import { type SkillWiring } from "@/lib/agent-skills";
 import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
+import { buildFirstValueGreeting, withFirstValueGreeting } from "@/lib/first-value";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { EditableLabel } from "@/components/EditableLabel";
 import { UpdaterButton } from "@/components/UpdaterButton";
@@ -1372,6 +1373,33 @@ export function Sidebar() {
    *  DEV_CONTRACT do worker). Claude = flag nativa; sem flag = 1ª mensagem quando pronto. */
   async function spawnOrchestrator(cliId: string) {
     const cli = ROLE_CLIS.find((c) => c.id === cliId) ?? ROLE_CLIS[0];
+    const floorName =
+      useCanvasStore.getState().parallels.find((p) => p.id === useCanvasStore.getState().activeParallelId)
+        ?.name ?? undefined;
+    const orchGreeting = buildFirstValueGreeting({
+      label: "Orquestrador",
+      role: "orquestrador",
+      kind: "orchestrator",
+      floor: floorName,
+    });
+    // M1: injeta greeting quando o PTY fica ready (evita orch mudo com system-prompt nos args).
+    const injectOrchGreeting = (sid: string, body?: string) => {
+      const text = body ? withFirstValueGreeting(body, {
+        label: "Orquestrador",
+        role: "orquestrador",
+        kind: "orchestrator",
+        floor: floorName,
+      }) : orchGreeting;
+      let ready = false, done = false;
+      const send = () => {
+        invoke("pty_write", { sessionId: sid, data: text }).catch(console.warn);
+        setTimeout(() => invoke("pty_write", { sessionId: sid, data: "\r" }).catch(console.warn), 200);
+      };
+      const finish = () => { if (done) return; done = true; unsub(); clearTimeout(g); clearTimeout(k); setTimeout(send, 150); };
+      const unsub = useCanvasStore.subscribe((s) => { const st = s.terminalStatuses[sid]; if (ready && (st === "idle" || st === "done")) finish(); });
+      const g = setTimeout(() => { ready = true; const st = useCanvasStore.getState().terminalStatuses[sid]; if (st === "idle" || st === "done") finish(); }, 1500);
+      const k = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
+    };
     if (cli.role === "claude-code") {
       const settingsConfigPath = await settingsFor("Orquestrador");
       // Fresco a cada spawn — ver comentário em argsWithMcp sobre o cache stale.
@@ -1384,27 +1412,20 @@ export function Sidebar() {
         ...(freshMcpPath ? ["--mcp-config", freshMcpPath, "--strict-mcp-config"] : []),
         ...(settingsConfigPath ? ["--settings", settingsConfigPath] : []),
       ];
-      addTerminal({ command: cli.command, args, role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
+      const node = addTerminal({ command: cli.command, args, role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
+      if (node) injectOrchGreeting(node.session_id);
       return;
     }
     if (cli.systemPromptFlag) {
-      addTerminal({ command: cli.command, args: [cli.systemPromptFlag, ORCHESTRATOR_CONTRACT], role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
+      const node = addTerminal({ command: cli.command, args: [cli.systemPromptFlag, ORCHESTRATOR_CONTRACT], role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
+      if (node) injectOrchGreeting(node.session_id);
       return;
     }
-    // CLI sem flag (codex/gemini/opencode/antigravity): persona como 1ª mensagem
+    // CLI sem flag (codex/gemini/opencode/antigravity): contrato + greeting como 1ª mensagem
     // quando o terminal fica pronto (robusto a tempo de boot/seleção de modelo).
     const node = addTerminal({ command: cli.command, role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
     if (!node) return; // bloqueado pelo limite community de agentes
-    const sid = node.session_id;
-    let ready = false, done = false;
-    const send = () => {
-      invoke("pty_write", { sessionId: sid, data: ORCHESTRATOR_CONTRACT }).catch(console.warn);
-      setTimeout(() => invoke("pty_write", { sessionId: sid, data: "\r" }).catch(console.warn), 200);
-    };
-    const finish = () => { if (done) return; done = true; unsub(); clearTimeout(g); clearTimeout(k); setTimeout(send, 150); };
-    const unsub = useCanvasStore.subscribe((s) => { const st = s.terminalStatuses[sid]; if (ready && (st === "idle" || st === "done")) finish(); });
-    const g = setTimeout(() => { ready = true; const st = useCanvasStore.getState().terminalStatuses[sid]; if (st === "idle" || st === "done") finish(); }, 1500);
-    const k = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
+    injectOrchGreeting(node.session_id, ORCHESTRATOR_CONTRACT);
   }
 
   // Cria um agente no CLI do role com a persona + wiring de skills nativa.
@@ -1499,15 +1520,26 @@ export function Sidebar() {
       autoRegisterMcp(node.session_id, r.name, r.prompt);
       const startup = (r.startupCmd ?? "").trim();
       const persona = (indexText ? `${r.prompt}\n\n${indexText}` : r.prompt).trim();
+      const fvPersona = withFirstValueGreeting(persona || undefined, {
+        label: r.name,
+        role: r.name,
+        kind: "worker",
+      });
       if (persona && /\bclaude\b/i.test(startup) && !r.selfSystemPrompt) {
         // MESMO perfil MCP do ramo claude-code nativo. Sem o --mcp-config, um role que roda
         // `claude` via shell/proxy (glm-5.2/claude-ollama) nasce SEM o server omnirift-agents
         // → sem terminal_list/terminal_run → o Orquestrador não enxerga a equipe do canvas.
         const mcpArgs = roleMcpPath ? ` --mcp-config ${shellQuote(roleMcpPath)} --strict-mcp-config` : "";
         sendLine(node.session_id, `${startup} --append-system-prompt ${shellQuote(persona)}${mcpArgs}`, 400);
+        // System-prompt no startup → greeting separado como 1ª mensagem (M1).
+        injectWhenReady(node.session_id, withFirstValueGreeting(undefined, {
+          label: r.name,
+          role: r.name,
+          kind: "worker",
+        }));
       } else {
         sendLine(node.session_id, startup, 400);
-        if (startup && persona) injectWhenReady(node.session_id, persona);
+        if (startup && persona) injectWhenReady(node.session_id, fvPersona);
       }
       return;
     }

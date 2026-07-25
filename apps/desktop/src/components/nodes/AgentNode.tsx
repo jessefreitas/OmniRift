@@ -30,6 +30,7 @@ import { scanTextForSecrets } from "@/lib/capability-risk";
 import { trackNodeMount, trackRender } from "@/lib/debug-log";
 import { useFloorActive } from "@/lib/floor-activity";
 import { agentsMdInstruction, agentsMdRelPath, agentsMdSlug, ORCHESTRATOR_CONTRACT } from "@/lib/agent-contract";
+import { withFirstValueGreeting } from "@/lib/first-value";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -317,13 +318,20 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
             // arquivo ainda não existe — o agente o cria on-demand (instrução abaixo)
           }
         }
-        const parts = [
+        // M1 first-value: bloco curto antes da persona (orientação imediata pós-ready).
+        const body = [
           `A partir de agora você atua com este papel/persona (mantenha-o independente do modelo):\n\n${persona}`,
           agentsMdInstruction(label),
         ];
-        if (memory) parts.push(`MEMÓRIA PERSISTENTE DESTE PAPEL (AGENTS.md — você mantém):\n${memory}`);
+        if (memory) body.push(`MEMÓRIA PERSISTENTE DESTE PAPEL (AGENTS.md — você mantém):\n${memory}`);
+        const priming = withFirstValueGreeting(body.join("\n\n"), {
+          label,
+          role: label,
+          kind: "agent",
+          floor: myFloorName || undefined,
+        });
         await sendText(
-          parts.join("\n\n"),
+          priming,
           `🎭 ${t("agent.personaSet", "persona definida")}: ${persona.slice(0, 48)}${memory ? ` ${t("agent.personaMemory", "(+ memória do papel)")}` : ""}`,
         );
       })();

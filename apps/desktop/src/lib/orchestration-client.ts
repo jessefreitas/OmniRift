@@ -9,8 +9,10 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { floorMirrorSet, canvasAgentsSet, agentMcpConfig, agentSettingsConfig, mcpRegisterAgent } from "@/lib/mcp-client";
 import { parallelGitCreate } from "@/lib/git-client";
 import { workerClaudeArgs } from "@/lib/agent-contract";
+import { buildFirstValueGreeting } from "@/lib/first-value";
 import { ROLE_CLIS } from "@/lib/agent-roles";
 import { hasTerminalView, wakeDetachedTerminal } from "@/lib/terminal-sessions";
+import { ptyWrite } from "@/lib/pty-client";
 import type { AgentRole } from "@/types/pty";
 
 interface SpawnRequest {
@@ -208,7 +210,7 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
             await agentSettingsConfig(p.name).catch(() => null),
           )
         : undefined;
-    s.addTerminal({ id, command: cliDef.command, args, label: p.name, role: cliDef.role });
+    const created = s.addTerminal({ id, command: cliDef.command, args, label: p.name, role: cliDef.role });
     // `p.role` (papel declarado no plano: Frontend/Backend/QA…) alimenta o guard
     // anti-duplicata do backend, que casa por PAPEL além do nome — é o que impede o
     // Arquiteto de abrir um "UI Dev" quando já tem um "Frontend" livre no canvas.
@@ -218,6 +220,46 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
     if (orchSid && orchSid !== id) s.addEdge(orchSid, id, "generic");
     // Sincroniza o checkbox "MCP AGENTS" do Sidebar (estado local do componente).
     window.dispatchEvent(new CustomEvent("omnirift:mcp-registered", { detail: { sessionId: id } }));
+    // M1 first-value: greeting pós-ready (spawn MCP frequentemente sobe com system-prompt
+    // nos args e ficava mudo até o humano digitar).
+    if (created) {
+      const sid = created.session_id;
+      const floor =
+        s.parallels.find((f) => f.id === s.activeParallelId)?.name ?? undefined;
+      const greeting = buildFirstValueGreeting({
+        label: p.name,
+        role: p.role || p.name,
+        kind: "worker",
+        floor,
+      });
+      let ready = false;
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        unsub();
+        clearTimeout(graceT);
+        clearTimeout(killT);
+        void ptyWrite(sid, greeting)
+          .then(() => setTimeout(() => void ptyWrite(sid, "\r").catch(() => {}), 200))
+          .catch(() => {});
+      };
+      const unsub = useCanvasStore.subscribe((st) => {
+        const status = st.terminalStatuses[sid];
+        if (ready && (status === "idle" || status === "done")) finish();
+      });
+      const graceT = setTimeout(() => {
+        ready = true;
+        const status = useCanvasStore.getState().terminalStatuses[sid];
+        if (status === "idle" || status === "done") finish();
+      }, 1500);
+      const killT = setTimeout(() => {
+        if (!done) {
+          done = true;
+          unsub();
+        }
+      }, 120000);
+    }
   });
 
   const unCreate = await listen<{ name?: string }>("canvas://floor-create", (e) => {
