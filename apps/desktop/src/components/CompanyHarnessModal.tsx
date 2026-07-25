@@ -24,6 +24,14 @@ import {
   type CompanyServiceRequest,
   type ServiceCategory,
 } from "@/lib/company-services-client";
+import { useAgentRuntimeStatus, type CouncilRosterEntry } from "@/lib/agent-runtime-status";
+import {
+  COUNCIL_START_MODES,
+  councilConveneSummary,
+  councilStartKeys,
+  countCouncilMembers,
+  type CouncilStartMode,
+} from "@/lib/council-convene";
 import { notify } from "@/lib/notify";
 import { insertWorkflowTemplate } from "@/lib/workflow-insert";
 import {
@@ -105,37 +113,78 @@ export function CompanyHarnessModal({
   const [knowledgeDraft, setKnowledgeDraft] = useState<CompanyKnowledgeInput>(emptyKnowledge);
   const [knowledgeBuiltIn, setKnowledgeBuiltIn] = useState(false);
   const [credential, setCredential] = useState("");
-  const [councilArea, setCouncilArea] = useState<CouncilAreaId>("all");
+  const [councilArea, setCouncilArea] = useState<CouncilAreaId>("technology");
   const [councilTopic, setCouncilTopic] = useState("");
+  const [councilStartMode, setCouncilStartMode] = useState<CouncilStartMode>("brain");
   const [schemaEditor, setSchemaEditor] = useState<{ index: number; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
   const pendingCount = useMemo(() => requests.filter((item) => item.status === "pending").length, [requests]);
 
+  const councilPreview = useMemo(() => {
+    const built = buildCouncilWorkflow({ x: 0, y: 0 }, councilArea);
+    const keys = built.nodes.map((node) => node.key);
+    const memberCount = countCouncilMembers(keys);
+    return {
+      memberCount,
+      totalAgents: built.nodes.length,
+      memberKeys: keys.filter((key) => key !== "moderator" && key !== "rapporteur"),
+      summary: councilConveneSummary({
+        areaLabel: COUNCIL_AREAS.find((item) => item.id === councilArea)?.label ?? councilArea,
+        mode: councilStartMode,
+        memberCount,
+        totalAgents: built.nodes.length,
+      }),
+    };
+  }, [councilArea, councilStartMode]);
+
   function conveneCouncil() {
     const template = WORKFLOW_TEMPLATES.find((item) => item.id === "conselho-de-guerra");
     if (!template) return;
     const area = COUNCIL_AREAS.find((item) => item.id === councilArea);
-    const inserted = insertWorkflowTemplate({
-      ...template,
-      name: area?.label ?? template.name,
-      build: (origin) => {
-        const result = buildCouncilWorkflow(origin, councilArea);
-        const topic = councilTopic.trim();
-        if (!topic) return result;
-        return {
-          ...result,
-          nodes: result.nodes.map((node) => node.key === "moderator"
-            ? { ...node, persona: `${node.persona}\n\nTema inicial desta convocação: ${topic}` }
-            : node),
-        };
-      },
-    });
-    void notify(
-      `🏛️ ${area?.label ?? "Conselho"}: ${inserted.nodeCount} cards no canvas ` +
-      `(${Math.max(0, inserted.nodeCount - 2)} especialistas + Cérebro + Relator) e ${inserted.edgeCount} conexões.`,
+    const startKeys = councilStartKeys(councilStartMode, councilPreview.memberKeys);
+    const labelByKey = new Map(
+      buildCouncilWorkflow({ x: 0, y: 0 }, councilArea).nodes.map((node) => [node.key, node.label]),
     );
+    const inserted = insertWorkflowTemplate(
+      {
+        ...template,
+        name: area?.label ?? template.name,
+        build: (origin) => {
+          const result = buildCouncilWorkflow(origin, councilArea);
+          const topic = councilTopic.trim();
+          if (!topic) return result;
+          return {
+            ...result,
+            nodes: result.nodes.map((node) => node.key === "moderator"
+              ? { ...node, persona: `${node.persona}\n\nTema inicial desta convocação: ${topic}` }
+              : node),
+          };
+        },
+      },
+      { startKeys },
+    );
+    const entries: CouncilRosterEntry[] = Object.entries(inserted.idByKey).map(([key, nodeId]) => {
+      const role = key === "moderator" ? "brain" : key === "rapporteur" ? "rapporteur" : "member";
+      if (!startKeys.includes(key)) {
+        useAgentRuntimeStatus.getState().reportStatus(nodeId, "idle");
+      }
+      return {
+        nodeId,
+        key,
+        label: labelByKey.get(key) ?? key,
+        role,
+      };
+    });
+    useAgentRuntimeStatus.getState().setCouncilRoster({
+      areaId: councilArea,
+      areaLabel: area?.label ?? "Conselho",
+      topic: councilTopic.trim(),
+      entries,
+      convenedAt: Date.now(),
+    });
+    void notify(`🏛️ ${councilPreview.summary}`);
     onClose();
   }
 
@@ -296,13 +345,35 @@ export function CompanyHarnessModal({
             <div className="text-sm font-semibold text-text">Harness Empresarial</div>
             <div className="text-[10px] text-textMuted">Conselho e APIs compartilhados pelos agentes — segredos ficam no OmniMemory/keychain</div>
           </div>
-          <select value={councilArea} onChange={(event) => setCouncilArea(event.target.value as CouncilAreaId)} aria-label="Área do Conselho" className="mr-2 rounded border border-border bg-bg px-2 py-1.5 text-[11px] text-text">
-            {COUNCIL_AREAS.map((area) => <option key={area.id} value={area.id}>{area.label}</option>)}
-          </select>
-          <input value={councilTopic} onChange={(event) => setCouncilTopic(event.target.value)} maxLength={240} placeholder="Tema da reunião (opcional)" aria-label="Tema do Conselho" className="mr-2 w-52 rounded border border-border bg-bg px-2 py-1.5 text-[11px] text-text placeholder:text-textMuted" />
-          <button onClick={conveneCouncil} className="mr-2 flex items-center gap-1 rounded border border-brand/40 bg-brand/10 px-2.5 py-1.5 text-[11px] text-brand hover:bg-brand/20"><Users size={13} /> Reunir</button>
           <button onClick={onClose} className="p-1 text-textMuted hover:text-text"><X size={17} /></button>
         </header>
+
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-bg/40 px-4 py-2">
+          <Users size={13} className="text-brand" />
+          <select value={councilArea} onChange={(event) => setCouncilArea(event.target.value as CouncilAreaId)} aria-label="Área do Conselho" className="rounded border border-border bg-bg px-2 py-1.5 text-[11px] text-text">
+            {COUNCIL_AREAS.map((area) => <option key={area.id} value={area.id}>{area.label}</option>)}
+          </select>
+          <input value={councilTopic} onChange={(event) => setCouncilTopic(event.target.value)} maxLength={240} placeholder="Tema da reunião (opcional)" aria-label="Tema do Conselho" className="w-52 rounded border border-border bg-bg px-2 py-1.5 text-[11px] text-text placeholder:text-textMuted" />
+          <div className="flex items-center gap-1 rounded border border-border bg-surface1 p-0.5" role="radiogroup" aria-label="Modo de convocação">
+            {COUNCIL_START_MODES.map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                role="radio"
+                aria-checked={councilStartMode === mode.id}
+                title={mode.hint}
+                onClick={() => setCouncilStartMode(mode.id)}
+                className={`rounded px-2 py-1 text-[10px] ${councilStartMode === mode.id ? "bg-brand/20 text-brand" : "text-textMuted hover:text-text"}`}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={conveneCouncil} className="flex items-center gap-1 rounded border border-brand/40 bg-brand/10 px-2.5 py-1.5 text-[11px] text-brand hover:bg-brand/20">
+            <Users size={13} /> Reunir
+          </button>
+          <div className="basis-full text-[10px] leading-relaxed text-textMuted">{councilPreview.summary}</div>
+        </div>
 
         <div className="flex border-b border-border px-4">
           <button onClick={() => setTab("services")} className={`px-3 py-2 text-xs ${tab === "services" ? "border-b-2 border-brand text-brand" : "text-textMuted"}`}>Serviços</button>

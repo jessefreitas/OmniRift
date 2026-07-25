@@ -8,7 +8,9 @@ import { Sidebar } from "@/components/Sidebar";
 import { ProjectTabs } from "@/components/ProjectTabs";
 import { ResourceChip } from "@/components/ResourceChip";
 import { FluencyChip } from "@/components/FluencyChip";
+import { CouncilRosterChip } from "@/components/CouncilRosterChip";
 import { ResourcePanel } from "@/components/ResourcePanel";
+import { IS_LAB_BUILD } from "@/lib/build-channel";
 import { initOrchestrationBridge } from "@/lib/orchestration-client";
 import { initPersistence, flushPersistence } from "@/lib/persistence-client";
 import { initResourceStore } from "@/store/resource-store";
@@ -197,6 +199,7 @@ export default function App() {
         <ProjectTabs />
         <div className="flex-1 relative">
           <Canvas />
+          {IS_LAB_BUILD && <CouncilRosterChip />}
         </div>
       </main>
       <ResourceChip />

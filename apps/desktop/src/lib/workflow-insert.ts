@@ -1,15 +1,26 @@
 import { fitToNodes, viewportCenterFlow } from "@/lib/canvas-focus";
+import { useAgentRuntimeStatus } from "@/lib/agent-runtime-status";
 import type { WorkflowTemplate } from "@/lib/workflow-templates";
 import { useCanvasStore } from "@/store/canvas-store";
 
 export interface InsertedWorkflow {
   nodeIds: string[];
+  /** key do template → id estável do nó no canvas */
+  idByKey: Record<string, string>;
   nodeCount: number;
   edgeCount: number;
 }
 
+export interface InsertWorkflowOptions {
+  /** Keys do template cuja sessão ACP deve subir sob demanda após materializar. */
+  startKeys?: string[];
+}
+
 /** Materializa uma descrição pura de workflow no canvas atual. */
-export function insertWorkflowTemplate(template: WorkflowTemplate): InsertedWorkflow {
+export function insertWorkflowTemplate(
+  template: WorkflowTemplate,
+  options: InsertWorkflowOptions = {},
+): InsertedWorkflow {
   const store = useCanvasStore.getState();
   const { nodes, edges } = template.build(viewportCenterFlow());
   const idByKey = new Map<string, string>();
@@ -31,6 +42,19 @@ export function insertWorkflowTemplate(template: WorkflowTemplate): InsertedWork
     }
   }
   const nodeIds = [...idByKey.values()];
-  fitToNodes(nodeIds);
-  return { nodeIds, nodeCount: nodes.length, edgeCount };
+  const startKeys = options.startKeys ?? [];
+  const startIds = startKeys
+    .map((key) => idByKey.get(key))
+    .filter((id): id is string => !!id);
+  // Foca primeiro quem vai subir (garante mount sob virtualização) e marca pendingStart.
+  fitToNodes(startIds.length > 0 ? startIds : nodeIds);
+  if (startIds.length > 0) {
+    useAgentRuntimeStatus.getState().requestStart(startIds);
+  }
+  return {
+    nodeIds,
+    idByKey: Object.fromEntries(idByKey),
+    nodeCount: nodes.length,
+    edgeCount,
+  };
 }

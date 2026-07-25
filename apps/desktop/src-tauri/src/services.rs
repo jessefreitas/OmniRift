@@ -10,13 +10,18 @@ use reqwest::{header::HeaderName, Method, Url};
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::Manager;
 use uuid::Uuid;
 
 const MAX_RESPONSE_BYTES: u64 = 1_048_576;
+/// Reuso de sessão MCP OmniMemory (evita initialize completo a cada get_secret).
+const OMNI_MCP_SESSION_TTL: Duration = Duration::from_secs(10 * 60);
+/// Cache em memória do segredo resolvido (nunca vai pro SQLite / log).
+const OMNI_SECRET_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 const ALLOWED_CATEGORIES: &[&str] = &[
     "payment",
     "consultation",
@@ -431,11 +436,18 @@ pub fn delete(db: &Db, id: &str) -> Result<()> {
         Ok(())
     })?;
     crate::memory::secret_store::delete(&credential_account(id));
+    if let Ok(mut guard) = omni_secret_cache().lock() {
+        guard.clear();
+    }
     Ok(())
 }
 
 pub fn delete_credential(id: &str) {
     crate::memory::secret_store::delete(&credential_account(id));
+    // Sem db aqui: invalida o cache em memória inteiro (TTL curto; evita segredo stale).
+    if let Ok(mut guard) = omni_secret_cache().lock() {
+        guard.clear();
+    }
 }
 
 fn map_request(row: &rusqlite::Row<'_>) -> rusqlite::Result<ServiceRequest> {
@@ -626,6 +638,149 @@ async fn mcp_json_request(
     Ok((parse_mcp_payload(&content_type, &text)?, response_session))
 }
 
+#[derive(Clone)]
+struct CachedOmniMcpSession {
+    endpoint: String,
+    /// Fingerprint do token (não o segredo) — invalida a sessão se a conexão mudar.
+    token_fp: u64,
+    session_id: String,
+    client: reqwest::Client,
+    opened_at: Instant,
+}
+
+struct CachedSecret {
+    value: String,
+    stored_at: Instant,
+}
+
+fn omni_mcp_cache() -> &'static Mutex<Option<CachedOmniMcpSession>> {
+    static CACHE: OnceLock<Mutex<Option<CachedOmniMcpSession>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn omni_secret_cache() -> &'static Mutex<HashMap<String, CachedSecret>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, CachedSecret>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn token_fingerprint(token: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    token.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn secret_cache_key(endpoint: &str, token_fp: u64, project: &str, key: &str) -> String {
+    // Inclui identidade da conexão: troca de endpoint/token não reaproveita segredo alheio.
+    format!("{endpoint}\0{token_fp}\0{project}\0{key}")
+}
+
+fn secret_cache_get(endpoint: &str, token: &str, project: &str, key: &str) -> Option<String> {
+    let mut guard = omni_secret_cache().lock().ok()?;
+    let cache_key = secret_cache_key(endpoint, token_fingerprint(token), project, key);
+    let Some(entry) = guard.get(&cache_key) else {
+        return None;
+    };
+    if entry.stored_at.elapsed() > OMNI_SECRET_CACHE_TTL {
+        guard.remove(&cache_key);
+        return None;
+    }
+    Some(entry.value.clone())
+}
+
+fn secret_cache_put(endpoint: &str, token: &str, project: &str, key: &str, value: &str) {
+    let Ok(mut guard) = omni_secret_cache().lock() else {
+        return;
+    };
+    // Cap defensivo: evita crescer sem bound se muitas refs distintas forem usadas.
+    if guard.len() > 64 {
+        guard.retain(|_, entry| entry.stored_at.elapsed() <= OMNI_SECRET_CACHE_TTL);
+        if guard.len() > 64 {
+            guard.clear();
+        }
+    }
+    guard.insert(
+        secret_cache_key(endpoint, token_fingerprint(token), project, key),
+        CachedSecret {
+            value: value.to_owned(),
+            stored_at: Instant::now(),
+        },
+    );
+}
+
+async fn open_omni_mcp_session(endpoint: &str, token: &str) -> Result<CachedOmniMcpSession> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let initialize = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": { "name": "omnirift-company-services", "version": env!("CARGO_PKG_VERSION") }
+        }
+    });
+    let (_, session_id) = mcp_json_request(&client, endpoint, token, None, &initialize).await?;
+    let session_id = session_id.ok_or_else(|| anyhow!("OmniMemory MCP não criou sessão"))?;
+    let initialized = client
+        .post(endpoint)
+        .bearer_auth(token)
+        .header("Accept", "application/json, text/event-stream")
+        .header("Mcp-Session-Id", &session_id)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }))
+        .send()
+        .await?;
+    if !initialized.status().is_success() {
+        return Err(anyhow!("OmniMemory MCP recusou a inicialização da sessão"));
+    }
+    Ok(CachedOmniMcpSession {
+        endpoint: endpoint.to_owned(),
+        token_fp: token_fingerprint(token),
+        session_id,
+        client,
+        opened_at: Instant::now(),
+    })
+}
+
+fn session_reusable(session: &CachedOmniMcpSession, endpoint: &str, token: &str) -> bool {
+    session.endpoint == endpoint
+        && session.token_fp == token_fingerprint(token)
+        && session.opened_at.elapsed() <= OMNI_MCP_SESSION_TTL
+}
+
+async fn call_get_secret(
+    session: &CachedOmniMcpSession,
+    endpoint: &str,
+    token: &str,
+    project: &str,
+    key: &str,
+) -> Result<String> {
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "get_secret",
+            "arguments": { "project": project, "key": key }
+        }
+    });
+    let (response, _) = mcp_json_request(
+        &session.client,
+        endpoint,
+        token,
+        Some(&session.session_id),
+        &call,
+    )
+    .await?;
+    secret_from_tool_response(&response)
+}
+
 fn secret_from_tool_response(response: &Value) -> Result<String> {
     if response
         .pointer("/result/isError")
@@ -676,54 +831,52 @@ async fn fetch_omnimemory_credential(
         .endpoint
         .as_deref()
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow!("conexão OmniMemory sem endpoint"))?;
+        .ok_or_else(|| anyhow!("conexão OmniMemory sem endpoint"))?
+        .to_owned();
     let token = cfg
         .token
         .as_deref()
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow!("conexão OmniMemory sem token"))?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?;
-    let initialize = json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2025-03-26",
-            "capabilities": {},
-            "clientInfo": { "name": "omnirift-company-services", "version": env!("CARGO_PKG_VERSION") }
-        }
-    });
-    let (_, session_id) = mcp_json_request(&client, endpoint, token, None, &initialize).await?;
-    let session_id = session_id.ok_or_else(|| anyhow!("OmniMemory MCP não criou sessão"))?;
-    let initialized = client
-        .post(endpoint)
-        .bearer_auth(token)
-        .header("Accept", "application/json, text/event-stream")
-        .header("Mcp-Session-Id", &session_id)
-        .json(&json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized"
-        }))
-        .send()
-        .await?;
-    if !initialized.status().is_success() {
-        return Err(anyhow!("OmniMemory MCP recusou a inicialização da sessão"));
+        .ok_or_else(|| anyhow!("conexão OmniMemory sem token"))?
+        .to_owned();
+
+    if let Some(cached) = secret_cache_get(&endpoint, &token, project, key) {
+        return Ok(cached);
     }
-    let call = json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/call",
-        "params": {
-            "name": "get_secret",
-            "arguments": { "project": project, "key": key }
+
+    // 1ª tentativa: reusar sessão MCP em cache (sem initialize).
+    let reused = {
+        let guard = omni_mcp_cache()
+            .lock()
+            .map_err(|_| anyhow!("cache MCP OmniMemory indisponível"))?;
+        guard
+            .as_ref()
+            .filter(|session| session_reusable(session, &endpoint, &token))
+            .cloned()
+    };
+    if let Some(session) = reused {
+        match call_get_secret(&session, &endpoint, &token, project, key).await {
+            Ok(secret) => {
+                secret_cache_put(&endpoint, &token, project, key, &secret);
+                return Ok(secret);
+            }
+            Err(_) => {
+                // Sessão stale/recusada → invalida e abre de novo abaixo.
+                if let Ok(mut guard) = omni_mcp_cache().lock() {
+                    *guard = None;
+                }
+            }
         }
-    });
-    let (response, _) =
-        mcp_json_request(&client, endpoint, token, Some(&session_id), &call).await?;
-    secret_from_tool_response(&response)
+    }
+
+    // initialize completo só quando não há sessão reutilizável.
+    let session = open_omni_mcp_session(&endpoint, &token).await?;
+    let secret = call_get_secret(&session, &endpoint, &token, project, key).await?;
+    secret_cache_put(&endpoint, &token, project, key, &secret);
+    if let Ok(mut guard) = omni_mcp_cache().lock() {
+        *guard = Some(session);
+    }
+    Ok(secret)
 }
 
 async fn resolve_credential(
@@ -733,6 +886,8 @@ async fn resolve_credential(
     if service.auth_kind == "none" {
         return Ok(None);
     }
+    // Keychain só para credencial EXPLICITAMENTE salva no serviço — nunca espelhar
+    // get_secret do OmniMemory (rotação/troca de conexão ficariam pinadas).
     if let Some(secret) = crate::memory::secret_store::get(&credential_account(&service.id)) {
         return Ok(Some(secret));
     }
@@ -1199,6 +1354,51 @@ mod tests {
         item.auth_prefix = "token ".into();
         validate_service(&mut item).unwrap();
         assert_eq!(item.auth_prefix, "token ");
+    }
+
+    #[test]
+    fn secret_cache_roundtrip_without_logging_value_in_key() {
+        let endpoint = "https://memory.example/mcp";
+        let token = "tok-cache-a";
+        let project = "proj-cache-test";
+        let key = "credential.cache.roundtrip";
+        secret_cache_put(endpoint, token, project, key, "fixture-secret-value");
+        assert_eq!(
+            secret_cache_get(endpoint, token, project, key).as_deref(),
+            Some("fixture-secret-value")
+        );
+        // Outra conexão (token diferente) NÃO reaproveita o segredo.
+        assert!(secret_cache_get(endpoint, "tok-cache-b", project, key).is_none());
+        let cache_key = secret_cache_key(endpoint, token_fingerprint(token), project, key);
+        assert!(!cache_key.contains("fixture-secret-value"));
+        assert!(!cache_key.contains(token));
+    }
+
+    #[test]
+    fn mcp_session_reusable_checks_endpoint_token_and_ttl() {
+        let client = reqwest::Client::new();
+        let session = CachedOmniMcpSession {
+            endpoint: "https://memory.example/mcp".into(),
+            token_fp: token_fingerprint("tok-a"),
+            session_id: "sess-1".into(),
+            client,
+            opened_at: Instant::now(),
+        };
+        assert!(session_reusable(
+            &session,
+            "https://memory.example/mcp",
+            "tok-a"
+        ));
+        assert!(!session_reusable(
+            &session,
+            "https://memory.example/mcp",
+            "tok-b"
+        ));
+        assert!(!session_reusable(
+            &session,
+            "https://other.example/mcp",
+            "tok-a"
+        ));
     }
 
     #[tokio::test]

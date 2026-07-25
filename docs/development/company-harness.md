@@ -16,6 +16,10 @@ agentes de negócio e integrações com sistemas. Ele não depende de n8n em run
 
 - Persistência de contratos: `company_services` no SQLite.
 - Credenciais: keychain do sistema operacional; nunca entram no SQLite, catálogo, prompt ou resposta MCP.
+- Resolução OmniMemory: reusa sessão MCP em processo (TTL) + cache curto do segredo em memória
+  (chave inclui endpoint+fingerprint do token da conexão). NÃO espelha `get_secret` no keychain
+  do serviço — keychain só guarda credencial colada explicitamente na UI. Valor nunca vai para
+  log/SQLite.
 - Categorias: pagamentos, consultas, processos, propostas, orçamentos, internos e outros.
 - Tools para todos os agentes: `services_catalog` e `services_call`.
 - URL e operação são declaradas pelo usuário; o agente não fornece URL arbitrária.
@@ -34,6 +38,16 @@ sessão para outro ramo.
 O campo **Tema da reunião** é opcional. Quando preenchido, o assunto entra no contexto
 inicial do Cérebro e orienta a convocação antes da primeira conversa.
 
+Modos de start na convocação:
+
+- **Só cards** — materializa tudo em espera (nenhum ACP sobe).
+- **Iniciar Cérebro** — sobe só o Cérebro; especialistas e Relator ficam idle.
+- **Cérebro + ramo** — sobe Cérebro e os especialistas do ramo; Relator permanece idle.
+
+Após reunir, o **roster** (canto inferior esquerdo, Lab) mostra status legível
+(em espera / iniciando / pronto / morto) e atalhos para iniciar o Cérebro ou os idle
+sem clicar card a card.
+
 A opção **Conselho completo (22)** materializa no canvas:
 
 - 1 Cérebro do Conselho;
@@ -43,9 +57,9 @@ A opção **Conselho completo (22)** materializa no canvas:
 
 O Cérebro e os especialistas materializam como cards com `spawnedOnce` já marcado: o
 FloorCanvas **não** desliga a virtualização e o `AgentNode` **não** auto-spawna ACP só
-por montar. Cada sessão sobe sob demanda (scroll + attach/resume, ou botão **Iniciar
-sessão** no card) — assim a convocação completa não abre 24 processos de uma vez. O
-dirigente pode pedir a composição completa ou uma rodada com todos.
+por montar. Cada sessão sobe sob demanda (modo de convocação, roster, scroll +
+attach/resume, ou botão **Iniciar sessão** no card) — assim a convocação completa não
+abre 24 processos de uma vez.
 
 Antes de formar um cluster, o Cérebro consulta nesta ordem:
 

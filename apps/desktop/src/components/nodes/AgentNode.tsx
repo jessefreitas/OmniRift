@@ -35,6 +35,7 @@ import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { useFleetUsage } from "@/lib/fleet-usage";
 import { useAgentMetrics } from "@/lib/agent-metrics";
+import { useAgentRuntimeStatus, type AgentRuntimeStatus } from "@/lib/agent-runtime-status";
 import {
   acpSpawn,
   acpAttach,
@@ -294,9 +295,33 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   // Selector booleano → re-render só ao cruzar o limiar.
   const lodOut = useRfStore((s) => s.transform[2] < 0.35);
   // Espelha o status num ref (o timer do 🔁 Loop e o turn-done do 🎯 Goal leem sem stale state).
+  // Também publica no roster leve (Conselho) — no-op se o valor não mudou.
   useEffect(() => {
     statusRef.current = status;
-  }, [status]);
+    useAgentRuntimeStatus.getState().reportStatus(data.id, status as AgentRuntimeStatus);
+  }, [status, data.id]);
+
+  // Convocação / roster: se o card JÁ está montado em idle e chega pendingStart, re-dispara o
+  // ciclo de spawn. No 1º mount o próprio efeito [reloadKey] lê pendingStart (sem consumir cedo).
+  const pendingStart = useAgentRuntimeStatus((s) => !!s.pendingStart[data.id]);
+  useEffect(() => {
+    if (!pendingStart) return;
+    const cur = statusRef.current;
+    if (cur !== "idle" && cur !== "dead") return;
+    forceSpawnRef.current = true;
+    setStatus("starting");
+    setReloadKey((k) => k + 1);
+  }, [pendingStart, data.id]);
+
+  useEffect(() => {
+    const onStart = (event: Event) => {
+      const ids = (event as CustomEvent<{ nodeIds?: string[] }>).detail?.nodeIds;
+      if (!ids?.includes(data.id)) return;
+      useAgentRuntimeStatus.getState().requestStart([data.id]);
+    };
+    window.addEventListener("omnirift:agent-start-idle", onStart);
+    return () => window.removeEventListener("omnirift:agent-start-idle", onStart);
+  }, [data.id]);
 
   // Persona: quando fica ready pela 1ª vez, injeta o papel como prompt de priming. Trocar o modelo
   // depois NÃO re-spawna → a persona (já na conversa) permanece. "Sai do Sonnet, vai pro Kimi,
@@ -1016,6 +1041,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       //    que executam nascem como TerminalNode (PTY) via spawnRole na sidebar.
       if (!attached && alive) {
         const resume = resumeRef.current ?? data.acpSessionId ?? undefined;
+        // Convocação/roster: pendingStart sobe ACP mesmo com spawnedOnce. NÃO consome ainda —
+        // se StrictMode/cleanup abortar antes do spawn, o flag permanece para o remount.
+        const wantStart = !!useAgentRuntimeStatus.getState().pendingStart[data.id];
+        if (wantStart) forceSpawnRef.current = true;
         // Card materializado (template/conselho) sem sessão: não auto-spawna.
         if (data.spawnedOnce && !resume && !forceSpawnRef.current) {
           setStatus("idle");
@@ -1032,6 +1061,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         forceSpawnRef.current = false;
         try {
           spawnedResumeRef.current = !!resume; // este spawn é um resume? (pro fallback do exit)
+          setStatus("starting");
           await acpSpawn(id, {
             provider: data.provider,
             cwd: data.cwd,
@@ -1045,6 +1075,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
               ],
             } : {}),
           });
+          // Só consome pending após spawn aceito — StrictMode/cleanup antes disso mantém o flag.
+          if (wantStart) {
+            useAgentRuntimeStatus.getState().consumePendingStart(data.id);
+          }
           resumeRef.current = null; // consumido
           // Primeiro spawn desta vida do nó → marca no store: é o sinal que o
           // FloorCanvas usa pra soltar a virtualização de volta (time do Montar
