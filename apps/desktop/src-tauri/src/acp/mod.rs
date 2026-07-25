@@ -15,9 +15,9 @@ use anyhow::{anyhow, Result};
 use dashmap::DashMap;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -25,6 +25,20 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::Mutex as AsyncMutex;
 
 pub type SessionId = String;
+
+/// Tipo do request JSON-RPC que EMITIMOS pro adapter — chave da correlação id↔resposta.
+/// Sem isto o read-loop casava `id` hardcoded (1=init, 3=prompt…) e só 1 request
+/// in-flight por tipo sobrevivia. Spec grok-patterns passo 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingKind {
+    Initialize,
+    SessionNew,
+    SessionLoad,
+    Authenticate,
+    Prompt,
+    SetModel,
+    SetConfigOption,
+}
 
 /// Comando de launch do adapter ACP por provider → (binário, args). Claude/Codex via `npx`;
 /// Hermes (Nous Research, open-source) via `uvx` (roda o pacote python `hermes-agent[acp]` como
@@ -431,12 +445,28 @@ struct AcpSession {
     /// ao nó que acabou de re-spawnar pelo MESMO id e o marcaria dead (stale-exit race —
     /// o mesmo problema do reconnect PTY, GLM-audit #1).
     killed: AtomicBool,
-    /// Turno em voo. O id JSON-RPC do `session/prompt` é FIXO (=3), então dois prompts
-    /// simultâneos na MESMA sessão colidem: a resposta do 1º fecha o turno do 2º. A UI já
-    /// serializa (`status != "ready"`), mas o `acp.prompt` do relay (steering do mobile)
-    /// chama o manager DIRETO, sem passar por esse guard — este flag fecha esse buraco.
-    /// Some o dia que o passo 1 da spec (contador de id + `id→oneshot`) entrar.
-    turn_in_flight: AtomicBool,
+    /// Contador monotônico de ids JSON-RPC (começa em 1). Cada request outbound aloca
+    /// um id único e registra o `PendingKind` em `pending` — a resposta correlaciona
+    /// por esse mapa (não mais por id hardcoded). Permite prompts concorrentes.
+    next_rpc_id: AtomicI64,
+    /// id JSON-RPC → kind do request que EMITIMOS. Respostas (sem `method`) fazem
+    /// `take` aqui; requests do adapter (COM `method`) NÃO entram — ids deles são
+    /// do espaço do adapter e não devem colidir com a nossa correlação.
+    pending: parking_lot::Mutex<HashMap<i64, PendingKind>>,
+}
+
+impl AcpSession {
+    /// Aloca o próximo id JSON-RPC e registra o kind pendente.
+    fn alloc_id(&self, kind: PendingKind) -> i64 {
+        let id = self.next_rpc_id.fetch_add(1, Ordering::SeqCst);
+        self.pending.lock().insert(id, kind);
+        id
+    }
+
+    /// Consome a correlação do id (resposta chegou). `None` = id desconhecido/stale.
+    fn take_pending(&self, id: i64) -> Option<PendingKind> {
+        self.pending.lock().remove(&id)
+    }
 }
 
 #[derive(Default)]
@@ -550,7 +580,8 @@ impl AcpManager {
             child: Arc::new(AsyncMutex::new(child)),
             observed: Arc::new(parking_lot::Mutex::new(SessionObserved::default())),
             killed: AtomicBool::new(false),
-            turn_in_flight: AtomicBool::new(false),
+            next_rpc_id: AtomicI64::new(1),
+            pending: parking_lot::Mutex::new(HashMap::new()),
         });
         self.sessions.insert(id.clone(), session.clone());
 
@@ -613,8 +644,9 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             });
         }
         tauri::async_runtime::spawn(async move {
+            let init_id = sess.alloc_id(PendingKind::Initialize);
             let init = json!({
-                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "jsonrpc": "2.0", "id": init_id, "method": "initialize",
                 "params": {
                     "protocolVersion": 1,
                     // HONESTIDADE DE CAPABILITY: só anunciamos o que o read-loop REALMENTE trata
@@ -627,6 +659,7 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             });
             if let Err(e) = write_line(&sess.stdin, &init).await {
                 log::error!("[acp {sid}] erro ao enviar initialize: {e}");
+                sess.take_pending(init_id);
                 return;
             }
 
@@ -648,248 +681,242 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
                 let id_num = msg.get("id").and_then(|v| v.as_i64());
                 let method = msg.get("method").and_then(|m| m.as_str());
 
-                // Resposta do initialize → checa authMethods. Vazio = já autenticado
-                // (Claude herda ~/.claude) → session/new direto. Não-vazio (ex: Codex sem
-                // login) → emite auth-required e ESPERA o acp_authenticate antes do session/new.
-                if id_num == Some(1) {
-                    if let Some(result) = msg.get("result") {
-                        let auth_arr = result.get("authMethods").and_then(|m| m.as_array());
-                        let needs_auth = auth_arr.map(|m| !m.is_empty()).unwrap_or(false);
-                        // BYOK Hermes: o Hermes SEMPRE anuncia authMethods. Se temos provider_config,
-                        // auto-autenticamos com o método "runtime credentials" (id == provider, ou o 1º
-                        // que não seja o setup interativo `type:"terminal"`) — a env key já foi injetada.
-                        // Assim a sessão nasce sem mostrar o login. Sem provider_config → login normal.
-                        let auto_mid: Option<String> =
-                            pc_loop.as_ref().filter(|_| needs_auth).and_then(|pc| {
-                                auth_arr.and_then(|arr| {
-                                    arr.iter()
-                                        .find(|m| {
-                                            m.get("id").and_then(|v| v.as_str())
-                                                == Some(pc.provider.as_str())
-                                        })
-                                        .or_else(|| {
-                                            arr.iter().find(|m| {
-                                                m.get("type").and_then(|t| t.as_str())
-                                                    != Some("terminal")
+                // JSON-RPC: request/notification do adapter TEM `method`; resposta NÃO.
+                // Tratar method ANTES da correlação — senão um `session/request_permission`
+                // cujo id coincida com o nosso contador seria engolido como resposta nossa.
+                if let Some(m) = method {
+                    if m == "session/update" {
+                        let update = msg
+                            .get("params")
+                            .and_then(|p| p.get("update"))
+                            .cloned()
+                            .unwrap_or(Value::Null);
+                        let seq = sess.observed.lock().record("update", update.clone());
+                        app.emit_typed(
+                            "acp://update",
+                            GenericEvent {
+                                session_id: sid.clone(),
+                                seq,
+                                data: update,
+                            },
+                        );
+                        continue;
+                    }
+                    if m == "session/request_permission" {
+                        let req_id = msg.get("id").cloned().unwrap_or(Value::Null);
+                        let params = msg.get("params").cloned().unwrap_or(Value::Null);
+                        let seq = sess.observed.lock().record(
+                            "permission",
+                            json!({ "reqId": req_id.clone(), "params": params.clone() }),
+                        );
+                        app.emit_typed(
+                            "acp://permission",
+                            PermissionEvent {
+                                session_id: sid.clone(),
+                                seq,
+                                req_id,
+                                params,
+                            },
+                        );
+                        continue;
+                    }
+                    // Qualquer OUTRO request do adapter (COM id) PRECISA de resposta — senão
+                    // ele trava. Responde -32601; o adapter trata e segue o turno.
+                    if let Some(req_id) = msg.get("id").cloned() {
+                        log::info!(
+                            "[acp {sid}] request não implementado: {m} → respondendo -32601"
+                        );
+                        let err = method_not_found_response(req_id, m);
+                        if let Err(e) = write_line(&sess.stdin, &err).await {
+                            log::warn!("[acp {sid}] falha ao responder {m}: {e}");
+                        }
+                    }
+                    continue;
+                }
+
+                // Resposta a um request NOSSO → correlaciona pelo mapa id→PendingKind.
+                let Some(rpc_id) = id_num else { continue };
+                let Some(kind) = sess.take_pending(rpc_id) else {
+                    log::debug!("[acp {sid}] resposta com id={rpc_id} sem pending (stale/unknown)");
+                    continue;
+                };
+
+                match kind {
+                    PendingKind::Initialize => {
+                        // authMethods vazio = já autenticado → session/new|load.
+                        // Não-vazio (ex: Codex sem login) → auth-required ou BYOK auto-auth.
+                        if let Some(result) = msg.get("result") {
+                            let auth_arr = result.get("authMethods").and_then(|m| m.as_array());
+                            let needs_auth = auth_arr.map(|m| !m.is_empty()).unwrap_or(false);
+                            let auto_mid: Option<String> =
+                                pc_loop.as_ref().filter(|_| needs_auth).and_then(|pc| {
+                                    auth_arr.and_then(|arr| {
+                                        arr.iter()
+                                            .find(|m| {
+                                                m.get("id").and_then(|v| v.as_str())
+                                                    == Some(pc.provider.as_str())
                                             })
-                                        })
-                                        .and_then(|m| {
-                                            m.get("id").and_then(|v| v.as_str()).map(String::from)
-                                        })
-                                })
-                            });
-                        if let Some(mid) = auto_mid {
-                            log::info!("[acp {sid}] BYOK: auto-authenticate com método '{mid}'");
-                            let req = json!({ "jsonrpc": "2.0", "id": 4, "method": "authenticate",
-                                "params": { "methodId": mid } });
-                            if let Err(e) = write_line(&sess.stdin, &req).await {
-                                log::error!("[acp {sid}] erro no auto-authenticate: {e}");
+                                            .or_else(|| {
+                                                arr.iter().find(|m| {
+                                                    m.get("type").and_then(|t| t.as_str())
+                                                        != Some("terminal")
+                                                })
+                                            })
+                                            .and_then(|m| {
+                                                m.get("id")
+                                                    .and_then(|v| v.as_str())
+                                                    .map(String::from)
+                                            })
+                                    })
+                                });
+                            if let Some(mid) = auto_mid {
+                                log::info!(
+                                    "[acp {sid}] BYOK: auto-authenticate com método '{mid}'"
+                                );
+                                let auth_id = sess.alloc_id(PendingKind::Authenticate);
+                                let req = json!({ "jsonrpc": "2.0", "id": auth_id, "method": "authenticate",
+                                    "params": { "methodId": mid } });
+                                if let Err(e) = write_line(&sess.stdin, &req).await {
+                                    log::error!("[acp {sid}] erro no auto-authenticate: {e}");
+                                    sess.take_pending(auth_id);
+                                }
+                            } else if needs_auth {
+                                let methods =
+                                    result.get("authMethods").cloned().unwrap_or(Value::Null);
+                                let seq = sess
+                                    .observed
+                                    .lock()
+                                    .record("auth-required", methods.clone());
+                                app.emit_typed(
+                                    "acp://auth-required",
+                                    GenericEvent {
+                                        session_id: sid.clone(),
+                                        seq,
+                                        data: methods,
+                                    },
+                                );
+                            } else if let Err(e) =
+                                send_session_open(&sess, &resume_loop, &cwd_loop, &mcp_servers)
+                                    .await
+                            {
+                                log::error!("[acp {sid}] erro ao enviar session/new|load: {e}");
                             }
-                        } else if needs_auth {
-                            let methods = result.get("authMethods").cloned().unwrap_or(Value::Null);
-                            let seq = sess
-                                .observed
-                                .lock()
-                                .record("auth-required", methods.clone());
+                        } else if let Some(err) = msg.get("error") {
+                            log::error!("[acp {sid}] initialize falhou: {err}");
+                        }
+                    }
+                    PendingKind::SessionNew => {
+                        if let Some(result) = msg.get("result") {
+                            if let Some(s) = result.get("sessionId").and_then(|v| v.as_str()) {
+                                *sess.acp_session_id.lock() = Some(s.to_string());
+                            }
+                            log::info!("[acp {sid}] session/new OK — MCP de orquestracao injetado");
+                            let seq = sess.observed.lock().record("ready", result.clone());
                             app.emit_typed(
-                                "acp://auth-required",
+                                "acp://ready",
                                 GenericEvent {
                                     session_id: sid.clone(),
                                     seq,
-                                    data: methods,
+                                    data: result.clone(),
+                                },
+                            );
+                        } else if let Some(err) = msg.get("error") {
+                            log::error!("[acp {sid}] session/new falhou: {err}");
+                        }
+                    }
+                    PendingKind::SessionLoad => {
+                        if msg.get("result").is_some() {
+                            if let Some(rs) = &resume_loop {
+                                *sess.acp_session_id.lock() = Some(rs.clone());
+                            }
+                            log::info!(
+                                "[acp {sid}] session/load OK — sessao resumida (conversa mantida)"
+                            );
+                            let ready = msg.get("result").cloned().unwrap_or(Value::Null);
+                            let seq = sess.observed.lock().record("ready", ready.clone());
+                            app.emit_typed(
+                                "acp://ready",
+                                GenericEvent {
+                                    session_id: sid.clone(),
+                                    seq,
+                                    data: ready,
+                                },
+                            );
+                        } else if let Some(err) = msg.get("error") {
+                            log::error!(
+                                "[acp {sid}] session/load falhou: {err} — fallback session/new"
+                            );
+                            let new_id = sess.alloc_id(PendingKind::SessionNew);
+                            let new = json!({ "jsonrpc": "2.0", "id": new_id, "method": "session/new",
+                                "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } });
+                            if let Err(e) = write_line(&sess.stdin, &new).await {
+                                log::error!("[acp {sid}] fallback session/new falhou: {e}");
+                                sess.take_pending(new_id);
+                            }
+                        }
+                    }
+                    PendingKind::Authenticate => {
+                        if msg.get("result").is_some() {
+                            if let Err(e) =
+                                send_session_open(&sess, &resume_loop, &cwd_loop, &mcp_servers)
+                                    .await
+                            {
+                                log::error!("[acp {sid}] erro pós-auth session/new|load: {e}");
+                            }
+                        } else if let Some(err) = msg.get("error") {
+                            log::error!("[acp {sid}] authenticate falhou: {err}");
+                            let seq = sess.observed.lock().record("auth-failed", err.clone());
+                            app.emit_typed(
+                                "acp://auth-failed",
+                                GenericEvent {
+                                    session_id: sid.clone(),
+                                    seq,
+                                    data: err.clone(),
+                                },
+                            );
+                        }
+                    }
+                    PendingKind::Prompt => {
+                        // Emite o msg bruto (result OU error) — o front já inspeciona.
+                        // Ids distintos garantem que a resposta do prompt A não fecha o B
+                        // (mesmo se o adapter aceitar prompts concorrentes do relay).
+                        if let Some(err) = msg.get("error") {
+                            log::warn!("[acp {sid}] session/prompt (id={rpc_id}) erro: {err}");
+                        }
+                        let seq = sess.observed.lock().record("turn-done", msg.clone());
+                        app.emit_typed(
+                            "acp://turn-done",
+                            GenericEvent {
+                                session_id: sid.clone(),
+                                seq,
+                                data: msg.clone(),
+                            },
+                        );
+                    }
+                    PendingKind::SetModel | PendingKind::SetConfigOption => {
+                        if let Some(err) = msg.get("error") {
+                            log::error!(
+                                "[acp {sid}] set_model/set_config_option (id={rpc_id}) recusado: {err}"
+                            );
+                            let seq = sess.observed.lock().record("model-rejected", err.clone());
+                            app.emit_typed(
+                                "acp://model-rejected",
+                                GenericEvent {
+                                    session_id: sid.clone(),
+                                    seq,
+                                    data: err.clone(),
                                 },
                             );
                         } else {
-                            let req = match &resume_loop {
-                                Some(rs) => {
-                                    json!({ "jsonrpc": "2.0", "id": 5, "method": "session/load",
-                                    "params": { "sessionId": rs, "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } })
-                                }
-                                None => json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
-                                    "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } }),
-                            };
-                            if let Err(e) = write_line(&sess.stdin, &req).await {
-                                log::error!("[acp {sid}] erro ao enviar session/new|load: {e}");
-                            }
+                            log::info!("[acp {sid}] set_model/set_config_option (id={rpc_id}) OK");
                         }
-                    } else if let Some(err) = msg.get("error") {
-                        log::error!("[acp {sid}] initialize falhou: {err}");
-                    }
-                    continue;
-                }
-
-                // Resposta do session/new → guarda sessionId + emite ready (models/modes).
-                if id_num == Some(2) {
-                    if let Some(result) = msg.get("result") {
-                        if let Some(s) = result.get("sessionId").and_then(|v| v.as_str()) {
-                            *sess.acp_session_id.lock() = Some(s.to_string());
-                        }
-                        log::info!("[acp {sid}] session/new OK — MCP de orquestracao injetado");
-                        let seq = sess.observed.lock().record("ready", result.clone());
-                        app.emit_typed(
-                            "acp://ready",
-                            GenericEvent {
-                                session_id: sid.clone(),
-                                seq,
-                                data: result.clone(),
-                            },
-                        );
-                    } else if let Some(err) = msg.get("error") {
-                        log::error!("[acp {sid}] session/new falhou: {err}");
-                    }
-                    continue;
-                }
-
-                // Resposta do session/load (id=5) → sessão RESUMIDA (conversa mantida). O
-                // sessionId é o que pedimos (resume). Se falhar, fallback p/ session/new.
-                if id_num == Some(5) {
-                    if msg.get("result").is_some() {
-                        if let Some(rs) = &resume_loop {
-                            *sess.acp_session_id.lock() = Some(rs.clone());
-                        }
-                        log::info!(
-                            "[acp {sid}] session/load OK — sessao resumida (conversa mantida)"
-                        );
-                        let ready = msg.get("result").cloned().unwrap_or(Value::Null);
-                        let seq = sess.observed.lock().record("ready", ready.clone());
-                        app.emit_typed(
-                            "acp://ready",
-                            GenericEvent {
-                                session_id: sid.clone(),
-                                seq,
-                                data: ready,
-                            },
-                        );
-                    } else if let Some(err) = msg.get("error") {
-                        log::error!(
-                            "[acp {sid}] session/load falhou: {err} — fallback session/new"
-                        );
-                        let new = json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
-                            "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } });
-                        let _ = write_line(&sess.stdin, &new).await;
-                    }
-                    continue;
-                }
-
-                // Resposta do authenticate (id=4) → autenticado → cria OU resume a sessão.
-                if id_num == Some(4) {
-                    if msg.get("result").is_some() {
-                        let req = match &resume_loop {
-                            Some(rs) => {
-                                json!({ "jsonrpc": "2.0", "id": 5, "method": "session/load",
-                                "params": { "sessionId": rs, "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } })
-                            }
-                            None => json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
-                                "params": { "cwd": cwd_loop.clone(), "mcpServers": mcp_servers.clone() } }),
-                        };
-                        let _ = write_line(&sess.stdin, &req).await;
-                    } else if let Some(err) = msg.get("error") {
-                        log::error!("[acp {sid}] authenticate falhou: {err}");
-                        let seq = sess.observed.lock().record("auth-failed", err.clone());
-                        app.emit_typed(
-                            "acp://auth-failed",
-                            GenericEvent {
-                                session_id: sid.clone(),
-                                seq,
-                                data: err.clone(),
-                            },
-                        );
-                    }
-                    continue;
-                }
-
-                // Resposta do prompt (id=3) → fim de turno.
-                if id_num == Some(3) {
-                    sess.turn_in_flight.store(false, Ordering::SeqCst); // turno acabou → libera
-                    let seq = sess.observed.lock().record("turn-done", msg.clone());
-                    app.emit_typed(
-                        "acp://turn-done",
-                        GenericEvent {
-                            session_id: sid.clone(),
-                            seq,
-                            data: msg.clone(),
-                        },
-                    );
-                    continue;
-                }
-
-                // Resposta do set_model (id=6) / set_config_option (id=7). Antes caía no vazio →
-                // adapter recusava o modelo (ex: Hermes preso no default ministral) e NINGUÉM sabia;
-                // o badge da UI ficava otimista mostrando um modelo que não estava valendo. Agora o
-                // erro vira evento → o front corrige o badge e avisa (Task #6).
-                if id_num == Some(6) || id_num == Some(7) {
-                    if let Some(err) = msg.get("error") {
-                        log::error!("[acp {sid}] set_model/set_config_option (id={id_num:?}) recusado: {err}");
-                        let seq = sess.observed.lock().record("model-rejected", err.clone());
-                        app.emit_typed(
-                            "acp://model-rejected",
-                            GenericEvent {
-                                session_id: sid.clone(),
-                                seq,
-                                data: err.clone(),
-                            },
-                        );
-                    } else {
-                        log::info!("[acp {sid}] set_model/set_config_option (id={id_num:?}) OK");
-                    }
-                    continue;
-                }
-
-                // Notificação de progresso (tool_call, agent_message_chunk, plan, …).
-                if method == Some("session/update") {
-                    let update = msg
-                        .get("params")
-                        .and_then(|p| p.get("update"))
-                        .cloned()
-                        .unwrap_or(Value::Null);
-                    let seq = sess.observed.lock().record("update", update.clone());
-                    app.emit_typed(
-                        "acp://update",
-                        GenericEvent {
-                            session_id: sid.clone(),
-                            seq,
-                            data: update,
-                        },
-                    );
-                    continue;
-                }
-
-                // Pedido de permissão do agente (request COM id) → o front decide.
-                if method == Some("session/request_permission") {
-                    let req_id = msg.get("id").cloned().unwrap_or(Value::Null);
-                    let params = msg.get("params").cloned().unwrap_or(Value::Null);
-                    // Log + pending_permission (payload {reqId, params} — o attach re-exibe).
-                    let seq = sess.observed.lock().record(
-                        "permission",
-                        json!({ "reqId": req_id.clone(), "params": params.clone() }),
-                    );
-                    app.emit_typed(
-                        "acp://permission",
-                        PermissionEvent {
-                            session_id: sid.clone(),
-                            seq,
-                            req_id,
-                            params,
-                        },
-                    );
-                    continue;
-                }
-
-                // Qualquer OUTRO request do adapter (COM id) PRECISA de resposta — senão ele
-                // trava esperando pra sempre. Antes só logava (bug latente). Agora responde o
-                // erro JSON-RPC padrão -32601; o adapter trata e segue o turno.
-                if let (Some(m), Some(req_id)) = (method, msg.get("id").cloned()) {
-                    log::info!("[acp {sid}] request não implementado: {m} → respondendo -32601");
-                    let err = method_not_found_response(req_id, m);
-                    if let Err(e) = write_line(&sess.stdin, &err).await {
-                        log::warn!("[acp {sid}] falha ao responder {m}: {e}");
                     }
                 }
             }
             // EOF do adapter. Kill INTENCIONAL (cancel/gc/reload — flag `killed`) fica mudo:
             // a entry já saiu do mapa e um exit póstumo poluiria o nó re-spawnado pelo mesmo
             // id (F2). Morte REAL: registra + marca Dead (buffer fica p/ post-mortem).
-            sess.turn_in_flight.store(false, Ordering::SeqCst); // EOF → nenhum turno sobrevive
+            sess.pending.lock().clear();
             if !sess.killed.load(Ordering::SeqCst) {
                 let seq = sess.observed.lock().record("exit", Value::Null);
                 app.emit_typed(
@@ -907,29 +934,22 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
     }
 
     /// Envia um prompt do usuário (turno). Pré-requisito: session/new já respondeu.
-    /// Spike: id=3 fixo (1 prompt por vez); produção usa contador + promptQueueing.
+    /// Cada prompt aloca um id JSON-RPC único → prompts concorrentes não colidem
+    /// (correlação id↔PendingKind::Prompt no read-loop).
     pub async fn prompt(&self, id: &str, text: String) -> Result<()> {
         let sess = self.session(id)?;
         let acp_sid = sess.acp_session_id.lock().clone().ok_or_else(|| {
             anyhow!("sessão acp {id} ainda não inicializada (aguarde acp://ready)")
         })?;
-        // Guard de concorrência: 1 turno por sessão (o id JSON-RPC do prompt é FIXO = 3).
-        // REJEITA em vez de enfileirar — fila mascararia a origem do prompt e poderia
-        // reordenar turnos. Fecha o buraco do `acp.prompt` do relay (steering do mobile),
-        // que chama este manager direto, sem o guard `status != "ready"` da UI.
-        if sess.turn_in_flight.swap(true, Ordering::SeqCst) {
-            return Err(anyhow!(
-                "sessão acp {id} já tem um turno em andamento — aguarde terminar (prompt concorrente não é suportado)"
-            ));
-        }
+        let rpc_id = sess.alloc_id(PendingKind::Prompt);
         let req = json!({
-            "jsonrpc": "2.0", "id": 3, "method": "session/prompt",
+            "jsonrpc": "2.0", "id": rpc_id, "method": "session/prompt",
             "params": { "sessionId": acp_sid, "prompt": [{ "type": "text", "text": text }] }
         });
         let sent = write_line(&sess.stdin, &req).await;
         if sent.is_err() {
-            // Não conseguimos nem enviar → o turno não começou: libera pra não travar a sessão.
-            sess.turn_in_flight.store(false, Ordering::SeqCst);
+            // Não enviou → remove o pending pra não vazar correlação órfã.
+            sess.take_pending(rpc_id);
         }
         sent
     }
@@ -937,9 +957,14 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
     /// Envia o método ACP `authenticate` com o methodId escolhido pelo usuário (ex: Codex/ChatGPT).
     pub async fn authenticate(&self, id: &str, method_id: String) -> Result<()> {
         let sess = self.session(id)?;
-        let req = json!({ "jsonrpc": "2.0", "id": 4, "method": "authenticate",
+        let rpc_id = sess.alloc_id(PendingKind::Authenticate);
+        let req = json!({ "jsonrpc": "2.0", "id": rpc_id, "method": "authenticate",
             "params": { "methodId": method_id } });
-        write_line(&sess.stdin, &req).await
+        let sent = write_line(&sess.stdin, &req).await;
+        if sent.is_err() {
+            sess.take_pending(rpc_id);
+        }
+        sent
     }
 
     /// Troca o modelo do agente (ACP `session/set_model`) — o `model_id` vem do
@@ -951,9 +976,14 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             .lock()
             .clone()
             .ok_or_else(|| anyhow!("sessão acp {id} ainda não inicializada"))?;
-        let req = json!({ "jsonrpc": "2.0", "id": 6, "method": "session/set_model",
+        let rpc_id = sess.alloc_id(PendingKind::SetModel);
+        let req = json!({ "jsonrpc": "2.0", "id": rpc_id, "method": "session/set_model",
             "params": { "sessionId": acp_sid, "modelId": model_id } });
-        write_line(&sess.stdin, &req).await
+        let sent = write_line(&sess.stdin, &req).await;
+        if sent.is_err() {
+            sess.take_pending(rpc_id);
+        }
+        sent
     }
 
     /// Troca uma opção de config da sessão (ACP `session/set_config_option`). O adapter do Claude
@@ -971,9 +1001,14 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             .lock()
             .clone()
             .ok_or_else(|| anyhow!("sessão acp {id} ainda não inicializada"))?;
-        let req = json!({ "jsonrpc": "2.0", "id": 7, "method": "session/set_config_option",
+        let rpc_id = sess.alloc_id(PendingKind::SetConfigOption);
+        let req = json!({ "jsonrpc": "2.0", "id": rpc_id, "method": "session/set_config_option",
             "params": { "sessionId": acp_sid, "configId": config_id, "value": value } });
-        write_line(&sess.stdin, &req).await
+        let sent = write_line(&sess.stdin, &req).await;
+        if sent.is_err() {
+            sess.take_pending(rpc_id);
+        }
+        sent
     }
 
     /// Responde a um `session/request_permission`. `option_id = None` → cancelado.
@@ -1010,9 +1045,9 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
     pub async fn cancel(&self, id: &str) -> Result<()> {
         if let Some((_, sess)) = self.sessions.remove(id) {
             sess.killed.store(true, Ordering::SeqCst);
-            sess.turn_in_flight.store(false, Ordering::SeqCst); // turno abortado
-                                                                // Clona o sessionId e SOLTA o guard parking_lot antes de qualquer await:
-                                                                // um guard no scrutinee de `if let` viveria o bloco todo → future !Send.
+            sess.pending.lock().clear(); // nenhum pending sobrevive ao kill
+                                         // Clona o sessionId e SOLTA o guard parking_lot antes de qualquer await:
+                                         // um guard no scrutinee de `if let` viveria o bloco todo → future !Send.
             let acp_sid = sess.acp_session_id.lock().clone();
             if let Some(acp_sid) = acp_sid {
                 let cancel = json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": { "sessionId": acp_sid } });
@@ -1087,6 +1122,34 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             .map(|r| r.clone())
             .ok_or_else(|| anyhow!("sessão acp {id} não encontrada"))
     }
+}
+
+/// Envia `session/load` (se `resume` presente) ou `session/new`, alocando id correlacionável.
+async fn send_session_open(
+    sess: &AcpSession,
+    resume: &Option<String>,
+    cwd: &str,
+    mcp_servers: &Value,
+) -> Result<()> {
+    let (kind, method, params) = match resume {
+        Some(rs) => (
+            PendingKind::SessionLoad,
+            "session/load",
+            json!({ "sessionId": rs, "cwd": cwd, "mcpServers": mcp_servers }),
+        ),
+        None => (
+            PendingKind::SessionNew,
+            "session/new",
+            json!({ "cwd": cwd, "mcpServers": mcp_servers }),
+        ),
+    };
+    let rpc_id = sess.alloc_id(kind);
+    let req = json!({ "jsonrpc": "2.0", "id": rpc_id, "method": method, "params": params });
+    let sent = write_line(&sess.stdin, &req).await;
+    if sent.is_err() {
+        sess.take_pending(rpc_id);
+    }
+    sent
 }
 
 /// Escreve um valor JSON como uma linha (newline-delimited) no stdin do adapter.
@@ -1178,62 +1241,95 @@ struct PermissionEvent {
 mod tests {
     use super::*;
 
-    /// Dois prompts INTERCALADOS (`tokio::join!` = concorrência cooperativa num único
-    /// task, NÃO paralelismo real) — exatamente 1 passa. A atomicidade em si vem do TIPO
-    /// (`AtomicBool::swap` troca-e-devolve num passo), não deste teste; o que ele cobre é
-    /// o comportamento observável do guard quando dois prompts se intercalam.
+    /// Contador + mapa: ids monotônicos, kinds distintos, take consome (stale = None).
     #[tokio::test]
-    async fn prompt_concorrente_cooperativo_so_um_passa() {
+    async fn alloc_id_correlaciona_e_consome() {
+        let sess = dummy_session().await;
+        let a = sess.alloc_id(PendingKind::Initialize);
+        let b = sess.alloc_id(PendingKind::Prompt);
+        let c = sess.alloc_id(PendingKind::Prompt);
+        assert_eq!((a, b, c), (1, 2, 3));
+        assert_eq!(sess.take_pending(b), Some(PendingKind::Prompt));
+        assert_eq!(sess.take_pending(b), None, "take é one-shot");
+        assert_eq!(sess.take_pending(a), Some(PendingKind::Initialize));
+        assert_eq!(sess.take_pending(c), Some(PendingKind::Prompt));
+        assert_eq!(sess.take_pending(99), None);
+        assert!(sess.pending.lock().is_empty());
+    }
+
+    /// Dois prompts concorrentes: ambos passam com ids DISTINTOS no mapa pending
+    /// (era o defeito do id=3 fixo — a resposta do 1º fechava o turno do 2º).
+    #[tokio::test]
+    async fn prompt_concorrente_aloca_ids_distintos() {
         let mgr = AcpManager::new();
         let sess = dummy_session().await;
         *sess.acp_session_id.lock() = Some("acp-1".into());
         mgr.sessions.insert("n1".to_string(), sess.clone());
 
         let (a, b) = tokio::join!(mgr.prompt("n1", "A".into()), mgr.prompt("n1", "B".into()),);
-
-        let passaram = [a.is_ok(), b.is_ok()].iter().filter(|ok| **ok).count();
-        assert_eq!(
-            passaram, 1,
-            "exatamente 1 prompt deve passar; o outro é rejeitado"
-        );
         assert!(
-            sess.turn_in_flight.load(Ordering::SeqCst),
-            "o turno vencedor fica em voo"
+            a.is_ok() && b.is_ok(),
+            "ambos os prompts devem passar: {a:?} {b:?}"
         );
+
+        let pending = sess.pending.lock().clone();
+        let prompt_ids: Vec<i64> = pending
+            .iter()
+            .filter(|(_, k)| **k == PendingKind::Prompt)
+            .map(|(id, _)| *id)
+            .collect();
+        assert_eq!(
+            prompt_ids.len(),
+            2,
+            "dois prompts in-flight com kinds Prompt: {pending:?}"
+        );
+        assert_ne!(
+            prompt_ids[0], prompt_ids[1],
+            "ids JSON-RPC devem ser distintos"
+        );
+
+        // Simula o read-loop: cada resposta consome o próprio id → turn-done isolado.
+        for id in &prompt_ids {
+            assert_eq!(sess.take_pending(*id), Some(PendingKind::Prompt));
+        }
+        assert!(sess
+            .pending
+            .lock()
+            .values()
+            .all(|k| *k != PendingKind::Prompt));
     }
 
-    /// Fecha o buraco do `acp.prompt` do relay (steering do mobile), que chama o manager
-    /// DIRETO, sem o guard `status != "ready"` da UI. Com o id JSON-RPC do prompt fixo (=3),
-    /// dois prompts simultâneos colidiriam: a resposta do 1º fecharia o turno do 2º.
+    /// Relay/mobile pode mandar prompt enquanto outro está em voo — não rejeita mais
+    /// (correlação por id mata a colisão). Após take do 1º, o 2º ainda está pending.
     #[tokio::test]
-    async fn prompt_rejeita_turno_concorrente() {
+    async fn prompt_segundo_nao_fecha_o_primeiro() {
         let mgr = AcpManager::new();
         let sess = dummy_session().await;
-        // Simula o session/new já respondido (senão o prompt aborta antes de chegar no guard).
         *sess.acp_session_id.lock() = Some("acp-1".into());
         mgr.sessions.insert("n1".to_string(), sess.clone());
 
-        // 1º prompt: passa e marca o turno em voo.
         mgr.prompt("n1", "primeiro".into())
             .await
-            .expect("1o prompt deve passar");
-        assert!(
-            sess.turn_in_flight.load(Ordering::SeqCst),
-            "turno deveria ficar em voo"
-        );
-
-        // 2º prompt CONCORRENTE: rejeitado.
-        let err = mgr.prompt("n1", "segundo".into()).await.unwrap_err();
-        assert!(
-            err.to_string().contains("turno em andamento"),
-            "erro inesperado: {err}"
-        );
-
-        // Fim de turno (o read-loop faz isso na resposta id=3) → libera o próximo.
-        sess.turn_in_flight.store(false, Ordering::SeqCst);
-        mgr.prompt("n1", "terceiro".into())
+            .expect("1o prompt");
+        mgr.prompt("n1", "segundo".into())
             .await
-            .expect("apos o turno, deve passar");
+            .expect("2o prompt concorrente");
+
+        let ids: Vec<i64> = sess
+            .pending
+            .lock()
+            .iter()
+            .filter(|(_, k)| **k == PendingKind::Prompt)
+            .map(|(id, _)| *id)
+            .collect();
+        assert_eq!(ids.len(), 2);
+        // "Resposta do 1º" NÃO pode apagar o 2º.
+        let first = ids[0];
+        assert_eq!(sess.take_pending(first), Some(PendingKind::Prompt));
+        assert!(
+            sess.pending.lock().contains_key(&ids[1]),
+            "o segundo prompt continua pending após a resposta do primeiro"
+        );
     }
 
     #[test]
@@ -1478,7 +1574,8 @@ mod tests {
             child: Arc::new(AsyncMutex::new(child)),
             observed: Arc::new(parking_lot::Mutex::new(SessionObserved::default())),
             killed: AtomicBool::new(false),
-            turn_in_flight: AtomicBool::new(false),
+            next_rpc_id: AtomicI64::new(1),
+            pending: parking_lot::Mutex::new(HashMap::new()),
         })
     }
 

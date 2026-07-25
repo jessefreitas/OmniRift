@@ -1,5 +1,6 @@
 use std::env;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Perfil de contenção para execução de subprocessos.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10,11 +11,34 @@ pub enum SandboxProfile {
     Workspace,
 }
 
+/// Flag do painel de feature flags (UI). `true` = workspace. Combina com env via OR
+/// em `active_profile` — qualquer um liga; default ambos off = paridade histórica.
+static UI_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Espelha a feature flag `sandbox-workspace` do frontend (boot + toggle do painel).
+pub fn set_ui_enabled(on: bool) {
+    UI_ENABLED.store(on, Ordering::SeqCst);
+}
+
+/// Valor atual da flag UI (não consulta env).
+pub fn ui_enabled() -> bool {
+    UI_ENABLED.load(Ordering::SeqCst)
+}
+
 /// Lê `OMNIRIFT_SANDBOX`; `"workspace"` ativa o modo Workspace, qualquer outro valor (ou ausência) mantém Off.
 pub fn profile_from_env() -> SandboxProfile {
     match env::var("OMNIRIFT_SANDBOX").as_deref() {
         Ok("workspace") => SandboxProfile::Workspace,
         _ => SandboxProfile::Off,
+    }
+}
+
+/// Perfil efetivo: UI flag **ou** env `OMNIRIFT_SANDBOX=workspace`.
+pub fn active_profile() -> SandboxProfile {
+    if ui_enabled() || profile_from_env() == SandboxProfile::Workspace {
+        SandboxProfile::Workspace
+    } else {
+        SandboxProfile::Off
     }
 }
 
@@ -35,7 +59,7 @@ pub fn maybe_wrap(
     cwd: Option<&str>,
     is_remote: bool,
 ) -> (String, Vec<String>) {
-    if is_remote || profile_from_env() != SandboxProfile::Workspace || !bwrap_available() {
+    if is_remote || active_profile() != SandboxProfile::Workspace || !bwrap_available() {
         return (program, args);
     }
 
@@ -258,5 +282,35 @@ mod tests {
 
         assert_eq!(p, program, "programa remoto não deve ser alterado");
         assert_eq!(a, args, "args remotos não devem ser alterados");
+    }
+
+    /// Mutex de teste: `UI_ENABLED` é global — serializa os testes que a mutam.
+    fn ui_flag_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[test]
+    fn active_profile_respeita_flag_ui() {
+        let _guard = ui_flag_test_lock();
+        let prev = ui_enabled();
+        set_ui_enabled(false);
+        // Sem UI e (tipicamente) sem env → Off. Se o ambiente de teste já tem
+        // OMNIRIFT_SANDBOX=workspace, o OR ainda pode dar Workspace — aí só
+        // validamos que ligar a UI força Workspace.
+        set_ui_enabled(true);
+        assert_eq!(active_profile(), SandboxProfile::Workspace);
+        set_ui_enabled(prev);
+    }
+
+    #[test]
+    fn set_ui_enabled_liga_e_desliga() {
+        let _guard = ui_flag_test_lock();
+        let prev = ui_enabled();
+        set_ui_enabled(true);
+        assert!(ui_enabled());
+        set_ui_enabled(false);
+        assert!(!ui_enabled());
+        set_ui_enabled(prev);
     }
 }

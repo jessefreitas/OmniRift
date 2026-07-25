@@ -35,6 +35,7 @@
 //! que linhas internas dele sejam vistas como pares chave-valor.
 
 use regex::Regex;
+use std::path::Path;
 use std::sync::OnceLock;
 
 /// Tabela de regras (compiladas uma vez). A ORDEM importa: específico → genérico.
@@ -147,7 +148,8 @@ fn rules() -> &'static [Rule] {
 /// NÃO aplicar no blackboard local nem no vault Obsidian (dado local do usuário).
 ///
 /// Idempotente: rodar duas vezes produz o mesmo resultado (os placeholders
-/// `[REDACTED:…]` não casam nenhum padrão).
+/// `[REDACTED:…]` não casam nenhum padrão). Path scrubbing (`$HOME`→`~`, username
+/// →`<user>`) roda por último — útil em log/`/diag` sem tocar nos rótulos de segredo.
 pub fn redact(text: &str) -> String {
     let mut out = text.to_string();
     for rule in rules() {
@@ -168,6 +170,60 @@ pub fn redact(text: &str) -> String {
                 .into_owned(),
         };
     }
+    scrub_paths(&out)
+}
+
+/// `$HOME` (ou `USERPROFILE`) → `~`; username de login → `<user>`.
+///
+/// Pura além das env vars do processo. Username só é scrubado com comprimento ≥ 2
+/// (evita apagar "a"/letras soltas). Ordem: home inteiro primeiro (vira `~`), depois
+/// o basename/`USER` restante em fronteira de path (`/user` ou `\user`, não prefixo
+/// de palavra — `/jessefoo` fica intacto).
+pub fn scrub_paths(text: &str) -> String {
+    let mut out = text.to_string();
+
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .and_then(|v| v.into_string().ok())
+        .filter(|h| !h.is_empty());
+
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok()
+        .or_else(|| {
+            home.as_ref().and_then(|h| {
+                // trim_end_matches: `Path::file_name` de "/home/u/" retorna None.
+                let trimmed = h.trim_end_matches(['/', '\\']);
+                Path::new(trimmed)
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+            })
+        })
+        .filter(|u| u.len() >= 2);
+
+    if let Some(ref h) = home {
+        // Boundary: só HOME exato ou HOME seguido de separador — senão
+        // `/home/jesse` engole `/home/jesseadmin` → `~admin`.
+        let pat = format!(r"{}($|[/\\])", regex::escape(h));
+        if let Ok(re) = Regex::new(&pat) {
+            out = re
+                .replace_all(&out, |caps: &regex::Captures| format!("~{}", &caps[1]))
+                .into_owned();
+        }
+    }
+
+    if let Some(ref u) = user {
+        // (?m): `^` casa início de linha. Fronteira evita `/jessefoo`.
+        let pat = format!(r"(?m)(^|[/\\]){}($|[/\\])", regex::escape(u));
+        if let Ok(re) = Regex::new(&pat) {
+            out = re
+                .replace_all(&out, |caps: &regex::Captures| {
+                    format!("{}<user>{}", &caps[1], &caps[2])
+                })
+                .into_owned();
+        }
+    }
+
     out
 }
 
@@ -223,7 +279,10 @@ mod tests {
         redact_json(&mut v);
         let s = v.to_string();
         assert!(!s.contains("sk-Ab"), "chave OpenAI vazou no JSON");
-        assert!(s.contains("[REDACTED:openai]"), "chave OpenAI não foi redigida");
+        assert!(
+            s.contains("[REDACTED:openai]"),
+            "chave OpenAI não foi redigida"
+        );
         assert!(s.contains("sessao-123"), "id foi alterado indevidamente");
         assert!(s.contains("42"), "número foi alterado indevidamente");
     }
@@ -327,7 +386,7 @@ mod tests {
         assert!(!out.contains("cfat_AbCdEf"), "got: {out}");
     }
 
-#[test]
+    #[test]
     fn redige_chave_xai() {
         let out = redact("key xai-AbCdEf1234567890XyZwVu here");
         assert!(out.contains("[REDACTED:xai]"), "got: {out}");
@@ -350,9 +409,18 @@ mod tests {
         let out = redact("GET https://api.x.com/v1/me?api_key=SUPERSECRETO123&page=2#top");
         assert!(out.contains("[REDACTED:url-param]"), "got: {out}");
         assert!(!out.contains("SUPERSECRETO123"), "token vazou: {out}");
-        assert!(out.contains("api_key="), "nome do parametro deve sobreviver: {out}");
-        assert!(out.contains("page=2"), "parametro inocente nao pode ser tocado: {out}");
-        assert!(out.contains("#top"), "fragmento nao pode ser engolido: {out}");
+        assert!(
+            out.contains("api_key="),
+            "nome do parametro deve sobreviver: {out}"
+        );
+        assert!(
+            out.contains("page=2"),
+            "parametro inocente nao pode ser tocado: {out}"
+        );
+        assert!(
+            out.contains("#top"),
+            "fragmento nao pode ser engolido: {out}"
+        );
     }
 
     /// CANÁRIO SISTEMÁTICO: monta um blob com um valor único por tipo de segredo e
@@ -449,8 +517,14 @@ mod tests {
         let out = redact(input);
         // Chaves preservadas, valores redigidos.
         assert!(out.contains("API_TOKEN=[REDACTED:env-value]"), "got: {out}");
-        assert!(out.contains("DB_PASSWORD=[REDACTED:env-value]"), "got: {out}");
-        assert!(out.contains("MY_SECRET_KEY=[REDACTED:env-value]"), "got: {out}");
+        assert!(
+            out.contains("DB_PASSWORD=[REDACTED:env-value]"),
+            "got: {out}"
+        );
+        assert!(
+            out.contains("MY_SECRET_KEY=[REDACTED:env-value]"),
+            "got: {out}"
+        );
         assert!(!out.contains("supersecret123"), "got: {out}");
         assert!(!out.contains("hunter2"), "got: {out}");
         assert!(!out.contains("zzz999"), "got: {out}");
@@ -483,7 +557,10 @@ mod tests {
 
     #[test]
     fn redact_value_alias_works() {
-        assert_eq!(redact_value("ghp_0123456789ABCDEFabcdef"), redact("ghp_0123456789ABCDEFabcdef"));
+        assert_eq!(
+            redact_value("ghp_0123456789ABCDEFabcdef"),
+            redact("ghp_0123456789ABCDEFabcdef")
+        );
         assert!(redact_value("cfat_AbCdEf1234567890").contains("[REDACTED:cloudflare]"));
     }
 
@@ -496,5 +573,71 @@ mod tests {
         assert!(out.contains("API_TOKEN=[REDACTED:env-value]"), "got: {out}");
         assert!(out.contains("log line"), "got: {out}");
         assert!(out.contains("random"), "got: {out}");
+    }
+
+    #[test]
+    fn scrub_paths_home_vira_til() {
+        let home = match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            Ok(h) if !h.is_empty() => h,
+            _ => return, // ambiente sem HOME — skip
+        };
+        let input = format!("log em {home}/.ssh/id_rsa e fim");
+        let out = scrub_paths(&input);
+        assert!(out.contains("~/"), "HOME deveria virar ~: {out}");
+        assert!(!out.contains(&home), "HOME cru vazou: {out}");
+        assert!(out.contains("~/.ssh/id_rsa"), "got: {out}");
+    }
+
+    #[test]
+    fn scrub_paths_home_nao_engole_prefixo_de_outro_path() {
+        let home = match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            Ok(h) if !h.is_empty() => h,
+            _ => return,
+        };
+        // `/home/jesse` NÃO pode virar `~` dentro de `/home/jesseadmin`.
+        let sibling = format!("{home}admin/secrets");
+        let out = scrub_paths(&sibling);
+        assert_eq!(
+            out, sibling,
+            "HOME não pode ser prefixo de outro path: in={sibling} out={out}"
+        );
+    }
+
+    #[test]
+    fn scrub_paths_username_em_fronteira_de_path() {
+        let user = match std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {
+            Ok(u) if u.len() >= 2 => u,
+            _ => return,
+        };
+        let input = format!("owner=/var/{user}/proj next=/{user}foo end");
+        let out = scrub_paths(&input);
+        assert!(
+            out.contains("/<user>/proj"),
+            "username em path deveria virar <user>: {out}"
+        );
+        assert!(
+            out.contains(&format!("/{user}foo")),
+            "prefixo de palavra NÃO pode ser engolido: {out}"
+        );
+        assert!(
+            !out.contains(&format!("/{user}/")),
+            "username cru em path: {out}"
+        );
+    }
+
+    #[test]
+    fn redact_aplica_path_scrub_no_fim() {
+        let home = match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            Ok(h) if !h.is_empty() => h,
+            _ => return,
+        };
+        let fake = format!("sk-{}", "AbCdEfGhIjKlMnOpQrStUvWx");
+        let input = format!("key={fake} path={home}/proj");
+        let out = redact(&input);
+        assert!(out.contains("[REDACTED:openai]"), "got: {out}");
+        assert!(out.contains("~/proj"), "path scrub no redact: {out}");
+        assert!(!out.contains(&home), "HOME vazou no redact: {out}");
+        // Idempotência inclui o scrub.
+        assert_eq!(redact(&out), out);
     }
 }

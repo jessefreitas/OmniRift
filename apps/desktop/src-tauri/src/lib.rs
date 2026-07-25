@@ -77,6 +77,7 @@ use commands::review_cfg::{
 };
 use commands::review_history::{review_history_add, review_history_list};
 use commands::debug_mode::{debug_mode_get, debug_mode_set};
+use commands::sandbox::{sandbox_set_enabled, sandbox_status};
 use commands::observability::{
     observability_count, observability_record, observability_record_batch, observability_timeline,
 };
@@ -566,6 +567,8 @@ pub fn run() {
             review_history_list,
             debug_mode_get,
             debug_mode_set,
+            sandbox_set_enabled,
+            sandbox_status,
             diagnostics_export,
             reveal_path,
             observability_record,

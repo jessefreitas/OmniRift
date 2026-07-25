@@ -850,7 +850,8 @@ fn build_command(
         }
     };
 
-    // [sandbox] Linux: envelopa o comando com bwrap quando OMNIRIFT_SANDBOX=workspace e bwrap
+    // [sandbox] Linux: envelopa com bwrap quando active_profile=workspace (flag UI ∨ env)
+    // e bwrap
     // está no PATH (fail-open: off/remoto/sem-bwrap → comando cru, zero regressão). Contém o
     // EXECUTOR real (workers PTY), não o processo Tauri — o ponto onde bash/edit/rm rodam.
     #[cfg(target_os = "linux")]

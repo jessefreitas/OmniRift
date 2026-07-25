@@ -15,6 +15,7 @@
 // então esquecer de consumir NÃO quebra nada.
 
 import { create } from "zustand";
+import { isSandboxFlagKey, syncSandboxFlag } from "@/lib/sandbox-flag-sync";
 
 export type FlagStage = "stable" | "beta" | "experimental";
 
@@ -193,6 +194,14 @@ export const FLAGS: FlagDef[] = [
     default: true,
     stage: "experimental",
   },
+  {
+    key: "sandbox-workspace",
+    label: "Sandbox workspace (bwrap)",
+    description:
+      "Envelopa agentes PTY/ACP com bubblewrap no Linux: raiz read-only, workspace gravável, mascara ~/.ssh ~/.aws e credenciais. Fail-open se bwrap não estiver instalado (agente sobe sem sandbox — sem falsa segurança). Default OFF = paridade atual. Também liga via env OMNIRIFT_SANDBOX=workspace.",
+    default: false,
+    stage: "beta",
+  },
 ];
 
 const FLAGS_BY_KEY: Record<string, FlagDef> = Object.fromEntries(FLAGS.map((f) => [f.key, f]));
@@ -264,6 +273,7 @@ export const useFeatureFlagStore = create<FlagState>((set) => ({
     set((s) => {
       const next = { ...s.overrides, [key]: val };
       persist(next);
+      if (isSandboxFlagKey(key)) void syncSandboxFlag(val);
       return { overrides: next };
     }),
   resetFlag: (key) =>
@@ -272,11 +282,14 @@ export const useFeatureFlagStore = create<FlagState>((set) => ({
       const next = { ...s.overrides };
       delete next[key];
       persist(next);
+      if (isSandboxFlagKey(key)) void syncSandboxFlag(effectiveDefault(key));
       return { overrides: next };
     }),
   resetAll: () =>
     set(() => {
       persist({});
+      // Volta o sandbox pro default estático (OFF) — env ainda pode ligar no backend.
+      void syncSandboxFlag(effectiveDefault("sandbox-workspace"));
       return { overrides: {} };
     }),
 }));

@@ -20,7 +20,7 @@ Exemplos reais desta auditoria:
 
 ## Resumo
 
-- ✅ **DONE: 32** · 🔶 **PARCIAL: 4** · ⏳ **DESIGN-ONLY: 3** &nbsp;(total: 39 specs)
+- ✅ **DONE: 33** · 🔶 **PARCIAL: 3** · ⏳ **DESIGN-ONLY: 3** &nbsp;(total: 39 specs)
 
 ## Tabela spec × status × evidência
 
@@ -64,19 +64,18 @@ Exemplos reais desta auditoria:
 | constructor-copilot (07-09) | ✅ DONE | `ConstructorBar.tsx`/`ConstructorPanel.tsx` + flag `constructorMode` (Fase 1; 2/3 futuras) |
 | orquestracao (07-09) | ✅ DONE | tools `agent_status/ask/tell` + `mcp/marker.rs` (núcleo camada 4; 5/6/7 futuras) |
 | hook-library (07-10) | ⏳ DESIGN-ONLY | **Nada implementado** (sem catálogo frontend nem `CustomHook` no Rust). |
-| grok-patterns-acp-sandbox-secrets (07-16) | 🔶 PARTIAL | Redação + sandbox + ACP `fs/*` parciais. Faltam id-correlation ACP, path-scrub, flag UI. |
+| grok-patterns-acp-sandbox-secrets (07-16) | ✅ DONE | ACP id-correlation (`next_rpc_id`+`pending` map); path-scrub `$HOME`→`~`/`<user>` no `redactor`; flag `sandbox-workspace` no painel + `sandbox_set_enabled` (UI∨env). Incrementos futuros da spec (reconexão ACP, seccomp) = roadmap. |
 
 ## Pendências reais (o que está em aberto)
 
 ### 🔶 PARCIAIS acionáveis
-1. **grok-patterns-acp-sandbox-secrets** — segurança/robustez ACP: (a) id-correlation do ACP não feito (usa stopgap `AtomicBool` = 1 request in-flight por tipo); (b) path-scrubbing `$HOME`→`~`/username ausente no `redactor.rs`; (c) flag de sandbox não está no painel de flags (só via env).
-2. **omnipartner-aprender** — núcleo socrático wired, mas faltam `learn/tracks.rs`/`session.rs`/`profile.rs` + persistência do perfil via `MemoryProvider`. Spec ainda é "draft". (= roadmap R2 Aprender A2–A4.)
-3. **controle-remoto-4g-relay** — Fase 1 (túnel) DONE; **Fase 2 Push/FCM não-iniciada** (sem FCM no relay-worker, sem sinal `Blocked`). (= roadmap R3 Mobile.)
-4. **spec-lifecycle-e-orquestracao** — blocos A/B/E DONE; superseded pela orquestração 07-09 (ver candidatos a arquivar). Conta no total PARCIAL da tabela até o archive fechar.
+1. **omnipartner-aprender** — núcleo socrático wired, mas faltam `learn/tracks.rs`/`session.rs`/`profile.rs` + persistência do perfil via `MemoryProvider`. Spec ainda é "draft". (= roadmap R2 Aprender A2–A4.)
+2. **controle-remoto-4g-relay** — Fase 1 (túnel) DONE; **Fase 2 Push/FCM não-iniciada** (sem FCM no relay-worker, sem sinal `Blocked`). (= roadmap R3 Mobile.)
+3. **spec-lifecycle-e-orquestracao** — blocos A/B/E DONE; superseded pela orquestração 07-09 (ver candidatos a arquivar). Conta no total PARCIAL da tabela até o archive fechar.
 
 ### ⏳ DESIGN-ONLY não-iniciados (backlog real)
-5. **jornada-onboarding-produto** — feature inteira não construída (7 missões, sandbox, spotlight overlay, watcher, testes).
-6. **hook-library** — catálogo de hooks por role/nó + `CustomHook` no Rust. Nada implementado.
+4. **jornada-onboarding-produto** — feature inteira não construída (7 missões, sandbox, spotlight overlay, watcher, testes).
+5. **hook-library** — catálogo de hooks por role/nó + `CustomHook` no Rust. Nada implementado.
 
 ### 🗑️ Candidatos a ARQUIVAR (não são trabalho — são limpeza anti-regressão)
 - **spec-lifecycle-e-orquestracao** (06-16) — `superseded_by` 2026-07-09-orquestracao. O "teto de agentes" (Bloco D) passou pra responsabilidade da spec de orquestração. *(arquivado em `specs/archive/` neste working tree)*

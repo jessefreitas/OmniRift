@@ -40,6 +40,7 @@ pub mod review_history;
 pub mod observability;
 pub mod role_import;
 pub mod routines;
+pub mod sandbox;
 pub mod scheduler;
 pub mod serena;
 pub mod skills;

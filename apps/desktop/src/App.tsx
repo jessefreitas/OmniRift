@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Canvas } from "@/components/Canvas";
 import { BootIntro } from "@/components/BootIntro";
 import { BootIntroArmor } from "@/components/BootIntroArmor";
-import { useFlag } from "@/lib/feature-flags";
+import { getFlag, useFlag } from "@/lib/feature-flags";
 import { Sidebar } from "@/components/Sidebar";
 import { ProjectTabs } from "@/components/ProjectTabs";
 import { ResourceChip } from "@/components/ResourceChip";
@@ -13,6 +13,7 @@ import { initPersistence, flushPersistence } from "@/lib/persistence-client";
 import { initResourceStore } from "@/store/resource-store";
 import { startAutoSnapshot, stopAutoSnapshot } from "@/lib/auto-snapshot";
 import { persistReviewConfig } from "@/lib/review-config-sync";
+import { syncSandboxFlag } from "@/lib/sandbox-flag-sync";
 import { acpGc } from "@/lib/acp-client";
 import { initPtyGlobalSink } from "@/lib/pty-global-sink";
 import { useCanvasStore } from "@/store/canvas-store";
@@ -136,6 +137,11 @@ export default function App() {
   // hook / tool MCP que vão rodar o review headless nos agentes (#2).
   useEffect(() => {
     void persistReviewConfig();
+  }, []);
+
+  // Espelha a flag sandbox-workspace pro backend (envelope bwrap em PTY/ACP).
+  useEffect(() => {
+    void syncSandboxFlag(getFlag("sandbox-workspace"));
   }, []);
 
   // F2 backend-owned (ACP): reaper no boot — mata sessões do AcpManager cujo id não
