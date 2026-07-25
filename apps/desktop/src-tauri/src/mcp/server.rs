@@ -456,6 +456,11 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
             wrap_tool_text(&state, t, text)
         }
 
+        t if t.starts_with("capability_") || t.starts_with("mission_") => {
+            let text = crate::mcp::tools::mission_dispatch(&state, t, args).await;
+            wrap_tool_text(&state, t, text)
+        }
+
         // spec_path_conflicts é cross-spec/claims — roteado pelo claim_dispatch.
         "spec_path_conflicts" => {
             let text = crate::mcp::tools::claim_dispatch(&state, tool, args);

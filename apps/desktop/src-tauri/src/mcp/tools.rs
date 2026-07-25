@@ -317,6 +317,56 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "target": { "type": "string", "description": "@nome do agente a perguntar" },
                 "question": { "type": "string", "description": "a pergunta" } },
                 "required": ["target", "question"] } }),
+        // ── Missão (capabilities + DAG + verify) ──────────────────
+        json!({ "name": "capability_list",
+            "description": "Lista as capabilities tipadas registradas (domain.subdomain.verb).",
+            "inputSchema": { "type": "object", "properties": {} } }),
+        json!({ "name": "capability_search",
+            "description": "Busca capability por brief. Retorna HIGH (um match claro), AMBIGUOUS (top-N) ou NO_MATCH. \
+                Nunca invente um id que não apareceu aqui.",
+            "inputSchema": { "type": "object", "properties": {
+                "query": { "type": "string", "description": "brief ou termos da capacidade desejada" } },
+                "required": ["query"] } }),
+        json!({ "name": "capability_upsert",
+            "description": "Cria ou atualiza uma capability no registry.",
+            "inputSchema": { "type": "object", "properties": {
+                "id": { "type": "string" },
+                "description": { "type": "string" },
+                "domains": { "type": "array", "items": { "type": "string" } },
+                "examples": { "type": "array", "items": { "type": "string" } },
+                "not_for": { "type": "array", "items": { "type": "string" } },
+                "invoke_kind": { "type": "string", "default": "role" },
+                "invoke_ref": { "type": "string" } },
+                "required": ["id", "description"] } }),
+        json!({ "name": "mission_create",
+            "description": "Cria uma missão a partir de um brief + MissionPackage JSON (nodes com deps + acceptance). \
+                Emite brief_received e plan_committed.",
+            "inputSchema": { "type": "object", "properties": {
+                "brief": { "type": "string" },
+                "package": { "type": "object", "description": "MissionPackage (nodes, acceptance, …)" },
+                "package_json": { "type": "string", "description": "alternativa: package como string JSON" },
+                "cwd": { "type": "string" } },
+                "required": ["brief"] } }),
+        json!({ "name": "mission_run",
+            "description": "Executa a missão: layers do DAG com dispatch blocking, depois verify. Emite a cadeia de eventos.",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" } },
+                "required": ["mission_id"] } }),
+        json!({ "name": "mission_status",
+            "description": "Estado da missão + eventos + validate_chain.",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" } },
+                "required": ["mission_id"] } }),
+        json!({ "name": "mission_validate_chain",
+            "description": "Valida a cadeia de recibos da missão (sem evento = claim mentiroso).",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" } },
+                "required": ["mission_id"] } }),
+        json!({ "name": "mission_verify",
+            "description": "Roda AcceptanceRule[] da missão sob demanda (gate de entregável, ≠ gate:land).",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" } },
+                "required": ["mission_id"] } }),
     ]
 }
 
@@ -1312,40 +1362,70 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
             if target.is_empty() || task.is_empty() {
                 return "❌ 'target' e 'task' são obrigatórios".into();
             }
-            let agents = agent_snapshot(state);
-            let resolved = crate::mcp::resolve_group(&target, &agents);
-            if resolved.is_empty() {
-                let available: Vec<String> = agents.iter()
-                    .map(|a| format!("@{} ({})", a.label, match a.state {
-                        crate::pty::AgentState::Idle => "idle",
-                        crate::pty::AgentState::Working => "working",
-                        crate::pty::AgentState::Blocked => "blocked",
-                        crate::pty::AgentState::Done => "done",
-                        crate::pty::AgentState::Dead => "dead",
-                    }))
-                    .collect();
-                return format!(
-                    "❌ Nenhum agente casou '{target}'. Disponíveis: {}",
-                    available.join(", ")
-                );
-            }
-            let labels: Vec<String> = resolved.iter()
-                .filter_map(|sid| agents.iter().find(|a| &a.session_id == sid).map(|a| a.label.clone()))
-                .collect();
-            let full_task = if !context.is_empty() {
-                format!("{task}\n\n[Contexto: {context}]")
-            } else {
-                task.clone()
-            };
-            for sid in &resolved {
-                let _ = state.pty_manager.write(sid, full_task.as_bytes());
-                tokio::time::sleep(Duration::from_millis(200)).await;
-                let _ = state.pty_manager.write(sid, b"\r");
-            }
-            if priority == "async" {
-                format!("✅ despachado (async) pra {} agente(s): {}", labels.len(), labels.join(", "))
-            } else {
-                format!("✅ despachado (blocking) pra {} agente(s): {}. Resultado aparecerá na stream quando terminarem.", labels.len(), labels.join(", "))
+            let ctx = if context.is_empty() { None } else { Some(context.as_str()) };
+            match state.app.try_state::<crate::db::Db>() {
+                Some(db) => {
+                    crate::orchestrator::dispatch_task(state, &db, &target, &task, ctx, priority).await
+                }
+                None => {
+                    // Fallback sem DB: wait local (mesmo settle do ask).
+                    let agents = agent_snapshot(state);
+                    let resolved = crate::mcp::resolve_group(&target, &agents);
+                    if resolved.is_empty() {
+                        return format!("❌ Nenhum agente casou '{target}'");
+                    }
+                    let full_task = if let Some(c) = ctx {
+                        format!("{task}\n\n[Contexto: {c}]")
+                    } else {
+                        task.clone()
+                    };
+                    let mut out = Vec::new();
+                    for sid in &resolved {
+                        let label = agents
+                            .iter()
+                            .find(|a| &a.session_id == sid)
+                            .map(|a| a.label.clone())
+                            .unwrap_or_else(|| sid.clone());
+                        if priority == "async" {
+                            let _ = state.pty_manager.write(sid, full_task.as_bytes());
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            let _ = state.pty_manager.write(sid, b"\r");
+                            out.push(format!("{label}: dispatched"));
+                        } else {
+                            // Reusa ask-wait path via dispatch_task-equivalent: write + settle
+                            let mut rx = state.pty_manager.subscribe_state();
+                            let _ = state.pty_manager.write(sid, full_task.as_bytes());
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            let _ = state.pty_manager.write(sid, b"\r");
+                            let target_sid = sid.clone();
+                            let settle = async {
+                                let mut saw_working = false;
+                                loop {
+                                    match rx.recv().await {
+                                        Ok((id, st)) if id == target_sid => match st {
+                                            crate::pty::AgentState::Working => saw_working = true,
+                                            crate::pty::AgentState::Done
+                                            | crate::pty::AgentState::Idle
+                                                if saw_working =>
+                                            {
+                                                return;
+                                            }
+                                            crate::pty::AgentState::Blocked if saw_working => return,
+                                            crate::pty::AgentState::Dead => return,
+                                            _ => {}
+                                        },
+                                        Ok(_) => continue,
+                                        Err(_) => return,
+                                    }
+                                }
+                            };
+                            let _ = tokio::time::timeout(Duration::from_secs(300), settle).await;
+                            let screen = state.pty_manager.read_screen(sid).unwrap_or_default();
+                            out.push(format!("{label}: {}", screen.chars().rev().take(200).collect::<String>().chars().rev().collect::<String>()));
+                        }
+                    }
+                    out.join("\n")
+                }
             }
         }
         "orchestrator_query" => {
@@ -1715,6 +1795,137 @@ fn semgrep_findings_from_value(v: &Value) -> Vec<ReviewHistItem> {
             }
         })
         .collect()
+}
+
+fn json_str_array(args: &Value, key: &str) -> Vec<String> {
+    args.get(key)
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Tools `capability_*` e `mission_*`.
+pub async fn mission_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    let Some(db) = state.app.try_state::<crate::db::Db>() else {
+        return "❌ DB indisponível (missão/capabilities precisam do SQLite)".into();
+    };
+
+    match tool {
+        "capability_list" => {
+            let caps = crate::mission::capabilities::list(&db);
+            serde_json::to_string_pretty(&caps).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "capability_search" => {
+            let query = arg_str(&args, "query");
+            if query.is_empty() {
+                return "❌ 'query' é obrigatório".into();
+            }
+            let sig = crate::mission::capabilities::search(&db, &query);
+            serde_json::to_string_pretty(&sig).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "capability_upsert" => {
+            let id = arg_str(&args, "id");
+            let description = arg_str(&args, "description");
+            if id.is_empty() || description.is_empty() {
+                return "❌ 'id' e 'description' são obrigatórios".into();
+            }
+            let cap = crate::mission::capabilities::Capability {
+                id,
+                description,
+                domains: json_str_array(&args, "domains"),
+                examples: json_str_array(&args, "examples"),
+                not_for: json_str_array(&args, "not_for"),
+                invoke_kind: {
+                    let k = arg_str(&args, "invoke_kind");
+                    if k.is_empty() { "role".into() } else { k }
+                },
+                invoke_ref: arg_str(&args, "invoke_ref"),
+            };
+            match crate::mission::capabilities::upsert(&db, &cap) {
+                Ok(()) => format!("✅ capability '{}' upserted", cap.id),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "mission_create" => {
+            let brief = arg_str(&args, "brief");
+            if brief.is_empty() {
+                return "❌ 'brief' é obrigatório".into();
+            }
+            let package_json = if let Some(obj) = args.get("package") {
+                obj.to_string()
+            } else {
+                let s = arg_str(&args, "package_json");
+                if s.is_empty() {
+                    return "❌ 'package' ou 'package_json' é obrigatório".into();
+                }
+                s
+            };
+            // Valida shape mínimo
+            if let Err(e) = crate::mission::runner::parse_package(&package_json) {
+                return format!("❌ {e}");
+            }
+            let cwd = args.get("cwd").and_then(|v| v.as_str());
+            let id = crate::mission::events::create_mission(&db, &brief, &package_json, cwd);
+            format!("✅ mission_id={id}")
+        }
+        "mission_run" => {
+            let mission_id = arg_str(&args, "mission_id");
+            if mission_id.is_empty() {
+                return "❌ 'mission_id' é obrigatório".into();
+            }
+            let report = crate::mission::runner::run_mission(state, &db, &mission_id).await;
+            serde_json::to_string_pretty(&report).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "mission_status" => {
+            let mission_id = arg_str(&args, "mission_id");
+            if mission_id.is_empty() {
+                return "❌ 'mission_id' é obrigatório".into();
+            }
+            let v = crate::mission::runner::status_json(&db, &mission_id);
+            serde_json::to_string_pretty(&v).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "mission_validate_chain" => {
+            let mission_id = arg_str(&args, "mission_id");
+            if mission_id.is_empty() {
+                return "❌ 'mission_id' é obrigatório".into();
+            }
+            let events = crate::mission::events::list_events(&db, &mission_id);
+            let node_ids = crate::mission::events::get_mission_package(&db, &mission_id)
+                .and_then(|(_, pj, _)| crate::mission::runner::parse_package(&pj).ok())
+                .map(|p| crate::mission::runner::package_node_ids(&p))
+                .unwrap_or_default();
+            let report = crate::mission::events::validate_chain(&events, &node_ids, false);
+            serde_json::to_string_pretty(&report).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "mission_verify" => {
+            let mission_id = arg_str(&args, "mission_id");
+            if mission_id.is_empty() {
+                return "❌ 'mission_id' é obrigatório".into();
+            }
+            let Some((_, package_json, cwd)) =
+                crate::mission::events::get_mission_package(&db, &mission_id)
+            else {
+                return format!("❌ missão '{mission_id}' não encontrada");
+            };
+            let pkg = match crate::mission::runner::parse_package(&package_json) {
+                Ok(p) => p,
+                Err(e) => return format!("❌ {e}"),
+            };
+            let work = cwd
+                .as_deref()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+                });
+            let report = crate::mission::verify::verify(&work, &pkg.acceptance);
+            serde_json::to_string_pretty(&report).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        other => format!("❌ tool desconhecida: {other}"),
+    }
 }
 
 /// Parser puro (str) da saída `--json` do semgrep — wrapper testável do núcleo acima.

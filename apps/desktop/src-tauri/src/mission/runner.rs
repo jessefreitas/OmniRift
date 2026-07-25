@@ -1,0 +1,249 @@
+//! Mission Runner — executa layers com dispatch blocking + verify.
+
+use crate::db::Db;
+use crate::mcp::server::McpState;
+use crate::mission::dag::{plan_dag, DagNode};
+use crate::mission::events::{self, EventKind};
+use crate::mission::verify::{self, AcceptanceRule};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MissionNode {
+    pub id: String,
+    pub role: String,
+    #[serde(default)]
+    pub capability: Option<String>,
+    #[serde(default)]
+    pub deps: Vec<String>,
+    #[serde(default)]
+    pub parallel_safe: bool,
+    pub task: String,
+    /// Hash opcional da persona (sha256 hex) para audit.
+    #[serde(default)]
+    pub persona_sha: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MissionPackage {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub brief: String,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    pub nodes: Vec<MissionNode>,
+    #[serde(default)]
+    pub acceptance: Vec<AcceptanceRule>,
+    #[serde(default)]
+    pub floor_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunReport {
+    pub ok: bool,
+    pub mission_id: String,
+    pub layers: Vec<Vec<String>>,
+    pub message: String,
+}
+
+pub fn parse_package(package_json: &str) -> Result<MissionPackage, String> {
+    serde_json::from_str(package_json).map_err(|e| format!("package JSON inválido: {e}"))
+}
+
+/// Extrai node ids do package (para validate_chain).
+pub fn package_node_ids(pkg: &MissionPackage) -> Vec<String> {
+    pkg.nodes.iter().map(|n| n.id.clone()).collect()
+}
+
+pub async fn run_mission(state: &McpState, db: &Db, mission_id: &str) -> RunReport {
+    let Some((_brief, package_json, cwd)) = events::get_mission_package(db, mission_id) else {
+        return RunReport {
+            ok: false,
+            mission_id: mission_id.into(),
+            layers: vec![],
+            message: format!("missão '{mission_id}' não encontrada"),
+        };
+    };
+
+    let pkg = match parse_package(&package_json) {
+        Ok(p) => p,
+        Err(e) => {
+            return RunReport {
+                ok: false,
+                mission_id: mission_id.into(),
+                layers: vec![],
+                message: e,
+            };
+        }
+    };
+
+    let dag_nodes: Vec<DagNode> = pkg
+        .nodes
+        .iter()
+        .map(|n| DagNode {
+            id: n.id.clone(),
+            deps: n.deps.clone(),
+            parallel_safe: n.parallel_safe,
+        })
+        .collect();
+
+    let plan = plan_dag(&dag_nodes);
+    if plan.has_cycle {
+        events::append_event(
+            db,
+            mission_id,
+            EventKind::Failed,
+            json!({ "reason": "cycle", "nodes": plan.cycle_nodes }),
+        );
+        events::set_mission_status(db, mission_id, "failed");
+        return RunReport {
+            ok: false,
+            mission_id: mission_id.into(),
+            layers: plan.layers,
+            message: format!("DAG com ciclo: {:?}", plan.cycle_nodes),
+        };
+    }
+
+    events::set_mission_status(db, mission_id, "running");
+
+    for (i, layer) in plan.layers.iter().enumerate() {
+        events::append_event(
+            db,
+            mission_id,
+            EventKind::LayerStarted,
+            json!({ "index": i, "nodes": layer }),
+        );
+
+        // parallel_safe nodes já estão agrupados; despacha todos da layer
+        // (blocking sequencial dentro da layer por simplicidade segura —
+        // parallel_safe ainda permite mesma layer no plan; wait é por nó).
+        for node_id in layer {
+            let node = match pkg.nodes.iter().find(|n| &n.id == node_id) {
+                Some(n) => n,
+                None => continue,
+            };
+            let target = format!("@{}", node.role);
+            let result = crate::orchestrator::dispatch_task(
+                state,
+                db,
+                &target,
+                &node.task,
+                None,
+                "blocking",
+            )
+            .await;
+
+            events::append_event(
+                db,
+                mission_id,
+                EventKind::Dispatch,
+                json!({
+                    "node_id": node.id,
+                    "role": node.role,
+                    "capability": node.capability,
+                    "result_excerpt": truncate(&result, 400),
+                }),
+            );
+
+            if let Some(sha) = &node.persona_sha {
+                events::append_event(
+                    db,
+                    mission_id,
+                    EventKind::PersonaInjected,
+                    json!({
+                        "node_id": node.id,
+                        "role": node.role,
+                        "sha256": sha,
+                        "bytes": sha.len(),
+                    }),
+                );
+            }
+        }
+
+        events::append_event(
+            db,
+            mission_id,
+            EventKind::LayerFinished,
+            json!({ "index": i, "nodes": layer }),
+        );
+    }
+
+    // Verify
+    let work_cwd = cwd
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+    let report = if pkg.acceptance.is_empty() {
+        // Sem regras: gate passa por vacuidade explícita (missão só de coordenação).
+        verify::VerifyReport {
+            ok: true,
+            results: vec![],
+        }
+    } else {
+        verify::verify(&work_cwd, &pkg.acceptance)
+    };
+
+    if report.ok {
+        events::append_event(
+            db,
+            mission_id,
+            EventKind::GatePassed,
+            json!({ "report": report }),
+        );
+        events::append_event(db, mission_id, EventKind::Delivered, json!({}));
+        events::set_mission_status(db, mission_id, "delivered");
+        RunReport {
+            ok: true,
+            mission_id: mission_id.into(),
+            layers: plan.layers,
+            message: "missão entregue (gate_passed)".into(),
+        }
+    } else {
+        events::append_event(
+            db,
+            mission_id,
+            EventKind::GateFailed,
+            json!({ "report": report }),
+        );
+        events::append_event(db, mission_id, EventKind::Failed, json!({ "reason": "verify" }));
+        events::set_mission_status(db, mission_id, "failed");
+        RunReport {
+            ok: false,
+            mission_id: mission_id.into(),
+            layers: plan.layers,
+            message: "verify falhou (gate_failed)".into(),
+        }
+    }
+}
+
+pub fn status_json(db: &Db, mission_id: &str) -> Value {
+    let events = events::list_events(db, mission_id);
+    let pkg = events::get_mission_package(db, mission_id);
+    let node_ids = pkg
+        .as_ref()
+        .and_then(|(_, pj, _)| parse_package(pj).ok())
+        .map(|p| package_node_ids(&p))
+        .unwrap_or_default();
+    let chain = events::validate_chain(&events, &node_ids, false);
+    json!({
+        "missionId": mission_id,
+        "brief": pkg.as_ref().map(|(b, _, _)| b.clone()),
+        "cwd": pkg.as_ref().and_then(|(_, _, c)| c.clone()),
+        "events": events,
+        "chain": chain,
+    })
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max])
+    }
+}

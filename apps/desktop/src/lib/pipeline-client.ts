@@ -12,6 +12,8 @@ export interface PipelineAgent {
   model?: string;
   floor?: string;
   wave?: number;
+  /** Ids de outros agentes (role) dos quais este depende. Se omitido, deriva de `wave`. */
+  deps?: string[];
   why: string;
 }
 export interface PipelineSubagent {

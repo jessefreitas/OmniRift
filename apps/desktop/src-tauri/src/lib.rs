@@ -26,6 +26,7 @@ pub mod pty;
 // boot-safe, sem IO no load. Ver redactor.rs para a fronteira local vs sai-da-máquina.
 // Módulo Conductor — barramento de despacho do Modo Conductor (orchestrator/).
 // Reusa ACP + PTY + MCP. Estende orchestration_send existente com tools novas.
+pub mod mission;
 pub mod orchestrator;
 pub mod redactor;
 pub mod sandbox;
@@ -134,6 +135,10 @@ use commands::workspace::{workspace_load, workspace_save};
 use commands::orchestrator::{
     orchestrator_dispatch_task, orchestrator_log, orchestrator_stream_load,
 };
+use commands::mission::{
+    mission_capability_list, mission_capability_search, mission_create, mission_events_list,
+    mission_status, mission_validate_chain, mission_verify,
+};
 use db::{
     db_load_workspace, db_save_workspace, kanban_card_create, kanban_card_delete,
     kanban_card_move, kanban_card_update, kanban_columns_query, kanban_columns_save,
@@ -236,6 +241,7 @@ pub fn run() {
                 Ok(dir) => match crate::db::Db::open(dir) {
                     Ok(db) => {
                         crate::orchestrator::init(&db);
+                        crate::mission::init(&db);
                         app.manage(db);
                     }
                     Err(e) => log::error!("falha ao abrir DB de persistência: {e:#}"),
@@ -658,6 +664,13 @@ pub fn run() {
             orchestrator_dispatch_task,
             orchestrator_log,
             orchestrator_stream_load,
+            mission_capability_list,
+            mission_capability_search,
+            mission_create,
+            mission_status,
+            mission_validate_chain,
+            mission_verify,
+            mission_events_list,
         ])
         .build(tauri::generate_context!())
         .expect("erro fatal construindo OmniRift")
