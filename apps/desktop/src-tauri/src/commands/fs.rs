@@ -12,9 +12,18 @@ pub struct DirEntryDto {
 }
 
 /// Filhos imediatos de um diretório — pastas primeiro, depois arquivos (alfabético).
+/// Async + `spawn_blocking`: `read_dir` + `is_dir` por entrada é I/O bloqueante
+/// (pior no Windows com AV). Sync na thread de IPC/UI congelava o WebView2 —
+/// e o loop do FileTree (useT instável) multiplicava isso até tela preta.
 #[tauri::command]
-pub fn list_dir(path: String) -> Result<Vec<DirEntryDto>, String> {
-    let rd = std::fs::read_dir(&path).map_err(|e| format!("não consegui ler '{path}': {e}"))?;
+pub async fn list_dir(path: String) -> Result<Vec<DirEntryDto>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_dir_blocking(&path))
+        .await
+        .map_err(|e| format!("list_dir falhou: {e}"))?
+}
+
+fn list_dir_blocking(path: &str) -> Result<Vec<DirEntryDto>, String> {
+    let rd = std::fs::read_dir(path).map_err(|e| format!("não consegui ler '{path}': {e}"))?;
     let mut out: Vec<DirEntryDto> = rd
         .flatten()
         .map(|e| {
@@ -84,6 +93,29 @@ pub fn write_file(path: String, content: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn list_dir_blocking_lists_children_sorted() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("omnirift-list-dir-{stamp}"));
+        fs::create_dir_all(dir.join("zzz_dir")).unwrap();
+        fs::write(dir.join("aaa.txt"), b"x").unwrap();
+        fs::write(dir.join("mmm.txt"), b"y").unwrap();
+
+        let entries = list_dir_blocking(dir.to_str().unwrap()).unwrap();
+        let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
+        // pastas primeiro, depois arquivos alfabéticos
+        assert_eq!(names, vec!["zzz_dir", "aaa.txt", "mmm.txt"]);
+        assert!(entries[0].is_dir);
+        assert!(!entries[1].is_dir);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn blocks_credential_paths() {

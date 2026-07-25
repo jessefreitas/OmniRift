@@ -87,7 +87,8 @@ function PdfNodeBase({ id, data, selected }: NodeProps<PdfRfNode>) {
       docRef.current?.destroy().catch(() => {});
       docRef.current = null;
     };
-  }, [data.filePath, t]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só filePath; t é estável via makeTranslator
+  }, [data.filePath]);
 
   // Renderiza a página atual (no canvas) sempre que página/zoom/doc mudam.
   useEffect(() => {

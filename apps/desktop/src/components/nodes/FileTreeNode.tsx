@@ -97,12 +97,31 @@ function FileTreeNodeImpl({ id, data, selected }: NodeProps<FileTreeRfNode>) {
   const [hovered, setHovered] = useState(false);
   const { maxBtn, frame } = useNodeMaximize();
 
-  const load = useCallback(() => {
-    if (!data.rootPath) { setError(t("fileTree.noFolder", "sem pasta — abra um projeto")); return; }
-    listDir(data.rootPath).then((r) => { setRoots(r); setError(null); }).catch((e) => setError(String(e)));
+  // Deps só em rootPath (+ t estável via makeTranslator). Antes: useCallback com `t`
+  // instável + useEffect([load]) → list_dir em loop e freeze no Windows/WebView2.
+  const load = useCallback((signal?: { cancelled: boolean }) => {
+    if (!data.rootPath) {
+      setError(t("fileTree.noFolder", "sem pasta — abra um projeto"));
+      setRoots(null);
+      return;
+    }
+    listDir(data.rootPath)
+      .then((r) => {
+        if (signal?.cancelled) return;
+        setRoots(r);
+        setError(null);
+      })
+      .catch((e) => {
+        if (signal?.cancelled) return;
+        setError(String(e));
+      });
   }, [data.rootPath, t]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const signal = { cancelled: false };
+    load(signal);
+    return () => { signal.cancelled = true; };
+  }, [load]);
 
   const rootName = data.rootPath ? (data.rootPath.split("/").filter(Boolean).pop() ?? data.rootPath) : "—";
 
