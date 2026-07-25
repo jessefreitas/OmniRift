@@ -111,8 +111,27 @@ function finishedNodeIds(events: MissionEvent[]): Set<string> {
   return done;
 }
 
+/** Nós com dispatch mas ainda sem layer_finished (em voo). */
+function inFlightNodeIds(events: MissionEvent[]): Set<string> {
+  const done = finishedNodeIds(events);
+  const inflight = new Set<string>();
+  for (const e of events) {
+    if (e.kind !== "dispatch") continue;
+    const p = asPayload(e.payload);
+    const id = String(p.node_id ?? p.nodeId ?? "").trim();
+    const role = String(p.role ?? "").trim();
+    if (id && !done.has(id)) inflight.add(id);
+    if (role && !done.has(role)) inflight.add(role);
+  }
+  return inflight;
+}
+
 function nodeDone(n: MissionNode, done: Set<string>): boolean {
   return done.has(n.id) || done.has(n.role);
+}
+
+function nodeInFlight(n: MissionNode, inflight: Set<string>): boolean {
+  return inflight.has(n.id) || inflight.has(n.role);
 }
 
 function depSatisfied(
@@ -126,14 +145,16 @@ function depSatisfied(
   );
 }
 
-/** Nós prontos pra dispatch: deps ok e ainda não finished. */
+/** Nós prontos pra dispatch: deps ok, não finished, não in-flight. */
 export function readyNodes(
   pkg: MissionPackage,
   done: Set<string>,
+  inflight: Set<string> = new Set(),
 ): MissionNode[] {
   return pkg.nodes.filter(
     (n) =>
       !nodeDone(n, done) &&
+      !nodeInFlight(n, inflight) &&
       n.deps.every((d) => depSatisfied(d, pkg.nodes, done)),
   );
 }
@@ -171,8 +192,14 @@ export function suggestNext(
   }
 
   const done = finishedNodeIds(events);
-  const ready = readyNodes(pkg, done);
+  const inflight = inFlightNodeIds(events);
+  const ready = readyNodes(pkg, done, inflight);
   const hasLayerFinished = events.some((e) => e.kind === "layer_finished");
+
+  // Só há nós em voo → sem sugestão (não repetir dispatch).
+  if (ready.length === 0 && inflight.size > 0 && !pkg.nodes.every((n) => nodeDone(n, done))) {
+    return null;
+  }
 
   if (ready.length > 0 && hasLayerFinished) {
     const n = ready[0];

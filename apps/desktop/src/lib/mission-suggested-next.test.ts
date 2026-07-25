@@ -141,7 +141,7 @@ const linearPkg: MissionPackage = {
 }
 
 {
-  // dispatch da última layer SEM layer_finished → NÃO sugere verify prematuro
+  // dispatch da última layer SEM layer_finished → null (in-flight, sem mentir)
   const events = [
     ev("brief_received"),
     ev("plan_committed", { package: linearPkg }),
@@ -151,8 +151,7 @@ const linearPkg: MissionPackage = {
     // layer 1 ainda não finished
   ];
   const s = suggestNext(events, linearPkg);
-  assert(s?.action !== "verify", "sem layer_finished final → não verify");
-  assert(s?.action === "dispatch" || s === null, "aguarda layer ou dispatch residual");
+  assert(s === null, "nó in-flight → null (não re-dispatch / não verify)");
 }
 
 console.log(`mission-suggested-next: ${pass} passed, ${fail} failed`);
