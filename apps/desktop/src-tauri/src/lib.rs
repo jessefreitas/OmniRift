@@ -249,8 +249,13 @@ pub fn run() {
                 Ok(dir) => match crate::db::Db::open(dir) {
                     Ok(db) => {
                         crate::orchestrator::init(&db);
-                        crate::knowledge::init(&db);
-                        crate::services::init(&db);
+                        // Harness empresarial (conhecimento + serviços) só no canal Lab —
+                        // Stable da mesma branch não cria tabelas nem seeds.
+                        #[cfg(feature = "lab")]
+                        {
+                            crate::knowledge::init(&db);
+                            crate::services::init(&db);
+                        }
                         app.manage(db);
                     }
                     Err(e) => log::error!("falha ao abrir DB de persistência: {e:#}"),

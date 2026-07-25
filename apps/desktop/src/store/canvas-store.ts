@@ -195,7 +195,7 @@ interface CanvasState {
   addCodeNode: (params: { filePath: string; position?: { x: number; y: number } }) => CodeNode;
   addPdfNode: (params: { filePath: string; position?: { x: number; y: number } }) => PdfNode;
   addHtmlNode: (params: { filePath: string; position?: { x: number; y: number } }) => HtmlNode;
-  addAgent: (params?: { label?: string; cwd?: string; provider?: "claude" | "codex" | "hermes"; providerConfig?: { provider: string; model: string }; persona?: string; position?: { x: number; y: number }; targetFloorId?: string }) => AgentNode;
+  addAgent: (params?: { label?: string; cwd?: string; provider?: "claude" | "codex" | "hermes"; providerConfig?: { provider: string; model: string }; persona?: string; position?: { x: number; y: number }; targetFloorId?: string; /** true = card no canvas sem forçar unvirtualização/spawn em massa (templates/conselho). */ spawnedOnce?: boolean }) => AgentNode;
   addSubagent: (params: {
     role: string;
     label: string;
@@ -803,7 +803,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     return node;
   },
 
-  addAgent: ({ label, cwd, provider, providerConfig, persona, position, targetFloorId } = {}) => {
+  addAgent: ({ label, cwd, provider, providerConfig, persona, position, targetFloorId, spawnedOnce } = {}) => {
     const node: AgentNode = {
       id: nanoid(),
       kind: "agent",
@@ -813,6 +813,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
       cwd,
       providerConfig,
       persona,
+      // Templates (ex: Conselho) passam true → FloorCanvas mantém virtualização; AgentNode
+      // só spawna sob demanda (attach/resume ou clique "Iniciar sessão").
+      ...(spawnedOnce ? { spawnedOnce: true } : {}),
       createdAt: Date.now(),
       position: position ?? defaultPosition(),
       size: { width: 420, height: 480 },

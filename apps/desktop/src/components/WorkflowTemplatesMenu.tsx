@@ -17,11 +17,16 @@ import { notify } from "@/lib/notify";
 import { WORKFLOW_TEMPLATES, type WorkflowTemplate } from "@/lib/workflow-templates";
 import { insertWorkflowTemplate } from "@/lib/workflow-insert";
 import { useT } from "@/lib/i18n";
+import { IS_LAB_BUILD } from "@/lib/build-channel";
 
 export function WorkflowTemplatesMenu() {
   const t = useT();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  // Conselho de Guerra usa harness/MCP Lab-only — some do menu no build Stable.
+  const templates = WORKFLOW_TEMPLATES.filter(
+    (tpl) => IS_LAB_BUILD || tpl.id !== "conselho-de-guerra",
+  );
 
   // Fecha ao clicar fora / Esc.
   useEffect(() => {
@@ -70,7 +75,7 @@ export function WorkflowTemplatesMenu() {
           <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-textMuted">
             {t("workflow.title", "Templates de workflow")}
           </div>
-          {WORKFLOW_TEMPLATES.map((tpl) => (
+          {templates.map((tpl) => (
             <button
               key={tpl.id}
               role="menuitem"

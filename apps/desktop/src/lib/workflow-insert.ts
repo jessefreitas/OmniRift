@@ -16,7 +16,9 @@ export function insertWorkflowTemplate(template: WorkflowTemplate): InsertedWork
   for (const spec of nodes) {
     const node = spec.kind === "filter"
       ? store.addFilterNode({ position: spec.position })
-      : store.addAgent({ label: spec.label, persona: spec.persona, position: spec.position });
+      // spawnedOnce: cards no canvas sem desligar virtualização nem spawnar N ACPs de uma vez
+      // (Conselho / templates). Sessão sobe sob demanda — attach/resume ou "Iniciar sessão".
+      : store.addAgent({ label: spec.label, persona: spec.persona, position: spec.position, spawnedOnce: true });
     idByKey.set(spec.key, node.id);
   }
   let edgeCount = 0;

@@ -76,7 +76,7 @@ import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 type AgentRfNode = Node<AgentNodeData & Record<string, unknown>, "agent">;
 type AgentNodeProps = NodeProps<AgentRfNode>;
 
-type Status = "starting" | "ready" | "thinking" | "dead" | "auth" | "config";
+type Status = "starting" | "ready" | "thinking" | "dead" | "auth" | "config" | "idle";
 interface Msg {
   role: "user" | "assistant" | "tool" | "system";
   text: string;
@@ -223,6 +223,10 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [reloadKey, setReloadKey] = useState(0); // bumpar → re-spawna a sessão ACP (carrega .claude/agents novos)
+  // Templates/conselho criam o nó com spawnedOnce=true sem sessão: o efeito de mount
+  // pula o acp_spawn até o usuário forçar (Iniciar sessão / reload). Sem isso, fitToNodes
+  // deixa os 24 cards no viewport e todos spawnam mesmo com virtualização ligada.
+  const forceSpawnRef = useRef(false);
 
   const sessionRef = useRef<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -403,6 +407,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     firstSentRef.current = false;
     teamRef.current = null;
     subagentsSentRef.current = false;
+    forceSpawnRef.current = true; // idle/template → sobe ACP mesmo com spawnedOnce já true
     // F2 (id estável + unmount não mata): o kill EXPLÍCITO aqui é o que impede a próxima
     // montagem de re-anexar à sessão velha (attach falha → spawn, com resume se houver).
     // Kill intencional não emite acp://exit (flag `killed` no backend) — sem stale-exit.
@@ -410,6 +415,13 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       try { await acpCancel(data.id); } catch { /* já morta */ }
       setReloadKey((k) => k + 1);
     })();
+  }
+
+  /** Card de template/conselho em espera: sobe a sessão ACP sob demanda. */
+  function startIdleSession() {
+    forceSpawnRef.current = true;
+    setStatus("starting");
+    setReloadKey((k) => k + 1);
   }
 
   // Troca o modelo do agente (ACP session/set_model). Útil pra rodar um agente barato
@@ -1003,8 +1015,22 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
       //    no nível do adapter. Assim ele SÓ pode delegar, nunca executar direto. Workers
       //    que executam nascem como TerminalNode (PTY) via spawnRole na sidebar.
       if (!attached && alive) {
+        const resume = resumeRef.current ?? data.acpSessionId ?? undefined;
+        // Card materializado (template/conselho) sem sessão: não auto-spawna.
+        if (data.spawnedOnce && !resume && !forceSpawnRef.current) {
+          setStatus("idle");
+          attaching = false;
+          for (const p of pending.splice(0)) {
+            if (p.seq !== undefined) {
+              if (p.seq <= lastSeq) continue;
+              lastSeq = p.seq;
+            }
+            p.fn();
+          }
+          return;
+        }
+        forceSpawnRef.current = false;
         try {
-          const resume = resumeRef.current ?? data.acpSessionId ?? undefined;
           spawnedResumeRef.current = !!resume; // este spawn é um resume? (pro fallback do exit)
           await acpSpawn(id, {
             provider: data.provider,
@@ -1538,6 +1564,20 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         {status === "starting" && (
           <div className="text-text/50">{t("agent.starting", "iniciando agente (1ª vez baixa o adapter, ~30s)…")}</div>
         )}
+        {status === "idle" && (
+          <div className="space-y-2">
+            <p className="text-[11px] leading-relaxed text-text/60">
+              {t("agent.idleHint", "Card no canvas — sessão ainda não iniciada (sob demanda, sem gastar recurso).")}
+            </p>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); startIdleSession(); }}
+              className="rounded bg-brand/20 px-2.5 py-1 text-[11px] text-brand hover:bg-brand/30"
+            >
+              {t("agent.startSession", "Iniciar sessão")}
+            </button>
+          </div>
+        )}
         {status === "config" && (
           <div className="space-y-1.5">
             <p className="text-[11px] text-text/60">
@@ -1697,6 +1737,7 @@ function StatusBadge({ status }: { status: Status }) {
     dead: ["bg-red-400", "encerrado"],
     auth: ["bg-orange-400", "login"],
     config: ["bg-orange-400", "configurar"],
+    idle: ["bg-text/40", "em espera"],
   };
   const [color, label] = map[status];
   return (

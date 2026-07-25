@@ -41,10 +41,11 @@ A opção **Conselho completo (22)** materializa no canvas:
 - 1 Relator;
 - 45 conexões de despacho e síntese.
 
-O Cérebro abre a sessão, informa que coordena os 22 especialistas e pede a decisão a
-enfrentar. Os 22 cards ficam visíveis, mas as sessões são acionadas sob demanda para não
-consumir recursos sem necessidade. O dirigente pode pedir a composição completa ou uma
-rodada com todos.
+O Cérebro e os especialistas materializam como cards com `spawnedOnce` já marcado: o
+FloorCanvas **não** desliga a virtualização e o `AgentNode` **não** auto-spawna ACP só
+por montar. Cada sessão sobe sob demanda (scroll + attach/resume, ou botão **Iniciar
+sessão** no card) — assim a convocação completa não abre 24 processos de uma vez. O
+dirigente pode pedir a composição completa ou uma rodada com todos.
 
 Antes de formar um cluster, o Cérebro consulta nesta ordem:
 

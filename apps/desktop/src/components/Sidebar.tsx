@@ -209,7 +209,11 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "turbo", icon: Zap, label: "TURBO mode", desc: "Loop autônomo: goal + condição verificável → implementer↻condição→verifier (GO/NO-GO), sem auto-commit" },
   { id: "usage", icon: Coins, label: "Uso de Tokens", desc: "Quanto de token os agentes gastaram — total geral, por projeto e por modelo/LLM" },
 ];
-const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
+// Harness Empresarial só no canal Lab (menu Ferramentas + palette); seção Empresa já é IS_LAB_BUILD.
+const TOOL_DEFS_ACTIVE = IS_LAB_BUILD
+  ? TOOL_DEFS
+  : TOOL_DEFS.filter((t) => t.id !== "company-harness");
+const TOOL_IDS = TOOL_DEFS_ACTIVE.map((t) => t.id);
 
 /** Categorias do menu Ferramentas — agrupam os itens por FUNÇÃO (colapsáveis, na ordem abaixo). */
 const TOOL_CATS: { id: string; emoji: string; label: string }[] = [
@@ -2191,7 +2195,7 @@ export function Sidebar() {
 
       {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
       <ToolsSection
-        toolDefs={TOOL_DEFS}
+        toolDefs={TOOL_DEFS_ACTIVE}
         cats={TOOL_CATS}
         toolCat={TOOL_CAT}
         tools={tools}

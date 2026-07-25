@@ -12,6 +12,7 @@ import { Command } from "lucide-react";
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
+import { IS_LAB_BUILD } from "@/lib/build-channel";
 
 interface Cmd {
   id: string;
@@ -90,7 +91,9 @@ export function CommandPalette() {
       { id: "open-memory", label: t("palette.openMemory", "Abrir: Memória dos agentes"), category: t("palette.catOpen", "Abrir"), run: openTool("memory") },
       { id: "open-history", label: t("palette.openHistory", "Abrir: Histórico de sessões"), category: t("palette.catOpen", "Abrir"), run: openTool("history") },
       { id: "open-connections", label: t("palette.openConnections", "Abrir: Conexões de memória"), category: t("palette.catOpen", "Abrir"), run: openTool("connections") },
-      { id: "open-company-harness", label: "Abrir: Harness Empresarial", category: t("palette.catOpen", "Abrir"), run: openTool("company-harness") },
+      ...(IS_LAB_BUILD
+        ? [{ id: "open-company-harness", label: "Abrir: Harness Empresarial", category: t("palette.catOpen", "Abrir"), run: openTool("company-harness") } satisfies Cmd]
+        : []),
       { id: "open-mobile", label: t("palette.openMobile", "Abrir: Dispositivos móveis"), category: t("palette.catOpen", "Abrir"), run: openTool("mobile") },
       { id: "open-review-ai", label: t("palette.openReviewAi", "Abrir: Code Review IA"), category: t("palette.catOpen", "Abrir"), run: openTool("review-ai") },
       { id: "open-git", label: t("palette.openGit", "Abrir: Repositórios Git"), category: t("palette.catOpen", "Abrir"), run: openTool("git") },
