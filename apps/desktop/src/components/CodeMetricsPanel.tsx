@@ -25,20 +25,22 @@ import {
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
-import { notify, confirmDialog } from "@/lib/notify";
+import { confirmDialog } from "@/lib/notify";
 import { metricsProject, codeMetrics } from "@/lib/code-client";
 import type { FileMetricsSummary, CodeMetrics } from "@/types/code";
 import { cn } from "@/lib/cn";
 
+const WORST_N = 5;
+
 // ── Helpers de cor por severidade (mesma paleta do health/AiReportView) ──────
-function severityTone(sev: string): { dot: string; text: string; border: string } {
+function severityTone(sev: string): { dot: string; text: string; border: string; badge: string } {
   switch (sev) {
     case "red":
-      return { dot: "bg-red-400", text: "text-red-400", border: "border-red-400/30" };
+      return { dot: "bg-red-400", text: "text-red-400", border: "border-red-400/30", badge: "bg-red-400/15 text-red-300" };
     case "yellow":
-      return { dot: "bg-yellow-400", text: "text-yellow-400", border: "border-yellow-400/30" };
+      return { dot: "bg-yellow-400", text: "text-yellow-400", border: "border-yellow-400/30", badge: "bg-yellow-400/15 text-yellow-300" };
     default:
-      return { dot: "bg-green-400", text: "text-green-400", border: "border-green-400/30" };
+      return { dot: "bg-green-400", text: "text-green-400", border: "border-green-400/30", badge: "bg-green-400/15 text-green-300" };
   }
 }
 
@@ -61,8 +63,9 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
   const [fnLoading, setFnLoading] = useState(false);
   const [fnError, setFnError] = useState<string | null>(null);
 
-  // Token para descartar scans antigos
+  // Token para descartar scans / drill-downs antigos
   const scanToken = useRef(0);
+  const expandToken = useRef(0);
 
   // ── Scan ──────────────────────────────────────────────────────────────────
   async function runScan(root: string) {
@@ -88,6 +91,14 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
     return () => { scanToken.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCwd]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   // ── Filtro + Sort ─────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -141,20 +152,25 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
   const toggleExpand = useCallback(
     async (path: string) => {
       if (expanded === path) {
+        expandToken.current++;
         setExpanded(null);
         setFnData(null);
+        setFnLoading(false);
+        setFnError(null);
         return;
       }
+      const token = ++expandToken.current;
       setExpanded(path);
       setFnLoading(true);
       setFnError(null);
+      setFnData(null); // evita piscar dados do arquivo anterior
       try {
         const data = await codeMetrics(path);
-        setFnData(data);
+        if (expandToken.current === token) setFnData(data);
       } catch (e) {
-        setFnError(String(e));
+        if (expandToken.current === token) setFnError(String(e));
       } finally {
-        setFnLoading(false);
+        if (expandToken.current === token) setFnLoading(false);
       }
     },
     [expanded],
@@ -166,7 +182,8 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
   }
 
   async function analyzeWorst(n: number) {
-    const worst = [...files].sort((a, b) => b.maxCyclomatic - a.maxCyclomatic).slice(0, n);
+    // Respeita filtro ativo (caminho + severidade), não a lista crua.
+    const worst = [...filtered].sort((a, b) => b.maxCyclomatic - a.maxCyclomatic).slice(0, n);
     const ok = await confirmDialog(
       t("cpx.confirmAnalyzeN", "Vai abrir {N} terminais de análise. Continuar?").replace("{N}", String(worst.length)),
     );
@@ -204,8 +221,13 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
   if (!currentCwd) {
     return createPortal(
       <div className="fixed inset-0 z-[10000] flex items-start justify-center pt-[12vh] bg-black/40" onClick={onClose}>
-        <div className="w-[720px] max-w-[92vw] rounded-xl border border-border bg-surface1 shadow-2xl p-6 text-center text-textMuted">
-          {t("cpx.empty", "Nenhum arquivo de código encontrado")}
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("cpx.title", "Complexidade do Projeto")}
+          className="w-[720px] max-w-[92vw] rounded-xl border border-border bg-surface1 shadow-2xl p-6 text-center text-textMuted"
+        >
+          {t("cpx.noProject", "Abra um projeto primeiro")}
         </div>
       </div>,
       document.body,
@@ -215,13 +237,16 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-start justify-center pt-[8vh] bg-black/40" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cpx-title"
         className="w-[820px] max-w-[95vw] max-h-[82vh] rounded-xl border border-border bg-surface1 shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
           <Activity size={16} className="text-brand shrink-0" />
-          <h2 className="text-sm font-semibold text-text flex-1">{t("cpx.title", "Complexidade do Projeto")}</h2>
+          <h2 id="cpx-title" className="text-sm font-semibold text-text flex-1">{t("cpx.title", "Complexidade do Projeto")}</h2>
           {loading && <Loader2 size={14} className="animate-spin text-brand" />}
           <button
             type="button"
@@ -253,14 +278,14 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
                   {t("cpx.yellowCount", "{N} amarelos").replace("{N}", String(yellowCount))}
                 </span>
               )}
-              {files.length > 5 && (
+              {filtered.length > WORST_N && (
                 <button
                   type="button"
-                  onClick={() => void analyzeWorst(5)}
+                  onClick={() => void analyzeWorst(WORST_N)}
                   className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-brand/10 text-brand text-[10px] hover:bg-brand/20 transition-colors"
                 >
                   <Sparkles size={10} />
-                  {t("cpx.analyzeWorst", "Analisar os {N} piores").replace("{N}", "5")}
+                  {t("cpx.analyzeWorst", "Analisar os {N} piores").replace("{N}", String(WORST_N))}
                 </button>
               )}
             </div>
@@ -342,11 +367,19 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
               <div key={f.path}>
                 {/* Linha principal */}
                 <div
+                  role="button"
+                  tabIndex={0}
                   className={cn(
                     "group grid grid-cols-[1fr_50px_60px_60px_50px_70px_40px_70px] gap-1 px-4 py-1.5 items-center text-[12px] hover:bg-surface2 cursor-pointer transition-colors",
                     isExpanded && "bg-surface2",
                   )}
                   onClick={() => void toggleExpand(f.path)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      void toggleExpand(f.path);
+                    }
+                  }}
                 >
                   {/* Arquivo */}
                   <div className="flex items-center gap-1 min-w-0">
@@ -364,7 +397,7 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
                   {/* MI */}
                   <span className="tabular-nums text-textMuted text-right">{f.maintainabilityIndex.toFixed(0)}</span>
                   {/* Severidade */}
-                  <span className={cn("text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded", tone.dot, tone.text)}>
+                  <span className={cn("text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded", tone.badge)}>
                     {f.severity}
                   </span>
                   {/* fns */}
@@ -408,7 +441,7 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
                               <span className={cn("tabular-nums text-right font-medium", fn.cyclomatic >= 10 ? "text-red-400" : fn.cyclomatic >= 5 ? "text-yellow-400" : "")}>{fn.cyclomatic}</span>
                               <span className="tabular-nums text-right">{fn.cognitive}</span>
                               <span className="tabular-nums text-right">{fn.maintainabilityIndex.toFixed(0)}</span>
-                              <span className={cn("text-[9px] font-semibold uppercase px-1 py-0.5 rounded", fnTone.dot, fnTone.text)}>{fn.severity}</span>
+                              <span className={cn("text-[9px] font-semibold uppercase px-1 py-0.5 rounded", fnTone.badge)}>{fn.severity}</span>
                             </div>
                           );
                         })}

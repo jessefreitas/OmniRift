@@ -1165,6 +1165,7 @@ export const pt: Record<string, string> = {
   "cpx.loading": "Escaneando projeto…",
   "cpx.error": "Erro ao escanear",
   "cpx.empty": "Nenhum arquivo de código encontrado",
+  "cpx.noProject": "Abra um projeto primeiro",
   "cpx.filter": "Filtrar por caminho",
   "cpx.file": "Arquivo",
   "cpx.loc": "LOC",

@@ -1165,6 +1165,7 @@ export const en: Record<string, string> = {
   "cpx.loading": "Scanning project…",
   "cpx.error": "Scan failed",
   "cpx.empty": "No code files found",
+  "cpx.noProject": "Open a project first",
   "cpx.filter": "Filter by path",
   "cpx.file": "File",
   "cpx.loc": "LOC",
