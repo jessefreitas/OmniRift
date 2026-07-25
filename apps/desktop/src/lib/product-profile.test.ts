@@ -42,9 +42,16 @@ eq(parseProductProfile("lixo"), "pocket", "valor inválido → pocket");
 eq(parseProductProfile("full"), "full", "full explícito");
 eq(parseProductProfile("pocket"), "pocket", "pocket explícito");
 
-// —— allowlist tools ——
-ok(POCKET_TOOL_IDS.includes("settings"), "settings está na allowlist pocket");
-ok(POCKET_TOOL_IDS.includes("companion"), "companion está na allowlist pocket");
+// —— allowlist tools (slim) ——
+eq(
+  [...POCKET_TOOL_IDS],
+  ["settings", "help", "appearance", "clis", "llm-providers", "companion", "git"],
+  "allowlist tools pocket slim exata",
+);
+ok(!POCKET_TOOL_IDS.includes("skills"), "skills OFF no pocket slim");
+ok(!POCKET_TOOL_IDS.includes("memory"), "memory OFF no pocket slim");
+ok(!POCKET_TOOL_IDS.includes("mcpservers"), "mcpservers OFF no pocket slim");
+ok(!POCKET_TOOL_IDS.includes("releases"), "releases OFF no pocket slim");
 ok(!POCKET_TOOL_IDS.includes("pipeline"), "pipeline NÃO está na allowlist pocket");
 ok(!POCKET_TOOL_IDS.includes("turbo"), "turbo NÃO está na allowlist pocket");
 ok(!POCKET_TOOL_IDS.includes("routines"), "routines NÃO está na allowlist pocket");
@@ -53,12 +60,15 @@ ok(!POCKET_TOOL_IDS.includes("connections"), "connections OFF no pocket (Local i
 eq(isToolAllowed("pipeline", "pocket"), false, "pipeline ausente em pocket");
 eq(isToolAllowed("pipeline", "full"), true, "pipeline presente em full");
 eq(isToolAllowed("settings", "pocket"), true, "settings presente em pocket");
+eq(isToolAllowed("skills", "pocket"), false, "skills ausente em pocket");
+eq(isToolAllowed("memory", "pocket"), false, "memory ausente em pocket");
+eq(isToolAllowed("skills", "full"), true, "skills presente em full");
 eq(isToolAllowed("turbo", "full"), true, "turbo presente em full");
 
-// —— allowlist nodes ——
-ok(POCKET_NODE_KINDS.includes("agent"), "agent ON no pocket");
-ok(POCKET_NODE_KINDS.includes("terminal"), "terminal ON no pocket");
-ok(POCKET_NODE_KINDS.includes("note"), "note ON no pocket");
+// —— allowlist nodes (slim) ——
+eq([...POCKET_NODE_KINDS], ["agent", "terminal", "note"], "allowlist nodes pocket slim exata");
+ok(!POCKET_NODE_KINDS.includes("filetree"), "filetree OFF no pocket slim");
+ok(!POCKET_NODE_KINDS.includes("group"), "group OFF no pocket slim");
 ok(!POCKET_NODE_KINDS.includes("portal"), "portal OFF no pocket");
 ok(!POCKET_NODE_KINDS.includes("sketch"), "sketch OFF no pocket");
 ok(!POCKET_NODE_KINDS.includes("review"), "review OFF no pocket");
@@ -66,6 +76,8 @@ ok(!POCKET_NODE_KINDS.includes("code"), "code OFF no pocket");
 ok(!POCKET_NODE_KINDS.includes("html"), "html OFF no pocket");
 
 eq(isNodeKindAllowed("portal", "pocket"), false, "portal ausente em pocket");
+eq(isNodeKindAllowed("filetree", "pocket"), false, "filetree ausente em pocket");
+eq(isNodeKindAllowed("group", "pocket"), false, "group ausente em pocket");
 eq(isNodeKindAllowed("portal", "full"), true, "portal presente em full");
 eq(isNodeKindAllowed("agent", "pocket"), true, "agent presente em pocket");
 

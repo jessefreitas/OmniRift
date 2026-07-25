@@ -14,6 +14,7 @@ import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import {
   isNodeKindAllowed,
+  isPocket,
   isToolAllowed,
   useProductProfile,
   type ProductProfile,
@@ -54,7 +55,9 @@ function cmdAllowed(cmd: Cmd, profile: ProductProfile): boolean {
   if (kind) return isNodeKindAllowed(kind, profile);
   const tool = openToolId(cmd.id);
   if (tool) return isToolAllowed(tool, profile);
-  return true; // floors / projects / etc. sempre ok
+  // Pocket slim: sem criar paralelo extra (lista/switch de floors existentes ok)
+  if (cmd.id === "newfloor" && isPocket(profile)) return false;
+  return true;
 }
 
 export function CommandPalette() {

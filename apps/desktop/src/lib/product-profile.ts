@@ -21,10 +21,6 @@ export const POCKET_TOOL_IDS: readonly string[] = [
   "llm-providers",
   "companion",
   "git",
-  "skills",
-  "memory",
-  "mcpservers",
-  "releases",
 ] as const;
 
 /** Node kinds criáveis no Pocket (toolbar / palette “Criar”). */
@@ -32,8 +28,6 @@ export const POCKET_NODE_KINDS: readonly NodeKind[] = [
   "agent",
   "terminal",
   "note",
-  "filetree",
-  "group",
 ] as const;
 
 const POCKET_TOOL_SET = new Set(POCKET_TOOL_IDS);

@@ -27,26 +27,32 @@ Entregar um **modo simples** (Pocket) do OmniRift Stable: mesma app, mesma persi
 - Settings → Geral: toggle **“Modo simples (Pocket)”** ↔ **“Modo completo”**.
 - Troca é imediata (subscribe no profile); não apaga nodes/tools já criados no canvas — só esconde entradas da UI. Nodes “avançados” já no floor continuam renderizando (não orphanar).
 
-## MVP allowlist
+## MVP allowlist (Pocket slim)
 
 ### Tools ON (sidebar / open-tool / atalhos Settings)
 
-`settings`, `help`, `appearance`, `clis`, `llm-providers`, `companion`, `git`, `skills`, `memory`, `mcpservers`, `releases`
+`settings`, `help`, `appearance`, `clis`, `llm-providers`, `companion`, `git`
 
 - **Conexões** (`connections`): **OFF** no Pocket — Local é implícito (zero-config). Quem precisa OmniMemory/Obsidian sobe pra full.
-- Ajuste fino da lista é ok; fonte de verdade = `POCKET_TOOL_IDS` em `product-profile.ts`.
+- **Saiu do slim** (antes no MVP largo): `skills`, `memory`, `mcpservers`, `releases` — sobem pro Modo completo. `releases` some da sidebar; Help não tem deep-link.
+- Fonte de verdade = `POCKET_TOOL_IDS` em `product-profile.ts` (não criar 3º canal).
 
 ### Tools OFF (exemplos — tudo que não está na allowlist)
 
-`pipeline`, `turbo`, `conductor`, `omniswitch`, `bench`, `routines`, `mobile`, `feature-flags`, `compressors`, `hooks`, `code-metrics`, `omnifs`, `review-ai`, `snapshots`, `history`, `reminders`, `usage`, `kanban`, `snippets`, …
+`skills`, `memory`, `mcpservers`, `releases`, `pipeline`, `turbo`, `conductor`, `omniswitch`, `bench`, `routines`, `mobile`, `feature-flags`, `compressors`, `hooks`, `code-metrics`, `omnifs`, `review-ai`, `snapshots`, `history`, `reminders`, `usage`, `kanban`, `snippets`, …
 
 ### Nodes ON (toolbar / command palette “Criar”)
 
-`agent`, `terminal`, `note`, `filetree`, `group`
+`agent`, `terminal`, `note`
 
 ### Nodes OFF
 
-`portal`, `api`, `db`, `subagent`, `review`, `filter`, `community`, `sketch`, `pdf`, `html`, `devtools`, `json`, `explain`, `preview`, `code`, …
+`filetree`, `group`, `portal`, `api`, `db`, `subagent`, `review`, `filter`, `community`, `sketch`, `pdf`, `html`, `devtools`, `json`, `explain`, `preview`, `code`, …
+
+### Extra UX (Pocket)
+
+- Atalho Constructor `Ctrl/Cmd+Shift+C` gated quando `profile=pocket`.
+- UI de criar paralelo/floor extra escondida no Pocket (lista do floor atual permanece).
 
 ## O que some da UI (fase 1)
 

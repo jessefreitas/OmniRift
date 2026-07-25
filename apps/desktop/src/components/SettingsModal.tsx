@@ -396,7 +396,7 @@ function ProductProfileSection() {
           }
         >
           <span className="block text-[12px] font-medium">{t("settings.modeSimple", "Modo simples")}</span>
-          <span className="block text-[10px] opacity-80">{t("settings.modeSimpleDesc", "Pocket — só o essencial pra operar agentes")}</span>
+          <span className="block text-[10px] opacity-80">{t("settings.modeSimpleDesc", "Pocket — agentes, terminal, nota, git e ajustes")}</span>
         </button>
         <button
           type="button"

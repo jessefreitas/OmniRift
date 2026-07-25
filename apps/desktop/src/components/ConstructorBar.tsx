@@ -18,6 +18,7 @@ import {
   type OrchestratorEntry,
 } from "@/lib/orchestration/conductor";
 import { ConstructorPanel } from "@/components/ConstructorPanel";
+import { isPocket, useProductProfile } from "@/lib/product-profile";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -51,6 +52,8 @@ export function ConstructorBar() {
   const parallels = useCanvasStore((s) => s.parallels);
   const activeParallelId = useCanvasStore((s) => s.activeParallelId);
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
+  const profile = useProductProfile();
+  const pocket = isPocket(profile);
 
   const [input, setInput] = useState("");
   const [engine, setEngine] = useState<ConstructorEngine>(() => loadConstructorConfig().engine);
@@ -87,10 +90,11 @@ export function ConstructorBar() {
     ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
   }, [input]);
 
-  // Atalho: Ctrl+Shift+C liga/desliga; Esc fecha
+  // Atalho: Ctrl+Shift+C liga/desliga (OFF no Pocket); Esc fecha
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "c" || e.key === "C")) {
+        if (pocket) return; // vazamento: Constructor não faz parte do Pocket slim
         e.preventDefault();
         setConstructorMode(!constructorMode);
       } else if (e.key === "Escape" && constructorMode) {
@@ -101,7 +105,7 @@ export function ConstructorBar() {
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [constructorMode, setConstructorMode]);
+  }, [constructorMode, setConstructorMode, pocket]);
 
   // Listener pra entries do orchestration_log (respostas dos agentes)
   useEffect(() => {

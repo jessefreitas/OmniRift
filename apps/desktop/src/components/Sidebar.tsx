@@ -2013,24 +2013,26 @@ export function Sidebar() {
               </Tooltip>
             )}
           </div>
-          <div className="flex items-center gap-0.5">
-            <Tooltip label={tr("sidebar.newParallelBranch", "Novo paralelo como branch git (worktree isolado)")} side="bottom">
-              <button
-                onClick={createGitFloor}
-                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-              >
-                <GitBranch size={12} />
-              </button>
-            </Tooltip>
-            <Tooltip label={tr("sidebar.newParallelEmpty", "Novo paralelo vazio")} side="bottom">
-              <button
-                onClick={() => createParallel(undefined, { focus: true })}
-                className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
-              >
-                <Plus size={12} />
-              </button>
-            </Tooltip>
-          </div>
+          {productProfile !== "pocket" && (
+            <div className="flex items-center gap-0.5">
+              <Tooltip label={tr("sidebar.newParallelBranch", "Novo paralelo como branch git (worktree isolado)")} side="bottom">
+                <button
+                  onClick={createGitFloor}
+                  className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
+                >
+                  <GitBranch size={12} />
+                </button>
+              </Tooltip>
+              <Tooltip label={tr("sidebar.newParallelEmpty", "Novo paralelo vazio")} side="bottom">
+                <button
+                  onClick={() => createParallel(undefined, { focus: true })}
+                  className="text-textMuted hover:text-brand transition-colors p-0.5 rounded hover:bg-surface2"
+                >
+                  <Plus size={12} />
+                </button>
+              </Tooltip>
+            </div>
+          )}
         </div>
         <div className="space-y-1">
           {parallels.map((f, i) => {
