@@ -150,10 +150,10 @@ type MissionHandoff = {
 
 | Camada | Superfície |
 |---|---|
-| Rust | `mission::handoff::{save, load_pending, load_pending_for_agent, mark_consumed}` |
+| Rust | `mission::handoff::{save, load_pending, mark_consumed}` (escopo por `mission_id`) |
 | MCP | `mission_handoff_write`, `mission_handoff_read`, `mission_handoff_consume` |
 | Tauri | mesmos nomes (UI / `mission-client.ts`) |
-| TS | `mission-handoff.ts` + `resolveFirstValueWithHandoff` + first-value via `nextStep` |
+| TS | `mission-handoff.ts` + `mission-client.ts`; runner cita no dispatch |
 
 ### Arquivos
 
@@ -162,31 +162,36 @@ type MissionHandoff = {
 - [x] `commands/mission.rs` + registro em `lib.rs`
 - [x] `mission-client.ts` + `mission-handoff.ts`
 - [x] runner: write após settle; cite+consume no dispatch do sucessor
-- [x] greeting/first-value: `buildRoleSpawn` / Sidebar shell / AgentNode / orchestration-client
-  citam pending (lookup por `to_agent`) e consomem após inject
 - [x] eventos `handoff_written` / `handoff_consumed` (não quebram `validate_chain`)
 - [x] Testes Rust + TS (`npm run test:mission-handoff`)
+- [x] `injectWhenPtyReady` (follow-up review M1)
 
 ### Testes
 
 - [x] round-trip JSON no key `handoff:…`
 - [x] `consumed=true` some da lista pending
-- [x] greeting do alvo inclui `next_action` do handoff
+- [x] greeting helper (`nextStepFromHandoff`) inclui `next_action`
 - [x] validate: campos obrigatórios rejeitam vazio `from`/`to`
-- [x] `load_pending_for_agent` cross-mission
 
 ### Critério de done
 
-- [x] Handoff gravado sem prosa solta; próximo agente consome uma vez; eventos
-  `handoff_written` / `handoff_consumed` na cadeia (não quebram `validate_chain`).
-- [x] First-value do alvo cita `handoff pending <key>: <next_action>` quando há pending.
+- [x] Handoff gravado sem prosa solta; próximo agente consome uma vez no dispatch;
+  eventos `handoff_written` / `handoff_consumed` (não quebram `validate_chain`).
+  Commit: `9ead153`.
 
-### Nota omp T1 (mesmo ciclo)
+### Nota omp T1 ✅
 
-Summarize > dump nas tools MCP `memory_recall` / `memory_list`:
-default summary (240 chars) + `offset`/`limit` + `raw`/`full` + footer `meta.truncation`.
-Ver `docs/superpowers/specs/2026-07-25-oh-my-pi-aprendizados-design.md` §3.1.
-**Status T1:** feito neste ciclo (junto com M2). T2/T4 não.
+Summarize > dump nas tools MCP `memory_recall` / `memory_list`
+(`apps/desktop/src-tauri/src/mcp/tools.rs`):
+
+- default: summary (1ª linha, cap 240 chars) + `offset`/`limit`
+- `raw: true` / `full: true` → dump completo
+- footer `meta: { truncation, mode, next_offset, … }`
+
+Código entrou em `9ead153` (mesmo commit do M2). Spec:
+`docs/superpowers/specs/2026-07-25-oh-my-pi-aprendizados-design.md` §3.1.
+Testes: `cargo test --lib summarize_memory` / `fmt_memories` / `memory_fmt_opts`.
+T2/T4: não.
 
 ---
 
