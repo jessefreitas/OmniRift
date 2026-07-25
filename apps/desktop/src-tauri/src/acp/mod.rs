@@ -199,6 +199,58 @@ fn hermes_provider_env(
 pub const EVENT_LOG_MAX_EVENTS: usize = 500;
 /// Cap de bytes (aproximado, payload serializado) do log por sessão (spec F1).
 pub const EVENT_LOG_MAX_BYTES: usize = 2 * 1024 * 1024;
+/// Soft-cap de chars num único `agent_message_chunk` coalescido (higiene T2 / omp).
+/// EventLog ainda tem caps duros de entries/bytes; isto evita um único update
+/// monstro estourar a janela de re-hidratação no front.
+pub const UPDATE_TEXT_SOFT_CAP: usize = 4096;
+
+/// Resolve `cwd` absoluto pro `session/new` (adapter ACP exige path absoluto).
+/// `None`/vazio → cwd do processo. Relative → junta ao cwd atual. Canonicaliza
+/// quando o path existe; senão devolve a forma absoluta sem canonicalize.
+pub fn resolve_cwd_abs(cwd: Option<&str>) -> String {
+    match cwd.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(c) => {
+            let p = std::path::Path::new(c);
+            let abs = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("/"))
+                    .join(p)
+            };
+            std::fs::canonicalize(&abs)
+                .unwrap_or(abs)
+                .display()
+                .to_string()
+        }
+        None => std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "/".to_string()),
+    }
+}
+
+/// MCP servers injetados pelo **client** OmniRift (ownership T2).
+/// Nunca lê `.mcp.json` / settings do cwd do adapter — o host é a fonte.
+pub fn client_owned_mcp_servers(port: u16, token: &str) -> Value {
+    let mcp_url = format!("http://127.0.0.1:{port}/sse?token={token}");
+    json!([{
+        "type": "stdio",
+        "name": "omnirift-agents",
+        "command": "npx",
+        "args": ["-y", "mcp-remote", mcp_url],
+        "env": []
+    }])
+}
+
+/// Mantém a CAUDA (texto mais recente) — updates longos coalescidos perdem o início.
+fn truncate_chars_mut(s: &mut String, max: usize) {
+    let count = s.chars().count();
+    if count <= max {
+        return;
+    }
+    let skip = count - max;
+    *s = s.chars().skip(skip).collect();
+}
 
 /// Estado observável da sessão. `Sleeping` existe pelo contrato (spec §2) mas só
 /// é atingível na F2 (`acp_sleep`); na F1 as transições são Running → Dead (EOF).
@@ -289,10 +341,13 @@ impl EventLog {
             return None;
         }
         let dst = chunk_text_mut(&mut last.payload)?;
+        let before = dst.len();
         dst.push_str(src);
+        truncate_chars_mut(dst, UPDATE_TEXT_SOFT_CAP);
+        let added = dst.len().saturating_sub(before);
         last.seq = seq;
-        last.size += src.len();
-        Some(src.len())
+        last.size += added;
+        Some(added)
     }
 
     /// Estourou um cap → trunca do INÍCIO (mais antigo) e marca `truncated`. Mantém ao
@@ -503,14 +558,7 @@ impl AcpManager {
         }
 
         // O adapter exige `cwd` ABSOLUTO no session/new — resolve aqui (None → cwd do processo).
-        let cwd_abs: String = match cwd.as_deref() {
-            Some(c) => std::fs::canonicalize(c)
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| c.to_string()),
-            None => std::env::current_dir()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| "/".to_string()),
-        };
+        let cwd_abs = resolve_cwd_abs(cwd.as_deref());
 
         // No Windows o adapter é quase sempre `npx`, que o npm instala como shim `.cmd` —
         // e o CreateProcessW só carrega imagens PE. `Command::new("npx")` falhava com
@@ -615,18 +663,8 @@ impl AcpManager {
         // O adapter ACP fala MCP "streamable-http" (POST único); o nosso server é SSE clássico
         // (GET /sse + POST /message → POST /sse dá 405). Ponte: mcp-remote (stdio) conecta no
         // nosso SSE e expõe pro adapter via stdio, contornando o mismatch de transport.
-        let mcp_url = format!(
-            "http://127.0.0.1:{}/sse?token={}",
-            crate::mcp::MCP_PORT,
-            mcp_token
-        );
-        let mcp_servers = json!([{
-            "type": "stdio",
-            "name": "omnirift-agents",
-            "command": "npx",
-            "args": ["-y", "mcp-remote", mcp_url],
-            "env": []
-        }]);
+        // Ownership T2: MCP vem do client (não do `.mcp.json` do cwd).
+        let mcp_servers = client_owned_mcp_servers(crate::mcp::MCP_PORT, &mcp_token);
         // Pre-flight: sem `npx` o bridge acima NÃO conecta e o agente sobe sem as tools de
         // orquestração — falha antes 100% silenciosa. Emite aviso VISÍVEL (o front mostra no
         // corpo do agente). Best-effort: só avisa, não bloqueia — o agente ainda roda com as
@@ -1449,6 +1487,77 @@ mod tests {
             log.bytes(),
             before + 4,
             "coalesce soma exatamente o texto adicionado"
+        );
+    }
+
+    // ── T2 higiene ACP (ownership client + cwd absoluto + soft-cap) ──────────
+
+    #[test]
+    fn resolve_cwd_abs_none_e_absoluto() {
+        let none = resolve_cwd_abs(None);
+        assert!(
+            std::path::Path::new(&none).is_absolute(),
+            "None deve virar path absoluto, got {none}"
+        );
+        let abs = resolve_cwd_abs(Some("/tmp"));
+        assert!(
+            std::path::Path::new(&abs).is_absolute(),
+            "cwd absoluto permanece absoluto: {abs}"
+        );
+    }
+
+    #[test]
+    fn resolve_cwd_abs_relative_vira_absoluto() {
+        let rel = resolve_cwd_abs(Some("."));
+        assert!(
+            std::path::Path::new(&rel).is_absolute(),
+            "relative '.' deve virar absoluto, got {rel}"
+        );
+    }
+
+    #[test]
+    fn client_owned_mcp_servers_ownership() {
+        let servers = client_owned_mcp_servers(7844, "tok-test");
+        let arr = servers.as_array().expect("array");
+        assert_eq!(arr.len(), 1);
+        let s = &arr[0];
+        assert_eq!(s["type"], "stdio");
+        assert_eq!(s["name"], "omnirift-agents");
+        assert_eq!(s["command"], "npx");
+        let args = s["args"].as_array().expect("args");
+        assert!(args.iter().any(|a| a.as_str() == Some("mcp-remote")));
+        let url = args
+            .iter()
+            .find_map(|a| a.as_str().filter(|u| u.starts_with("http://")))
+            .expect("url sse");
+        assert!(url.contains("127.0.0.1:7844"));
+        assert!(url.contains("token=tok-test"));
+        // Ownership: payload NÃO aponta pra .mcp.json / arquivo local do cwd.
+        let dump = servers.to_string();
+        assert!(
+            !dump.contains(".mcp.json"),
+            "MCP do client não deve shadowar .mcp.json local"
+        );
+        assert!(!dump.contains("file://"));
+    }
+
+    #[test]
+    fn eventlog_soft_cap_trunca_texto_coalescido_mantendo_cauda() {
+        let mut log = EventLog::default();
+        // Prefixo descartável + cauda marcadora que deve sobrar.
+        log.record("update", chunk(&("A".repeat(UPDATE_TEXT_SOFT_CAP))));
+        log.record("update", chunk("TAIL-OK"));
+        assert_eq!(log.len(), 1, "chunks consecutivos coalescem");
+        let text = chunk_text(&log.entries().next().unwrap().payload).unwrap();
+        assert_eq!(
+            text.chars().count(),
+            UPDATE_TEXT_SOFT_CAP,
+            "soft-cap de texto coalescido"
+        );
+        assert!(
+            text.ends_with("TAIL-OK"),
+            "soft-cap deve manter a cauda recente, got …{}",
+            &text[text.len().saturating_sub(20)..]
         );
     }
 

@@ -27,6 +27,7 @@ pub mod pty;
 // Módulo Conductor — barramento de despacho do Modo Conductor (orchestrator/).
 // Reusa ACP + PTY + MCP. Estende orchestration_send existente com tools novas.
 pub mod mission;
+pub mod orchestration;
 pub mod orchestrator;
 pub mod redactor;
 pub mod sandbox;
@@ -140,6 +141,7 @@ use commands::mission::{
     mission_handoff_consume, mission_handoff_read, mission_handoff_write, mission_recent,
     mission_status, mission_validate_chain, mission_verify,
 };
+use commands::orchestration::orchestration_doctor;
 use db::{
     db_load_workspace, db_save_workspace, kanban_card_create, kanban_card_delete,
     kanban_card_move, kanban_card_update, kanban_columns_query, kanban_columns_save,
@@ -676,6 +678,7 @@ pub fn run() {
             mission_handoff_write,
             mission_handoff_read,
             mission_handoff_consume,
+            orchestration_doctor,
         ])
         .build(tauri::generate_context!())
         .expect("erro fatal construindo OmniRift")

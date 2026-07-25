@@ -530,8 +530,22 @@ export function ConnectionsModal({ onClose }: Props) {
           <TypedConnectionsSection />
         </div>
 
-        <footer className="px-4 py-2 border-t border-border text-[10px] text-textMuted opacity-60 shrink-0">
-          {t("connections.footer1", "O provider")} <b>{t("connections.active", "ativo")}</b> {t("connections.footer2", "é injetado nos agentes claude (Brain Connect) e consultado pelas tools de memória.")}
+        <footer className="px-4 py-2 border-t border-border text-[10px] text-textMuted opacity-60 shrink-0 flex items-center gap-2">
+          <span className="flex-1">
+            {t("connections.footer1", "O provider")} <b>{t("connections.active", "ativo")}</b> {t("connections.footer2", "é injetado nos agentes claude (Brain Connect) e consultado pelas tools de memória.")}
+          </span>
+          <button
+            type="button"
+            className="shrink-0 px-2 py-0.5 rounded border border-border bg-surface2 text-text hover:text-brand text-[10px]"
+            onClick={() => {
+              onClose();
+              window.dispatchEvent(
+                new CustomEvent("omnirift:open-tool", { detail: "orchestration-doctor" }),
+              );
+            }}
+          >
+            {t("doctor.title", "Doctor da orquestração")}
+          </button>
         </footer>
       </div>
     </div>,

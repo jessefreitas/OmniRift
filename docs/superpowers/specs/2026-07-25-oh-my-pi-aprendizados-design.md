@@ -104,15 +104,19 @@ scout pode forçar dump.
 - Flag `raw: true` ou `full: true` para dump
 - Footer `meta: { truncation, mode, next_offset, returned, total_matched, … }`
 
-### 3.2 Higiene ACP (T2 — alto ROI)
+### 3.2 Higiene ACP (T2 — alto ROI) ✅
 
 **Deles (modo ACP server):** stdout só NDJSON; MCP vem do client em
 `session/new.mcpServers`; caps ~4k em text updates; paths absolutos.
 
-**Nós (client em `acp/mod.rs`):** já injetamos MCP; garantir que adapters não
-sombrem `.mcp.json` local e não poluam stdout.
+**Nós (client em `acp/mod.rs`):** helpers testáveis —
 
-**Fazer:** checklist + testes de higiene; caps ao hidratar events no front.
+- `client_owned_mcp_servers` — MCP `omnirift-agents` via stdio/`mcp-remote` (não lê `.mcp.json`)
+- `resolve_cwd_abs` — cwd absoluto no `session/new`
+- `UPDATE_TEXT_SOFT_CAP` (4096) no coalesce do EventLog + `acp-hygiene.ts` no front
+
+**Gaps restantes:** stdout do adapter third-party não é policado além do stderr log;
+não há assert runtime de que o adapter *honrou* `mcpServers` (só ownership no payload).
 
 ### 3.3 Handoff tipado (T3 — alto ROI; = M2 AIOX/Missão)
 
@@ -209,12 +213,12 @@ Missão (capability · DAG · verify · chain)
 AIOX M1 first-value ✅ · M2 handoff ✅ (= T3)
         │
         ├─► T1  summarize/caps nas tools MCP do host ✅ (memory_*)
-        ├─► T2  higiene ACP (stdout, MCP ownership, caps) ⏳
+        ├─► T2  higiene ACP (stdout, MCP ownership, caps) ✅
         ├─► T3  handoff tipado (= M2) ✅
         └─► T4  (opcional) ROLE omp ACP — não sem pedido
 ```
 
-Ordem restante: **T2 → M3 → M4**. Não abrir PR de “integração omp”.
+Ordem restante: **T4 opcional**. Não abrir PR de “integração omp”.
 
 ---
 

@@ -31,6 +31,7 @@ import { trackNodeMount, trackRender } from "@/lib/debug-log";
 import { useFloorActive } from "@/lib/floor-activity";
 import { agentsMdInstruction, agentsMdRelPath, agentsMdSlug, ORCHESTRATOR_CONTRACT } from "@/lib/agent-contract";
 import { withFirstValueGreeting } from "@/lib/first-value";
+import { capAcpText, trimAcpMsgHistory } from "@/lib/acp-hygiene";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -532,18 +533,18 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     const applyUpdate = (up: Record<string, unknown>) => {
       const kind = up.sessionUpdate as string | undefined;
       if (kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
-        const text = ((up.content as { text?: string } | undefined)?.text) ?? "";
+        // T2: soft-cap por chunk (espelha UPDATE_TEXT_SOFT_CAP do EventLog).
+        const text = capAcpText(((up.content as { text?: string } | undefined)?.text) ?? "");
         if (!text) return;
         lastReplyRef.current += text;
         setMsgs((m) => {
           const last = m[m.length - 1];
           if (last && last.role === "assistant") {
-            return [...m.slice(0, -1), { ...last, text: last.text + text }];
+            return trimAcpMsgHistory([...m.slice(0, -1), { ...last, text: last.text + text }]);
           }
           // Cap do histórico visível: sessões longas acumulavam milhares de bolhas no DOM
           // (peso de render por nó). Mantém as últimas 400 quando passa de 600.
-          const next = [...m, { role: "assistant" as const, text }];
-          return next.length > 600 ? next.slice(-400) : next;
+          return trimAcpMsgHistory([...m, { role: "assistant" as const, text }]);
         });
       } else if (kind === "tool_call" || kind === "tool_call_update") {
         const tcId = up.toolCallId as string | undefined;

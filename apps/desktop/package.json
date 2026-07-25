@@ -28,7 +28,8 @@
     "test:canvas-fluency": "node scripts/run-canvas-fluency-tests.mjs",
     "test:first-value": "node scripts/run-first-value-tests.mjs",
     "test:mission-handoff": "node scripts/run-mission-handoff-tests.mjs",
-    "test:mission-suggested-next": "node scripts/run-mission-suggested-next-tests.mjs"
+    "test:mission-suggested-next": "node scripts/run-mission-suggested-next-tests.mjs",
+    "test:acp-hygiene": "node scripts/run-acp-hygiene-tests.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

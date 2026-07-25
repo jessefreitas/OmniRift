@@ -48,6 +48,7 @@ import {
   Save,
   Server,
   Smartphone,
+  Stethoscope,
   Trash2,
   Sparkles,
   SquareKanban,
@@ -149,6 +150,9 @@ const SkillsCenterModal = lazy(() => import("@/components/SkillsCenterModal").th
 const KanbanPanel = lazy(() => import("@/components/KanbanPanel").then((m) => ({ default: m.KanbanPanel })));
 const SnippetsPanel = lazy(() => import("@/components/SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })));
 const ProjectHealthPanel = lazy(() => import("@/components/health/ProjectHealthPanel").then((m) => ({ default: m.ProjectHealthPanel })));
+const OrchestrationDoctorPanel = lazy(() =>
+  import("@/components/OrchestrationDoctorPanel").then((m) => ({ default: m.OrchestrationDoctorPanel })),
+);
 const TurboPanel = lazy(() => import("@/components/turbo/TurboPanel").then((m) => ({ default: m.TurboPanel })));
 const CodeMetricsPanel = lazy(() => import("@/components/CodeMetricsPanel").then((m) => ({ default: m.CodeMetricsPanel })));
 import { ToolsSection } from "@/components/sidebar/ToolsSection";
@@ -206,6 +210,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos paralelos" },
   { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
   { id: "turbo", icon: Zap, label: "TURBO mode", desc: "Loop autônomo: goal + condição verificável → implementer↻condição→verifier (GO/NO-GO), sem auto-commit" },
+  { id: "orchestration-doctor", icon: Stethoscope, label: "Doctor da orquestração", desc: "Diagnóstico: por que o agente não ativou? PATH, MCP, memória, worktree, hooks" },
   { id: "usage", icon: Coins, label: "Uso de Tokens", desc: "Quanto de token os agentes gastaram — total geral, por projeto e por modelo/LLM" },
 ];
 const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
@@ -221,6 +226,7 @@ const TOOL_CATS: { id: string; emoji: string; label: string }[] = [
 /** id da ferramenta → categoria. Sem entrada = cai em "system" (nunca some do menu). */
 const TOOL_CAT: Record<string, string> = {
   pipeline: "orchestrate", turbo: "orchestrate", kanban: "orchestrate", routines: "orchestrate", bench: "orchestrate",
+  "orchestration-doctor": "orchestrate",
   clis: "agents", skills: "agents", mcpservers: "agents", compressors: "agents", memory: "agents", connections: "agents",
   "llm-providers": "ai", companion: "ai", "review-ai": "ai", omniswitch: "ai",
   git: "files", omnifs: "files", "code-metrics": "files", snapshots: "files", history: "files", snippets: "files", reminders: "files", hooks: "files",
@@ -569,6 +575,7 @@ export function Sidebar() {
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showReviewAi, setShowReviewAi] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
+  const [showOrchDoctor, setShowOrchDoctor] = useState(false);
   const [showCodeMetrics, setShowCodeMetrics] = useState(false);
   const [showTurbo, setShowTurbo] = useState(false);
   const [turboSeed, setTurboSeed] = useState<string | undefined>(undefined);
@@ -655,6 +662,7 @@ export function Sidebar() {
     snapshots: () => setShowSnapshots(true),
     hooks: () => setShowHooks(true),
     turbo: () => setShowTurbo(true),
+    "orchestration-doctor": () => setShowOrchDoctor(true),
   };
 
   // Abre os modais de ferramenta via Command palette (CustomEvent "omnirift:open-tool").
@@ -685,6 +693,7 @@ export function Sidebar() {
         case "settings": setShowSettings(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "project-health": setShowHealth(true); break;
+        case "orchestration-doctor": setShowOrchDoctor(true); break;
         case "code-metrics": setShowCodeMetrics(true); break;
         case "turbo": setShowTurbo(true); break;
         case "appearance": setShowAppearance(true); break;
@@ -2737,6 +2746,7 @@ export function Sidebar() {
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
       {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
       {showHealth && <ProjectHealthPanel onClose={() => setShowHealth(false)} />}
+      {showOrchDoctor && <OrchestrationDoctorPanel onClose={() => setShowOrchDoctor(false)} />}
       {showCodeMetrics && <CodeMetricsPanel onClose={() => setShowCodeMetrics(false)} />}
       {showTurbo && <TurboPanel seedGoal={turboSeed} onClose={() => { setShowTurbo(false); setTurboSeed(undefined); }} />}
       {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}

@@ -8,7 +8,7 @@
 // M3: faixa suggested-next acima do xterm (poll mission_recent).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Crown, ChevronDown, ChevronUp, CornerUpRight, Sparkles } from "lucide-react";
+import { Crown, ChevronDown, ChevronUp, CornerUpRight, Sparkles, Stethoscope } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { setOrchestratorMount } from "@/lib/orchestrator-dock-mount";
@@ -198,6 +198,18 @@ export function OrchestratorDock() {
             <CornerUpRight size={13} />
           </button>
         )}
+        <button
+          type="button"
+          onClick={() =>
+            window.dispatchEvent(
+              new CustomEvent("omnirift:open-tool", { detail: "orchestration-doctor" }),
+            )
+          }
+          title={t("doctor.title", "Doctor da orquestração")}
+          className="p-0.5 rounded hover:bg-bg hover:text-text transition-colors shrink-0"
+        >
+          <Stethoscope size={13} />
+        </button>
         <button
           onClick={() => setCollapsed((c) => !c)}
           title={collapsed ? t("orchestrator.expand", "Expandir") : t("orchestrator.minimize", "Minimizar")}

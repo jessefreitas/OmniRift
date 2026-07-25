@@ -282,6 +282,13 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "group": { "type": "string", "description": "Endereço do grupo: @all | @idle | @worktree:<floor> | @<role-ou-label>." },
                 "message": { "type": "string", "description": "Texto a injetar (seguido de Enter) em cada agente do grupo." } },
                 "required": ["group", "message"] } }),
+        json!({ "name": "orchestration_doctor",
+            "description": "Diagnóstico read-only: por que a frota/agente não ativou? Checa CLIs no PATH \
+                (claude/codex/uvx/npx/git), MCP omnirift-agents, memory provider ativo, worktree/cwd e hooks/failproof. \
+                Sem healers — só relatório ✅/❌ com hints.",
+            "inputSchema": { "type": "object", "properties": {
+                "cwd": { "type": "string", "description": "cwd/floor a validar (opcional; usa o do pedido se omitido)" } },
+                "required": [] } }),
         // ── Conductor Mode tools (orchestrator_*) ──────────────────
         json!({ "name": "orchestrator_status",
             "description": "Lista o estado de todos os agentes no canvas (idle/working/blocked/done). \
@@ -1705,6 +1712,16 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                 "systemPrompt": system_prompt,
             }));
             format!("✅ Solicitada criação do agente '{}' (CLI: {}, floor: {}). O nó aparecerá no canvas.", name, cli, floor_label)
+        }
+        "orchestration_doctor" => {
+            let cwd = arg_opt(&args, "cwd");
+            let report = crate::orchestration::doctor::run_doctor(
+                &state.app,
+                cwd.as_deref(),
+                &state.memory_registry,
+            )
+            .await;
+            serde_json::to_string_pretty(&report).unwrap_or_else(|e| format!("❌ {e}"))
         }
         other => format!("❌ tool de orquestração desconhecida: {other}"),
     }

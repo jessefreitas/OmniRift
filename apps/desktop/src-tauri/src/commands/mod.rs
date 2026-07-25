@@ -20,6 +20,7 @@ pub mod git_secret;
 pub mod github_auth;
 pub mod omnigraph;
 pub mod mission;
+pub mod orchestration;
 pub mod orchestrator;
 pub mod gitremote;
 pub mod hosts;

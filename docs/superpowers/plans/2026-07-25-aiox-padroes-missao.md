@@ -30,7 +30,7 @@ MCP `mission_*` / `orchestrator_*`, testes puros via `scripts/run-*-tests.mjs`.
 | Contrato | `ORCHESTRATOR_CONTRACT` / `DEV_CONTRACT` em `agent-contract.ts` (longo, silencioso) |
 | Dock | `OrchestratorDock.tsx` — host do xterm; sem suggested-next |
 | Handoff | `orchestrator_handoff` + ask/tell prosa; sem schema tipado no blackboard |
-| Doctor | `health/scan` = saúde de código; sem checks de orquestração (PATH/MCP/memory/worktree) |
+| Doctor | M4 ✅ — `orchestration/doctor` + UI (PATH/MCP/memory/worktree/hooks) |
 
 Gap M1 concreto: spawns claude-code com system-prompt nos args **não** mandam
 1ª mensagem → nó mudo até input humano.
@@ -191,7 +191,21 @@ Summarize > dump nas tools MCP `memory_recall` / `memory_list`
 Código entrou em `9ead153` (mesmo commit do M2). Spec:
 `docs/superpowers/specs/2026-07-25-oh-my-pi-aprendizados-design.md` §3.1.
 Testes: `cargo test --lib summarize_memory` / `fmt_memories` / `memory_fmt_opts`.
-T2/T4: não.
+
+### Nota omp T2 ✅
+
+Higiene ACP (escopo contido — sem refatorar o adapter):
+
+- Helpers puros em `acp/mod.rs`: `resolve_cwd_abs`, `client_owned_mcp_servers`,
+  `UPDATE_TEXT_SOFT_CAP` (4096) no coalesce do EventLog
+- Front: `acp-hygiene.ts` (`capAcpText` + `trimAcpMsgHistory`) wired em `AgentNode`
+- Testes: `cargo test --lib` (cwd/MCP ownership/soft-cap) + `npm run test:acp-hygiene`
+
+**Gaps documentados (não nesta rodada):**
+
+- Adapter third-party ainda pode poluir stdout se violar NDJSON — só logamos stderr
+- Não policamos se o adapter *ignorar* `mcpServers` do client (depende do provider)
+- Soft-cap de texto é na janela/EventLog; conversa real no adapter não é truncada
 
 ---
 
@@ -238,7 +252,7 @@ function suggestNext(events: MissionEvent[], pkg: MissionPackage): SuggestedNext
 
 ---
 
-## M4 — Doctor orquestração
+## M4 — Doctor orquestração ✅
 
 ### Objetivo
 
@@ -248,31 +262,42 @@ Diagnóstico “por que a frota não ativa?” — paralelo, fail-soft.
 
 | Check | Passa se |
 |---|---|
-| CLI PATH | `claude` / `codex` / engines usados resolvem |
-| MCP | server `omnirift-agents` up + token ok |
-| Memory | provider ativo responde `test` |
-| Worktree | floor cwd é git worktree válido (se floor ativo) |
-| Hooks | settings Stop/review presentes pro role claude |
+| CLI PATH | `claude` / `codex` / `uvx` / `npx` / `git` resolvem |
+| MCP | TCP `127.0.0.1:7844` (omnirift-agents) |
+| Memory | provider ativo responde `health` |
+| Worktree | cwd existe + `.git` (dir ou file de worktree) |
+| Hooks | failproof scripts + Stop em `agent_settings_config` |
 
 ### API
 
 ```rust
-// orchestration/doctor.rs ou mission/doctor.rs
+// orchestration/doctor.rs
 struct DoctorReport { checks: Vec<DoctorCheck>, ok: bool }
-// Tauri: orchestration_doctor() -> DoctorReport
+// Tauri: orchestration_doctor(cwd?) -> DoctorReport
 // MCP: orchestration_doctor (read-only)
 ```
 
 ### Arquivos
 
-- Rust doctor + comando Tauri + MCP tool
-- UI painel simples (Connections area ou modal no dock)
-- Testes: checks com PATH mock / fail-soft
+- [x] `apps/desktop/src-tauri/src/orchestration/{mod,doctor}.rs`
+- [x] `apps/desktop/src-tauri/src/commands/orchestration.rs` + registro em `lib.rs`
+- [x] MCP `orchestration_doctor` em `mcp/tools.rs`
+- [x] UI `OrchestrationDoctorPanel.tsx` + Command Palette / Sidebar / dock / Connections
+- [x] Client `orchestration-doctor-client.ts`
+- [x] Testes Rust: worktree / mcp fail-soft / serde
 
 ### Critério de done
 
-- Um comando devolve relatório estruturado; UI lista ❌/✅; sem healers
+- [x] Um comando devolve relatório estruturado; UI lista ❌/✅; sem healers
   destrutivos no dia 1 (só diagnóstico).
+
+### Como abrir
+
+1. Command Palette → “Doctor da orquestração”
+2. Sidebar → Ferramentas → Orquestrar → Doctor da orquestração
+3. Ícone estetoscópio no header do OrchestratorDock
+4. Botão no rodapé da Área de Conexões
+5. MCP: `orchestration_doctor` (cwd opcional)
 
 ---
 
