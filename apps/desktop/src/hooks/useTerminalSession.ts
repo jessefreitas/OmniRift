@@ -19,6 +19,7 @@ import { emit } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
+import { createImeDedup, isCharKey } from "@/lib/ime-dedup";
 import {
   listenAgentStatus,
   listenPtyExit,
@@ -528,43 +529,17 @@ export function useTerminalSession({
         // Teclas do usuário → stdin do PTY.
         //
         // WebKitGTK + IBus (Linux) DUPLICAM o caractere composto (acentos, ç…):
-        // o caminho de composição do xterm emite o char e o evento `input`
-        // seguinte da textarea emite o MESMO char de novo. A dedup interna do
-        // xterm (`_isSendingComposition` + setTimeout 0) perde a corrida nesse
-        // motor → "começar" vira "come ç çar". Guardamos a string recém-composta
-        // numa janela curta: a 1ª cópia passa, a 2ª idêntica é dropada (uma vez).
-        // No-op em motores sem o bug — nunca há 2ª cópia pra dropar (não deleta).
-        let composed: { data: string; until: number; seen: boolean } | null = null;
+        // ver `ime-dedup.ts` (dead-key via compositionend + ç ABNT2 via keySeq).
+        const imeDedup = createImeDedup();
         const onCompositionEnd = (e: CompositionEvent) => {
-          if (e.data) composed = { data: e.data, until: Date.now() + 60, seen: false };
+          imeDedup.noteCompositionEnd(e.data);
         };
         term.textarea?.addEventListener("compositionend", onCompositionEnd);
         disposeImeGuard = () =>
           term.textarea?.removeEventListener("compositionend", onCompositionEnd);
 
-        // Dedup por keydown — cobre o ç do ABNT2 (TECLA DIRETA, não dead-key): o
-        // IBus/WebKitGTK também emite o MESMO char 2× a partir de UM único keydown,
-        // mas SEM passar por `compositionend`, então o guard acima não pega. Cada
-        // tecla-de-char incrementa `keySeq` (no handler abaixo); duas emissões
-        // idênticas com o MESMO keySeq (nenhum keydown entre elas) = duplicata →
-        // dropa a 2ª. key-repeat e "çç" legítimo têm keydowns distintos (keySeq
-        // muda) → passam. Complementa o guard de composição (que cobre dead-keys).
-        let keySeq = 0;
-        let lastEmit: { data: string; seq: number } | null = null;
-
         queryAuthority.setForwarder((data) => {
-          if (lastEmit && lastEmit.data === data && lastEmit.seq === keySeq) {
-            lastEmit = null; // 2ª emissão da MESMA tecla (duplicata IBus) → dropa
-            return;
-          }
-          lastEmit = { data, seq: keySeq };
-          if (composed && data === composed.data && Date.now() < composed.until) {
-            if (composed.seen) {
-              composed = null; // 2ª cópia (duplicata WebKitGTK/IBus) → dropa
-              return;
-            }
-            composed.seen = true; // 1ª cópia (a legítima) → passa adiante
-          }
+          if (!imeDedup.shouldForward(data)) return;
           // Não aguardamos: a UI deve ser imediata; erros aparecem nos logs.
           ptyWrite(sessionId, data).catch((e) => {
             console.error("[omni-canvas] pty_write falhou:", e);
@@ -578,13 +553,8 @@ export function useTerminalSession({
         //    Tauri; o navigator.clipboard.readText não funciona no WebKitGTK).
         term.attachCustomKeyEventHandler((e) => {
           if (e.type !== "keydown") return true;
-          // Conta cada tecla-de-char (1 code point) p/ o dedup por keySeq do
-          // onData acima. Teclas especiais (Enter/Shift/Arrow/Backspace…) têm
-          // múltiplos chars e não contam — é isto que distingue a duplicata do IBus
-          // (1 keydown → 2 emissões) de uma 2ª digitação real (key-repeat / "çç").
-          // Array.from conta CODE POINTS: emoji/CJK-ext têm String#length 2 mas são
-          // 1 tecla — senão a 2ª emissão do mesmo char viraria falso-duplicado.
-          if (Array.from(e.key).length === 1) keySeq++;
+          // Conta tecla-de-char p/ o dedup keySeq (ime-dedup). Ver isCharKey.
+          if (isCharKey(e.key)) imeDedup.noteCharKeyDown();
           if (e.key === "Enter" && e.shiftKey) {
             ptyWrite(sessionId, "\n").catch(() => {});
             return false;

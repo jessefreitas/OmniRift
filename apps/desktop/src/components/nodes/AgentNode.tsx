@@ -71,7 +71,7 @@ import { useAgentCheckpoints } from "@/lib/agent-checkpoints";
 import { AgentCheckpointsMenu } from "@/components/AgentCheckpointsMenu";
 import type { AgentNode as AgentNodeData } from "@/types/canvas";
 import { HermesWizard, type HermesProviderConfig } from "./HermesWizard";
-import { pasteText } from "@/lib/clipboard";
+import { SafeInput, SafeTextarea } from "@/components/SafeInput";
 
 type AgentRfNode = Node<AgentNodeData & Record<string, unknown>, "agent">;
 type AgentNodeProps = NodeProps<AgentRfNode>;
@@ -1602,28 +1602,15 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         )}
       </div>
 
-      {/* input */}
+      {/* input — SafeInput: composição (ç/acentos) + Ctrl+V no WebKitGTK */}
       <div className="flex gap-1 border-t border-white/10 p-1.5">
-        <input
+        <SafeInput
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               send();
-              return;
-            }
-            // WebKitGTK/Linux: Ctrl/Cmd+V nativo não cola em <input> → lê o clipboard pelo plugin
-            // (mesmo workaround do terminal) e insere no cursor.
-            if ((e.ctrlKey || e.metaKey) && (e.key === "v" || e.key === "V")) {
-              e.preventDefault();
-              const el = e.currentTarget;
-              const start = el.selectionStart ?? el.value.length;
-              const end = el.selectionEnd ?? el.value.length;
-              const before = el.value;
-              void pasteText().then((clip) => {
-                if (clip) setInput(before.slice(0, start) + clip + before.slice(end));
-              });
             }
           }}
           disabled={status !== "ready"}
@@ -1791,14 +1778,14 @@ function GoalForm({
   return (
     <div className="space-y-1.5 rounded border border-cyan-500/30 bg-cyan-500/5 p-2.5">
       <div className="font-semibold text-cyan-300">🎯 {t("agent.goalTitle", "Goal — roda até passar")}</div>
-      <textarea
+      <SafeTextarea
         value={objective}
         onChange={(e) => setObjective(e.target.value)}
         placeholder={t("agent.goalObjective", "objetivo — o que o agente deve fazer")}
         rows={2}
         className="w-full resize-none rounded bg-white/5 px-2 py-1 text-text outline-none"
       />
-      <input
+      <SafeInput
         value={condition}
         onChange={(e) => setCondition(e.target.value)}
         placeholder={t("agent.goalCondition", "condição: comando que sai exit 0 (ex: cargo test)")}
@@ -1879,7 +1866,7 @@ function LoopForm({
   return (
     <div className="space-y-1.5 rounded border border-emerald-500/30 bg-emerald-500/5 p-2.5">
       <div className="font-semibold text-emerald-300">🔁 {t("agent.loopTitle", "Loop — a cada N min")}</div>
-      <textarea
+      <SafeTextarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         placeholder={t("agent.loopPrompt", "prompt a re-enviar (ex: rode os testes e me avise se quebrar)")}

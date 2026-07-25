@@ -1,6 +1,7 @@
 import * as React from "react";
 import { forwardRef, useCallback, useRef } from "react";
 import { pasteText } from "@/lib/clipboard";
+import { createCompositionChangeGate } from "@/lib/ime-dedup";
 
 type SafeInputElement = HTMLInputElement | HTMLTextAreaElement;
 
@@ -25,13 +26,12 @@ function useSafeInputHandlers<E extends SafeInputElement>({
   onPaste,
   elementPrototype,
 }: UseSafeInputHandlersOptions<E>) {
-  // true enquanto o IBus está compondo um dead-key (´+a, ç). Ref (não state) para
-  // NÃO causar re-render durante o preedit.
-  const composingRef = useRef(false);
+  // Gate de composição (ref): NÃO causa re-render durante o preedit.
+  const gateRef = useRef(createCompositionChangeGate());
 
   const handleCompositionStart = useCallback(
     (e: React.CompositionEvent<E>) => {
-      composingRef.current = true;
+      gateRef.current.start();
       onCompositionStart?.(e);
     },
     [onCompositionStart],
@@ -41,7 +41,7 @@ function useSafeInputHandlers<E extends SafeInputElement>({
     (e: React.ChangeEvent<E>) => {
       // Durante a composição NÃO propaga onChange ao pai: o re-render reescreveria
       // input.value no meio do preedit e corromperia a composição no WebKitGTK.
-      if (composingRef.current) return;
+      if (!gateRef.current.allowChange()) return;
       onChange?.(e);
     },
     [onChange],
@@ -53,7 +53,7 @@ function useSafeInputHandlers<E extends SafeInputElement>({
       // O CompositionEvent carrega currentTarget.value (lido pelo pai); o cast só alinha
       // o tipo do handler. Um onChange nativo pode vir logo após com o MESMO valor —
       // inócuo (setState do input controlado é idempotente).
-      composingRef.current = false;
+      gateRef.current.end();
       onChange?.(e as unknown as React.ChangeEvent<E>);
       onCompositionEnd?.(e);
     },

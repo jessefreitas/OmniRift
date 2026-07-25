@@ -86,4 +86,4 @@ Exemplos reais desta auditoria:
 ## Fora do escopo das specs (roadmap, não backlog-dívida)
 - Fases futuras **por design**: Constructor Fase 2/3, orquestracao camadas 5/6/7, omniswitch Fase 2, hermes-wizard keychain Fase 3. Não são "em aberto pendente" — são incrementos planejados.
 - **VOICE MODE / paridade Claude Code embutido** (backlog feature #4, memórias blackboard #119/#121/#122): não tem spec formal ainda. Diagnóstico pronto; fix de 3 frentes (Tauri capabilities de mic + PATH `arecord`/SoX no spawn + auth Claude.ai no config-dir isolado).
-- **Acentos/cedilha (dead-key/CompositionEvent no WebKitGTK)**: bug de input confirmado, sem tratamento no código. Sem spec.
+- **Acentos/cedilha (dead-key/CompositionEvent no WebKitGTK)**: tratado — terminal (`ime-dedup` no forwarder PTY) + `SafeInput`/`SafeTextarea` (gate de composição + paste). Chat ACP/Goal/Loop do AgentNode migrados. Residual: inputs crus pontuais (números/checkbox/JSON schema) fora do caminho de prosa PT. RC manual: digitar `começar`/`ção` no terminal e no input do AgentNode (WebKitGTK+IBus). Sem spec.

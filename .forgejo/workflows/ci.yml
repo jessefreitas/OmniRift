@@ -116,6 +116,12 @@ jobs:
         working-directory: apps/desktop
         run: npm run test:terminal-query-authority
 
+      # Dedup IME (WebKitGTK/IBus): dead-key + ç ABNT2 — evita regressão de acentos
+      # duplicados no caminho xterm→PTY e no gate de onChange do SafeInput.
+      - name: ime dedup (frontend)
+        working-directory: apps/desktop
+        run: npm run test:ime-dedup
+
       # Fluidez do canvas: unit (limiares) + wiring (hooks vivos). Não mede jank
       # real do WebKitGTK — isso continua no smoke visual / benchmark manual.
       - name: Gate de fluidez do canvas (unit + wiring)
