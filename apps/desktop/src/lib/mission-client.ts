@@ -90,6 +90,36 @@ export async function missionEventsList(missionId: string): Promise<MissionEvent
   return invoke("mission_events_list", { missionId });
 }
 
+export interface MissionRecent {
+  missionId: string;
+  status: string;
+  package: MissionPackage;
+  events: MissionEvent[];
+}
+
+/** Última missão relevante (ativa preferida) + events — dock M3. */
+export async function missionRecent(): Promise<MissionRecent | null> {
+  const raw = await invoke<unknown>("mission_recent");
+  if (!raw || typeof raw !== "object") return null;
+  const rec = raw as Record<string, unknown>;
+  const missionId = String(rec.missionId ?? "").trim();
+  if (!missionId) return null;
+  const events = Array.isArray(rec.events)
+    ? (rec.events as MissionEvent[])
+    : [];
+  const pkgRaw =
+    rec.package && typeof rec.package === "object"
+      ? (rec.package as MissionPackage)
+      : null;
+  const nodes = Array.isArray(pkgRaw?.nodes) ? pkgRaw!.nodes : [];
+  return {
+    missionId,
+    status: String(rec.status ?? ""),
+    package: { ...(pkgRaw ?? { nodes: [] }), nodes },
+    events,
+  };
+}
+
 export async function missionVerify(missionId: string): Promise<unknown> {
   return invoke("mission_verify", { missionId });
 }

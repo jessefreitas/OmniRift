@@ -137,8 +137,8 @@ use commands::orchestrator::{
 };
 use commands::mission::{
     mission_capability_list, mission_capability_search, mission_create, mission_events_list,
-    mission_handoff_consume, mission_handoff_read, mission_handoff_write, mission_status,
-    mission_validate_chain, mission_verify,
+    mission_handoff_consume, mission_handoff_read, mission_handoff_write, mission_recent,
+    mission_status, mission_validate_chain, mission_verify,
 };
 use db::{
     db_load_workspace, db_save_workspace, kanban_card_create, kanban_card_delete,
@@ -672,6 +672,7 @@ pub fn run() {
             mission_validate_chain,
             mission_verify,
             mission_events_list,
+            mission_recent,
             mission_handoff_write,
             mission_handoff_read,
             mission_handoff_consume,

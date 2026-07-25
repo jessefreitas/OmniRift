@@ -195,7 +195,7 @@ T2/T4: não.
 
 ---
 
-## M3 — Suggested-next no dock
+## M3 — Suggested-next no dock ✅
 
 ### Objetivo
 
@@ -207,9 +207,10 @@ passo acionável.
 ```ts
 // mission-suggested-next.ts (puro)
 type SuggestedNext = {
-  label: string;          // "QA · mission_verify"
-  reason: string;         // "layer 1 finished"
+  label: string;          // "QA · verify"
+  reason: string;         // "layer 0 finished"
   missionId: string;
+  agent?: string;         // "@QA"
   action?: "verify" | "dispatch" | "approve" | "retry";
 };
 
@@ -218,22 +219,22 @@ function suggestNext(events: MissionEvent[], pkg: MissionPackage): SuggestedNext
 
 ### Arquivos
 
-- `mission-suggested-next.ts` + teste
-- `OrchestratorDock.tsx` — faixa acima do xterm com sugestão + botão
-- Listener `mission://event` ou poll via `mission_events_list` no dock
-- Opcional: toast OmniPartner espelhando a mesma sugestão
+- [x] `mission-suggested-next.ts` + teste + `npm run test:mission-suggested-next`
+- [x] `OrchestratorDock.tsx` — faixa acima do xterm com sugestão + botão verify
+- [x] Poll `mission_recent` (Tauri) no dock → selector puro
+- Opcional: toast OmniPartner espelhando a mesma sugestão (não nesta rodada)
 
 ### Testes
 
-- [ ] após layer N finished com N+1 no DAG → sugere dispatch do próximo nó
-- [ ] após acceptance pending → sugere `mission_verify`
-- [ ] `gate_failed` → sugere retry/humano
-- [ ] `delivered` → null (sem sugestão)
+- [x] após layer N finished com N+1 no DAG → sugere dispatch do próximo nó
+- [x] após acceptance pending → sugere verify (`@QA · verify`)
+- [x] `gate_failed` → sugere retry/humano
+- [x] `delivered` → null (sem sugestão)
 
 ### Critério de done
 
-- Dock mostra sugestão visível (assert DOM quando houver testing-library;
-  até lá: teste puro do selector + wiring manual).
+- [x] Dock mostra sugestão visível (assert DOM quando houver testing-library;
+  até lá: teste puro do selector + wiring no OrchestratorDock).
 
 ---
 

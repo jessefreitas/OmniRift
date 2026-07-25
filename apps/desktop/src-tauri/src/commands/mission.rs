@@ -76,6 +76,23 @@ pub fn mission_events_list(
     Ok(events::list_events(&db, &mission_id))
 }
 
+/// Última missão relevante + events (dock M3 suggested-next).
+#[tauri::command]
+pub fn mission_recent(db: State<'_, Db>) -> CmdResult<Value> {
+    let Some((id, status, package_json)) = events::recent_mission(&db) else {
+        return Ok(json!(null));
+    };
+    let package: Value =
+        serde_json::from_str(&package_json).unwrap_or_else(|_| json!({ "nodes": [] }));
+    let evs = events::list_events(&db, &id);
+    Ok(json!({
+        "missionId": id,
+        "status": status,
+        "package": package,
+        "events": evs,
+    }))
+}
+
 #[tauri::command]
 pub fn mission_handoff_write(
     db: State<'_, Db>,

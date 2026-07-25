@@ -261,6 +261,48 @@ pub fn set_mission_status(db: &Db, mission_id: &str, status: &str) {
     });
 }
 
+/// Missão mais recente (para o dock sugerir próximo passo). Prefere não-delivered.
+pub fn recent_mission(db: &Db) -> Option<(String, String, String)> {
+    use rusqlite::OptionalExtension;
+    db.with_conn(|conn| {
+        // 1) última missão ativa (created/running/failed)
+        let active = conn
+            .query_row(
+                "SELECT id, status, package_json FROM missions
+                 WHERE status != 'delivered'
+                 ORDER BY created_at DESC LIMIT 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if active.is_some() {
+            return Ok(active);
+        }
+        // 2) fallback: qualquer última
+        conn.query_row(
+            "SELECT id, status, package_json FROM missions
+             ORDER BY created_at DESC LIMIT 1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()
+    })
+    .ok()
+    .flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,5 +369,18 @@ mod tests {
         let r = validate_chain(&events, &["a".into()], true);
         assert!(!r.ok);
         assert!(r.details.iter().any(|d| d.contains("sha256 vazio")));
+    }
+
+    #[test]
+    fn recent_mission_prefers_non_delivered() {
+        let db = crate::db::Db::open_in_memory().unwrap();
+        let _ = db.with_conn(|conn| ensure_schema(conn));
+        let delivered = create_mission(&db, "done", r#"{"nodes":[]}"#, None);
+        set_mission_status(&db, &delivered, "delivered");
+        let active = create_mission(&db, "wip", r#"{"nodes":[{"id":"a","role":"a","deps":[],"task":"t"}]}"#, None);
+        set_mission_status(&db, &active, "running");
+        let recent = recent_mission(&db).expect("recent");
+        assert_eq!(recent.0, active);
+        assert_eq!(recent.1, "running");
     }
 }

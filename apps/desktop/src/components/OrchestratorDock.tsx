@@ -4,14 +4,24 @@
 // Não cria xterm próprio — é só o HOST: publica seu <div> alvo em
 // orchestrator-dock-mount, e o TerminalNode do orquestrador reloca o PRÓPRIO
 // xterm (appendChild) pra cá. Mesmo elemento, mesma sessão → pixel-perfect.
+//
+// M3: faixa suggested-next acima do xterm (poll mission_recent).
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Crown, ChevronDown, ChevronUp, CornerUpRight } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Crown, ChevronDown, ChevronUp, CornerUpRight, Sparkles } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { setOrchestratorMount } from "@/lib/orchestrator-dock-mount";
 import { StatusDot } from "@/components/StatusDot";
 import { useT } from "@/lib/i18n";
+import { missionRecent, missionVerify } from "@/lib/mission-client";
+import {
+  formatSuggestedNextChip,
+  suggestNext,
+  type SuggestedNext,
+} from "@/lib/mission-suggested-next";
+
+const SUGGEST_POLL_MS = 2500;
 
 export function OrchestratorDock() {
   const t = useT();
@@ -23,6 +33,8 @@ export function OrchestratorDock() {
     orchestratorSid ? (s.terminalStatuses[orchestratorSid] ?? "idle") : "idle",
   );
   const [collapsed, setCollapsed] = useState(false);
+  const [suggestion, setSuggestion] = useState<SuggestedNext | null>(null);
+  const [acting, setActing] = useState(false);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ ox: number; oy: number; sx: number; sy: number } | null>(null);
@@ -77,12 +89,58 @@ export function OrchestratorDock() {
   });
   useEffect(() => () => setOrchestratorMount(null), []);
 
+  // M3: poll missão recente → selector puro.
+  useEffect(() => {
+    if (!orch) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const recent = await missionRecent();
+        if (cancelled) return;
+        if (!recent) {
+          setSuggestion(null);
+          return;
+        }
+        const next = suggestNext(recent.events, {
+          ...recent.package,
+          id: recent.package.id ?? recent.missionId,
+        });
+        setSuggestion(next);
+      } catch {
+        if (!cancelled) setSuggestion(null);
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), SUGGEST_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [orch]);
+
+  const onSuggestAction = useCallback(async () => {
+    if (!suggestion || acting) return;
+    if (suggestion.action === "verify" && suggestion.missionId) {
+      setActing(true);
+      try {
+        await missionVerify(suggestion.missionId);
+      } catch {
+        /* fail-soft — sugestão continua visível */
+      } finally {
+        setActing(false);
+      }
+    }
+  }, [suggestion, acting]);
+
   if (!orch) return null; // nenhum orquestrador designado → sem dock
 
   const onOrchFloor = orch.floor.id === activeParallelId;
   // No floor do próprio Orquestrador o terminal volta pro node → sem dock flutuante.
   // (getOrchestratorMount() vira null → TerminalNode recoloca o xterm no slot do nó.)
   if (onOrchFloor) return null;
+
+  const chipText = suggestion ? formatSuggestedNextChip(suggestion) : null;
+  const canAct = suggestion?.action === "verify";
 
   return (
     <div
@@ -124,6 +182,29 @@ export function OrchestratorDock() {
           {collapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </button>
       </header>
+
+      {/* M3 — suggested-next: faixa acima do xterm */}
+      {chipText && (
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 bg-yellow-500/10 border-b border-yellow-500/25 text-yellow-200 shrink-0"
+          data-testid="mission-suggested-next"
+          title={suggestion?.reason}
+        >
+          <Sparkles size={12} className="shrink-0 text-yellow-400" />
+          <span className="text-[11px] font-medium truncate flex-1">{chipText}</span>
+          {canAct && (
+            <button
+              type="button"
+              disabled={acting}
+              onClick={() => void onSuggestAction()}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 hover:bg-yellow-500/35 text-yellow-100 shrink-0 disabled:opacity-50"
+            >
+              {acting ? "…" : t("orchestrator.runVerify", "verify")}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Alvo do xterm relocado. Colapsado = display:none (o FitAddon detecta
           dimensão zero e NÃO redimensiona o PTY; o xterm fica no DOM, oculto). */}
       <div
