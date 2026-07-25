@@ -20,7 +20,7 @@ Exemplos reais desta auditoria:
 
 ## Resumo
 
-- ✅ **DONE: 31** · 🔶 **PARCIAL: 5** · ⏳ **DESIGN-ONLY: 3** &nbsp;(total: 39 specs)
+- ✅ **DONE: 32** · 🔶 **PARCIAL: 4** · ⏳ **DESIGN-ONLY: 3** &nbsp;(total: 39 specs)
 
 ## Tabela spec × status × evidência
 
@@ -40,7 +40,7 @@ Exemplos reais desta auditoria:
 | mobile-devices-panel (06-25) | ✅ DONE | `MobileDevicesModal.tsx` + `mobile-client.ts` (pairing/list/steering/revoke) |
 | mobile-relay (06-25) | ✅ DONE | `rpc/{keypair,e2ee,ws,devices,pairing,allowlist}.rs` + `start_mobile_relay` no setup |
 | mobile-steering (06-25) | ✅ DONE | `rpc/devices.rs` (`steer`) + `allowlist.rs` (`MOBILE_STEER_ALLOWLIST`, teste) |
-| painel-complexidade-projeto (06-25) | 🔶 PARTIAL | Backend `code_metrics_project` + `code-client.ts` OK. **Frontend ausente.** |
+| painel-complexidade-projeto (06-25) | ✅ DONE | Backend `code_metrics_project` + `CodeMetricsPanel.tsx` (tabela/sort/filtro/drill-down/Analisar IA) + Sidebar/CommandPalette |
 | routines-mvp (06-25) | ✅ DONE | `commands/routines.rs` (tabelas `routines`/`routine_runs`, 5 comandos) |
 | rpc-mutations (06-25) | ✅ DONE | `rpc/methods.rs` (`agent.spawn/send/kill`) + CLI + `orchestration-client.ts` (attach) |
 | terminal-backend-owned (06-25) | ✅ DONE | `pty/emulator.rs` (`TermEmulator` s/ alacritty_terminal) + `pty_snapshot` + `useTerminalSession.ts` |
@@ -69,15 +69,14 @@ Exemplos reais desta auditoria:
 ## Pendências reais (o que está em aberto)
 
 ### 🔶 PARCIAIS acionáveis
-1. **painel-complexidade-projeto** — backend `code_metrics_project` está pronto e **órfão**: `metricsProject` não é usado em lugar nenhum do frontend. Falta o `CodeMetricsPanel.tsx` (tabela/sort/filtro/drill-down/"Analisar com IA") + entrada de UI. **Trabalho: só frontend.**
-2. **grok-patterns-acp-sandbox-secrets** — segurança/robustez ACP: (a) id-correlation do ACP não feito (usa stopgap `AtomicBool` = 1 request in-flight por tipo); (b) path-scrubbing `$HOME`→`~`/username ausente no `redactor.rs`; (c) flag de sandbox não está no painel de flags (só via env).
-3. **omnipartner-aprender** — núcleo socrático wired, mas faltam `learn/tracks.rs`/`session.rs`/`profile.rs` + persistência do perfil via `MemoryProvider`. Spec ainda é "draft". (= roadmap R2 Aprender A2–A4.)
-4. **controle-remoto-4g-relay** — Fase 1 (túnel) DONE; **Fase 2 Push/FCM não-iniciada** (sem FCM no relay-worker, sem sinal `Blocked`). (= roadmap R3 Mobile.)
-5. **spec-lifecycle-e-orquestracao** — blocos A/B/E DONE; superseded pela orquestração 07-09 (ver candidatos a arquivar). Conta no total PARCIAL da tabela até o archive fechar.
+1. **grok-patterns-acp-sandbox-secrets** — segurança/robustez ACP: (a) id-correlation do ACP não feito (usa stopgap `AtomicBool` = 1 request in-flight por tipo); (b) path-scrubbing `$HOME`→`~`/username ausente no `redactor.rs`; (c) flag de sandbox não está no painel de flags (só via env).
+2. **omnipartner-aprender** — núcleo socrático wired, mas faltam `learn/tracks.rs`/`session.rs`/`profile.rs` + persistência do perfil via `MemoryProvider`. Spec ainda é "draft". (= roadmap R2 Aprender A2–A4.)
+3. **controle-remoto-4g-relay** — Fase 1 (túnel) DONE; **Fase 2 Push/FCM não-iniciada** (sem FCM no relay-worker, sem sinal `Blocked`). (= roadmap R3 Mobile.)
+4. **spec-lifecycle-e-orquestracao** — blocos A/B/E DONE; superseded pela orquestração 07-09 (ver candidatos a arquivar). Conta no total PARCIAL da tabela até o archive fechar.
 
 ### ⏳ DESIGN-ONLY não-iniciados (backlog real)
-6. **jornada-onboarding-produto** — feature inteira não construída (7 missões, sandbox, spotlight overlay, watcher, testes).
-7. **hook-library** — catálogo de hooks por role/nó + `CustomHook` no Rust. Nada implementado.
+5. **jornada-onboarding-produto** — feature inteira não construída (7 missões, sandbox, spotlight overlay, watcher, testes).
+6. **hook-library** — catálogo de hooks por role/nó + `CustomHook` no Rust. Nada implementado.
 
 ### 🗑️ Candidatos a ARQUIVAR (não são trabalho — são limpeza anti-regressão)
 - **spec-lifecycle-e-orquestracao** (06-16) — `superseded_by` 2026-07-09-orquestracao. O "teto de agentes" (Bloco D) passou pra responsabilidade da spec de orquestração. *(arquivado em `specs/archive/` neste working tree)*
