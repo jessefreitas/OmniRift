@@ -116,6 +116,11 @@ jobs:
         working-directory: apps/desktop
         run: npm run test:terminal-query-authority
 
+      # Fluidez do canvas: unit (limiares) + wiring (hooks vivos). Não mede jank
+      # real do WebKitGTK — isso continua no smoke visual / benchmark manual.
+      - name: Gate de fluidez do canvas (unit + wiring)
+        run: bash scripts/canvas-fluency-gate.sh
+
       # Tipos NOSSOS devem ser .ts, não .d.ts: com skipLibCheck o TS alarga nomes
       # não-resolvidos em .d.ts pra `any` silenciosamente (ref P2 #13). Exceções são
       # shims AMBIENT de pacote externo (idioma correto = .d.ts), na allowlist abaixo:

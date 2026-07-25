@@ -27,7 +27,8 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { kanbanList } from "@/lib/kanban-client";
 import { buildRecitation } from "@/lib/recitation";
 import { scanTextForSecrets } from "@/lib/capability-risk";
-import { trackRender } from "@/lib/debug-log";
+import { trackNodeMount, trackRender } from "@/lib/debug-log";
+import { useFloorActive } from "@/lib/floor-activity";
 import { agentsMdInstruction, agentsMdRelPath, agentsMdSlug, ORCHESTRATOR_CONTRACT } from "@/lib/agent-contract";
 import { NodeHelp } from "@/components/NodeHelp";
 import { useT } from "@/lib/i18n";
@@ -164,6 +165,14 @@ const ORCHESTRATOR_PROMPT = ORCHESTRATOR_CONTRACT;
 
 function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   trackRender(`AgentNode:${data.id}`); // P0: detecta loop de render (grava o culpado em disco)
+  const floorActive = useFloorActive();
+  // F3: mount/unmount no viewport — churn excessivo vira alerta (não desliga virtualização).
+  // Conta só no floor ativo (é onde onlyRenderVisibleElements remonta). StrictMode em
+  // DEV dobra mounts — limiar REMOUNT_LIMIT já deixa folga; prod não tem StrictMode.
+  useEffect(() => {
+    if (!floorActive) return;
+    trackNodeMount(`AgentNode:${data.id}`, "floor=active");
+  }, [data.id, floorActive]);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const duplicateAgentNode = useCanvasStore((s) => s.duplicateAgentNode);
   const patchNode = useCanvasStore((s) => s.patchNode);

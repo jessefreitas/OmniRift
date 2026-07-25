@@ -4,8 +4,19 @@
 // travado (tela preta), diferente do ring buffer só-memória do diagnostics.ts. Mais um detector
 // de LOOP DE RENDER: se um componente re-renderiza demais num piscar, grava QUAL foi ANTES de a
 // UI congelar de vez. Loop de render é a causa nº1 de tela preta neste app (WebKitGTK).
+//
+// Gate de fluidez: limiares e classificação vivem em `canvas-fluency.ts` (testáveis sem GUI).
 
 import { invoke } from "@tauri-apps/api/core";
+import {
+  FLUENCY,
+  evaluateMainThreadTick,
+  evaluateRemountWindow,
+  evaluateRenderWindow,
+  formatFluencyLogLine,
+  pushFluencyAlert,
+  type FluencyAlert,
+} from "@/lib/canvas-fluency";
 
 /** Envia uma linha pro debug.log (fire-and-forget; erro engolido — logger nunca quebra o app). */
 export function logToDisk(line: string): void {
@@ -22,12 +33,14 @@ export async function markBoot(label: string): Promise<string> {
   }
 }
 
+function emitFluency(alert: FluencyAlert): void {
+  pushFluencyAlert(alert);
+  logToDisk(formatFluencyLogLine(alert));
+}
+
 // ── Detector de loop de render ──────────────────────────────────────────────
 // Conta renders por chave numa janela de 1s. Acima do teto, grava UM alerta (com cooldown, pra
 // não inundar o disco) apontando o componente culpado. O normal é <5 renders/s por nó.
-const RENDER_WINDOW_MS = 1000;
-const RENDER_LIMIT = 60;
-const ALERT_COOLDOWN_MS = 3000;
 const counters = new Map<string, { count: number; windowStart: number; alertedAt: number }>();
 
 /** Chame no CORPO do componente (a cada render). Detecta e grava loops de render. */
@@ -35,19 +48,58 @@ export function trackRender(key: string): void {
   const now = performance.now();
   let c = counters.get(key);
   if (!c) {
-    c = { count: 0, windowStart: now, alertedAt: -ALERT_COOLDOWN_MS };
+    c = { count: 0, windowStart: now, alertedAt: -FLUENCY.RENDER_COOLDOWN_MS };
     counters.set(key, c);
   }
-  if (now - c.windowStart > RENDER_WINDOW_MS) {
+  if (now - c.windowStart > FLUENCY.RENDER_WINDOW_MS) {
     c.count = 0;
     c.windowStart = now;
   }
   c.count++;
-  if (c.count > RENDER_LIMIT && now - c.alertedAt > ALERT_COOLDOWN_MS) {
+  if (evaluateRenderWindow({ count: c.count, now, alertedAt: c.alertedAt }).shouldAlert) {
     c.alertedAt = now;
-    logToDisk(
-      `[${new Date().toISOString()}] [🔁 RENDER-LOOP] ${key} — ${c.count} renders em <1s (provável causa de tela preta)`,
-    );
+    emitFluency({
+      kind: "RENDER-LOOP",
+      severity: "churn",
+      atMs: Date.now(),
+      detail: `${key} — ${c.count} renders em <1s (provável causa de tela preta)`,
+    });
+  }
+}
+
+// ── Detector de churn de remount (F3 virtualização) ─────────────────────────
+// Conta mounts por chave numa janela. Pan agressivo + onlyRenderVisibleElements pode
+// remountar o mesmo nó dezenas de vezes — isso é mensurável (não só "feeling").
+const remountCounters = new Map<
+  string,
+  { count: number; windowStart: number; alertedAt: number }
+>();
+
+/**
+ * Chame no mount do nó (useEffect vazio). Só observa — NÃO altera virtualização F3.
+ * Excesso no floor ativo → alerta estruturado + chip.
+ */
+export function trackNodeMount(key: string, context?: string): void {
+  const now = performance.now();
+  let c = remountCounters.get(key);
+  if (!c) {
+    c = { count: 0, windowStart: now, alertedAt: -FLUENCY.REMOUNT_COOLDOWN_MS };
+    remountCounters.set(key, c);
+  }
+  if (now - c.windowStart > FLUENCY.REMOUNT_WINDOW_MS) {
+    c.count = 0;
+    c.windowStart = now;
+  }
+  c.count++;
+  if (evaluateRemountWindow({ count: c.count, now, alertedAt: c.alertedAt }).shouldAlert) {
+    c.alertedAt = now;
+    emitFluency({
+      kind: "REMOUNT-CHURN",
+      severity: "churn",
+      atMs: Date.now(),
+      detail: `${key} — ${c.count} mounts em <${FLUENCY.REMOUNT_WINDOW_MS}ms`,
+      context,
+    });
   }
 }
 
@@ -56,17 +108,12 @@ export function trackRender(key: string): void {
 // então usamos deriva de timer: se o setInterval acordou atrasado, a main thread
 // esteve bloqueada durante o tick. Detecta QUE travou e por quanto, mas não QUEM travou.
 
-const TICK_MS = 500;
-const BLOCK_WARN_MS = 250;
-const BLOCK_SEVERE_MS = 1000;
-const BLOCK_COOLDOWN_MS = 2000;
-
 let mainThreadWatchdogHandle: number | null = null;
 let mainThreadWatchdogCleanup: (() => void) | null = null;
 // -BLOCK_COOLDOWN_MS (e não 0): performance.now() começa perto de zero, então com 0 o
 // cooldown engoliria os bloqueios dos 2 primeiros segundos — justo o boot. Mesmo
 // padrão do `alertedAt` no detector de render acima.
-let lastMainBlockLog = -BLOCK_COOLDOWN_MS;
+let lastMainBlockLog = -FLUENCY.BLOCK_COOLDOWN_MS;
 
 /** Liga o watchdog. `getContext` (opcional) devolve contexto curto pra linha do log. */
 export function startMainThreadWatchdog(getContext?: () => string): () => void {
@@ -74,13 +121,17 @@ export function startMainThreadWatchdog(getContext?: () => string): () => void {
     return mainThreadWatchdogCleanup;
   }
 
-  let expected = performance.now() + TICK_MS;
+  let expected = performance.now() + FLUENCY.TICK_MS;
 
   mainThreadWatchdogHandle = window.setInterval(() => {
     const now = performance.now();
-    const drift = now - expected;
+    const { drift, severity, shouldAlert } = evaluateMainThreadTick({
+      now,
+      expected,
+      lastLogAt: lastMainBlockLog,
+    });
 
-    if (drift >= BLOCK_WARN_MS && now - lastMainBlockLog >= BLOCK_COOLDOWN_MS) {
+    if (shouldAlert && severity) {
       lastMainBlockLog = now;
 
       let context: string;
@@ -90,16 +141,18 @@ export function startMainThreadWatchdog(getContext?: () => string): () => void {
         context = ""; // getContext nunca derruba o watchdog
       }
 
-      const severity = drift >= BLOCK_SEVERE_MS ? "severo" : "jank";
       const roundedDrift = Math.round(drift);
-      const contextPart = context ? ` ${context}` : "";
-      logToDisk(
-        `[${new Date().toISOString()}] [⏱ MAIN-BLOCK] main thread parada ~${roundedDrift}ms (${severity})${contextPart}`,
-      );
+      emitFluency({
+        kind: "MAIN-BLOCK",
+        severity,
+        atMs: Date.now(),
+        detail: `main thread parada ~${roundedDrift}ms`,
+        context: context || undefined,
+      });
     }
 
-    expected = now + TICK_MS;
-  }, TICK_MS);
+    expected = now + FLUENCY.TICK_MS;
+  }, FLUENCY.TICK_MS);
 
   mainThreadWatchdogCleanup = () => {
     if (mainThreadWatchdogHandle !== null) {
@@ -110,4 +163,14 @@ export function startMainThreadWatchdog(getContext?: () => string): () => void {
   };
 
   return mainThreadWatchdogCleanup;
+}
+
+/** Só testes — zera contadores internos do runtime (não o bus; use canvas-fluency). */
+export function resetDebugLogDetectorsForTests(): void {
+  counters.clear();
+  remountCounters.clear();
+  lastMainBlockLog = -FLUENCY.BLOCK_COOLDOWN_MS;
+  if (mainThreadWatchdogCleanup) {
+    mainThreadWatchdogCleanup();
+  }
 }

@@ -14,7 +14,9 @@
     "install:macos-dev": "bash scripts/install-macos-dev.sh",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "version:set": "node scripts/set-version.mjs"
+    "version:set": "node scripts/set-version.mjs",
+    "gate:canvas-fluency": "bash scripts/canvas-fluency-gate.sh",
+    "test:canvas-fluency": "npm run test:canvas-fluency --workspace=apps/desktop"
   },
   "overrides": {
     "dompurify": "^3.4.12",

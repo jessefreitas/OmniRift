@@ -28,6 +28,7 @@ import { ROLE_CLIS, extractPersona, buildCliSwitch, loadRoles, type AgentRoleDef
 import { buildRoleSpawn } from "@/lib/agent-spawn";
 import { cn } from "@/lib/cn";
 import { useFloorActive } from "@/lib/floor-activity";
+import { trackNodeMount } from "@/lib/debug-log";
 import type { TerminalNode as TerminalNodeData } from "@/types/canvas";
 
 import "@xterm/xterm/css/xterm.css";
@@ -81,6 +82,12 @@ async function ensureInstalledClis(): Promise<Set<string>> {
 
 function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
   const t = useT();
+  const floorActive = useFloorActive();
+  // F3: remount por virtualização — mensurável via trackNodeMount (gate de fluidez).
+  useEffect(() => {
+    if (!floorActive) return;
+    trackNodeMount(`TerminalNode:${id}`, "floor=active");
+  }, [id, floorActive]);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const patchNode = useCanvasStore((s) => s.patchNode);
   const renameNode = useCanvasStore((s) => s.renameNode);
@@ -95,7 +102,6 @@ function TerminalNodeBase({ id, data, selected }: TerminalNodeProps) {
       .join(", ");
   });
   const termStatus = useCanvasStore((s) => s.terminalStatuses[data.session_id] ?? "idle");
-  const floorActive = useFloorActive();
   const orchestratorSid = useCanvasStore((s) => s.orchestratorSid);
   const isOrch = orchestratorSid === data.session_id;
   const viewActive = floorActive || isOrch;

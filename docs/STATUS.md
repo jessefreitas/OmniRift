@@ -20,7 +20,7 @@ Exemplos reais desta auditoria:
 
 ## Resumo
 
-- ✅ **DONE: 33** · 🔶 **PARCIAL: 3** · ⏳ **DESIGN-ONLY: 3** &nbsp;(total: 39 specs)
+- ✅ **DONE: 33** · 🔶 **PARCIAL: 4** · ⏳ **DESIGN-ONLY: 3** &nbsp;(total: 40 specs)
 
 ## Tabela spec × status × evidência
 
@@ -65,6 +65,7 @@ Exemplos reais desta auditoria:
 | orquestracao (07-09) | ✅ DONE | tools `agent_status/ask/tell` + `mcp/marker.rs` (núcleo camada 4; 5/6/7 futuras) |
 | hook-library (07-10) | ⏳ DESIGN-ONLY | **Nada implementado** (sem catálogo frontend nem `CustomHook` no Rust). |
 | grok-patterns-acp-sandbox-secrets (07-16) | ✅ DONE | ACP id-correlation (`next_rpc_id`+`pending` map); path-scrub `$HOME`→`~`/`<user>` no `redactor`; flag `sandbox-workspace` no painel + `sandbox_set_enabled` (UI∨env). Incrementos futuros da spec (reconexão ACP, seccomp) = roadmap. |
+| canvas-fluency-gate (07-25) | 🔶 PARTIAL | Detector+wiring ✅ (`canvas-fluency.ts`, watchdog/`trackNodeMount`, `FluencyChip`, `npm run gate:canvas-fluency` = unit+wiring). **Falta** benchmark/smoke de jank real no WebKitGTK empacotado (auditoria PERF-141). F3 intacta. |
 
 ## Pendências reais (o que está em aberto)
 
@@ -72,6 +73,7 @@ Exemplos reais desta auditoria:
 1. **omnipartner-aprender** — núcleo socrático wired, mas faltam `learn/tracks.rs`/`session.rs`/`profile.rs` + persistência do perfil via `MemoryProvider`. Spec ainda é "draft". (= roadmap R2 Aprender A2–A4.)
 2. **controle-remoto-4g-relay** — Fase 1 (túnel) DONE; **Fase 2 Push/FCM não-iniciada** (sem FCM no relay-worker, sem sinal `Blocked`). (= roadmap R3 Mobile.)
 3. **spec-lifecycle-e-orquestracao** — blocos A/B/E DONE; superseded pela orquestração 07-09 (ver candidatos a arquivar). Conta no total PARCIAL da tabela até o archive fechar.
+4. **canvas-fluency-gate** — instrumentação+gate unit/wiring DONE; falta smoke/benchmark de jank no app empacotado (WebKitGTK).
 
 ### ⏳ DESIGN-ONLY não-iniciados (backlog real)
 4. **jornada-onboarding-produto** — feature inteira não construída (7 missões, sandbox, spotlight overlay, watcher, testes).

@@ -7,6 +7,7 @@ import { getFlag, useFlag } from "@/lib/feature-flags";
 import { Sidebar } from "@/components/Sidebar";
 import { ProjectTabs } from "@/components/ProjectTabs";
 import { ResourceChip } from "@/components/ResourceChip";
+import { FluencyChip } from "@/components/FluencyChip";
 import { ResourcePanel } from "@/components/ResourcePanel";
 import { initOrchestrationBridge } from "@/lib/orchestration-client";
 import { initPersistence, flushPersistence } from "@/lib/persistence-client";
@@ -199,6 +200,7 @@ export default function App() {
         </div>
       </main>
       <ResourceChip />
+      <FluencyChip />
       <ResourcePanel />
       {bootIntroOn && !introDone && (useArmor
         ? <BootIntroArmor onDone={() => setIntroDone(true)} />

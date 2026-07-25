@@ -68,6 +68,11 @@ jobs:
       - name: Smoke boot (o app abre limpo?)
         run: bash scripts/smoke-boot.sh apps/desktop/src-tauri/target/debug/omnirift
 
+      # Fluidez do canvas: unit (limiares) + wiring (hooks vivos). Não mede jank
+      # real do WebKitGTK — isso continua no smoke visual / benchmark manual.
+      - name: Gate de fluidez do canvas (unit + wiring)
+        run: bash scripts/canvas-fluency-gate.sh
+
       # Trava o passivo de lint/clippy/fmt: falha SÓ se piorar em relação à
       # scripts/quality-baseline.txt. O script existia desde a 0.1.141 e nenhum
       # workflow o chamava — baseline que ninguém roda não é gate, é arquivo.
