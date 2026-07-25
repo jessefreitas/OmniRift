@@ -27,6 +27,7 @@ Thumbs.db
 
 # Claude Code (logs de runtime de hooks)
 .claude/*.log
+# Agents em .claude/agents/ são versionados de propósito (config compartilhada do time).
 
 # Serena (cache de estrutura de código por projeto — gerado pelos agentes)
 .serena/
@@ -34,6 +35,9 @@ Thumbs.db
 # OmniRift runtime por-projeto: relatórios de Saúde + estado dos runs TURBO
 # (gerados em tempo de execução dentro do projeto aberto; não comitar).
 .omnirift/
+
+# Estado local do canvas/floors/sessions (paths absolutos por máquina — não versionar)
+workspace.omnirift.json
 
 # Python (scripts/ — caches de bytecode)
 __pycache__/
