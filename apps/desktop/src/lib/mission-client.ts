@@ -120,7 +120,7 @@ export async function missionRecent(): Promise<MissionRecent | null> {
   };
 }
 
-/** `settle: true` grava gate_*/delivered (botão do dock). Default dry-run. */
+/** `settle: true` grava gate_* e delivered (botão do dock). Default dry-run. */
 export async function missionVerify(
   missionId: string,
   opts?: { settle?: boolean },

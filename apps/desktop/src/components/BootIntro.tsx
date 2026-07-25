@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback, type MouseEvent as ReactMouse
 import { buildHudSvg, pickAccent } from "@/lib/boot-hud";
 import { BOOT_PROBES, runBootProbe, type ProbeResult } from "@/lib/boot-probes";
 import { playBootSound, speakGreeting, stopAudio } from "@/lib/boot-audio";
-import { gateClose } from "@/lib/gate-close";
 import { getBootVoice, setBootVoice, type BootVoice } from "@/lib/boot-greeting";
 
 const CSS = `
@@ -73,11 +72,11 @@ export function BootIntro({ onDone }: { onDone: () => void }) {
   const enter = useCallback(() => {
     if (enteredRef.current) return;
     enteredRef.current = true;
-    // Espera a saudação (disparada no ignite) terminar antes de fechar; teto de 6s de segurança.
-    void gateClose(greetRef.current ?? Promise.resolve(), 6000).then(() => {
-      setPhase("entering");
-      setTimeout(onDone, 600);
-    });
+    // Não bloqueia no TTS (até 6s) — canvas libera na hora; áudio segue em background.
+    setPhase("entering");
+    window.setTimeout(() => {
+      onDone();
+    }, 400);
   }, [onDone]);
 
   const onGesture = useCallback(() => {

@@ -111,26 +111,37 @@ fn load_claude_mcp_servers(path: &std::path::Path) -> Vec<(String, serde_json::V
 /// silêncio. Idempotente: nunca sobrescreve entrada existente nem mexe em enabled;
 /// nomes do perfil builtin são reservados. Retorna quantos foram importados.
 #[tauri::command]
-pub fn mcp_servers_import_global(db: State<'_, Db>) -> Result<u32, String> {
+pub async fn mcp_servers_import_global(db: State<'_, Db>) -> Result<u32, String> {
     use std::collections::HashSet;
     let Some(home) = home_dir() else { return Ok(0) };
 
-    let mut existing: HashSet<String> = match db.mcp_list() {
+    let home2 = home.clone();
+    let existing_names: Vec<String> = match db.mcp_list() {
         Ok(rows) => rows.into_iter().map(|r| r.name).collect(),
-        Err(_) => HashSet::new(),
+        Err(_) => Vec::new(),
     };
+
+    // Parse dos JSON globais fora da thread de IPC (arquivo pode ser grande).
+    let parsed = tauri::async_runtime::spawn_blocking(move || {
+        let claude_json = std::path::PathBuf::from(&home2).join(".claude.json");
+        let settings_json = std::path::PathBuf::from(&home2)
+            .join(".claude")
+            .join("settings.json");
+        load_claude_mcp_servers(&claude_json)
+            .into_iter()
+            .chain(load_claude_mcp_servers(&settings_json))
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| format!("mcp import join: {e}"))?;
+
+    let mut existing: HashSet<String> = existing_names.into_iter().collect();
     for reserved in ["serena", "context7", "playwright", "omnicompress", "omnifs", "omnirift-agents"] {
         existing.insert(reserved.to_string());
     }
 
-    let claude_json = std::path::PathBuf::from(&home).join(".claude.json");
-    let settings_json = std::path::PathBuf::from(&home).join(".claude").join("settings.json");
-
     let mut imported: u32 = 0;
-    for (name, spec) in load_claude_mcp_servers(&claude_json)
-        .into_iter()
-        .chain(load_claude_mcp_servers(&settings_json))
-    {
+    for (name, spec) in parsed {
         if existing.contains(&name) || !spec.is_object() {
             continue;
         }

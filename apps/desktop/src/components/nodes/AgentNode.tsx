@@ -1628,7 +1628,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
               ? t("agent.ask", "Pergunte ao agente…")
               : status === "thinking"
                 ? t("agent.thinking", "pensando…")
-                : t("agent.wait", "aguarde…")
+                : t("agent.wait", "conectando…")
           }
           className="nodrag flex-1 rounded bg-black/20 px-2 py-1 text-text outline-none disabled:opacity-50"
         />

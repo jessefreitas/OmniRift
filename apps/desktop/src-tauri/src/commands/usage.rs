@@ -461,17 +461,46 @@ fn build_report(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow], o
 
 /// Varre as sessões dos CLIs + o ledger nativo e agrega o uso de tokens.
 /// `since_days`: None = tudo; 0 = hoje; N = últimos N dias. `force` = re-varre o disco.
+///
+/// Async + `spawn_blocking` na varredura do disco: sync na thread de IPC congelava
+/// o WebView (boot: `db_load_workspace` JS ~34s enquanto Rust load era 5ms — o cold
+/// scan de ~/.claude/projects ~1.9G competia na fila).
 #[tauri::command]
-pub fn usage_scan(
+pub async fn usage_scan(
     since_days: Option<i64>,
     force: Option<bool>,
     project: Option<String>,
     db: State<'_, Db>,
     cache: State<'_, UsageCache>,
 ) -> Result<UsageReport, String> {
+    let force_b = force.unwrap_or(false);
     let cutoff = cutoff_date(since_days);
     let ledger = db.ledger_rows(None).unwrap_or_default();
-    with_cache(&cache, force.unwrap_or(false), |c| build_report(c, &cutoff, &ledger, project.as_deref()))
+    let home = home().ok_or_else(|| "HOME não encontrado".to_string())?;
+
+    let needs_rebuild = {
+        let g = cache.0.lock();
+        force_b
+            || g.as_ref()
+                .map(|c| c.built.elapsed().as_secs() > CACHE_TTL_SECS)
+                .unwrap_or(true)
+    };
+    if needs_rebuild {
+        let home2 = home;
+        let (buckets, session_last) = tauri::async_runtime::spawn_blocking(move || build_buckets(&home2))
+            .await
+            .map_err(|e| format!("usage_scan join: {e}"))?;
+        let mut g = cache.0.lock();
+        *g = Some(CacheInner {
+            built: Instant::now(),
+            buckets,
+            session_last,
+        });
+    }
+
+    let g = cache.0.lock();
+    let c = g.as_ref().ok_or_else(|| "cache de uso vazio".to_string())?;
+    Ok(build_report(c, &cutoff, &ledger, project.as_deref()))
 }
 
 /// Gasto do mês corrente por projeto (CLI + nativo) vs orçamento → status.

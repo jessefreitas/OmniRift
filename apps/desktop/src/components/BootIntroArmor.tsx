@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { runArmorScene, type ArmorScene } from "@/lib/boot-armor";
 import { speakGreeting, stopAudio } from "@/lib/boot-audio";
-import { gateClose } from "@/lib/gate-close";
 import { getBootVoice, setBootVoice, type BootVoice } from "@/lib/boot-greeting";
 
 const CSS = `
@@ -57,11 +56,12 @@ export function BootIntroArmor({ onDone }: { onDone: () => void }) {
   const enter = useCallback(() => {
     if (enteredRef.current) return;
     enteredRef.current = true;
-    // Espera a saudação terminar antes de fechar (teto de 6s se não houver dispositivo de áudio).
-    void gateClose(speakGreeting(voice), 6000).then(() => {
-      setLeaving(true);
-      setTimeout(onDone, 600);
-    });
+    // Áudio em background — não segura a UI até 6s (parecia "ainda espere" após o clique).
+    void speakGreeting(voice);
+    setLeaving(true);
+    window.setTimeout(() => {
+      onDone();
+    }, 400);
   }, [voice, onDone]);
 
   const toggleVoice = useCallback((e: ReactMouseEvent) => {

@@ -55,15 +55,15 @@ function defaultNextStep(kind: FirstValueKind, ctx: FirstValueCtx): string {
   if (ctx.missionId?.trim()) {
     return kind === "orchestrator"
       ? `rodar mission_run / acompanhar ${ctx.missionId.trim()}`
-      : `aguardar dispatch da missão ${ctx.missionId.trim()}`;
+      : `receber dispatch da missão ${ctx.missionId.trim()}`;
   }
   switch (kind) {
     case "orchestrator":
-      return "aguardar brief do humano; capability_search antes de spawnar frota";
+      return "brief do humano; capability_search antes de spawnar frota";
     case "worker":
-      return "aguardar dispatch do Orquestrador";
+      return "dispatch do Orquestrador";
     default:
-      return "aguardar instrução";
+      return "instrução do humano";
   }
 }
 
@@ -94,10 +94,10 @@ export function buildFirstValueGreeting(ctx: FirstValueCtx): string {
     lines.push(`Contexto: ${parts.join(" · ")}`);
   }
   lines.push(`Próximo: ${defaultNextStep(kind, ctx)}`);
-  lines.push("Aguarde input. Não invente tarefa.");
+  lines.push("Idle até input — não invente tarefa.");
 
-  // Clamp 5–8 linhas (preenche/corta sem teatro).
-  while (lines.length < 5) lines.push("Aguarde input.");
+  // Clamp 5–8 linhas (preenche/corta sem teatro). Sem spam de "aguarde".
+  while (lines.length < 5) lines.push("—");
   const out = lines.slice(0, 8).join("\n");
   if (THEATER_RE.test(out)) {
     // Defesa: builder não deve emitir pictogramas.

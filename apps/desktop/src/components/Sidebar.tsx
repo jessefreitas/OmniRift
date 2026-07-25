@@ -86,6 +86,7 @@ import { TrajectoryEvalModal } from "@/components/TrajectoryEvalModal";
 import { SubagentEditModal } from "@/components/SubagentEditModal";
 import { PromptModal } from "@/components/PromptModal";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
+import { whenBootUiReady } from "@/lib/boot-ui-ready";
 import { omnifsStatus, type OmniFsStatus } from "@/lib/omnifs-client";
 import { useLicenseStore } from "@/store/license-store";
 import { openFeedback } from "@/lib/feedback";
@@ -592,20 +593,28 @@ export function Sidebar() {
   const [todayCost, setTodayCost] = useState<number | null>(null);
   useEffect(() => {
     let live = true;
-    const run = () =>
-      usageScan(0)
-        .then((r) => { if (live) setTodayCost(r.total.costUsd); })
-        .catch(() => {});
-    // Deferido pra ocioso: a varredura do disco não disputa com o primeiro paint.
-    // typeof guard porque o WebKitGTK pode não ter requestIdleCallback em runtime.
-    const id =
-      typeof window.requestIdleCallback === "function"
-        ? window.requestIdleCallback(run, { timeout: 2000 })
-        : window.setTimeout(run, 800);
+    let idleId: number | undefined;
+    let cancelled = false;
+    // Espera o boot-intro: usage_scan frio varre ~GBs em ~/.claude; async+spawn_blocking
+    // não bloqueia IPC, mas ainda adiamos até a UI principal estar livre.
+    void whenBootUiReady().then(() => {
+      if (cancelled || !live) return;
+      const run = () =>
+        usageScan(0)
+          .then((r) => { if (live) setTodayCost(r.total.costUsd); })
+          .catch(() => {});
+      idleId =
+        typeof window.requestIdleCallback === "function"
+          ? window.requestIdleCallback(run, { timeout: 2000 })
+          : window.setTimeout(run, 800);
+    });
     return () => {
       live = false;
-      if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(id);
-      else clearTimeout(id);
+      cancelled = true;
+      if (idleId !== undefined) {
+        if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idleId);
+        else clearTimeout(idleId);
+      }
     };
   }, [showUsage]);
 

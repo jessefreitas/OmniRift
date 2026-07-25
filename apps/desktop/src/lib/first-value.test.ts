@@ -93,7 +93,7 @@ assert(
   });
   assert(g.includes("capability_search"), "orch lista capability_search");
   assert(g.includes("orchestrator_dispatch"), "orch lista dispatch");
-  assert(g.includes("aguardar brief"), "nextStep default do orch");
+  assert(g.includes("brief do humano"), "nextStep default do orch");
 }
 
 // --- withFirstValueGreeting ---
