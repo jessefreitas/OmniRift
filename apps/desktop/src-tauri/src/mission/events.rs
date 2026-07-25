@@ -192,15 +192,20 @@ pub fn validate_chain(
         }
     }
 
-    let has_gate_ok = kinds.iter().any(|k| *k == "gate_passed");
-    let has_gate_fail = kinds.iter().any(|k| *k == "gate_failed");
     let has_delivered = kinds.iter().any(|k| *k == "delivered");
+    // Último gate vence (permite retry: gate_failed → gate_passed → delivered).
+    let last_gate = events
+        .iter()
+        .rev()
+        .find(|e| e.kind == "gate_passed" || e.kind == "gate_failed")
+        .map(|e| e.kind.as_str());
 
-    if has_delivered && !has_gate_ok {
-        details.push("delivered sem gate_passed".into());
-    }
-    if has_delivered && has_gate_fail {
-        details.push("delivered com gate_failed no chain".into());
+    if has_delivered && last_gate != Some("gate_passed") {
+        if last_gate == Some("gate_failed") {
+            details.push("delivered com gate_failed no chain".into());
+        } else {
+            details.push("delivered sem gate_passed".into());
+        }
     }
 
     ChainReport {
@@ -382,5 +387,19 @@ mod tests {
         let recent = recent_mission(&db).expect("recent");
         assert_eq!(recent.0, active);
         assert_eq!(recent.1, "running");
+    }
+
+    #[test]
+    fn chain_ok_after_gate_retry() {
+        let events = vec![
+            ev("brief_received", json!({})),
+            ev("plan_committed", json!({})),
+            ev("dispatch", json!({ "node_id": "a" })),
+            ev("gate_failed", json!({})),
+            ev("gate_passed", json!({})),
+            ev("delivered", json!({})),
+        ];
+        let r = validate_chain(&events, &["a".into()], false);
+        assert!(r.ok, "{:?}", r.details);
     }
 }

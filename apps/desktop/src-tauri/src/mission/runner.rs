@@ -293,6 +293,64 @@ pub fn status_json(db: &Db, mission_id: &str) -> Value {
     })
 }
 
+/// Verify sob demanda. Se `settle`, grava gate_*/delivered|failed (dock M3).
+pub fn verify_mission(db: &Db, mission_id: &str, settle: bool) -> Result<verify::VerifyReport, String> {
+    let Some((_, package_json, cwd)) = events::get_mission_package(db, mission_id) else {
+        return Err(format!("missão '{mission_id}' não encontrada"));
+    };
+    let pkg = parse_package(&package_json)?;
+    let work = cwd
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let report = if pkg.acceptance.is_empty() {
+        verify::VerifyReport {
+            ok: true,
+            results: vec![],
+        }
+    } else {
+        verify::verify(&work, &pkg.acceptance)
+    };
+
+    if settle {
+        settle_gate(db, mission_id, &report);
+    }
+    Ok(report)
+}
+
+/// Persiste outcome do gate (idempotente se já `delivered`).
+pub fn settle_gate(db: &Db, mission_id: &str, report: &verify::VerifyReport) {
+    let existing = events::list_events(db, mission_id);
+    if existing.iter().any(|e| e.kind == "delivered") {
+        return;
+    }
+    // Retry após gate_failed: remove bloqueio permitindo novo settle.
+    if report.ok {
+        events::append_event(
+            db,
+            mission_id,
+            EventKind::GatePassed,
+            json!({ "report": report, "source": "verify_settle" }),
+        );
+        events::append_event(db, mission_id, EventKind::Delivered, json!({ "source": "verify_settle" }));
+        events::set_mission_status(db, mission_id, "delivered");
+    } else {
+        events::append_event(
+            db,
+            mission_id,
+            EventKind::GateFailed,
+            json!({ "report": report, "source": "verify_settle" }),
+        );
+        events::append_event(
+            db,
+            mission_id,
+            EventKind::Failed,
+            json!({ "reason": "verify", "source": "verify_settle" }),
+        );
+        events::set_mission_status(db, mission_id, "failed");
+    }
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();

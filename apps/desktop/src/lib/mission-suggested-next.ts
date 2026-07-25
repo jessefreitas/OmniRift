@@ -98,20 +98,15 @@ function resolveMissionId(events: MissionEvent[], pkg: MissionPackage): string {
   return String(pkg.id ?? "").trim();
 }
 
-/** Nós já concluídos (dispatch ou listados em layer_finished). */
+/**
+ * Nós concluídos = só ids em `layer_finished`.
+ * (dispatch sozinho NÃO conta — evita verify prematuro mid-layer.)
+ */
 function finishedNodeIds(events: MissionEvent[]): Set<string> {
   const done = new Set<string>();
   for (const e of events) {
-    const p = asPayload(e.payload);
-    if (e.kind === "dispatch") {
-      const id = String(p.node_id ?? p.nodeId ?? "").trim();
-      if (id) done.add(id);
-      const role = String(p.role ?? "").trim();
-      if (role) done.add(role);
-    }
-    if (e.kind === "layer_finished") {
-      for (const id of payloadNodes(p)) done.add(id);
-    }
+    if (e.kind !== "layer_finished") continue;
+    for (const id of payloadNodes(asPayload(e.payload))) done.add(id);
   }
   return done;
 }

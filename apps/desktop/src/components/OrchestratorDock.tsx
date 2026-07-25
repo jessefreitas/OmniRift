@@ -35,6 +35,7 @@ export function OrchestratorDock() {
   const [collapsed, setCollapsed] = useState(false);
   const [suggestion, setSuggestion] = useState<SuggestedNext | null>(null);
   const [acting, setActing] = useState(false);
+  const [verifyHint, setVerifyHint] = useState<string | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ ox: number; oy: number; sx: number; sy: number } | null>(null);
@@ -120,12 +121,30 @@ export function OrchestratorDock() {
 
   const onSuggestAction = useCallback(async () => {
     if (!suggestion || acting) return;
-    if (suggestion.action === "verify" && suggestion.missionId) {
+    // verify (acceptance pending) ou retry (após gate_failed) → settle.
+    if (
+      (suggestion.action === "verify" || suggestion.action === "retry") &&
+      suggestion.missionId
+    ) {
       setActing(true);
+      setVerifyHint(null);
       try {
-        await missionVerify(suggestion.missionId);
+        const report = await missionVerify(suggestion.missionId, { settle: true });
+        setVerifyHint(report.ok ? "gate ok · delivered" : "gate failed");
+        // Re-poll imediato pra limpar chip (delivered) ou manter retry.
+        const recent = await missionRecent();
+        if (recent) {
+          setSuggestion(
+            suggestNext(recent.events, {
+              ...recent.package,
+              id: recent.package.id ?? recent.missionId,
+            }),
+          );
+        } else {
+          setSuggestion(null);
+        }
       } catch {
-        /* fail-soft — sugestão continua visível */
+        setVerifyHint("verify falhou");
       } finally {
         setActing(false);
       }
@@ -140,7 +159,12 @@ export function OrchestratorDock() {
   if (onOrchFloor) return null;
 
   const chipText = suggestion ? formatSuggestedNextChip(suggestion) : null;
-  const canAct = suggestion?.action === "verify";
+  const canAct =
+    suggestion?.action === "verify" || suggestion?.action === "retry";
+  const actLabel =
+    suggestion?.action === "retry"
+      ? t("orchestrator.retryVerify", "retry")
+      : t("orchestrator.runVerify", "verify");
 
   return (
     <div
@@ -184,14 +208,19 @@ export function OrchestratorDock() {
       </header>
 
       {/* M3 — suggested-next: faixa acima do xterm */}
-      {chipText && (
+      {(chipText || verifyHint) && (
         <div
           className="flex items-center gap-2 px-3 py-1.5 bg-yellow-500/10 border-b border-yellow-500/25 text-yellow-200 shrink-0"
           data-testid="mission-suggested-next"
-          title={suggestion?.reason}
+          title={suggestion?.reason ?? verifyHint ?? undefined}
         >
           <Sparkles size={12} className="shrink-0 text-yellow-400" />
-          <span className="text-[11px] font-medium truncate flex-1">{chipText}</span>
+          <span className="text-[11px] font-medium truncate flex-1">
+            {chipText ?? verifyHint}
+          </span>
+          {verifyHint && chipText && (
+            <span className="text-[10px] text-yellow-100/80 shrink-0">{verifyHint}</span>
+          )}
           {canAct && (
             <button
               type="button"
@@ -199,7 +228,7 @@ export function OrchestratorDock() {
               onClick={() => void onSuggestAction()}
               className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 hover:bg-yellow-500/35 text-yellow-100 shrink-0 disabled:opacity-50"
             >
-              {acting ? "…" : t("orchestrator.runVerify", "verify")}
+              {acting ? "…" : actLabel}
             </button>
           )}
         </div>

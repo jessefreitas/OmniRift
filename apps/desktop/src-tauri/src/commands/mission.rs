@@ -56,16 +56,13 @@ pub fn mission_validate_chain(
 }
 
 #[tauri::command]
-pub fn mission_verify(db: State<'_, Db>, mission_id: String) -> CmdResult<verify::VerifyReport> {
-    let Some((_, package_json, cwd)) = events::get_mission_package(&db, &mission_id) else {
-        return Err(format!("missão '{mission_id}' não encontrada"));
-    };
-    let pkg = runner::parse_package(&package_json)?;
-    let work = cwd
-        .as_deref()
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
-    Ok(verify::verify(&work, &pkg.acceptance))
+pub fn mission_verify(
+    db: State<'_, Db>,
+    mission_id: String,
+    settle: Option<bool>,
+) -> CmdResult<verify::VerifyReport> {
+    // settle=true (dock M3): grava gate_*/delivered. Default false = dry-run (MCP).
+    runner::verify_mission(&db, &mission_id, settle.unwrap_or(false))
 }
 
 #[tauri::command]

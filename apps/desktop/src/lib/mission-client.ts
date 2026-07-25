@@ -120,8 +120,15 @@ export async function missionRecent(): Promise<MissionRecent | null> {
   };
 }
 
-export async function missionVerify(missionId: string): Promise<unknown> {
-  return invoke("mission_verify", { missionId });
+/** `settle: true` grava gate_*/delivered (botão do dock). Default dry-run. */
+export async function missionVerify(
+  missionId: string,
+  opts?: { settle?: boolean },
+): Promise<{ ok: boolean; results?: unknown[] }> {
+  return invoke("mission_verify", {
+    missionId,
+    settle: opts?.settle ?? false,
+  });
 }
 
 export async function missionHandoffWrite(
