@@ -27,6 +27,12 @@ import {
   type ShellId,
   type ShellPref,
 } from "@/lib/shell";
+import {
+  isToolAllowed,
+  setProductProfile,
+  useProductProfile,
+  type ProductProfile,
+} from "@/lib/product-profile";
 
 const PRICING_URL = "https://omnirift.omniforge.com.br/";
 
@@ -43,6 +49,8 @@ const SHORTCUTS: { tool: string; label: string; icon: typeof Palette; desc: stri
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const t = useT();
   const [tab, setTab] = useState<TabId>("account");
+  const profile = useProductProfile();
+  const shortcuts = SHORTCUTS.filter((sc) => isToolAllowed(sc.tool, profile));
 
   const TABS: { id: TabId; label: string; icon: typeof User }[] = [
     { id: "account", label: t("settings.account", "Conta"), icon: User },
@@ -81,19 +89,23 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 {tb.label}
               </button>
             ))}
-            <div className="mt-2 mb-1 px-2.5 text-[9px] uppercase tracking-wider text-textMuted/70">{t("settings.more", "Mais")}</div>
-            {SHORTCUTS.map((sc) => (
-              <button
-                key={sc.tool}
-                onClick={() => openTool(sc.tool)}
-                title={sc.desc}
-                className="flex items-center gap-2 px-2.5 py-1.5 rounded text-[12px] text-left text-textMuted hover:text-text hover:bg-white/5 transition-colors"
-              >
-                <sc.icon size={14} className="shrink-0" />
-                <span className="flex-1 truncate">{sc.label}</span>
-                <ExternalLink size={11} className="shrink-0 opacity-50" />
-              </button>
-            ))}
+            {shortcuts.length > 0 && (
+              <>
+                <div className="mt-2 mb-1 px-2.5 text-[9px] uppercase tracking-wider text-textMuted/70">{t("settings.more", "Mais")}</div>
+                {shortcuts.map((sc) => (
+                  <button
+                    key={sc.tool}
+                    onClick={() => openTool(sc.tool)}
+                    title={sc.desc}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded text-[12px] text-left text-textMuted hover:text-text hover:bg-white/5 transition-colors"
+                  >
+                    <sc.icon size={14} className="shrink-0" />
+                    <span className="flex-1 truncate">{sc.label}</span>
+                    <ExternalLink size={11} className="shrink-0 opacity-50" />
+                  </button>
+                ))}
+              </>
+            )}
           </nav>
 
           {/* Conteúdo direita */}
@@ -328,6 +340,8 @@ function GeneralTab({ openTool }: { openTool: (tool: string) => void }) {
     <div className="space-y-4">
       <span className="text-sm font-semibold text-text">{t("settings.general", "Geral")}</span>
 
+      <ProductProfileSection />
+
       <div className="flex items-center gap-2">
         <span className="text-[11px] uppercase tracking-wider text-textMuted w-20">{t("appearance.language", "Idioma")}</span>
         {(["pt", "en"] as Locale[]).map((l) => (
@@ -353,6 +367,49 @@ function GeneralTab({ openTool }: { openTool: (tool: string) => void }) {
         </span>
         <ExternalLink size={12} className="text-textMuted shrink-0" />
       </button>
+    </div>
+  );
+}
+
+/** Toggle Modo simples (Pocket) ↔ Modo completo — profile runtime, não canal. */
+function ProductProfileSection() {
+  const t = useT();
+  const profile = useProductProfile();
+
+  function pick(next: ProductProfile) {
+    if (next === profile) return;
+    setProductProfile(next);
+  }
+
+  return (
+    <div className="space-y-2">
+      <span className="text-[11px] uppercase tracking-wider text-textMuted">
+        {t("settings.productMode", "Modo do produto")}
+      </span>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => pick("pocket")}
+          className={
+            "flex-1 px-3 py-2 rounded-md border text-left transition-colors " +
+            (profile === "pocket" ? "border-brand text-brand bg-brand/10" : "border-border text-textMuted hover:text-text hover:border-brand/50")
+          }
+        >
+          <span className="block text-[12px] font-medium">{t("settings.modeSimple", "Modo simples")}</span>
+          <span className="block text-[10px] opacity-80">{t("settings.modeSimpleDesc", "Pocket — só o essencial pra operar agentes")}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => pick("full")}
+          className={
+            "flex-1 px-3 py-2 rounded-md border text-left transition-colors " +
+            (profile === "full" ? "border-brand text-brand bg-brand/10" : "border-border text-textMuted hover:text-text hover:border-brand/50")
+          }
+        >
+          <span className="block text-[12px] font-medium">{t("settings.modeFull", "Modo completo")}</span>
+          <span className="block text-[10px] opacity-80">{t("settings.modeFullDesc", "Todas as ferramentas e nodes do Stable")}</span>
+        </button>
+      </div>
     </div>
   );
 }

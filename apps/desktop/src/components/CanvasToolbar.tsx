@@ -11,6 +11,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { Tooltip } from "@/components/Tooltip";
 import { WorkflowTemplatesMenu } from "@/components/WorkflowTemplatesMenu";
 import { useT } from "@/lib/i18n";
+import { isNodeKindAllowed, isPocket, useProductProfile } from "@/lib/product-profile";
 
 function ToolBtn({
   label,
@@ -38,6 +39,9 @@ function ToolBtn({
 
 export function CanvasToolbar() {
   const t = useT();
+  const profile = useProductProfile();
+  const pocket = isPocket(profile);
+  const allow = (kind: Parameters<typeof isNodeKindAllowed>[0]) => isNodeKindAllowed(kind, profile);
   const addTerminal = useCanvasStore((s) => s.addTerminal);
   const addNote = useCanvasStore((s) => s.addNote);
   const addGroup = useCanvasStore((s) => s.addGroup);
@@ -63,49 +67,63 @@ export function CanvasToolbar() {
 
   return (
     <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-0.5 px-1.5 py-1 rounded-xl bg-surface2/90 backdrop-blur border border-border shadow-lg">
-      <ToolBtn
-        label={t("toolbar.terminal", "Terminal (shell)")}
-        icon={TerminalSquare}
-        onClick={() => addTerminal({ command: "bash", role: "shell", label: "shell" })}
-      />
-      <ToolBtn
-        label={t("toolbar.agent", "Agente (ACP — estruturado)")}
-        icon={Brain}
-        onClick={() => addAgent({})}
-      />
-      <ToolBtn label={t("toolbar.review", "Review (gate de diff na linha)")} icon={GitPullRequestArrow} onClick={() => addReviewNode()} />
-      <ToolBtn label={t("toolbar.filter", "Filtro (roteamento por conteúdo)")} icon={Filter} onClick={() => addFilterNode()} />
-      {/* Inserir workflow: layout pronto dos 6 padrões de orquestração multi-agente. */}
-      <WorkflowTemplatesMenu />
-      <ToolBtn label={t("toolbar.note", "Nota")} icon={StickyNote} onClick={() => addNote()} />
-      <ToolBtn label={t("toolbar.group", "Grupo (frame)")} icon={Frame} onClick={() => addGroup()} />
-      <ToolBtn
-        label={currentCwd ? t("toolbar.fileTree", "Árvore de arquivos do projeto") : t("toolbar.openProjectFirst", "Abra um projeto primeiro")}
-        icon={FolderTree}
-        disabled={!currentCwd}
-        onClick={() => currentCwd && addFileTree({ rootPath: currentCwd })}
-      />
-      <ToolBtn label={t("toolbar.sketch", "Sketch (tldraw)")} icon={Pencil} onClick={() => addSketch()} />
-      <ToolBtn label={t("toolbar.portal", "Portal (browser)")} icon={Globe} onClick={() => addPortal()} />
-      <ToolBtn label={t("toolbar.api", "API (cliente HTTP)")} icon={Webhook} onClick={() => addApiNode()} />
-      <ToolBtn label={t("toolbar.db", "DB (SQLite)")} icon={Database} onClick={() => addDbNode()} />
-      <ToolBtn label={t("toolbar.devtools", "DevTools (base64/JWT/hash/JSON⇄YAML…)")} icon={Wrench} onClick={() => addDevToolsNode()} />
-      <ToolBtn label={t("toolbar.json", "JSON (formatar + árvore)")} icon={Braces} onClick={() => addJsonNode()} />
-      <ToolBtn label={t("toolbar.explain", "explainshell (explica comandos)")} icon={ScrollText} onClick={() => addExplainNode()} />
-      <ToolBtn label={t("toolbar.preview", "Preview (.md / .html)")} icon={FileText} onClick={() => addPreviewNode()} />
-      <ToolBtn label={t("toolbar.code", "Código (editor Monaco)")} icon={FileCode2} onClick={() => void pickAndAddCode()} />
-      <ToolBtn
-        label={currentCwd ? t("toolbar.health", "Saúde do Projeto") : t("toolbar.openProjectFirst", "Abra um projeto primeiro")}
-        icon={Activity}
-        disabled={!currentCwd}
-        onClick={() => currentCwd && window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "project-health" }))}
-      />
-      <ToolBtn
-        label={currentCwd ? t("toolbar.turbo", "TURBO (loop autônomo)") : t("toolbar.openProjectFirst", "Abra um projeto primeiro")}
-        icon={Zap}
-        disabled={!currentCwd}
-        onClick={() => currentCwd && window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "turbo" }))}
-      />
+      {allow("terminal") && (
+        <ToolBtn
+          label={t("toolbar.terminal", "Terminal (shell)")}
+          icon={TerminalSquare}
+          onClick={() => addTerminal({ command: "bash", role: "shell", label: "shell" })}
+        />
+      )}
+      {allow("agent") && (
+        <ToolBtn
+          label={t("toolbar.agent", "Agente (ACP — estruturado)")}
+          icon={Brain}
+          onClick={() => addAgent({})}
+        />
+      )}
+      {allow("review") && (
+        <ToolBtn label={t("toolbar.review", "Review (gate de diff na linha)")} icon={GitPullRequestArrow} onClick={() => addReviewNode()} />
+      )}
+      {allow("filter") && (
+        <ToolBtn label={t("toolbar.filter", "Filtro (roteamento por conteúdo)")} icon={Filter} onClick={() => addFilterNode()} />
+      )}
+      {/* Workflow templates = orquestração avançada — some no Pocket. */}
+      {!pocket && <WorkflowTemplatesMenu />}
+      {allow("note") && <ToolBtn label={t("toolbar.note", "Nota")} icon={StickyNote} onClick={() => addNote()} />}
+      {allow("group") && <ToolBtn label={t("toolbar.group", "Grupo (frame)")} icon={Frame} onClick={() => addGroup()} />}
+      {allow("filetree") && (
+        <ToolBtn
+          label={currentCwd ? t("toolbar.fileTree", "Árvore de arquivos do projeto") : t("toolbar.openProjectFirst", "Abra um projeto primeiro")}
+          icon={FolderTree}
+          disabled={!currentCwd}
+          onClick={() => currentCwd && addFileTree({ rootPath: currentCwd })}
+        />
+      )}
+      {allow("sketch") && <ToolBtn label={t("toolbar.sketch", "Sketch (tldraw)")} icon={Pencil} onClick={() => addSketch()} />}
+      {allow("portal") && <ToolBtn label={t("toolbar.portal", "Portal (browser)")} icon={Globe} onClick={() => addPortal()} />}
+      {allow("api") && <ToolBtn label={t("toolbar.api", "API (cliente HTTP)")} icon={Webhook} onClick={() => addApiNode()} />}
+      {allow("db") && <ToolBtn label={t("toolbar.db", "DB (SQLite)")} icon={Database} onClick={() => addDbNode()} />}
+      {allow("devtools") && <ToolBtn label={t("toolbar.devtools", "DevTools (base64/JWT/hash/JSON⇄YAML…)")} icon={Wrench} onClick={() => addDevToolsNode()} />}
+      {allow("json") && <ToolBtn label={t("toolbar.json", "JSON (formatar + árvore)")} icon={Braces} onClick={() => addJsonNode()} />}
+      {allow("explain") && <ToolBtn label={t("toolbar.explain", "explainshell (explica comandos)")} icon={ScrollText} onClick={() => addExplainNode()} />}
+      {allow("preview") && <ToolBtn label={t("toolbar.preview", "Preview (.md / .html)")} icon={FileText} onClick={() => addPreviewNode()} />}
+      {allow("code") && <ToolBtn label={t("toolbar.code", "Código (editor Monaco)")} icon={FileCode2} onClick={() => void pickAndAddCode()} />}
+      {!pocket && (
+        <ToolBtn
+          label={currentCwd ? t("toolbar.health", "Saúde do Projeto") : t("toolbar.openProjectFirst", "Abra um projeto primeiro")}
+          icon={Activity}
+          disabled={!currentCwd}
+          onClick={() => currentCwd && window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "project-health" }))}
+        />
+      )}
+      {!pocket && (
+        <ToolBtn
+          label={currentCwd ? t("toolbar.turbo", "TURBO (loop autônomo)") : t("toolbar.openProjectFirst", "Abra um projeto primeiro")}
+          icon={Zap}
+          disabled={!currentCwd}
+          onClick={() => currentCwd && window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "turbo" }))}
+        />
+      )}
     </div>
   );
 }

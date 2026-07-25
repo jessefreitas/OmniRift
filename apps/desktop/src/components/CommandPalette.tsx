@@ -12,6 +12,13 @@ import { Command } from "lucide-react";
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
+import {
+  isNodeKindAllowed,
+  isToolAllowed,
+  useProductProfile,
+  type ProductProfile,
+} from "@/lib/product-profile";
+import type { NodeKind } from "@/types/canvas";
 
 interface Cmd {
   id: string;
@@ -21,8 +28,38 @@ interface Cmd {
   disabled?: boolean;
 }
 
+/** Mapa cmd-id da palette “Criar” → NodeKind (pra gate do profile). */
+const CREATE_KIND: Record<string, NodeKind> = {
+  t: "terminal",
+  note: "note",
+  group: "group",
+  ft: "filetree",
+  sk: "sketch",
+  portal: "portal",
+  api: "api",
+  db: "db",
+  dev: "devtools",
+  json: "json",
+  explain: "explain",
+};
+
+/** Extrai tool id de cmd-id `open-*` (ex.: open-routines → routines). */
+function openToolId(cmdId: string): string | null {
+  if (!cmdId.startsWith("open-")) return null;
+  return cmdId.slice("open-".length);
+}
+
+function cmdAllowed(cmd: Cmd, profile: ProductProfile): boolean {
+  const kind = CREATE_KIND[cmd.id];
+  if (kind) return isNodeKindAllowed(kind, profile);
+  const tool = openToolId(cmd.id);
+  if (tool) return isToolAllowed(tool, profile);
+  return true; // floors / projects / etc. sempre ok
+}
+
 export function CommandPalette() {
   const t = useT();
+  const profile = useProductProfile();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
@@ -93,12 +130,12 @@ export function CommandPalette() {
       { id: "open-mobile", label: t("palette.openMobile", "Abrir: Dispositivos móveis"), category: t("palette.catOpen", "Abrir"), run: openTool("mobile") },
       { id: "open-review-ai", label: t("palette.openReviewAi", "Abrir: Code Review IA"), category: t("palette.catOpen", "Abrir"), run: openTool("review-ai") },
       { id: "open-git", label: t("palette.openGit", "Abrir: Repositórios Git"), category: t("palette.catOpen", "Abrir"), run: openTool("git") },
-      { id: "open-health", label: t("palette.openHealth", "Abrir: Saúde do Projeto"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("project-health") },
+      { id: "open-project-health", label: t("palette.openHealth", "Abrir: Saúde do Projeto"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("project-health") },
       { id: "open-code-metrics", label: t("palette.openCodeMetrics", "Abrir: Complexidade do Projeto"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("code-metrics") },
       { id: "open-turbo", label: t("palette.openTurbo", "Abrir: TURBO mode (loop autônomo)"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("turbo") },
     ];
-    return [...create, ...floorCmds, ...openCmds];
-  }, [open, t]);
+    return [...create, ...floorCmds, ...openCmds].filter((c) => cmdAllowed(c, profile));
+  }, [open, t, profile]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

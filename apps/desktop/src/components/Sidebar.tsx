@@ -169,6 +169,7 @@ import { useT } from "@/lib/i18n";
 import { notify, confirmDialog } from "@/lib/notify";
 import { useReorderable } from "@/hooks/useReorderable";
 import type { AgentRole } from "@/types/pty";
+import { filterToolsByProfile, getProductProfile, isToolAllowed, useProductProfile } from "@/lib/product-profile";
 
 // Ferramentas da sidebar (ids = os mesmos do handler "omnirift:open-tool" + Command
 // palette). Ordem reordenável por drag-and-drop; ações no map runTool() abaixo.
@@ -422,6 +423,11 @@ export function Sidebar() {
   const addTerminal = useCanvasStore((s) => s.addTerminal);
   const addAgent = useCanvasStore((s) => s.addAgent);
   const tr = useT();
+  const productProfile = useProductProfile();
+  const visibleToolDefs = useMemo(
+    () => filterToolsByProfile(TOOL_DEFS, productProfile),
+    [productProfile],
+  );
   const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
   const setCurrentCwd = useCanvasStore((s) => s.setCurrentCwd);
@@ -656,9 +662,12 @@ export function Sidebar() {
   };
 
   // Abre os modais de ferramenta via Command palette (CustomEvent "omnirift:open-tool").
+  // Guard central do profile: qualquer emitter (FleetBar, toolbar, etc.) respeita a allowlist.
   useEffect(() => {
     const h = (e: Event) => {
-      switch ((e as CustomEvent<string>).detail) {
+      const detail = (e as CustomEvent<string>).detail;
+      if (!detail || !isToolAllowed(detail, getProductProfile())) return;
+      switch (detail) {
         case "routines": setShowRoutines(true); break;
         case "help": setShowHelp(true); break;
         case "releases": setShowReleases(true); break;
@@ -701,6 +710,7 @@ export function Sidebar() {
   // painel TURBO já com o objetivo pré-preenchido (ex.: seleção do terminal do agente).
   useEffect(() => {
     const h = (e: Event) => {
+      if (!isToolAllowed("turbo", getProductProfile())) return;
       setTurboSeed((e as CustomEvent<{ goal?: string }>).detail?.goal ?? "");
       setShowTurbo(true);
     };
@@ -2148,7 +2158,7 @@ export function Sidebar() {
 
       {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
       <ToolsSection
-        toolDefs={TOOL_DEFS}
+        toolDefs={visibleToolDefs}
         cats={TOOL_CATS}
         toolCat={TOOL_CAT}
         tools={tools}

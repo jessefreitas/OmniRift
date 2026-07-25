@@ -12,6 +12,7 @@ import { Users } from "lucide-react";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useFleetUsage } from "@/lib/fleet-usage";
 import { useT } from "@/lib/i18n";
+import { isToolAllowed, useProductProfile } from "@/lib/product-profile";
 
 /** 4321 → "4.3k", 1_200_000 → "1.2M". */
 function fmtTokens(n: number): string {
@@ -29,6 +30,8 @@ function fmtElapsed(ms: number): string {
 
 export function FleetBar() {
   const t = useT();
+  const profile = useProductProfile();
+  const canOpenKanban = isToolAllowed("kanban", profile);
   // ⚠️ zustand v5: os seletores retornam SÓ referências que já vivem no store
   // (primitivas ou campos diretos) — NUNCA array/objeto criado dentro do seletor
   // (referência instável = loop infinito de render que trava o app). Toda a
@@ -73,12 +76,20 @@ export function FleetBar() {
   const allReady = fleet.ready === fleet.total;
   return (
     <button
-      onClick={() => window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "kanban" }))}
-      title={t(
-        "fleet.tooltip",
-        "Frota do paralelo: agentes prontos/total (concluído+ocioso = pronto) · tempo desde o 1º agente do lote · tokens dos agentes ACP. Clique pra abrir o Kanban.",
-      )}
-      className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex items-center gap-1.5 bg-surface1/90 backdrop-blur border border-border rounded-md px-3 py-1 text-[11px] text-textMuted hover:text-text hover:border-brand/50 transition-colors"
+      onClick={() => {
+        if (!canOpenKanban) return;
+        window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "kanban" }));
+      }}
+      disabled={!canOpenKanban}
+      title={
+        canOpenKanban
+          ? t(
+              "fleet.tooltip",
+              "Frota do paralelo: agentes prontos/total (concluído+ocioso = pronto) · tempo desde o 1º agente do lote · tokens dos agentes ACP. Clique pra abrir o Kanban.",
+            )
+          : t("fleet.tooltipPocket", "Frota do paralelo (Kanban disponível no Modo completo).")
+      }
+      className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex items-center gap-1.5 bg-surface1/90 backdrop-blur border border-border rounded-md px-3 py-1 text-[11px] text-textMuted hover:text-text hover:border-brand/50 transition-colors disabled:hover:text-textMuted disabled:hover:border-border disabled:cursor-default"
     >
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${allReady ? "bg-green-500" : "bg-yellow-400 animate-pulse"}`} />
       <Users size={11} className="shrink-0 opacity-70" />

@@ -20,7 +20,7 @@ Exemplos reais desta auditoria:
 
 ## Resumo
 
-- ✅ **DONE: 33** · 🔶 **PARCIAL: 3** · ⏳ **DESIGN-ONLY: 2** &nbsp;(total: 38 specs ativas)
+- ✅ **DONE: 33** · 🔶 **PARCIAL: 4** · ⏳ **DESIGN-ONLY: 2** &nbsp;(total: 39 specs ativas)
 
 ## Tabela spec × status × evidência
 
@@ -64,6 +64,7 @@ Exemplos reais desta auditoria:
 | hook-library (07-10) | ⏳ DESIGN-ONLY | **Nada implementado** (sem catálogo frontend nem `CustomHook` no Rust). |
 | grok-patterns-acp-sandbox-secrets (07-16) | ✅ DONE | ACP id-correlation (`next_rpc_id`+`pending` map); path-scrub `$HOME`→`~`/`<user>` no `redactor`; flag `sandbox-workspace` no painel + `sandbox_set_enabled` (UI∨env). Incrementos futuros da spec (reconexão ACP, seccomp) = roadmap. |
 | canvas-fluency-gate (07-25) | 🔶 PARTIAL | Detector+wiring ✅ (`canvas-fluency.ts`, watchdog/`trackNodeMount`, `FluencyChip`, `npm run gate:canvas-fluency` = unit+wiring). **Falta** benchmark/smoke de jank real no WebKitGTK empacotado (auditoria PERF-141). F3 intacta. |
+| omnirift-pocket (07-25) | 🔶 PARTIAL | Profile runtime `pocket\|full` ✅ (`product-profile.ts`, first-run default pocket, allowlists, filtro Sidebar/Toolbar/Palette, toggle Settings, `npm run test:product-profile`). **Não é** canal compile-time. Falta polish (i18n keys, outros entry-points, seções sidebar). |
 
 ## Pendências reais (o que está em aberto)
 
@@ -71,6 +72,7 @@ Exemplos reais desta auditoria:
 1. **omnipartner-aprender** — núcleo socrático wired, mas faltam `learn/tracks.rs`/`session.rs`/`profile.rs` + persistência do perfil via `MemoryProvider`. Spec ainda é "draft". (= roadmap R2 Aprender A2–A4.)
 2. **controle-remoto-4g-relay** — Fase 1 (túnel) DONE; **Fase 2 Push/FCM não-iniciada** (sem FCM no relay-worker, sem sinal `Blocked`). (= roadmap R3 Mobile.)
 3. **canvas-fluency-gate** — instrumentação+gate unit/wiring DONE; falta smoke/benchmark de jank no app empacotado (WebKitGTK).
+4. **omnirift-pocket** — núcleo profile+filtros UI DONE; falta polish (i18n, context menus / workflow templates, seções sidebar extras).
 
 ### ⏳ DESIGN-ONLY não-iniciados (backlog real)
 1. **jornada-onboarding-produto** — feature inteira não construída (7 missões, sandbox, spotlight overlay, watcher, testes).
