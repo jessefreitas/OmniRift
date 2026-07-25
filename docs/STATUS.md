@@ -20,13 +20,12 @@ Exemplos reais desta auditoria:
 
 ## Resumo
 
-- ✅ **DONE: 33** · 🔶 **PARCIAL: 4** · ⏳ **DESIGN-ONLY: 3** &nbsp;(total: 40 specs)
+- ✅ **DONE: 33** · 🔶 **PARCIAL: 3** · ⏳ **DESIGN-ONLY: 2** &nbsp;(total: 38 specs ativas)
 
 ## Tabela spec × status × evidência
 
 | Spec | Status | Evidência (código) |
 |---|---|---|
-| spec-lifecycle-e-orquestracao (06-16) | 🔶 PARTIAL | Blocos A/B/E DONE (`spec.rs`, `commands/spec.rs`, `mcp/claims.rs`). **Superseded_by 07-09.** |
 | compressores-token-plugaveis (06-17) | ✅ DONE | `compress/` (trait+rtk+headroom+omnicompress) + `compressor_list/savings` + `CompressorsModal.tsx` |
 | acoes-com-backup (06-24) | ✅ DONE | `health/backup.rs` (`health_backup*`, reflink) + `AiReportView.tsx`/`health-tracker.ts` |
 | agent-status-push-hooks (06-24) | ✅ DONE | rota `POST /agent-hook/{label}` + injeção de hooks em `review_cfg.rs` (teste) |
@@ -50,7 +49,6 @@ Exemplos reais desta auditoria:
 | acp-agent-layer (06-30) | ✅ DONE | `acp/mod.rs` (1526 linhas, AcpManager) + `commands/acp.rs` + `acp-client.ts` + `AgentNode.tsx` |
 | acp-hermes-integration (06-30) | ✅ DONE | `acp/mod.rs` adapter hermes (uvx) + `hermes_provider_env` (Nível 1) |
 | conexoes-semanticas-fase2 (06-30) | ✅ DONE | `ReviewNode.tsx`/`FilterNode.tsx` + `useConnectionRouting.ts` (payload tipado) |
-| times-grupo-subagentes (06-30) | ⏳ DESIGN-ONLY | Só Fase 0 stopgap (`SubagentNode.tsx`). **Superseded_by 07-09.** |
 | hermes-wizard-provider-model (07-01) | ✅ DONE | `HermesWizard.tsx` (3 passos) + `hermes_list_models` + `provider_config` no spawn |
 | backend-owned-sessions (07-02) | ✅ DONE | `acp/mod.rs` (state Running/Sleeping/Dead, event_log, `acp_attach`/`acp_gc`) + virtualização |
 | jornada-onboarding-produto (07-04) | ⏳ DESIGN-ONLY | **Nada implementado** (sem tour-store/TourOverlay/missões). |
@@ -72,16 +70,15 @@ Exemplos reais desta auditoria:
 ### 🔶 PARCIAIS acionáveis
 1. **omnipartner-aprender** — núcleo socrático wired, mas faltam `learn/tracks.rs`/`session.rs`/`profile.rs` + persistência do perfil via `MemoryProvider`. Spec ainda é "draft". (= roadmap R2 Aprender A2–A4.)
 2. **controle-remoto-4g-relay** — Fase 1 (túnel) DONE; **Fase 2 Push/FCM não-iniciada** (sem FCM no relay-worker, sem sinal `Blocked`). (= roadmap R3 Mobile.)
-3. **spec-lifecycle-e-orquestracao** — blocos A/B/E DONE; superseded pela orquestração 07-09 (ver candidatos a arquivar). Conta no total PARCIAL da tabela até o archive fechar.
-4. **canvas-fluency-gate** — instrumentação+gate unit/wiring DONE; falta smoke/benchmark de jank no app empacotado (WebKitGTK).
+3. **canvas-fluency-gate** — instrumentação+gate unit/wiring DONE; falta smoke/benchmark de jank no app empacotado (WebKitGTK).
 
 ### ⏳ DESIGN-ONLY não-iniciados (backlog real)
-4. **jornada-onboarding-produto** — feature inteira não construída (7 missões, sandbox, spotlight overlay, watcher, testes).
-5. **hook-library** — catálogo de hooks por role/nó + `CustomHook` no Rust. Nada implementado.
+1. **jornada-onboarding-produto** — feature inteira não construída (7 missões, sandbox, spotlight overlay, watcher, testes).
+2. **hook-library** — catálogo de hooks por role/nó + `CustomHook` no Rust. Nada implementado.
 
-### 🗑️ Candidatos a ARQUIVAR (não são trabalho — são limpeza anti-regressão)
-- **spec-lifecycle-e-orquestracao** (06-16) — `superseded_by` 2026-07-09-orquestracao. O "teto de agentes" (Bloco D) passou pra responsabilidade da spec de orquestração. *(arquivado em `specs/archive/` neste working tree)*
-- **times-grupo-subagentes** (06-30) — `superseded_by` 2026-07-09-orquestracao. Só a Fase 0 stopgap landou; o núcleo foi descartado a favor da orquestração nova. *(arquivado em `specs/archive/` neste working tree)*
+### 🗑️ Arquivadas / superseded (fora da contagem ativa)
+- **spec-lifecycle-e-orquestracao** (06-16) — `superseded_by` 2026-07-09-orquestracao. Blocos A/B/E DONE; teto de agentes (Bloco D) migrou pra orquestração. Arquivo: `specs/archive/2026-06-16-spec-lifecycle-e-orquestracao-design.md`.
+- **times-grupo-subagentes** (06-30) — `superseded_by` 2026-07-09-orquestracao. Só Fase 0 stopgap (`SubagentNode`); núcleo descartado. Arquivo: `specs/archive/2026-06-30-times-grupo-subagentes-design.md`.
 
 ### Polish pós-DONE (não conta como PARCIAL)
 - **backend-owned-sessions** — contrato central DONE; polish menor: `acp_sleep`/wake ainda não são comando de 1ª classe (kill reusa `acp_cancel`).
