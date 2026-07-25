@@ -436,18 +436,14 @@ pub fn delete(db: &Db, id: &str) -> Result<()> {
         Ok(())
     })?;
     crate::memory::secret_store::delete(&credential_account(id));
-    if let Ok(mut guard) = omni_secret_cache().lock() {
-        guard.clear();
-    }
+    invalidate_omni_credential_caches();
     Ok(())
 }
 
 pub fn delete_credential(id: &str) {
     crate::memory::secret_store::delete(&credential_account(id));
-    // Sem db aqui: invalida o cache em memória inteiro (TTL curto; evita segredo stale).
-    if let Ok(mut guard) = omni_secret_cache().lock() {
-        guard.clear();
-    }
+    // Sem db aqui: invalida caches em memória (TTL curto; evita segredo/sessão stale).
+    invalidate_omni_credential_caches();
 }
 
 fn map_request(row: &rusqlite::Row<'_>) -> rusqlite::Result<ServiceRequest> {
@@ -661,6 +657,18 @@ fn omni_mcp_cache() -> &'static Mutex<Option<CachedOmniMcpSession>> {
 fn omni_secret_cache() -> &'static Mutex<HashMap<String, CachedSecret>> {
     static CACHE: OnceLock<Mutex<HashMap<String, CachedSecret>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Invalida sessão MCP reutilizada + secret cache em memória.
+/// Chamar em `memory_connect` / `memory_set_active` (e qualquer troca de conexão ativa)
+/// para não reaproveitar credencial/sessão stale após mudar provider/token/endpoint.
+pub fn invalidate_omni_credential_caches() {
+    if let Ok(mut guard) = omni_secret_cache().lock() {
+        guard.clear();
+    }
+    if let Ok(mut guard) = omni_mcp_cache().lock() {
+        *guard = None;
+    }
 }
 
 fn token_fingerprint(token: &str) -> u64 {
@@ -1372,6 +1380,33 @@ mod tests {
         let cache_key = secret_cache_key(endpoint, token_fingerprint(token), project, key);
         assert!(!cache_key.contains("fixture-secret-value"));
         assert!(!cache_key.contains(token));
+    }
+
+    #[test]
+    fn invalidate_omni_credential_caches_drops_secret_and_session() {
+        let endpoint = "https://memory.example/mcp";
+        let token = "tok-invalidate";
+        let project = "proj-invalidate";
+        let key = "credential.cache.invalidate";
+        secret_cache_put(endpoint, token, project, key, "stale-secret");
+        {
+            let mut guard = omni_mcp_cache().lock().expect("mcp cache lock");
+            *guard = Some(CachedOmniMcpSession {
+                endpoint: endpoint.into(),
+                token_fp: token_fingerprint(token),
+                session_id: "sess-stale".into(),
+                client: reqwest::Client::new(),
+                opened_at: Instant::now(),
+            });
+        }
+        assert!(secret_cache_get(endpoint, token, project, key).is_some());
+        assert!(omni_mcp_cache().lock().unwrap().is_some());
+
+        invalidate_omni_credential_caches();
+
+        // Próxima resolve não dá hit stale.
+        assert!(secret_cache_get(endpoint, token, project, key).is_none());
+        assert!(omni_mcp_cache().lock().unwrap().is_none());
     }
 
     #[test]

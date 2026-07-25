@@ -17,9 +17,10 @@ agentes de negócio e integrações com sistemas. Ele não depende de n8n em run
 - Persistência de contratos: `company_services` no SQLite.
 - Credenciais: keychain do sistema operacional; nunca entram no SQLite, catálogo, prompt ou resposta MCP.
 - Resolução OmniMemory: reusa sessão MCP em processo (TTL) + cache curto do segredo em memória
-  (chave inclui endpoint+fingerprint do token da conexão). NÃO espelha `get_secret` no keychain
-  do serviço — keychain só guarda credencial colada explicitamente na UI. Valor nunca vai para
-  log/SQLite.
+  (chave inclui endpoint+fingerprint do token da conexão). `memory_connect` / `memory_set_active`
+  invalidam ambos os caches — sem hit stale após trocar conexão. NÃO espelha `get_secret` no
+  keychain do serviço — keychain só guarda credencial colada explicitamente na UI. Valor nunca
+  vai para log/SQLite.
 - Categorias: pagamentos, consultas, processos, propostas, orçamentos, internos e outros.
 - Tools para todos os agentes: `services_catalog` e `services_call`.
 - URL e operação são declaradas pelo usuário; o agente não fornece URL arbitrária.

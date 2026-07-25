@@ -162,7 +162,10 @@ pub fn memory_connect(
     config: ConnectionConfig,
     registry: State<'_, Arc<MemoryRegistry>>,
 ) -> Result<(), String> {
-    registry.upsert_connection(config).map_err(|e| format!("{e:#}"))
+    registry.upsert_connection(config).map_err(|e| format!("{e:#}"))?;
+    // Token/endpoint novos: sessão MCP + secret cache do company harness ficam stale.
+    crate::services::invalidate_omni_credential_caches();
+    Ok(())
 }
 
 /// Testa a conexão de um provider (health) SEM trocar o ativo.
@@ -183,7 +186,10 @@ pub fn memory_set_active(
     kind: ProviderKind,
     registry: State<'_, Arc<MemoryRegistry>>,
 ) -> Result<(), String> {
-    registry.set_active(kind).map_err(|e| format!("{e:#}"))
+    registry.set_active(kind).map_err(|e| format!("{e:#}"))?;
+    // Troca de provider ativo: não reusar sessão/segredo da conexão anterior.
+    crate::services::invalidate_omni_credential_caches();
+    Ok(())
 }
 
 /// Provider ativo atual.
