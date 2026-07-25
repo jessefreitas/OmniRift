@@ -4,7 +4,7 @@ title: Aprendizados do oh-my-pi (omp) — disciplina de tool I/O, não outro cod
 date: 2026-07-25
 related:
   - docs/superpowers/specs/2026-07-25-mission-orchestration-design.md
-  - docs/superpowers/specs/2026-07-25-aiox-aprendizados-design.md
+  - docs/superpowers/specs/2026-07-25-aprendizados-scaffold-prompts-design.md
   - docs/superpowers/plans/2026-07-25-mission-orchestration.md
 source: https://github.com/can1357/oh-my-pi (fork de Pi / badlogic/pi-mono; MIT)
 ---
@@ -16,8 +16,9 @@ por que **não** devemos integrar o core do omp (nem competir com Claude/Codex
 como coding agent).
 
 **Decisão:** absorver disciplina de tool I/O + higiene ACP + handoff (alinhado
-a Missão / padrões AIOX M1–M2). **Não** vendorar `@oh-my-pi/*`. **Não** portar
-hashline para o host. Spawn `omp`/`omp acp` como ROLE só sob demanda explícita.
+a Missão / padrões M1–M2 de ativação). **Não** vendorar `@oh-my-pi/*`. **Não**
+portar hashline para o host. Spawn `omp`/`omp acp` como ROLE só sob demanda
+explícita.
 
 ---
 
@@ -118,11 +119,11 @@ scout pode forçar dump.
 **Gaps restantes:** stdout do adapter third-party não é policado além do stderr log;
 não há assert runtime de que o adapter *honrou* `mcpServers` (só ownership no payload).
 
-### 3.3 Handoff tipado (T3 — alto ROI; = M2 AIOX/Missão)
+### 3.3 Handoff tipado (T3 — alto ROI; = M2 Missão)
 
 **Deles:** pipeline de handoff + reinjeção com prefix estável.
 
-**Nós:** Missão §8 / AIOX M2 já pedem artefato consumível.
+**Nós:** Missão §8 / M2 já pedem artefato consumível.
 
 **Fazer:** schema no blackboard/SQLite; greeting do próximo nó aponta pro
 artefato, não pro scrollback.
@@ -210,7 +211,7 @@ ROI de hashline é **dentro** do harness omp. Fora = irrelevante.
 
 ```
 Missão (capability · DAG · verify · chain)
-AIOX M1 first-value ✅ · M2 handoff ✅ (= T3)
+M1 first-value ✅ · M2 handoff ✅ (= T3)
         │
         ├─► T1  summarize/caps nas tools MCP do host ✅ (memory_*)
         ├─► T2  higiene ACP (stdout, MCP ownership, caps) ✅

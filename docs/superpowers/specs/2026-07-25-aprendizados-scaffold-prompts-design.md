@@ -1,28 +1,27 @@
 ---
 status: draft
-title: Aprendizados do AIOX — o que absorver (e por que não integrar o framework)
+title: Aprendizados de scaffold CLI de prompts — o que absorver (e por que não integrar)
 date: 2026-07-25
 related:
   - docs/superpowers/specs/2026-07-25-mission-orchestration-design.md
   - docs/superpowers/specs/2026-07-09-orquestracao-design.md
-  - docs/superpowers/plans/2026-07-25-aiox-padroes-missao.md
-source: https://github.com/jessefreitas/aiox-core (fork SynkraAI/aiox-core, MIT)
+  - docs/superpowers/plans/2026-07-25-padroes-missao-ativacao.md
 ---
 
-# Aprendizados do AIOX
+# Aprendizados de scaffold CLI de prompts
 
-**Goal:** registrar o que o AIOX ensina de útil para o OmniRift — e deixar explícito
-por que **não** devemos integrar `@aiox-squads/core` como dependência ou segundo
-control plane.
+**Goal:** registrar o que frameworks externos de *scaffold de prompts / stories-MD*
+ensinam de útil para o OmniRift — e deixar explícito por que **não** devemos
+integrar esse tipo de CLI/pacote como dependência ou segundo control plane.
 
 **Decisão:** absorver padrões (M1–M4) clean-room no host Missão/PTY/ACP.
-**Não** plugar o framework AIOX.
+**Não** plugar o framework externo de scaffold.
 
 ---
 
-## 1. O que AIOX é / não é
+## 1. O que esse tipo de scaffold é / não é
 
-| AIOX é | AIOX não é |
+| É | Não é |
 |---|---|
 | Framework de **scaffold** (`npx … init/install`) + CLI | Runtime de frota com PTY/ACP vivos |
 | Método ágil agentic em **markdown** no repo do usuário | Host desktop com canvas + SQLite + MCP |
@@ -30,8 +29,8 @@ control plane.
 | Constituição CLI-first / UI terciária | Produto canvas-first |
 | Packs de papéis BMAD + domínio | Capability tipada + roles do projeto |
 
-AIOX responde: *“instale um método no meu repositório e deixe o LLM do IDE operar
-em cima desses arquivos.”*
+O scaffold responde: *“instale um método no meu repositório e deixe o LLM do IDE
+operar em cima desses arquivos.”*
 
 OmniRift responde: *“hospede N agentes reais num canvas, isole em floors/worktrees,
 conecte, despache missões e prove o que aconteceu.”*
@@ -42,7 +41,7 @@ conecte, despache missões e prove o que aconteceu.”*
 
 São problemas vizinhos na conversa (“multi-agente”), ortogonais na arquitetura.
 
-| Pergunta | AIOX | OmniRift |
+| Pergunta | Scaffold CLI / stories-MD | OmniRift |
 |---|---|---|
 | Onde vive a inteligência? | Arquivos MD no repo | Host (Tauri + PTY/ACP + MCP + SQLite) |
 | Como o trabalho avança? | LLM lê story e “segue o método” | Host despacha agentes vivos, wait, gates, recibo |
@@ -53,12 +52,12 @@ Integrar o framework criaria um **segundo sistema de estado** (stories MD)
 concorrendo com Mission/SQLite que já existe — e inverteria a tese do produto
 (canvas deixa de ser o cockpit).
 
-Analogia: AIOX é o **manual + formulários** na pasta do projeto; OmniRift é a
+Analogia: o scaffold é o **manual + formulários** na pasta do projeto; OmniRift é a
 **oficina** (máquinas PTY, planta Mission, inventário de capabilities, canvas,
 `mission_events`). Colocar o manual *como se fosse a oficina* não melhora a
 oficina.
 
-O que o AIOX **não** entrega e nós precisamos: PTY/ACP com Idle/Working/Done,
+O que o scaffold **não** entrega e nós precisamos: PTY/ACP com Idle/Working/Done,
 Floor=worktree+Land, MCP `omnirift-agents`+claims, Mission DAG+verify,
 MemoryProvider plugável. Tudo isso já é OmniRift.
 
@@ -68,14 +67,14 @@ MemoryProvider plugável. Tudo isso já é OmniRift.
 
 | Anti-padrão | Por quê |
 |---|---|
-| Depender de `@aiox-squads/core` / vendorar `.aiox-core` | Segundo control plane; drift com roles/Mission |
+| Depender de pacote npm do scaffold / vendorar o tree `.core` | Segundo control plane; drift com roles/Mission |
 | CLI-first como constituição | Produto é canvas-first |
 | Story MD como banco de estado | Estado em SQLite / `mission_events` |
 | Installer que muta o repo do usuário em massa | Modelo scaffold ≠ app desktop |
 | Doze papéis ágeis BMAD como default | Roles + capabilities bastam; squads = conteúdo opcional |
 | Greeting teatral / persona-cosplay | Estrutura sim; teatro não |
 | Hooks do IDE como única governança | Governança no host (Rust/MCP) |
-| Segundo orquestrador (`aiox` / `aiox-delegate` ao lado do nosso) | Orquestrador OmniRift já é o maestro |
+| Segundo orquestrador (CLI de delegate ao lado do nosso) | Orquestrador OmniRift já é o maestro |
 | Sync IDE como núcleo | Nós já spawnamos runtimes; sync de arquivos é secundário |
 
 ---
@@ -84,7 +83,7 @@ MemoryProvider plugável. Tudo isso já é OmniRift.
 
 Absorver **contratos**, reimplementar no schema OmniRift (`mission/`,
 `agent-contract`, `first-value`, blackboard, dock, health). Licença MIT ajuda;
-ainda assim código próprio — sem portar o tree deles.
+ainda assim código próprio — sem portar o tree externo.
 
 ### M1 — First-value no spawn (alto ROI)
 
@@ -128,7 +127,7 @@ a partir do package + última layer.
 ### Fora do corte imediato (depois)
 
 - Context brackets (budget de prompt em sessão longa)
-- AgentPack versionável (formato nosso, não tree AIOX)
+- AgentPack versionável (formato nosso, não tree do scaffold externo)
 - `human_approved` na cadeia de qualidade L3
 - Run artifact dir por nó (`outputs/<mission>/<node>/`)
 
@@ -154,9 +153,9 @@ Missão (capability · DAG · verify · chain)   ← feat/mission-orchestration
 | `mission_events` | M2/M3 não substituem eventos — complementam UX/artefato |
 | Orquestrador dispatch-only | M1 greeting do orch reforça “só despacha”; M2 handoff bounded |
 
-Ordem: **M1 → M2 → M3 → M4**. Não abrir PR de “integração AIOX”.
+Ordem: **M1 → M2 → M3 → M4**. Não abrir PR de “integração de scaffold externo”.
 
-Plano acionável: `docs/superpowers/plans/2026-07-25-aiox-padroes-missao.md`.
+Plano acionável: `docs/superpowers/plans/2026-07-25-padroes-missao-ativacao.md`.
 
 ---
 
@@ -164,21 +163,21 @@ Plano acionável: `docs/superpowers/plans/2026-07-25-aiox-padroes-missao.md`.
 
 | Opção | Decisão |
 |---|---|
-| Depender de `@aiox-squads/core` | **Não** |
-| Vendorar `.aiox-core` / clonar como submodule | **Não** |
-| Chamar CLI `aiox` / `aiox-delegate` do canvas | **Não** |
+| Depender de pacote npm do scaffold externo | **Não** |
+| Vendorar tree `.core` / clonar como submodule | **Não** |
+| Chamar CLI de scaffold / delegate do canvas | **Não** |
 | Absorver padrões M1–M4 clean-room | **Sim** |
-| Usar AIOX como conteúdo opcional no futuro | Talvez (fora do core) |
+| Usar stories-MD como conteúdo opcional no futuro | Talvez (fora do core) |
 
-**Uma frase:** AIOX é um excelente *método de arquivo* para quem só tem um IDE;
-OmniRift é um *runtime de frota*. Melhoramos o runtime com quatro contratos
-deles — não trocando o runtime pelo método.
+**Uma frase:** scaffold CLI de prompts é um excelente *método de arquivo* para
+quem só tem um IDE; OmniRift é um *runtime de frota*. Melhoramos o runtime com
+quatro contratos — não trocando o runtime pelo método.
 
 ---
 
 ## 7. Referências internas (estudo; não portar)
 
-Estudo sobre o fork `jessefreitas/aiox-core` (upstream Synkra). Pontos úteis
-para implementar M1–M4: agent greeting / activation pipeline, handoff YAML
-fixtures, workflow-chains, doctor/health, quality-gates em camadas.
-Implementação nasce em código OmniRift, não como cópia do tree deles.
+Estudo sobre frameworks externos de scaffold de prompts / stories-MD (MIT).
+Pontos úteis para implementar M1–M4: agent greeting / activation pipeline,
+handoff YAML fixtures, workflow-chains, doctor/health, quality-gates em
+camadas. Implementação nasce em código OmniRift, não como cópia do tree externo.

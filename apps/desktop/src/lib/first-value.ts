@@ -1,7 +1,7 @@
 // src/lib/first-value.ts
 //
 // M1 — first-value pós-spawn: bloco estruturado curto (5–8 linhas) injetado quando
-// o agente fica ready. Absorve o padrão de ativação do AIOX sem o framework.
+// o agente fica ready (greeting estruturado pós-spawn).
 // Puro: sem I/O, sem emoji de teatro.
 
 export type FirstValueKind = "orchestrator" | "worker" | "agent";

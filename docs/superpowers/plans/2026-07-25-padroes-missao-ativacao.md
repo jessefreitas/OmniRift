@@ -1,12 +1,12 @@
-# AIOX → Missão: padrões M1–M4 (implementation plan)
+# Missão: padrões M1–M4 de ativação (implementation plan)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 >
-> Spec: `docs/superpowers/specs/2026-07-25-aiox-aprendizados-design.md`
+> Spec: `docs/superpowers/specs/2026-07-25-aprendizados-scaffold-prompts-design.md`
 > Missão: `docs/superpowers/specs/2026-07-25-mission-orchestration-design.md`
 >
-> **Não** integrar `@aiox-squads/core` / vendorar `.aiox-core`. Clean-room only.
+> **Não** integrar scaffold CLI externo de prompts / vendorar tree `.core`. Clean-room only.
 
 **Goal:** absorver first-value, handoff tipado, suggested-next e doctor no host
 OmniRift (Missão + spawn + dock), sem segundo control plane.
@@ -113,7 +113,7 @@ function withFirstValueGreeting(body: string | undefined, ctx: FirstValueCtx): s
 - [x] ACP AgentNode priming começa com o bloco
 - [x] Orquestrador spawn injeta greeting pós-ready
 - [x] `orchestrator://spawn-agent` injeta greeting pós-ready
-- [x] Zero dependência AIOX
+- [x] Zero dependência de scaffold CLI externo
 
 **Nota M1 (follow-up Code Reviewer):** triplicação wait-ready→inject extraída para
 `injectWhenPtyReady` em `apps/desktop/src/lib/inject-when-pty-ready.ts`
@@ -314,7 +314,7 @@ testes do módulo.
 
 ## Fora de escopo
 
-- Integrar / vendorar AIOX
+- Integrar / vendorar scaffold CLI externo de prompts
 - Context brackets / AgentPack / `human_approved` (M5+)
 - Pocket slim
 - Merge em `main` sem pedido explícito
