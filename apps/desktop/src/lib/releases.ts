@@ -24,6 +24,20 @@ export interface ReleaseEntry {
 /** Histórico completo, da mais nova para a mais antiga. */
 export const RELEASES: ReleaseEntry[] = [
   {
+    version: "0.1.146",
+    date: "2026-07-25",
+    title: "Construtor manual de times e fluxos",
+    highlights: [
+      "Agora é possível começar do zero com “Criar fluxo manual”, sem depender de um plano gerado por IA ou de um template pronto.",
+      "Adicione e remova agentes diretamente no Setup e configure nome, missão, onda, runtime, provider e modelo em cada card.",
+      "A aba Estrutura permite criar agentes, mudar ondas e desenhar conexões editáveis entre os papéis.",
+      "Planos que ficaram com zero agentes agora mostram uma recuperação clara com “Adicionar primeiro agente”.",
+      "Renomear ou remover um agente mantém conexões, dependências, subagentes e caminho crítico consistentes.",
+      "O OmniRift não permite mais montar silenciosamente um fluxo vazio.",
+    ],
+    tag: "fix",
+  },
+  {
     version: "0.1.145",
     date: "2026-07-25",
     title: "OmniRift Pocket e setup completo de agentes",

@@ -2,7 +2,7 @@ import { strict as assert } from "node:assert";
 
 import { RELEASES } from "./releases";
 
-assert.equal(RELEASES[0]?.version, "0.1.145");
+assert.equal(RELEASES[0]?.version, "0.1.146");
 assert.equal(new Set(RELEASES.map((release) => release.version)).size, RELEASES.length);
 
 for (const release of RELEASES) {

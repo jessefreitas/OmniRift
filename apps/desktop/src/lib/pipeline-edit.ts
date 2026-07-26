@@ -24,6 +24,41 @@ export type PipelineSetupPreset = "terminal" | "hybrid" | "agent";
 const same = (a: string, b: string): boolean =>
   (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
 
+const positiveWave = (wave: number): number =>
+  Number.isFinite(wave) ? Math.max(1, Math.trunc(wave)) : 1;
+
+function syncDepsFromConnections(
+  agents: PipelineAgent[],
+  connections: PipelineConnection[],
+): PipelineAgent[] {
+  return agents.map((agent) => ({
+    ...agent,
+    deps: connections
+      .filter((connection) => same(connection.to, agent.role))
+      .map((connection) => connection.from),
+  }));
+}
+
+/** Ponto de partida zero-config para quem quer desenhar o próprio time sem usar um LLM. */
+export function createManualPlan(): PipelinePlan {
+  return {
+    summary: "Meu fluxo de agentes",
+    floors: [{ name: "principal", why: "fluxo manual" }],
+    agents: [{
+      role: "Agente 1",
+      runtime: "claude-terminal",
+      wave: 1,
+      deps: [],
+      why: "",
+    }],
+    subagents: [],
+    connections: [],
+    collaboration: "",
+    criticalPath: [],
+    createdAt: Date.now(),
+  };
+}
+
 /**
  * Gera um nome de agente/subagente que ainda não existe no plano.
  * Mantém a base quando possível; caso contrário incrementa com "base 2", "base 3"...
@@ -90,10 +125,19 @@ export function updateAgent(
   const updatedAgent: PipelineAgent = {
     ...current,
     ...otherFields,
+    wave: otherFields.wave === undefined ? current.wave : positiveWave(otherFields.wave),
     role: resolvedRole,
   };
 
-  const newAgents = [...plan.agents];
+  const newAgents = plan.agents.map((agent) => {
+    if (!shouldRename || !agent.deps) return agent;
+    return {
+      ...agent,
+      deps: agent.deps.map((dependency) =>
+        same(dependency, oldName) ? resolvedRole : dependency
+      ),
+    };
+  });
   newAgents[index] = updatedAgent;
 
   // Se o nome mudou, todas as referências devem apontar para o novo nome.
@@ -137,10 +181,16 @@ export function removeAgent(plan: PipelinePlan, index: number): PipelinePlan {
   }
 
   const removedRole = plan.agents[index].role;
+  const agents = plan.agents
+    .filter((_, i) => i !== index)
+    .map((agent) => ({
+      ...agent,
+      deps: agent.deps?.filter((dependency) => !same(dependency, removedRole)),
+    }));
 
   return {
     ...plan,
-    agents: plan.agents.filter((_, i) => i !== index),
+    agents,
     subagents: plan.subagents.filter((sub) => !same(sub.parent, removedRole)),
     connections: plan.connections.filter(
       (conn) =>
@@ -161,13 +211,74 @@ export function addAgent(plan: PipelinePlan, wave: number): PipelinePlan {
 
   const newAgent: PipelineAgent = {
     role,
-    wave,
+    wave: positiveWave(wave),
+    deps: [],
     why: "",
   };
 
   return {
     ...plan,
     agents: [...plan.agents, newAgent],
+  };
+}
+
+/** Cria uma ligação explícita entre dois agentes e sincroniza `deps` do destino. */
+export function addConnection(
+  plan: PipelinePlan,
+  from: string,
+  to: string,
+  why = "",
+): PipelinePlan {
+  const source = plan.agents.find((agent) => same(agent.role, from))?.role;
+  const target = plan.agents.find((agent) => same(agent.role, to))?.role;
+  if (!source || !target || same(source, target)) return plan;
+  if (plan.connections.some((connection) => same(connection.from, source) && same(connection.to, target))) {
+    return plan;
+  }
+  const connections = [...plan.connections, { from: source, to: target, why }];
+  return {
+    ...plan,
+    agents: syncDepsFromConnections(plan.agents, connections),
+    connections,
+  };
+}
+
+/** Edita uma ligação sem permitir ponta inexistente, auto-conexão ou duplicata. */
+export function updateConnection(
+  plan: PipelinePlan,
+  index: number,
+  patch: Partial<PipelineConnection>,
+): PipelinePlan {
+  if (index < 0 || index >= plan.connections.length) return plan;
+  const current = plan.connections[index];
+  const source = plan.agents.find((agent) => same(agent.role, patch.from ?? current.from))?.role;
+  const target = plan.agents.find((agent) => same(agent.role, patch.to ?? current.to))?.role;
+  if (!source || !target || same(source, target)) return plan;
+  if (plan.connections.some((connection, connectionIndex) =>
+    connectionIndex !== index && same(connection.from, source) && same(connection.to, target)
+  )) {
+    return plan;
+  }
+  const connections = plan.connections.map((connection, connectionIndex) =>
+    connectionIndex === index
+      ? { ...connection, ...patch, from: source, to: target }
+      : connection
+  );
+  return {
+    ...plan,
+    agents: syncDepsFromConnections(plan.agents, connections),
+    connections,
+  };
+}
+
+/** Remove uma ligação e retira a dependência correspondente do agente de destino. */
+export function removeConnection(plan: PipelinePlan, index: number): PipelinePlan {
+  if (index < 0 || index >= plan.connections.length) return plan;
+  const connections = plan.connections.filter((_, connectionIndex) => connectionIndex !== index);
+  return {
+    ...plan,
+    agents: syncDepsFromConnections(plan.agents, connections),
+    connections,
   };
 }
 
@@ -251,6 +362,24 @@ export function pipelineSetupIssues(
   providers: Array<{ id: string; model?: string; kind?: string; hasKey?: boolean }>,
 ): string[] {
   const issues: string[] = [];
+  if (plan.agents.length === 0) {
+    issues.push("adicione pelo menos um agente ao fluxo");
+    return issues;
+  }
+  const knownRoles = plan.agents.map((agent) => agent.role);
+  const duplicateRoles = knownRoles.filter((role, index) =>
+    knownRoles.some((otherRole, otherIndex) => otherIndex < index && same(role, otherRole))
+  );
+  if (duplicateRoles.length > 0) {
+    issues.push(`nomes de agente repetidos: ${duplicateRoles.join(", ")}`);
+  }
+  for (const connection of plan.connections) {
+    const sourceExists = knownRoles.some((role) => same(role, connection.from));
+    const targetExists = knownRoles.some((role) => same(role, connection.to));
+    if (!sourceExists || !targetExists || same(connection.from, connection.to)) {
+      issues.push(`conexão inválida: ${connection.from} → ${connection.to}`);
+    }
+  }
   for (const agent of plan.agents) {
     if (agent.runtime !== "hermes-acp") continue;
     const provider = providers.find((p) => p.id === agent.providerId);

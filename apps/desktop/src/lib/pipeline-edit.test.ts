@@ -5,8 +5,12 @@ import {
   updateAgent,
   removeAgent,
   addAgent,
+  addConnection,
+  updateConnection,
+  removeConnection,
   removeSubagent,
   applySetupPreset,
+  createManualPlan,
   effectiveAgentRuntime,
   materializeAgentSetup,
   pipelineSetupIssues,
@@ -125,6 +129,71 @@ function plano(): PipelinePlan {
   eq(a.agents[3].role, "Novo agente", "nome default");
   eq(addAgent(a, 1).agents[4].role, "Novo agente 2", "segundo novo agente não colide");
   eq(a.connections.length, 2, "adicionar não inventa conexão");
+}
+
+// fluxo manual nasce imediatamente editável e montável
+{
+  const manual = createManualPlan();
+  eq(manual.summary, "Meu fluxo de agentes", "fluxo manual tem objetivo editável");
+  eq(manual.agents.length, 1, "fluxo manual já mostra o primeiro card de agente");
+  eq(manual.agents[0].runtime, "claude-terminal", "primeiro agente manual tem runtime executável");
+  eq(pipelineSetupIssues(manual, []), [], "fluxo manual inicial passa no gate");
+}
+
+// ondas inválidas são normalizadas para manter o layout e a admissão executáveis
+{
+  const p = addAgent(plano(), 0);
+  eq(p.agents[3].wave, 1, "onda zero vira onda 1");
+  const moved = updateAgent(p, 3, { wave: -7 });
+  eq(moved.agents[3].wave, 1, "edição de onda negativa também é normalizada");
+}
+
+// conexões manuais sincronizam deps e rejeitam ligações inválidas
+{
+  const base = {
+    ...plano(),
+    connections: [],
+    agents: plano().agents.map((agent) => ({ ...agent, deps: [] })),
+  };
+  const connected = addConnection(base, "Backend", "Frontend", "contrato");
+  eq(connected.connections.length, 1, "conexão manual entra no fluxo");
+  eq(connected.agents[1].deps, ["Backend"], "destino passa a depender da origem");
+  eq(addConnection(connected, "backend", "frontend").connections.length, 1, "conexão duplicada não entra");
+  eq(addConnection(connected, "Backend", "Backend").connections.length, 1, "auto-conexão não entra");
+
+  const redirected = updateConnection(connected, 0, { to: "QA", why: "entrega" });
+  eq(redirected.connections[0], { from: "Backend", to: "QA", why: "entrega" }, "conexão pode ser redirecionada");
+  eq(redirected.agents[1].deps, [], "destino anterior perde a dependência");
+  eq(redirected.agents[2].deps, ["Backend"], "novo destino recebe a dependência");
+
+  const disconnected = removeConnection(redirected, 0);
+  eq(disconnected.connections.length, 0, "conexão pode ser removida");
+  eq(disconnected.agents[2].deps, [], "remover conexão limpa deps");
+}
+
+// renomear/remover também mantém deps legados sem referências órfãs
+{
+  const base = plano();
+  base.agents[1].deps = ["Backend"];
+  const renamed = updateAgent(base, 0, { role: "API" });
+  eq(renamed.agents[1].deps, ["API"], "rename cascateia para deps");
+  const removed = removeAgent(renamed, 0);
+  eq(removed.agents[0].deps, [], "remoção limpa deps dos sobreviventes");
+}
+
+// plano vazio não pode ser montado silenciosamente
+{
+  const empty = {
+    ...plano(),
+    agents: [],
+    connections: [],
+    subagents: [],
+    criticalPath: [],
+  };
+  assert(
+    pipelineSetupIssues(empty, []).some((issue) => issue.includes("pelo menos um agente")),
+    "gate explica como recuperar um plano vazio",
+  );
 }
 
 // uniqueRole considera subagentes também

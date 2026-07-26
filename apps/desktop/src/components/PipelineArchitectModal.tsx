@@ -37,8 +37,12 @@ import {
   updateAgent as planUpdateAgent,
   removeAgent as planRemoveAgent,
   addAgent as planAddAgent,
+  addConnection as planAddConnection,
+  updateConnection as planUpdateConnection,
+  removeConnection as planRemoveConnection,
   removeSubagent as planRemoveSubagent,
   applySetupPreset,
+  createManualPlan,
   effectiveAgentRuntime,
   materializeAgentSetup,
   pipelineSetupIssues,
@@ -234,6 +238,47 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
     }
     onClose();
     window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "llm-providers" }));
+  }
+
+  function startManualFlow() {
+    setPlan(createManualPlan());
+    setPlanView("setup");
+    setSavedAt(null);
+    setErr(null);
+  }
+
+  function appendAgent(wave?: number) {
+    if (!plan) return;
+    const nextWave = wave ?? (
+      plan.agents.length === 0
+        ? 1
+        : Math.max(...plan.agents.map((agent) => agent.wave ?? 1)) + 1
+    );
+    setPlan(planAddAgent(plan, nextWave));
+    setErr(null);
+  }
+
+  function appendConnection() {
+    if (!plan || plan.agents.length < 2) {
+      setErr(t("pipe.needTwoAgents", "adicione pelo menos dois agentes para criar uma conexão"));
+      return;
+    }
+    for (const source of plan.agents) {
+      for (const target of plan.agents) {
+        if (source.role.toLowerCase() === target.role.toLowerCase()) continue;
+        const exists = plan.connections.some(
+          (connection) =>
+            connection.from.toLowerCase() === source.role.toLowerCase() &&
+            connection.to.toLowerCase() === target.role.toLowerCase(),
+        );
+        if (!exists) {
+          setPlan(planAddConnection(plan, source.role, target.role));
+          setErr(null);
+          return;
+        }
+      }
+    }
+    setErr(t("pipe.allConnected", "todas as conexões possíveis já foram adicionadas"));
   }
 
   // Monta a topologia COMPLETA no canvas: um OmniAgent (ou terminal claude com role NATIVO,
@@ -523,6 +568,14 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                   {tp.emoji} {tp.label}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={startManualFlow}
+                className="rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-[11px] text-brand hover:border-brand hover:bg-brand/15"
+                title={t("pipe.manualFlowT", "Começa um plano editável sem chamar LLM nem usar um modelo pronto")}
+              >
+                ＋ {t("pipe.manualFlow", "Criar fluxo manual")}
+              </button>
             </div>
             <textarea
               value={desc}
@@ -622,7 +675,13 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
           {plan && (
             <div className="space-y-3 rounded-md border border-border p-3">
               <div className="flex items-start gap-2">
-                <p className="flex-1 text-[13px] text-text">{plan.summary}</p>
+                <input
+                  value={plan.summary}
+                  onChange={(event) => setPlan({ ...plan, summary: event.target.value })}
+                  aria-label={t("pipe.flowObjective", "Objetivo do fluxo")}
+                  placeholder={t("pipe.flowObjectivePh", "Qual é o objetivo deste time?")}
+                  className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-[13px] text-text outline-none hover:border-border focus:border-brand focus:bg-bg/40"
+                />
                 {(() => {
                   const built = plan.agents.filter((a) => builtLabels.includes(a.role.toLowerCase())).length;
                   return (
@@ -672,8 +731,39 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
               )}
 
               {/* O plano passou a ser editável: role pode mudar, então o índice real do agente (não o role) é a chave dos cards. */}
-              {planView === "structure" && <div className="flex gap-3 overflow-x-auto pb-1">
-                {waves.map((w) => (
+              {planView === "structure" && (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="mr-auto text-[10px] text-textMuted">
+                      {t("pipe.structureExplain", "Organize as ondas e desenhe quem entrega para quem.")}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => appendAgent()}
+                      className="rounded-md border border-brand/40 bg-brand/10 px-2.5 py-1 text-[10px] text-brand hover:bg-brand/15"
+                    >
+                      ＋ {t("pipe.addAgent", "Adicionar agente")}
+                    </button>
+                  </div>
+
+                  {plan.agents.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-border px-4 py-6 text-center">
+                      <Bot size={22} className="text-brand" />
+                      <div>
+                        <p className="text-[12px] text-text">{t("pipe.emptyTeam", "Seu fluxo ainda não tem agentes")}</p>
+                        <p className="text-[10px] text-textMuted">{t("pipe.emptyTeamHint", "Adicione o primeiro papel e configure como ele vai operar.")}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => appendAgent(1)}
+                        className="rounded-md bg-brand px-3 py-1.5 text-[11px] text-bg hover:bg-brand-hover"
+                      >
+                        ＋ {t("pipe.addFirstAgent", "Adicionar primeiro agente")}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-3 overflow-x-auto pb-1">
+                      {waves.map((w) => (
                   <div key={w} className="min-w-[210px] flex-1 space-y-1.5">
                     <div className="text-[10px] uppercase tracking-wider text-textMuted">
                       {t("pipe.wave", "onda")} {w}
@@ -730,6 +820,17 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                             className="w-full resize-none rounded border border-border/60 bg-bg/40 px-1 py-0.5 text-[11px] outline-none focus:border-brand"
                           />
 
+                          <label className="flex items-center gap-1.5 text-[9px] uppercase tracking-wider text-textMuted">
+                            {t("pipe.wave", "onda")}
+                            <input
+                              type="number"
+                              min={1}
+                              value={a.wave ?? 1}
+                              onChange={(event) => setPlan(planUpdateAgent(plan, i, { wave: Number(event.target.value) || 1 }))}
+                              className="w-14 rounded border border-border/60 bg-bg/40 px-1 py-0.5 text-[10px] text-text outline-none focus:border-brand"
+                            />
+                          </label>
+
                           {plan.subagents
                             .filter((s) => s.parent?.toLowerCase() === a.role.toLowerCase())
                             .map((s) => (
@@ -755,20 +856,83 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                       + agente
                     </button>
                   </div>
-                ))}
-              </div>}
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
 
               {/* Conexões */}
-              {planView === "structure" && plan.connections.length > 0 && (
-                <div>
-                  <div className="mb-1 text-[10px] uppercase tracking-wider text-textMuted">{t("pipe.connections", "Conexões")}</div>
-                  <div className="flex flex-wrap gap-1">
-                    {plan.connections.map((c, i) => (
-                      <span key={i} className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-text/80" title={c.why}>
-                        {c.from} <span className="text-brand">→</span> {c.to}
-                      </span>
-                    ))}
+              {planView === "structure" && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="text-[10px] uppercase tracking-wider text-textMuted">
+                      {t("pipe.connections", "Conexões")}
+                    </div>
+                    <span className="mr-auto text-[9px] text-textMuted">
+                      {t("pipe.connectionsHint", "a saída de um agente alimenta o próximo")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={appendConnection}
+                      disabled={plan.agents.length < 2}
+                      className="rounded border border-border px-2 py-1 text-[10px] text-textMuted hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      ＋ {t("pipe.addConnection", "Adicionar conexão")}
+                    </button>
                   </div>
+
+                  {plan.connections.length === 0 ? (
+                    <div className="rounded border border-dashed border-border/60 px-2 py-2 text-[10px] text-textMuted">
+                      {t("pipe.noConnections", "Sem conexões: os agentes começam em paralelo. Adicione uma conexão para criar uma sequência.")}
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {plan.connections.map((connection, index) => (
+                        <div
+                          key={`${connection.from}-${connection.to}-${index}`}
+                          className="grid grid-cols-[minmax(120px,0.8fr)_auto_minmax(120px,0.8fr)_minmax(160px,1.4fr)_auto] items-center gap-1.5 rounded border border-border/60 bg-bg/30 p-1.5"
+                        >
+                          <select
+                            value={connection.from}
+                            aria-label={t("pipe.connectionSource", "Agente de origem")}
+                            onChange={(event) => setPlan(planUpdateConnection(plan, index, { from: event.target.value }))}
+                            className={`${sel} min-w-0 py-1 text-[10px]`}
+                          >
+                            {plan.agents.map((agent) => (
+                              <option key={agent.role} value={agent.role}>{agent.role}</option>
+                            ))}
+                          </select>
+                          <span className="text-brand">→</span>
+                          <select
+                            value={connection.to}
+                            aria-label={t("pipe.connectionTarget", "Agente de destino")}
+                            onChange={(event) => setPlan(planUpdateConnection(plan, index, { to: event.target.value }))}
+                            className={`${sel} min-w-0 py-1 text-[10px]`}
+                          >
+                            {plan.agents.map((agent) => (
+                              <option key={agent.role} value={agent.role}>{agent.role}</option>
+                            ))}
+                          </select>
+                          <input
+                            value={connection.why}
+                            aria-label={t("pipe.connectionDelivery", "O que é entregue nesta conexão")}
+                            placeholder={t("pipe.connectionWhyPh", "o que passa entre eles")}
+                            onChange={(event) => setPlan(planUpdateConnection(plan, index, { why: event.target.value }))}
+                            className={`${sel} min-w-0 py-1 text-[10px]`}
+                          />
+                          <button
+                            type="button"
+                            title={t("pipe.removeConnection", "Remover conexão")}
+                            onClick={() => setPlan(planRemoveConnection(plan, index))}
+                            className="rounded p-1 text-textMuted hover:bg-danger/10 hover:text-danger"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -795,20 +959,46 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                         {t("pipe.setupExplain", "O runtime define o processo; o modelo define a inteligência. Use o preset no rodapé e ajuste as exceções aqui.")}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void openProvidersCentral();
-                      }}
-                      className="shrink-0 text-[10px] text-brand hover:underline"
-                    >
-                      {t("pipe.manageProviders", "Gerenciar Central de API")}
-                    </button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => appendAgent()}
+                        className="rounded-md border border-brand/40 bg-brand/10 px-2.5 py-1 text-[10px] text-brand hover:bg-brand/15"
+                      >
+                        ＋ {t("pipe.addAgent", "Adicionar agente")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void openProvidersCentral();
+                        }}
+                        className="text-[10px] text-brand hover:underline"
+                      >
+                        {t("pipe.manageProviders", "Gerenciar Central de API")}
+                      </button>
+                    </div>
                   </div>
 
                   {pipelineSetupIssues(materializeAgentSetup(plan, mountAs), providers).length > 0 && (
                     <div className="rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[10px] text-amber-200">
                       {pipelineSetupIssues(materializeAgentSetup(plan, mountAs), providers).join(" · ")}
+                    </div>
+                  )}
+
+                  {plan.agents.length === 0 && (
+                    <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-border px-4 py-6 text-center">
+                      <Bot size={22} className="text-brand" />
+                      <div>
+                        <p className="text-[12px] text-text">{t("pipe.emptySetup", "Adicione um agente para começar seu setup")}</p>
+                        <p className="text-[10px] text-textMuted">{t("pipe.emptySetupHint", "Você poderá escolher nome, missão, etapa, runtime, provider e modelo.")}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => appendAgent(1)}
+                        className="rounded-md bg-brand px-3 py-1.5 text-[11px] text-bg hover:bg-brand-hover"
+                      >
+                        ＋ {t("pipe.addFirstAgent", "Adicionar primeiro agente")}
+                      </button>
                     </div>
                   )}
 
@@ -828,17 +1018,68 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                               <Bot size={14} />
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="truncate text-[12px] font-medium text-text">{agent.role}</div>
-                              <div className="line-clamp-1 text-[10px] text-textMuted" title={agent.why}>
-                                {agent.why || t("pipe.noMission", "sem responsabilidade descrita")}
-                              </div>
+                              <label className="block text-[9px] uppercase tracking-wider text-textMuted">
+                                {t("pipe.agentName", "Nome / papel")}
+                              </label>
+                              <input
+                                value={agent.role}
+                                aria-label={`${t("pipe.agentName", "Nome / papel")} ${index + 1}`}
+                                onChange={(event) => setPlan(planUpdateAgent(plan, index, { role: event.target.value }))}
+                                className={`${sel} mt-1 w-full py-1 text-[11px] font-medium`}
+                              />
                             </div>
-                            <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-textMuted">
-                              {t("pipe.wave", "onda")} {agent.wave ?? 1}
-                            </span>
+                            <label className="w-16 text-[9px] uppercase tracking-wider text-textMuted">
+                              {t("pipe.wave", "onda")}
+                              <input
+                                type="number"
+                                min={1}
+                                value={agent.wave ?? 1}
+                                aria-label={`${t("pipe.wave", "onda")} ${agent.role}`}
+                                onChange={(event) => setPlan(planUpdateAgent(plan, index, { wave: Number(event.target.value) || 1 }))}
+                                className={`${sel} mt-1 w-full py-1 text-center text-[10px]`}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              title={t("pipe.rmAgent", "remover este agente do plano (tira também os subagentes e conexões dele)")}
+                              onClick={() => setPlan(planRemoveAgent(plan, index))}
+                              className="rounded p-1 text-textMuted hover:bg-danger/10 hover:text-danger"
+                            >
+                              <X size={13} />
+                            </button>
                           </div>
 
                           <label className="block text-[9px] uppercase tracking-wider text-textMuted">
+                            {t("pipe.agentMission", "Missão / responsabilidade")}
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={agent.why}
+                            aria-label={`${t("pipe.agentMission", "Missão / responsabilidade")} ${agent.role}`}
+                            placeholder={t("pipe.whyPh", "o que este agente faz")}
+                            onChange={(event) => setPlan(planUpdateAgent(plan, index, { why: event.target.value }))}
+                            className={`${sel} mt-1 w-full resize-none py-1 text-[11px]`}
+                          />
+
+                          {plan.floors.length > 1 && (
+                            <>
+                              <label className="mt-2 block text-[9px] uppercase tracking-wider text-textMuted">
+                                {t("pipe.floor", "Paralelo / floor")}
+                              </label>
+                              <select
+                                value={agent.floor ?? ""}
+                                onChange={(event) => setPlan(planUpdateAgent(plan, index, { floor: event.target.value || undefined }))}
+                                className={`${sel} mt-1 w-full text-[11px]`}
+                              >
+                                <option value="">{t("pipe.noFloor", "— sem paralelo —")}</option>
+                                {plan.floors.map((floor) => (
+                                  <option key={floor.name} value={floor.name}>{floor.name}</option>
+                                ))}
+                              </select>
+                            </>
+                          )}
+
+                          <label className="mt-2 block text-[9px] uppercase tracking-wider text-textMuted">
                             {t("pipe.runtime", "Runtime / motor")}
                           </label>
                           <select
@@ -961,7 +1202,12 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
             <button onClick={() => void save()} className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-text hover:bg-surface2">
               <Save size={13} /> {t("pipe.saveBtn", "Salvar plano")}
             </button>
-            <button onClick={() => void build()} className="flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs text-bg hover:bg-brand-hover">
+            <button
+              onClick={() => void build()}
+              disabled={plan.agents.length === 0}
+              title={plan.agents.length === 0 ? t("pipe.buildNeedsAgent", "Adicione pelo menos um agente antes de montar") : undefined}
+              className="flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs text-bg hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-35"
+            >
               <Network size={13} /> {t("pipe.build", "Montar no canvas")}
             </button>
           </footer>
