@@ -16,6 +16,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # O license-worker vive fora dos workspaces (services/) e tem lockfile próprio →
+  # o `npm ci` da raiz NÃO o instala e nada rodava os testes dele: a suíte ficou
+  # meses quebrada (pool-workers da raiz + workerd velho) sem ninguém ver. Job
+  # separado e barato, em paralelo ao smoke.
+  license-worker:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/license-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Testes (vitest-pool-workers)
+        run: npx vitest run
+
+      # Pega config/binding quebrado sem publicar nada.
+      - name: Deploy dry-run
+        run: npx wrangler deploy --dry-run
+
   smoke:
     runs-on: ubuntu-22.04
     timeout-minutes: 45

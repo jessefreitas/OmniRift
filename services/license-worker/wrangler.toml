@@ -5,6 +5,13 @@ main = "src/index.ts"
 compatibility_date = "2026-06-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Sem isto, todo console.log/error do Worker morre no vazio: só aparecia pra quem
+# estivesse com `wrangler tail` aberto NAQUELE segundo. Foi assim que uma falha de
+# e-mail poderia durar dias sem ninguém ver (ver eventos email_* no D1 também).
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [[d1_databases]]
 binding = "DB"
 database_name = "omnirift-licenses"

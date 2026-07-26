@@ -80,13 +80,11 @@ export async function signupBeta(env: Env, body: SignupBetaBody): Promise<BetaRe
         /* best-effort */
       }
     }
-    if (env.SMTP_USER) {
-      try {
-        await sendEmail(env, email, "Você é beta tester do OmniRift 🚀", betaEmailHtml(env, lic.trial_ends_at as number));
-      } catch {
-        /* best-effort */
-      }
-    }
+    // sendEmail já é best-effort (não lança) e sozinho decide se há SMTP configurado;
+    // o licenseId faz o resultado virar evento email_sent/email_failed no D1.
+    await sendEmail(env, email, "Você é beta tester do OmniRift 🚀", betaEmailHtml(env, lic.trial_ends_at as number), {
+      licenseId: lic.id,
+    });
   }
 
   return { licenseKey: lic.id, entitlement, status: "beta", betaEndsAt: lic.trial_ends_at as number };
