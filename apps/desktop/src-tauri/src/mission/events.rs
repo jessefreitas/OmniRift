@@ -157,10 +157,10 @@ pub fn validate_chain(
     let mut details = Vec::new();
     let kinds: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
 
-    if !kinds.iter().any(|k| *k == "brief_received") {
+    if !kinds.contains(&"brief_received") {
         details.push("faltando brief_received".into());
     }
-    if !kinds.iter().any(|k| *k == "plan_committed") {
+    if !kinds.contains(&"plan_committed") {
         details.push("faltando plan_committed".into());
     }
 
@@ -192,7 +192,7 @@ pub fn validate_chain(
         }
     }
 
-    let has_delivered = kinds.iter().any(|k| *k == "delivered");
+    let has_delivered = kinds.contains(&"delivered");
     // Último gate vence (permite retry: gate_failed → gate_passed → delivered).
     let last_gate = events
         .iter()

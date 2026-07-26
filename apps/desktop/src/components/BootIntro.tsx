@@ -42,11 +42,12 @@ export function BootIntro({ onDone }: { onDone: () => void }) {
   const [results, setResults] = useState<ProbeResult[]>([]);
   const [voice, setVoiceState] = useState<BootVoice>(getBootVoice());
   const aliveRef = useRef(true);
-  const phaseRef = useRef(phase); phaseRef.current = phase;
+  const phaseRef = useRef(phase);
   const greetRef = useRef<Promise<boolean> | null>(null); // saudação em voo (disparada no ignite)
   const enteredRef = useRef(false);
 
   useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; stopAudio(); }; }, []);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   const startLoading = useCallback(() => {
     setPhase("loading");

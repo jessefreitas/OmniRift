@@ -1,6 +1,6 @@
 {
   "name": "omnirift",
-  "version": "0.1.144",
+  "version": "0.1.145",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -9,8 +9,10 @@
   "scripts": {
     "dev": "npm run dev --workspace=apps/desktop",
     "build": "npm run build --workspace=apps/desktop",
+    "build:pocket": "npm run build:pocket --workspace=apps/desktop",
     "tauri:dev": "npm run tauri:dev --workspace=apps/desktop",
     "tauri:build": "npm run tauri:build --workspace=apps/desktop",
+    "tauri:build:pocket": "npm run tauri:build:pocket --workspace=apps/desktop",
     "install:macos-dev": "bash scripts/install-macos-dev.sh",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

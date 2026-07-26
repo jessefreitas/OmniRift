@@ -249,7 +249,7 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   const resumeRef = useRef<string | null>(null); // pendente: resumir esta sessão no próximo spawn
   const spawnedResumeRef = useRef(false); // o spawn atual usou resume? (pra fallback se o resume morrer 129)
   // Config BYOK do Hermes escolhida no wizard (com a key) — em memória só (a key NUNCA vai pro
-  // store/disco). data.providerConfig persiste só {provider,model}; a key mora no keychain do SO.
+  // store/disco). data.providerConfig persiste metadados + credentialId; a key mora no keychain.
   const hermesCfgRef = useRef<HermesProviderConfig | null>(null);
   // Claude expõe o modelo como configOption (não `models`). Quando é o caso, guardamos o configId
   // ("model") aqui → o dropdown troca via session/set_config_option em vez de session/set_model.
@@ -644,6 +644,25 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
         if (hit && hit.modelId !== cur) {
           void acpSetConfigOption(id, modelConfigIdRef.current, hit.modelId);
           cur = hit.modelId;
+        }
+      } else if (wantModel && data.provider === "codex" && avail.length) {
+        // Codex expõe modelos pelo canal ACP padrão. Um setup salvo pode pedir um modelo
+        // específico antes do spawn; aplicamos a escolha confirmável no mesmo ready.
+        const want = wantModel.toLowerCase();
+        const hit = avail.find(
+          (m) => m.modelId.toLowerCase() === want || (m.name ?? "").toLowerCase() === want,
+        );
+        const targetModel = hit?.modelId ?? wantModel;
+        if (targetModel !== cur) {
+          // ID manual também é tentado: o adapter confirma ou emite model-rejected, que
+          // restaura o modelo real. Assim o setup não finge ter aplicado uma escolha.
+          void acpSetModel(id, targetModel);
+          cur = targetModel;
+          setAvailableModels((prev) =>
+            prev.some((m) => m.modelId === targetModel)
+              ? prev
+              : [{ modelId: targetModel, name: wantModel }, ...prev],
+          );
         }
       }
       if (cur) setModel(cur);
@@ -1276,11 +1295,18 @@ function AgentNodeImpl({ data, selected }: AgentNodeProps) {
     }
   }
 
-  // Wizard Hermes concluído: guarda a config (com a key, em memória) + persiste só {provider,model}
-  // no nó, e re-spawna (o backend injeta as env vars → sessão nasce autenticada, sem login travado).
+  // Wizard Hermes concluído: guarda a config (com a key, em memória) + persiste só metadados
+  // não secretos no nó. O backend resolve a credencial no keychain nos próximos spawns.
   function configureHermes(cfg: HermesProviderConfig) {
     hermesCfgRef.current = cfg;
-    patchNode(data.id, { providerConfig: { provider: cfg.provider, model: cfg.model } });
+    patchNode(data.id, {
+      providerConfig: {
+        provider: cfg.provider,
+        model: cfg.model,
+        credentialId: cfg.credentialId,
+        baseUrl: cfg.baseUrl,
+      },
+    });
     setStatus("starting");
     setReloadKey((k) => k + 1);
   }

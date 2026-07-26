@@ -29,6 +29,7 @@ export interface HermesProviderConfig {
   model: string;
   key: string;
   baseUrl?: string;
+  credentialId?: string;
 }
 
 export function HermesWizard({
@@ -42,6 +43,7 @@ export function HermesWizard({
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [provider, setProvider] = useState<Provider | null>(null);
+  const [credentialId, setCredentialId] = useState<string | null>(null);
   const [key, setKey] = useState<string>("");
   const [models, setModels] = useState<string[]>([]);
   const [search, setSearch] = useState<string>("");
@@ -73,6 +75,7 @@ export function HermesWizard({
 
   const handleSelectProvider = useCallback((p: Provider) => {
     setProvider(p);
+    setCredentialId(null);
     setKey("");
     setModels([]);
     setSearch("");
@@ -105,6 +108,7 @@ export function HermesWizard({
         const r = await llmProviderResolve(sp.id);
         const syn: Provider = { id: sp.kind, label: sp.label, baseUrl: r.baseUrl, needsKey: true, hint: sp.kind };
         setProvider(syn);
+        setCredentialId(sp.id);
         setKey(r.key);
         setModels([]);
         setSearch("");
@@ -136,9 +140,10 @@ export function HermesWizard({
         model: modelId.trim(),
         key: provider.needsKey ? key.trim() : "",
         baseUrl: provider.baseUrl,
+        credentialId: credentialId ?? undefined,
       });
     },
-    [onDone, provider, key]
+    [onDone, provider, key, credentialId]
   );
 
   const handleManualDone = useCallback(() => {
@@ -148,8 +153,9 @@ export function HermesWizard({
       model: manualModel.trim(),
       key: provider.needsKey ? key.trim() : "",
       baseUrl: provider.baseUrl,
+      credentialId: credentialId ?? undefined,
     });
-  }, [onDone, provider, manualModel, key]);
+  }, [onDone, provider, manualModel, key, credentialId]);
 
   const handleBack = useCallback(() => {
     if (step === 3) {
@@ -162,13 +168,6 @@ export function HermesWizard({
       setStep(1);
     }
   }, [step, provider]);
-
-  useEffect(() => {
-    if (step === 3) {
-      setSearch("");
-      setManualModel("");
-    }
-  }, [step]);
 
   const filteredModels = models.filter((m) =>
     m.toLowerCase().includes(search.toLowerCase())

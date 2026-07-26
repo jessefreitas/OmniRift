@@ -139,7 +139,7 @@ export function ReleaseNotesModal({ onClose }: Props) {
         <footer className="flex items-center gap-3 px-4 py-2 border-t border-border shrink-0">
           <Rocket size={12} className="text-textMuted opacity-70 shrink-0" />
           <span className="text-[10px] text-textMuted opacity-70">
-            {t("releases.count", "77 versões · desde 2026-06-19")}
+            {RELEASES.length} {t("releases.versionsSince", "versões · desde 2026-06-19")}
           </span>
           <div className="flex-1" />
           {q && (

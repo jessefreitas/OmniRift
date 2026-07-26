@@ -13,6 +13,7 @@ import {
   Check, Copy, ExternalLink, Flag, KeyRound, Lock, Network, Palette,
   Server, Settings as SettingsIcon, Shield, SlidersHorizontal, Sparkles, User, X,
   LifeBuoy,
+  Layers3,
 } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
@@ -27,6 +28,7 @@ import {
   type ShellId,
   type ShellPref,
 } from "@/lib/shell";
+import { useExperienceModeStore } from "@/lib/experience-mode";
 
 const PRICING_URL = "https://omnirift.omniforge.com.br/";
 
@@ -324,9 +326,44 @@ function GeneralTab({ openTool }: { openTool: (tool: string) => void }) {
   const t = useT();
   const locale = useI18n((s) => s.locale);
   const setLocale = useI18n((s) => s.setLocale);
+  const mode = useExperienceModeStore((s) => s.mode);
+  const setMode = useExperienceModeStore((s) => s.setMode);
   return (
     <div className="space-y-4">
       <span className="text-sm font-semibold text-text">{t("settings.general", "Geral")}</span>
+
+      <div className="rounded-lg border border-border bg-surface2/40 p-3">
+        <div className="flex items-start gap-2">
+          <Layers3 size={15} className="mt-0.5 shrink-0 text-brand" />
+          <div className="min-w-0 flex-1">
+            <span className="block text-text font-medium">
+              {t("settings.experience", "Experiência do OmniRift")}
+            </span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-textMuted">
+              {mode === "pocket"
+                ? t("settings.pocketDesc", "Pocket prioriza projeto, equipe e execução. Recursos avançados ficam ocultos, sem apagar nada.")
+                : t("settings.fullDesc", "Completa mostra todas as ferramentas de engenharia e orquestração.")}
+            </span>
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-1 rounded-md bg-bg/50 p-1">
+          {([
+            ["pocket", t("settings.pocket", "Pocket")],
+            ["full", t("settings.full", "Completa")],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => setMode(value)}
+              className={
+                "rounded px-3 py-1.5 text-[11px] transition-colors "
+                + (mode === value ? "bg-brand text-bg font-medium" : "text-textMuted hover:bg-surface2 hover:text-text")
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="flex items-center gap-2">
         <span className="text-[11px] uppercase tracking-wider text-textMuted w-20">{t("appearance.language", "Idioma")}</span>

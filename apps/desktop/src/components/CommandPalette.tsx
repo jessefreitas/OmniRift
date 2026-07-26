@@ -12,6 +12,8 @@ import { Command } from "lucide-react";
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
+import { usePocketMode } from "@/lib/experience-mode";
+import { isPocketCommandId } from "@/lib/experience-mode-core";
 
 interface Cmd {
   id: string;
@@ -23,6 +25,7 @@ interface Cmd {
 
 export function CommandPalette() {
   const t = useT();
+  const pocket = usePocketMode();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
@@ -84,6 +87,10 @@ export function CommandPalette() {
     const openTool = (tool: string) =>
       act(() => window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: tool })));
     const openCmds: Cmd[] = [
+      { id: "open-pipeline", label: t("pocket.setup", "Montar equipe de agentes"), category: t("palette.catOpen", "Abrir"), run: openTool("pipeline") },
+      { id: "open-providers", label: t("palette.openProviders", "Abrir: Providers de IA"), category: t("palette.catOpen", "Abrir"), run: openTool("llm-providers") },
+      { id: "open-kanban", label: t("palette.openKanban", "Abrir: Kanban"), category: t("palette.catOpen", "Abrir"), run: openTool("kanban") },
+      { id: "open-settings", label: t("palette.openSettings", "Abrir: Configurações"), category: t("palette.catOpen", "Abrir"), run: openTool("settings") },
       { id: "open-routines", label: t("palette.openRoutines", "Abrir: Routines"), category: t("palette.catOpen", "Abrir"), run: openTool("routines") },
       { id: "open-snapshots", label: t("palette.openSnapshots", "Abrir: Snapshots do canvas"), category: t("palette.catOpen", "Abrir"), run: openTool("snapshots") },
       { id: "open-hooks", label: t("palette.openHooks", "Abrir: Hooks do paralelo"), category: t("palette.catOpen", "Abrir"), run: openTool("hooks") },
@@ -98,8 +105,11 @@ export function CommandPalette() {
       { id: "open-code-metrics", label: t("palette.openCodeMetrics", "Abrir: Complexidade do Projeto"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("code-metrics") },
       { id: "open-turbo", label: t("palette.openTurbo", "Abrir: TURBO mode (loop autônomo)"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("turbo") },
     ];
-    return [...create, ...floorCmds, ...openCmds];
-  }, [open, t]);
+    const all = [...create, ...floorCmds, ...openCmds];
+    if (!pocket) return all;
+
+    return all.filter((command) => isPocketCommandId(command.id));
+  }, [pocket, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -107,8 +117,7 @@ export function CommandPalette() {
     return commands.filter((c) => c.label.toLowerCase().includes(q) || c.category.toLowerCase().includes(q));
   }, [commands, query]);
 
-  // Mantém a seleção dentro dos limites quando o filtro muda.
-  useEffect(() => { setSel((s) => Math.min(s, Math.max(0, filtered.length - 1))); }, [filtered.length]);
+  const safeSelection = Math.min(sel, Math.max(0, filtered.length - 1));
 
   if (!open) return null;
 
@@ -120,7 +129,7 @@ export function CommandPalette() {
   function onKey(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(s + 1, filtered.length - 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)); }
-    else if (e.key === "Enter") { e.preventDefault(); runAt(sel); }
+    else if (e.key === "Enter") { e.preventDefault(); runAt(safeSelection); }
   }
 
   return createPortal(
@@ -153,7 +162,7 @@ export function CommandPalette() {
                 onClick={() => runAt(i)}
                 className={cn(
                   "w-full flex items-center gap-2 px-3 py-1.5 text-left text-[13px]",
-                  i === sel ? "bg-surface2 text-text" : "text-textMuted",
+                  i === safeSelection ? "bg-surface2 text-text" : "text-textMuted",
                   c.disabled && "opacity-40 cursor-not-allowed",
                 )}
               >

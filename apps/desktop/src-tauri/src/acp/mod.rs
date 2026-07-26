@@ -134,6 +134,10 @@ pub struct ProviderConfig {
     pub key: String,
     #[serde(default)]
     pub base_url: Option<String>,
+    /// Referência não secreta à entrada da Central de API. Permite um setup salvo nascer
+    /// autenticado sem serializar a chave no canvas.
+    #[serde(default)]
+    pub credential_id: Option<String>,
 }
 
 /// Mapeia config BYOK do Hermes ACP para as variáveis de ambiente do adapter Hermes.
@@ -586,12 +590,18 @@ impl AcpManager {
         // re-spawns o front manda vazia e resolvemos daqui (nunca serializada no canvas).
         if provider.as_deref() == Some("hermes") {
             if let Some(pc) = provider_config.as_ref().filter(|p| !p.provider.is_empty()) {
-                let account = format!("hermes.{}.api_key", pc.provider);
+                let legacy_account = format!("hermes.{}.api_key", pc.provider);
                 let key_eff = if !pc.key.is_empty() {
-                    let _ = crate::memory::secret_store::set(&account, &pc.key);
+                    let _ = crate::memory::secret_store::set(&legacy_account, &pc.key);
                     pc.key.clone()
                 } else {
-                    crate::memory::secret_store::get(&account).unwrap_or_default()
+                    pc.credential_id
+                        .as_deref()
+                        .and_then(|id| {
+                            crate::memory::secret_store::get(&format!("credential.llm.{id}"))
+                        })
+                        .or_else(|| crate::memory::secret_store::get(&legacy_account))
+                        .unwrap_or_default()
                 };
                 for (k, v) in
                     hermes_provider_env(&pc.provider, &pc.model, &key_eff, pc.base_url.as_deref())
@@ -1278,6 +1288,21 @@ struct PermissionEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_config_aceita_referencia_segura_da_central() {
+        let cfg: ProviderConfig = serde_json::from_value(json!({
+            "provider": "openrouter",
+            "model": "vendor/model",
+            "credentialId": "router-principal",
+            "baseUrl": "https://example.invalid/v1"
+        }))
+        .expect("contrato camelCase do frontend");
+
+        assert_eq!(cfg.credential_id.as_deref(), Some("router-principal"));
+        assert_eq!(cfg.base_url.as_deref(), Some("https://example.invalid/v1"));
+        assert!(cfg.key.is_empty(), "a chave não entra no plano serializado");
+    }
 
     /// Contador + mapa: ids monotônicos, kinds distintos, take consome (stale = None).
     #[tokio::test]

@@ -1,6 +1,16 @@
 // testes caseiros para pipeline-edit.ts — runner executa o bundle com node e usa exit code
 
-import { uniqueRole, updateAgent, removeAgent, addAgent, removeSubagent } from "./pipeline-edit";
+import {
+  uniqueRole,
+  updateAgent,
+  removeAgent,
+  addAgent,
+  removeSubagent,
+  applySetupPreset,
+  effectiveAgentRuntime,
+  materializeAgentSetup,
+  pipelineSetupIssues,
+} from "./pipeline-edit";
 import type { PipelinePlan } from "./pipeline-client";
 
 let pass = 0;
@@ -128,6 +138,41 @@ function plano(): PipelinePlan {
   const s = removeSubagent(plano(), "backend", "MIGRATIONS");
   eq(s.subagents.length, 0, "casamento é case-insensitive");
   eq(s.agents.length, 3, "remover subagente não mexe nos agentes");
+}
+
+// setup legado: presets viram runtimes reais e o híbrido escolhe o líder pela menor onda
+{
+  const p = plano();
+  eq(effectiveAgentRuntime(p, 0, "hybrid"), "claude-acp", "líder do híbrido nasce coordenador ACP");
+  eq(effectiveAgentRuntime(p, 1, "hybrid"), "claude-terminal", "worker do híbrido nasce executor");
+  eq(effectiveAgentRuntime(p, 2, "agent"), "claude-acp", "preset ACP vale para todo agente");
+  eq(effectiveAgentRuntime(p, 2, "terminal"), "claude-terminal", "preset terminal vale para todo agente");
+}
+
+// override por agente sobrevive à materialização; preset explícito sobrescreve em lote
+{
+  const p = plano();
+  p.agents[1].runtime = "codex-acp";
+  const materialized = materializeAgentSetup(p, "hybrid");
+  eq(materialized.agents.map((a) => a.runtime), ["claude-acp", "codex-acp", "claude-terminal"], "materialização preserva override individual");
+  materialized.agents[1].model = "provider/modelo-custom";
+  const allTerminal = applySetupPreset(materialized, "terminal");
+  eq(allTerminal.agents.map((a) => a.runtime), ["claude-terminal", "claude-terminal", "claude-terminal"], "preset em lote sobrescreve runtimes");
+  eq(allTerminal.agents[1].model, undefined, "preset Claude limpa modelo incompatível de outro runtime");
+}
+
+// Hermes não pode montar sem provider existente + modelo (explícito ou default)
+{
+  const p = plano();
+  p.agents[0] = { ...p.agents[0], runtime: "hermes-acp", model: undefined };
+  assert(pipelineSetupIssues(p, []).some((x) => x.includes("provider")), "Hermes sem provider é bloqueado");
+  p.agents[0].providerId = "router";
+  assert(pipelineSetupIssues(p, [{ id: "router" }]).some((x) => x.includes("modelo")), "Hermes sem modelo é bloqueado");
+  assert(
+    pipelineSetupIssues(p, [{ id: "router", kind: "openrouter", hasKey: false, model: "modelo-default" }]).some((x) => x.includes("chave")),
+    "provider remoto sem chave é bloqueado",
+  );
+  eq(pipelineSetupIssues(p, [{ id: "router", model: "modelo-default" }]), [], "modelo default do provider completa o setup");
 }
 
 console.log(`\n${pass} passaram, ${fail} falharam`);

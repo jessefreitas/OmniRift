@@ -24,6 +24,7 @@ import { mcpServersImportGlobal } from "@/lib/mcp-servers-client";
 import { notify } from "@/lib/notify";
 import { useT } from "@/lib/i18n";
 import { useOrchestrationWatchdog } from "@/hooks/useOrchestrationWatchdog";
+import { usePocketMode } from "@/lib/experience-mode";
 
 export default function App() {
   // Watchdog da orquestração: cobra o líder quando o time trava esperando as
@@ -31,10 +32,11 @@ export default function App() {
   useOrchestrationWatchdog();
 
   const tr = useT();
+  const pocket = usePocketMode();
 
   // Intro FRIDAY (flag boot-intro): cobre a tela na abertura até o usuário entrar.
   // introDone sobe no onDone → some pra sempre nesta sessão (não re-monta em re-render).
-  const bootIntroOn = useFlag("boot-intro");
+  const bootIntroOn = useFlag("boot-intro") && !pocket;
   const [introDone, setIntroDone] = useState(false);
   // Alterna a cada boot: numa vez a armadura JARVIS, na outra o HUD procedural.
   const [useArmor] = useState(() => Math.random() < 0.5);
@@ -215,9 +217,13 @@ export default function App() {
               <Canvas />
             </div>
           </main>
-          <ResourceChip />
-          <FluencyChip />
-          <ResourcePanel />
+          {!pocket && (
+            <>
+              <ResourceChip />
+              <FluencyChip />
+              <ResourcePanel />
+            </>
+          )}
         </>
       )}
       {bootIntroOn && !introDone && (useArmor

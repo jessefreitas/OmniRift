@@ -12,9 +12,12 @@
 import type {
   PipelinePlan,
   PipelineAgent,
+  PipelineAgentRuntime,
   PipelineSubagent,
   PipelineConnection,
 } from "./pipeline-client";
+
+export type PipelineSetupPreset = "terminal" | "hybrid" | "agent";
 
 // Comparação case-insensitive e tolerante a espaços porque o resto do app
 // trata `role` dessa forma; assim evitamos referências “quase iguais”.
@@ -184,4 +187,86 @@ export function removeSubagent(
         !(same(sub.parent, parentRole) && same(sub.role, subRole))
     ),
   };
+}
+
+function presetRuntime(
+  plan: PipelinePlan,
+  index: number,
+  preset: PipelineSetupPreset,
+): PipelineAgentRuntime {
+  if (preset === "terminal") return "claude-terminal";
+  if (preset === "agent") return "claude-acp";
+
+  const firstWave = Math.min(...plan.agents.map((a) => a.wave ?? 1));
+  const leaderIndex = plan.agents.findIndex((a) => (a.wave ?? 1) === firstWave);
+  return index === leaderIndex ? "claude-acp" : "claude-terminal";
+}
+
+/** Runtime sugerido pelo preset para um agente que ainda não tem setup persistido. */
+export function effectiveAgentRuntime(
+  plan: PipelinePlan,
+  index: number,
+  preset: PipelineSetupPreset,
+): PipelineAgentRuntime {
+  return plan.agents[index]?.runtime ?? presetRuntime(plan, index, preset);
+}
+
+/** Aplica um preset em lote. É uma ação explícita da UI, então sobrescreve runtimes anteriores. */
+export function applySetupPreset(
+  plan: PipelinePlan,
+  preset: PipelineSetupPreset,
+): PipelinePlan {
+  return {
+    ...plan,
+    agents: plan.agents.map((agent, index) => ({
+      ...agent,
+      runtime: presetRuntime(plan, index, preset),
+      providerId: undefined,
+      // Preserva as sugestões Claude geradas pelo plano; IDs de Hermes/Codex não devem
+      // vazar para `claude --model` ao aplicar um preset Claude.
+      model: ["haiku", "sonnet", "opus"].includes(agent.model ?? "")
+        ? agent.model
+        : undefined,
+    })),
+  };
+}
+
+/** Materializa apenas campos ausentes, preservando overrides feitos agente por agente. */
+export function materializeAgentSetup(
+  plan: PipelinePlan,
+  preset: PipelineSetupPreset,
+): PipelinePlan {
+  return {
+    ...plan,
+    agents: plan.agents.map((agent, index) => ({
+      ...agent,
+      runtime: effectiveAgentRuntime(plan, index, preset),
+    })),
+  };
+}
+
+/** Gate puro anterior ao Montar: Hermes precisa apontar para provider existente e modelo. */
+export function pipelineSetupIssues(
+  plan: PipelinePlan,
+  providers: Array<{ id: string; model?: string; kind?: string; hasKey?: boolean }>,
+): string[] {
+  const issues: string[] = [];
+  for (const agent of plan.agents) {
+    if (agent.runtime !== "hermes-acp") continue;
+    const provider = providers.find((p) => p.id === agent.providerId);
+    if (!provider) {
+      issues.push(`${agent.role}: escolha um provider da Central de API`);
+      continue;
+    }
+    if (
+      !["local", "lmstudio", "lm-studio"].includes(provider.kind ?? "") &&
+      provider.hasKey === false
+    ) {
+      issues.push(`${agent.role}: o provider escolhido ainda não tem chave salva`);
+    }
+    if (!(agent.model?.trim() || provider.model?.trim())) {
+      issues.push(`${agent.role}: escolha ou informe um modelo`);
+    }
+  }
+  return issues;
 }

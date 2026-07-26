@@ -24,8 +24,10 @@ import { ConstructorBar } from "@/components/ConstructorBar";
 import { useQuickJump } from "@/hooks/useQuickJump";
 import { useRoutines } from "@/hooks/useRoutines";
 import { useConnectionRouting } from "@/hooks/useConnectionRouting";
+import { usePocketMode } from "@/lib/experience-mode";
 
 export function Canvas() {
+  const pocket = usePocketMode();
   const parallels = useCanvasStore((s) => s.parallels);
   const activeParallelId = useCanvasStore((s) => s.activeParallelId);
   const activeProjectId = useCanvasStore((s) => s.activeProjectId);
@@ -59,11 +61,11 @@ export function Canvas() {
       {/* FLEET BAR (#12): progresso agregado dos agentes do floor ativo (≥2 agentes). */}
       <FleetBar />
       {/* OmniGraph F2: importar as comunidades do knowledge graph de código pro canvas. */}
-      <GraphImportButton />
+      {!pocket && <GraphImportButton />}
       {/* Dock onipresente do Orquestrador — visível em qualquer floor. */}
       <OrchestratorDock />
       {/* Modo Conductor — barra de orquestração dentro do canvas (overlay bottom). */}
-      <ConstructorBar />
+      {!pocket && <ConstructorBar />}
       {/* Paleta de comandos (Ctrl/Cmd+K). */}
       <CommandPalette />
     </div>

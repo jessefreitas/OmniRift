@@ -7,8 +7,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { llmChat, type LlmConfig, type LlmProvider } from "@/lib/llm-client";
 import { llmProviderResolve } from "@/lib/llm-providers-client";
 
+/** Processo que executa cada membro do setup. Os valores são persistidos no plano para que
+ *  "Salvar plano" salve também o LLM/runtime escolhido — não apenas a topologia. */
+export type PipelineAgentRuntime =
+  | "claude-terminal"
+  | "claude-acp"
+  | "codex-acp"
+  | "hermes-acp";
+
 export interface PipelineAgent {
   role: string;
+  /** Runtime efetivo deste agente. Ausente em planos legados → o preset do time preenche. */
+  runtime?: PipelineAgentRuntime;
+  /** ID da Central de API quando `runtime === "hermes-acp"`. Nunca contém a chave. */
+  providerId?: string;
   model?: string;
   floor?: string;
   wave?: number;

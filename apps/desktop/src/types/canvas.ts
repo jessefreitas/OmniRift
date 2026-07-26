@@ -211,12 +211,18 @@ export interface AgentNode extends BaseCanvasNode {
   /** Diretório de trabalho passado ao adapter ACP (resolvido p/ absoluto no backend). */
   cwd?: string;
   /**
-   * Config BYOK do Hermes (model-agnostic): qual provider de inferência + modelo. Preenchido
-   * pelo HermesWizard. A API **key NÃO vive aqui** (nem é serializada) — fica no keychain do SO
-   * (`memory/secret_store.rs`, conta `hermes.<provider>.api_key`); o backend resolve no spawn.
-   * Injetado como `HERMES_INFERENCE_PROVIDER`/`HERMES_INFERENCE_MODEL` + `<PROV>_API_KEY`.
+   * Modelo desejado do adapter e, no Hermes, provider de inferência. A API **key NÃO vive
+   * aqui**: `credentialId` referencia a Central de API e o backend resolve o keychain no spawn.
+   * Planos antigos continuam compatíveis pelo fallback `hermes.<provider>.api_key`.
    */
-  providerConfig?: { provider: string; model: string };
+  providerConfig?: {
+    provider: string;
+    model: string;
+    /** Referência à credencial da Central de API; a chave continua só no keychain. */
+    credentialId?: string;
+    /** Endpoint persistível (não secreto) para providers locais/customizados. */
+    baseUrl?: string;
+  };
   /**
    * Persona do agente (papel/role) — injetada como prompt de PRIMING quando a sessão fica ready.
    * Independente do MODELO: trocar o modelo (dropdown) não re-spawna, então a persona (que já
@@ -411,7 +417,12 @@ export interface CanvasNodePatch {
   filePath?: string;
   comment?: string;
   tag?: string;
-  providerConfig?: { provider: string; model: string };
+  providerConfig?: {
+    provider: string;
+    model: string;
+    credentialId?: string;
+    baseUrl?: string;
+  };
   provider?: "claude" | "codex" | "hermes";
   goal?: { objective: string; condition: string; maxIter: number; tokenBudget?: number; maxUnproductive?: number };
   loop?: { prompt: string; everyMin: number; active: boolean };

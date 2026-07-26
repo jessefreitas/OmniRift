@@ -71,7 +71,8 @@ export function OrchestrationDoctorPanel({ onClose }: Props) {
   }, [currentCwd]);
 
   useEffect(() => {
-    void run();
+    const id = window.setTimeout(() => { void run(); }, 0);
+    return () => window.clearTimeout(id);
   }, [run]);
 
   useEffect(() => {

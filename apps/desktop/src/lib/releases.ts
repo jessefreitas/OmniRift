@@ -1,12 +1,12 @@
 // src/lib/releases.ts
 //
-// Central de Releases — histórico COMPLETO de versões do OmniRift (v0.1.0 → v0.1.89),
+// Central de Releases — histórico das versões publicadas do OmniRift,
 // SEM pular nenhuma. Fonte: tags de release do produto. Os `highlights` são a tradução
 // dos assuntos técnicos de cada versão para linguagem que o usuário final entende
 // (evita jargão de commit). Consumido pelo ReleaseNotesModal (dado estático, sem I/O).
 //
-// ⚠️ Requisito do dono: "não quero que pule nem uma desde o início" — este array TEM
-// que ter exatamente 77 entradas, uma por versão publicada. Ordem: MAIS RECENTE PRIMEIRO.
+// ⚠️ Requisito do dono: "não quero que pule nem uma desde o início". Ordem:
+// MAIS RECENTE PRIMEIRO; versões nunca publicadas não entram.
 
 export interface ReleaseEntry {
   /** Versão sem o "v" — ex.: "0.1.89". */
@@ -21,8 +21,62 @@ export interface ReleaseEntry {
   tag?: "feature" | "fix" | "infra";
 }
 
-/** Histórico completo — 77 versões, da mais nova (0.1.89) para a mais antiga (0.1.0). */
+/** Histórico completo, da mais nova para a mais antiga. */
 export const RELEASES: ReleaseEntry[] = [
+  {
+    version: "0.1.145",
+    date: "2026-07-25",
+    title: "OmniRift Pocket e setup completo de agentes",
+    highlights: [
+      "Novo modo Pocket: uma experiência mais direta, centrada em abrir o projeto, montar a equipe, executar e acompanhar o trabalho no canvas.",
+      "Alterne entre Pocket e Completa em Configurações › Geral. Nada é apagado: projetos e canvas continuam os mesmos nos dois modos.",
+      "No Pocket, sidebar, toolbar e paleta mostram só as ações essenciais; overlays e scans avançados ficam fora do caminho para um boot mais leve.",
+      "O Arquiteto de Pipeline ganhou a aba “Setup dos agentes”: escolha runtime, provider, modelo e credencial para cada papel antes de montar.",
+      "Claude Code pode rodar no terminal ou via ACP; Codex e Hermes usam ACP. Configurações aparecem no próprio card do agente e sobrevivem ao reload.",
+      "Chaves continuam protegidas na Central de API/keychain: o plano guarda apenas a referência da credencial, nunca o segredo.",
+      "Novo perfil de build Pocket permite distribuir uma instalação que já abre na experiência simplificada no primeiro boot.",
+    ],
+    tag: "feature",
+  },
+  {
+    version: "0.1.144",
+    date: "2026-07-25",
+    title: "Boot fluido e control plane de missões",
+    highlights: [
+      "Canvas e Sidebar agora esperam o encerramento do intro, evitando disputa entre WebGL, persistência e scans no cold start.",
+      "A saudação não segura mais a entrada no app: voz e tarefas secundárias continuam em background.",
+      "Chegaram missões com first-value, handoff tipado, próximo passo sugerido, verify settle e Doctor da orquestração.",
+      "Novo painel de complexidade do projeto, gate mensurável de fluidez e correções no FileTree e na digitação com IME.",
+      "ACP ganhou correlação de IDs, limpeza de paths e controle de sandbox na UI.",
+    ],
+    tag: "feature",
+  },
+  {
+    version: "0.1.143",
+    date: "2026-07-20",
+    title: "Agentes no Windows, tela preta e estabilidade do PTY",
+    highlights: [
+      "Claude e Codex voltaram a abrir no Windows com instruções longas e caminhos especiais.",
+      "Corrigido o loop de render que podia deixar a tela preta no WebKitGTK.",
+      "O frontend parou de escrever em sessões já encerradas depois de reload, eliminando spam de sessão não encontrada.",
+      "O motivo de encerramento do agente agora aparece no log para facilitar diagnóstico.",
+    ],
+    tag: "fix",
+  },
+  {
+    version: "0.1.142",
+    date: "2026-07-19",
+    title: "PTY confiável e canvas mais fluido",
+    highlights: [
+      "O backend virou a autoridade única para respostas de terminal, removendo corridas e respostas duplicadas que derrubavam CLIs.",
+      "Corrigidas perdas de bytes, sequência futura em eventos, cores dinâmicas e o falso estado ocioso de agentes ativos.",
+      "Agentes sem terminal visível continuam recebendo as respostas de terminal necessárias para não morrer no boot.",
+      "Arrastar agentes voltou a funcionar e mover um nó não força mais o canvas inteiro a renderizar.",
+      "O spawn ACP voltou a respeitar o sandbox e deixou de expor credenciais no processo.",
+      "Ondas do pipeline agora controlam admissão real: apenas a primeira sobe processo imediatamente.",
+    ],
+    tag: "fix",
+  },
   {
     version: "0.1.141",
     date: "2026-07-19",

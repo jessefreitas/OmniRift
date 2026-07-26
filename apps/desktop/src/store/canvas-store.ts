@@ -195,7 +195,20 @@ interface CanvasState {
   addCodeNode: (params: { filePath: string; position?: { x: number; y: number } }) => CodeNode;
   addPdfNode: (params: { filePath: string; position?: { x: number; y: number } }) => PdfNode;
   addHtmlNode: (params: { filePath: string; position?: { x: number; y: number } }) => HtmlNode;
-  addAgent: (params?: { label?: string; cwd?: string; provider?: "claude" | "codex" | "hermes"; providerConfig?: { provider: string; model: string }; persona?: string; position?: { x: number; y: number }; targetFloorId?: string }) => AgentNode;
+  addAgent: (params?: {
+    label?: string;
+    cwd?: string;
+    provider?: "claude" | "codex" | "hermes";
+    providerConfig?: {
+      provider: string;
+      model: string;
+      credentialId?: string;
+      baseUrl?: string;
+    };
+    persona?: string;
+    position?: { x: number; y: number };
+    targetFloorId?: string;
+  }) => AgentNode;
   addSubagent: (params: {
     role: string;
     label: string;
