@@ -31,7 +31,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # wrangler 4 EXIGE Node >= 22 ("Wrangler requires at least Node.js v22").
+          # O job smoke segue no 20 — é o do app, não usa a CLI do wrangler.
+          node-version: 22
 
       - run: npm ci
 
