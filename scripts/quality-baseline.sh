@@ -155,6 +155,10 @@ linha "fmt"    "${BASELINE[fmt]}"    "$FMT_ATUAL"
 if [[ "$PIOROU" -ne 0 ]]; then
   # Imprime O QUE piorou. Sem isto o CI reporta um delta que o dev nao reproduz na
   # propria maquina e o gate vira um muro cego.
+  # A versão da ferramenta entra no relatório: o CI e a máquina do dev contavam
+  # diferente e sem isso não dá pra saber se é ambiente ou código.
+  echo
+  echo "--- ambiente: $(cargo fmt --version 2>/dev/null || echo 'cargo fmt ausente') ---"
   for metrica in fmt clippy; do
     arquivo="$DETAIL_DIR/$metrica.txt"
     [[ -s "$arquivo" ]] || continue
@@ -165,7 +169,7 @@ if [[ "$PIOROU" -ne 0 ]]; then
     # lista do CI com a local pra achar a divergência.
     sed "s#$ROOT/##g; s#/home/runner/work/OmniRift/OmniRift/##g" "$arquivo" \
       | sed 's/^Diff in //; s/:[0-9]*:$//; s/:[0-9]*: .*$//' \
-      | sort | uniq -c | sort -rn | head -60
+      | sort | uniq -c | sort -rn
   done
   exit 1
 fi
