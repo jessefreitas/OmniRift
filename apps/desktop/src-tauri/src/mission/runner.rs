@@ -158,12 +158,7 @@ pub async fn run_mission(state: &McpState, db: &Db, mission_id: &str) -> RunRepo
             };
 
             let result = crate::orchestrator::dispatch_task(
-                state,
-                db,
-                &target,
-                &task_body,
-                None,
-                "blocking",
+                state, db, &target, &task_body, None, "blocking",
             )
             .await;
 
@@ -264,7 +259,12 @@ pub async fn run_mission(state: &McpState, db: &Db, mission_id: &str) -> RunRepo
             EventKind::GateFailed,
             json!({ "report": report }),
         );
-        events::append_event(db, mission_id, EventKind::Failed, json!({ "reason": "verify" }));
+        events::append_event(
+            db,
+            mission_id,
+            EventKind::Failed,
+            json!({ "reason": "verify" }),
+        );
         events::set_mission_status(db, mission_id, "failed");
         RunReport {
             ok: false,
@@ -294,7 +294,11 @@ pub fn status_json(db: &Db, mission_id: &str) -> Value {
 }
 
 /// Verify sob demanda. Se `settle`, grava gate_*/delivered|failed (dock M3).
-pub fn verify_mission(db: &Db, mission_id: &str, settle: bool) -> Result<verify::VerifyReport, String> {
+pub fn verify_mission(
+    db: &Db,
+    mission_id: &str,
+    settle: bool,
+) -> Result<verify::VerifyReport, String> {
     let Some((_, package_json, cwd)) = events::get_mission_package(db, mission_id) else {
         return Err(format!("missão '{mission_id}' não encontrada"));
     };
@@ -332,7 +336,12 @@ pub fn settle_gate(db: &Db, mission_id: &str, report: &verify::VerifyReport) {
             EventKind::GatePassed,
             json!({ "report": report, "source": "verify_settle" }),
         );
-        events::append_event(db, mission_id, EventKind::Delivered, json!({ "source": "verify_settle" }));
+        events::append_event(
+            db,
+            mission_id,
+            EventKind::Delivered,
+            json!({ "source": "verify_settle" }),
+        );
         events::set_mission_status(db, mission_id, "delivered");
     } else {
         events::append_event(

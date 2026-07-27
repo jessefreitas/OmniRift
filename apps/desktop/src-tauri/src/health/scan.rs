@@ -76,7 +76,11 @@ pub fn build_summary(mut files: Vec<FileHealth>, scanned: usize, skipped: usize)
         files.iter().map(|f| f.cyclomatic as f32).sum::<f32>() / total_files as f32
     };
     // Ordena por ciclomática desc; desempate por nome pra ser determinístico.
-    files.sort_by(|a, b| b.cyclomatic.cmp(&a.cyclomatic).then_with(|| a.path.cmp(&b.path)));
+    files.sort_by(|a, b| {
+        b.cyclomatic
+            .cmp(&a.cyclomatic)
+            .then_with(|| a.path.cmp(&b.path))
+    });
     files.truncate(HOTSPOT_CAP);
     ScanSummary {
         total_files,
@@ -294,7 +298,7 @@ mod tests {
         fs::write(root.join("keep.rs"), "fn k() -> i32 { 1 }").unwrap();
         fs::write(root.join("ignored.rs"), "fn i() -> i32 { 1 }").unwrap();
         fs::write(root.join("notes.md"), "# não é código").unwrap(); // sem grammar
-        // node_modules sempre pulado (mesmo sem .gitignore listar).
+                                                                     // node_modules sempre pulado (mesmo sem .gitignore listar).
         fs::create_dir_all(root.join("node_modules")).unwrap();
         fs::write(root.join("node_modules").join("dep.js"), "function d(){}").unwrap();
         // build/ ignorado pelo .gitignore.
@@ -317,12 +321,27 @@ mod tests {
             })
             .collect();
 
-        assert!(names.contains(&"keep.rs".to_string()), "keep.rs deve entrar");
-        assert!(names.contains(&"app.ts".to_string()), "app.ts (subdir) deve entrar");
-        assert!(!names.contains(&"ignored.rs".to_string()), ".gitignore deve esconder");
+        assert!(
+            names.contains(&"keep.rs".to_string()),
+            "keep.rs deve entrar"
+        );
+        assert!(
+            names.contains(&"app.ts".to_string()),
+            "app.ts (subdir) deve entrar"
+        );
+        assert!(
+            !names.contains(&"ignored.rs".to_string()),
+            ".gitignore deve esconder"
+        );
         assert!(!names.contains(&"out.rs".to_string()), "build/ ignorado");
-        assert!(!names.contains(&"dep.js".to_string()), "node_modules sempre pulado");
-        assert!(!names.contains(&"notes.md".to_string()), ".md não tem grammar");
+        assert!(
+            !names.contains(&"dep.js".to_string()),
+            "node_modules sempre pulado"
+        );
+        assert!(
+            !names.contains(&"notes.md".to_string()),
+            ".md não tem grammar"
+        );
     }
 
     #[test]
@@ -345,7 +364,11 @@ mod tests {
         // resolução) E reescreve com conteúdo de TAMANHO diferente (invalida via
         // size também) — a assinatura muda por qualquer um dos dois eixos.
         std::thread::sleep(std::time::Duration::from_millis(1100));
-        fs::write(&f, "fn a(x: bool) {\n    if x {\n        for _ in 0..2 {}\n    }\n}").unwrap();
+        fs::write(
+            &f,
+            "fn a(x: bool) {\n    if x {\n        for _ in 0..2 {}\n    }\n}",
+        )
+        .unwrap();
 
         let h2 = resolve_file(&f, &cache).unwrap();
         assert_eq!(h2.cyclomatic, 3, "cache deve invalidar e recalcular");

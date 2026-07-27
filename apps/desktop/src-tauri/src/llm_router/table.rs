@@ -5,7 +5,8 @@ use crate::llm_router::RoutingTable;
 /// Parseia e valida a tabela. Erros: JSON inválido, classe sem alvos, keyRef vazio,
 /// modelo duplicado dentro de uma classe (ambiguidade no `explicit`).
 pub fn parse(json: &str) -> Result<RoutingTable, String> {
-    let table: RoutingTable = serde_json::from_str(json).map_err(|e| format!("JSON inválido: {e}"))?;
+    let table: RoutingTable =
+        serde_json::from_str(json).map_err(|e| format!("JSON inválido: {e}"))?;
     if table.classes.is_empty() {
         return Err("tabela sem nenhuma classe".into());
     }
@@ -16,7 +17,10 @@ pub fn parse(json: &str) -> Result<RoutingTable, String> {
         let mut seen = std::collections::HashSet::new();
         for t in chain {
             if t.key_ref.trim().is_empty() {
-                return Err(format!("classe '{class}': alvo '{}' com keyRef vazio", t.model));
+                return Err(format!(
+                    "classe '{class}': alvo '{}' com keyRef vazio",
+                    t.model
+                ));
             }
             if !seen.insert(t.model.as_str()) {
                 return Err(format!("classe '{class}': modelo '{}' duplicado", t.model));
@@ -62,7 +66,8 @@ mod tests {
 
     #[test]
     fn rejects_empty_keyref() {
-        let err = parse(r#"{"classes":{"code":[{"providerId":"x","model":"m","keyRef":""}]}}"#).unwrap_err();
+        let err = parse(r#"{"classes":{"code":[{"providerId":"x","model":"m","keyRef":""}]}}"#)
+            .unwrap_err();
         assert!(err.contains("keyRef vazio"));
     }
 

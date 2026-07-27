@@ -132,7 +132,9 @@ async fn migrate_between(
                     if let Err(e) = src.forget(&rec.id).await {
                         result.errors += 1;
                         if result.error_samples.len() < 5 {
-                            result.error_samples.push(format!("forget {}: {e:#}", rec.id));
+                            result
+                                .error_samples
+                                .push(format!("forget {}: {e:#}", rec.id));
                         }
                     }
                 }
@@ -162,7 +164,9 @@ pub fn memory_connect(
     config: ConnectionConfig,
     registry: State<'_, Arc<MemoryRegistry>>,
 ) -> Result<(), String> {
-    registry.upsert_connection(config).map_err(|e| format!("{e:#}"))
+    registry
+        .upsert_connection(config)
+        .map_err(|e| format!("{e:#}"))
 }
 
 /// Testa a conexão de um provider (health) SEM trocar o ativo.
@@ -202,7 +206,10 @@ pub async fn memory_dream(
     // Clona o Arc pra não segurar a State<'_> através do .await.
     let registry = registry.inner().clone();
     let provider = registry.active_provider();
-    provider.dream(project.as_deref()).await.map_err(|e| format!("{e:#}"))
+    provider
+        .dream(project.as_deref())
+        .await
+        .map_err(|e| format!("{e:#}"))
 }
 
 /// Conta quantas memórias seriam migradas de `from` → `to` (sem gravar nada).
@@ -218,13 +225,19 @@ pub async fn memory_migrate_preview(
     }
     let src = registry.provider_for(from);
     let dst = registry.provider_for(to);
-    let records = src.list_all().await.map_err(|e| format!("ler origem falhou: {e:#}"))?;
+    let records = src
+        .list_all()
+        .await
+        .map_err(|e| format!("ler origem falhou: {e:#}"))?;
     let seen = dest_origin_set(&dst).await;
     let already = records
         .iter()
         .filter(|r| seen.contains(&format!("{}:{}", kind_str(from), r.id)))
         .count();
-    Ok(MigratePreview { count: records.len(), already })
+    Ok(MigratePreview {
+        count: records.len(),
+        already,
+    })
 }
 
 /// Migra (copia ou move) TODAS as memórias de `from` → `to`.
@@ -276,7 +289,11 @@ mod tests {
     }
     impl FakeProvider {
         fn new(kind: ProviderKind) -> Self {
-            Self { kind, store: Mutex::new(vec![]), next: Mutex::new(0) }
+            Self {
+                kind,
+                store: Mutex::new(vec![]),
+                next: Mutex::new(0),
+            }
         }
         fn seed(&self, content: &str, category: &str) {
             let mut n = self.next.lock();
@@ -360,7 +377,9 @@ mod tests {
         let hits = b.list_all().await.unwrap();
         assert_eq!(hits.len(), 2);
         assert!(hits.iter().any(|m| m.content.contains("decisão X")));
-        assert!(hits.iter().all(|m| m.content.contains("omnirift:migrated-from:local:")));
+        assert!(hits
+            .iter()
+            .all(|m| m.content.contains("omnirift:migrated-from:local:")));
 
         // 2ª migração idêntica: idempotente — nada novo, tudo pulado.
         let r2 = migrate_between(a_dyn, b.clone(), ProviderKind::Local, false)

@@ -98,20 +98,33 @@ pub async fn llm_list_models(config: LlmConfig) -> Result<Vec<String>, String> {
             .header("anthropic-version", "2023-06-01"),
         "ollama" => {
             let r = client().get(format!("{base}/api/tags"));
-            if k.is_empty() { r } else { r.bearer_auth(k) }
+            if k.is_empty() {
+                r
+            } else {
+                r.bearer_auth(k)
+            }
         }
         // openai-compat (openai/gemini/groq/openrouter/…)
         _ => {
             let r = client().get(format!("{base}/models"));
-            if k.is_empty() { r } else { r.bearer_auth(k) }
+            if k.is_empty() {
+                r
+            } else {
+                r.bearer_auth(k)
+            }
         }
     };
     let v = send(req).await?;
     // openai/anthropic → data[].id ; ollama → models[].name
     let mut out: Vec<String> = if let Some(data) = v.get("data").and_then(|x| x.as_array()) {
-        data.iter().filter_map(|m| m.get("id").and_then(|x| x.as_str()).map(String::from)).collect()
+        data.iter()
+            .filter_map(|m| m.get("id").and_then(|x| x.as_str()).map(String::from))
+            .collect()
     } else if let Some(models) = v.get("models").and_then(|x| x.as_array()) {
-        models.iter().filter_map(|m| m.get("name").and_then(|x| x.as_str()).map(String::from)).collect()
+        models
+            .iter()
+            .filter_map(|m| m.get("name").and_then(|x| x.as_str()).map(String::from))
+            .collect()
     } else {
         Vec::new()
     };
@@ -126,7 +139,11 @@ pub async fn llm_list_models(config: LlmConfig) -> Result<Vec<String>, String> {
 /// (zero problema de quoting); o PATH do shell de login já foi adotado no boot
 /// (inherit_login_shell_path), então acha o mesmo binário do terminal do usuário.
 #[tauri::command]
-pub async fn llm_via_cli(prompt: String, cli: Option<String>, cwd: Option<String>) -> Result<String, String> {
+pub async fn llm_via_cli(
+    prompt: String,
+    cli: Option<String>,
+    cwd: Option<String>,
+) -> Result<String, String> {
     let bin = cli.unwrap_or_else(|| "claude".to_string());
     cli_run(&bin, &prompt, Duration::from_secs(180), cwd.as_deref(), &[]).await
 }
@@ -199,7 +216,12 @@ async fn cli_run(
         .map_err(|e| format!("não consegui rodar `{bin}`: {e}"))?;
     let out = tokio::time::timeout(timeout, child.wait_with_output())
         .await
-        .map_err(|_| format!("`{bin}` estourou o timeout de {}s (processo finalizado)", timeout.as_secs()))?
+        .map_err(|_| {
+            format!(
+                "`{bin}` estourou o timeout de {}s (processo finalizado)",
+                timeout.as_secs()
+            )
+        })?
         .map_err(|e| format!("falha lendo o output de `{bin}`: {e}"))?;
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if out.status.success() && !stdout.is_empty() {
@@ -208,18 +230,28 @@ async fn cli_run(
     // Falhou (ou saiu limpo mas mudo): o stderr é onde o CLI explica — não logado,
     // flag desconhecida, wrapper quebrado… Resume pra caber no toast da UI.
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-    let brief: String = if stderr.is_empty() { stdout } else { stderr }.chars().take(500).collect();
+    let brief: String = if stderr.is_empty() { stdout } else { stderr }
+        .chars()
+        .take(500)
+        .collect();
     Err(format!("`{bin}` saiu com {}: {brief}", out.status))
 }
 
-async fn openai_chat(base: &str, cfg: &LlmConfig, sys: &str, prompt: &str) -> Result<ChatOut, String> {
+async fn openai_chat(
+    base: &str,
+    cfg: &LlmConfig,
+    sys: &str,
+    prompt: &str,
+) -> Result<ChatOut, String> {
     let mut messages = Vec::new();
     if !sys.is_empty() {
         messages.push(serde_json::json!({ "role": "system", "content": sys }));
     }
     messages.push(serde_json::json!({ "role": "user", "content": prompt }));
     let body = serde_json::json!({ "model": cfg.model, "messages": messages, "temperature": 0.1 });
-    let mut req = client().post(format!("{base}/chat/completions")).json(&body);
+    let mut req = client()
+        .post(format!("{base}/chat/completions"))
+        .json(&body);
     let k = key(cfg);
     if !k.is_empty() {
         req = req.bearer_auth(k);
@@ -230,12 +262,27 @@ async fn openai_chat(base: &str, cfg: &LlmConfig, sys: &str, prompt: &str) -> Re
         .and_then(|x| x.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| format!("resposta sem choices[0].message.content: {v}"))?;
-    let input = v.pointer("/usage/prompt_tokens").and_then(|x| x.as_i64()).unwrap_or(0);
-    let output = v.pointer("/usage/completion_tokens").and_then(|x| x.as_i64()).unwrap_or(0);
-    Ok(ChatOut { text, input, output })
+    let input = v
+        .pointer("/usage/prompt_tokens")
+        .and_then(|x| x.as_i64())
+        .unwrap_or(0);
+    let output = v
+        .pointer("/usage/completion_tokens")
+        .and_then(|x| x.as_i64())
+        .unwrap_or(0);
+    Ok(ChatOut {
+        text,
+        input,
+        output,
+    })
 }
 
-async fn anthropic_chat(base: &str, cfg: &LlmConfig, sys: &str, prompt: &str) -> Result<ChatOut, String> {
+async fn anthropic_chat(
+    base: &str,
+    cfg: &LlmConfig,
+    sys: &str,
+    prompt: &str,
+) -> Result<ChatOut, String> {
     let body = serde_json::json!({
         "model": cfg.model,
         "max_tokens": 4096,
@@ -253,12 +300,27 @@ async fn anthropic_chat(base: &str, cfg: &LlmConfig, sys: &str, prompt: &str) ->
         .and_then(|x| x.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| format!("resposta sem content[0].text: {v}"))?;
-    let input = v.pointer("/usage/input_tokens").and_then(|x| x.as_i64()).unwrap_or(0);
-    let output = v.pointer("/usage/output_tokens").and_then(|x| x.as_i64()).unwrap_or(0);
-    Ok(ChatOut { text, input, output })
+    let input = v
+        .pointer("/usage/input_tokens")
+        .and_then(|x| x.as_i64())
+        .unwrap_or(0);
+    let output = v
+        .pointer("/usage/output_tokens")
+        .and_then(|x| x.as_i64())
+        .unwrap_or(0);
+    Ok(ChatOut {
+        text,
+        input,
+        output,
+    })
 }
 
-async fn ollama_chat(base: &str, cfg: &LlmConfig, sys: &str, prompt: &str) -> Result<ChatOut, String> {
+async fn ollama_chat(
+    base: &str,
+    cfg: &LlmConfig,
+    sys: &str,
+    prompt: &str,
+) -> Result<ChatOut, String> {
     let mut messages = Vec::new();
     if !sys.is_empty() {
         messages.push(serde_json::json!({ "role": "system", "content": sys }));
@@ -277,9 +339,19 @@ async fn ollama_chat(base: &str, cfg: &LlmConfig, sys: &str, prompt: &str) -> Re
         .and_then(|x| x.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| format!("resposta sem message.content: {v}"))?;
-    let input = v.pointer("/prompt_eval_count").and_then(|x| x.as_i64()).unwrap_or(0);
-    let output = v.pointer("/eval_count").and_then(|x| x.as_i64()).unwrap_or(0);
-    Ok(ChatOut { text, input, output })
+    let input = v
+        .pointer("/prompt_eval_count")
+        .and_then(|x| x.as_i64())
+        .unwrap_or(0);
+    let output = v
+        .pointer("/eval_count")
+        .and_then(|x| x.as_i64())
+        .unwrap_or(0);
+    Ok(ChatOut {
+        text,
+        input,
+        output,
+    })
 }
 
 /// Envia a request, valida status e devolve o JSON; erro carrega o corpo.
@@ -302,7 +374,10 @@ mod tests {
         // Um typo no literal derrubaria o grounding sem erro visível (cai no fallback cru).
         let v: serde_json::Value = serde_json::from_str(CONTEXT7_MCP_JSON).unwrap();
         assert_eq!(v["mcpServers"]["context7"]["type"], "http");
-        assert_eq!(v["mcpServers"]["context7"]["url"], "https://mcp.context7.com/mcp");
+        assert_eq!(
+            v["mcpServers"]["context7"]["url"],
+            "https://mcp.context7.com/mcp"
+        );
         // Só o Context7 (sem Serena) — a promessa "sem boot local".
         assert_eq!(v["mcpServers"].as_object().unwrap().len(), 1);
     }
@@ -317,7 +392,9 @@ mod tests {
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let cfg = LlmConfig {
@@ -335,13 +412,13 @@ mod tests {
     async fn http_error_carries_body() {
         let app = axum::Router::new().route(
             "/chat/completions",
-            axum::routing::post(|| async {
-                (axum::http::StatusCode::UNAUTHORIZED, "no auth")
-            }),
+            axum::routing::post(|| async { (axum::http::StatusCode::UNAUTHORIZED, "no auth") }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let cfg = LlmConfig {
@@ -358,13 +435,29 @@ mod tests {
     async fn cli_run_captures_stdout_without_shell() {
         // `echo -p <prompt>` imprime os args → prova spawn direto (sem shell) + captura
         // do stdout, inclusive com aspas/acentos no prompt (zero quoting).
-        let out = cli_run("echo", "diga \"olá\" à equipe", Duration::from_secs(10), None, &[]).await.unwrap();
+        let out = cli_run(
+            "echo",
+            "diga \"olá\" à equipe",
+            Duration::from_secs(10),
+            None,
+            &[],
+        )
+        .await
+        .unwrap();
         assert!(out.contains("diga \"olá\" à equipe"), "out: {out}");
     }
 
     #[tokio::test]
     async fn cli_run_missing_binary_is_clear_error() {
-        let err = cli_run("omnirift-cli-inexistente-xyz", "x", Duration::from_secs(5), None, &[]).await.unwrap_err();
+        let err = cli_run(
+            "omnirift-cli-inexistente-xyz",
+            "x",
+            Duration::from_secs(5),
+            None,
+            &[],
+        )
+        .await
+        .unwrap_err();
         assert!(err.contains("não consegui rodar"), "err: {err}");
     }
 
@@ -389,8 +482,19 @@ mod tests {
         // esconder atrás de `#[ignore]` tiraria cobertura real do ancoramento de cwd.
         let mut out = String::new();
         for tentativa in 0..5 {
-            match cli_run(script.to_str().unwrap(), "x", Duration::from_secs(10), canon.to_str(), &[]).await {
-                Ok(o) => { out = o; break; }
+            match cli_run(
+                script.to_str().unwrap(),
+                "x",
+                Duration::from_secs(10),
+                canon.to_str(),
+                &[],
+            )
+            .await
+            {
+                Ok(o) => {
+                    out = o;
+                    break;
+                }
                 Err(e) if e.contains("Text file busy") && tentativa < 4 => {
                     std::thread::sleep(Duration::from_millis(50));
                 }
@@ -415,7 +519,15 @@ mod tests {
         // 2s (não 300ms): margem robusta contra carga/runner lento — o child precisa
         // iniciar antes do timeout disparar, senão o teste flaka na suíte cheia (era a
         // causa do rust vermelho intermitente no runner do Forgejo). 2s << 30s do sleep.
-        let err = cli_run(script.to_str().unwrap(), "x", Duration::from_millis(2000), None, &[]).await.unwrap_err();
+        let err = cli_run(
+            script.to_str().unwrap(),
+            "x",
+            Duration::from_millis(2000),
+            None,
+            &[],
+        )
+        .await
+        .unwrap_err();
         assert!(err.contains("timeout"), "err: {err}");
         let _ = std::fs::remove_dir_all(&dir);
     }

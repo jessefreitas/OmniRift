@@ -85,13 +85,7 @@ pub fn save(db: &Db, mission_id: &str, mut h: MissionHandoff) -> Result<String, 
             conn.execute(
                 "INSERT INTO agent_memory (scope, agent_id, kind, mem_key, value, tags, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, NULL, datetime('now'))",
-                rusqlite::params![
-                    mission_id,
-                    h.from_agent.trim(),
-                    MEMORY_KIND,
-                    &key,
-                    &value
-                ],
+                rusqlite::params![mission_id, h.from_agent.trim(), MEMORY_KIND, &key, &value],
             )?;
         }
         Ok(())
@@ -294,10 +288,7 @@ mod tests {
 
     #[test]
     fn key_format() {
-        assert_eq!(
-            handoff_key("m1", "backend", "qa"),
-            "handoff:m1:backend:qa"
-        );
+        assert_eq!(handoff_key("m1", "backend", "qa"), "handoff:m1:backend:qa");
     }
 
     #[test]
@@ -387,5 +378,4 @@ mod tests {
         assert_eq!(for_m2.len(), 1);
         assert_eq!(for_m2[0].0, "handoff:m2:frontend:qa");
     }
-
 }

@@ -21,7 +21,10 @@ fn slot_path(cwd: &str) -> Result<PathBuf, String> {
     let mut h = Sha256::new();
     h.update(cwd.as_bytes());
     let hex = format!("{:x}", h.finalize());
-    Ok(Path::new(&home).join(".omnirift").join("folder-canvas").join(format!("{hex}.json")))
+    Ok(Path::new(&home)
+        .join(".omnirift")
+        .join("folder-canvas")
+        .join(format!("{hex}.json")))
 }
 
 /// Salva o canvas (workspace serializado) atrelado a uma pasta (cwd). cwd vazio = no-op.
@@ -35,7 +38,8 @@ pub fn folder_canvas_save(cwd: String, doc: String) -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|e| format!("criar dir: {e}"))?;
     }
     let mut f = std::fs::File::create(&path).map_err(|e| format!("criar arquivo: {e}"))?;
-    f.write_all(doc.as_bytes()).map_err(|e| format!("gravar: {e}"))?;
+    f.write_all(doc.as_bytes())
+        .map_err(|e| format!("gravar: {e}"))?;
     Ok(())
 }
 

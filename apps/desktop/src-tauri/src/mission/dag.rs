@@ -38,7 +38,10 @@ pub fn plan_dag(nodes: &[DagNode]) -> PlanResult {
                 continue;
             }
             *indegree.entry(n.id.as_str()).or_insert(0) += 1;
-            dependents.entry(d.as_str()).or_default().push(n.id.as_str());
+            dependents
+                .entry(d.as_str())
+                .or_default()
+                .push(n.id.as_str());
         }
     }
 
@@ -144,7 +147,11 @@ mod tests {
 
     #[test]
     fn linear_deps_make_three_layers() {
-        let nodes = vec![n("a", &[], false), n("b", &["a"], false), n("c", &["b"], false)];
+        let nodes = vec![
+            n("a", &[], false),
+            n("b", &["a"], false),
+            n("c", &["b"], false),
+        ];
         let r = plan_dag(&nodes);
         assert!(!r.has_cycle);
         assert_eq!(r.layers, vec![vec!["a"], vec!["b"], vec!["c"]]);

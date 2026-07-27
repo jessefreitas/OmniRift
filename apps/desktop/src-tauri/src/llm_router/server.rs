@@ -6,12 +6,17 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use axum::{extract::State, http::HeaderMap, routing::{get, post}, Router};
 use axum::body::Body;
 use axum::extract::Query;
 use axum::response::Response;
-use std::collections::HashSet;
+use axum::{
+    extract::State,
+    http::HeaderMap,
+    routing::{get, post},
+    Router,
+};
 use parking_lot::Mutex;
+use std::collections::HashSet;
 
 use crate::llm_router::{engine, forward, health::KeyHealth, Protocol, RoutingTable};
 
@@ -57,7 +62,12 @@ pub fn check_token(headers: &HeaderMap, query: &HashMap<String, String>, expecte
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
         .or_else(|| query.get("token").cloned())
-        .or_else(|| headers.get("x-api-key").and_then(|v| v.to_str().ok()).map(str::to_string))
+        .or_else(|| {
+            headers
+                .get("x-api-key")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+        })
         .or(bearer);
     matches!(provided, Some(tok) if ct_eq(tok.as_bytes(), expected.as_bytes()))
 }
@@ -89,23 +99,36 @@ async fn messages_handler(
 /// Resolve a classe do request: header `x-omniswitch-class` OU a 1ª classe com alvo de
 /// provider no protocolo do endpoint.
 fn resolve_class(table: &RoutingTable, headers: &HeaderMap, want: Protocol) -> Option<String> {
-    if let Some(c) = headers.get("x-omniswitch-class").and_then(|v| v.to_str().ok()) {
+    if let Some(c) = headers
+        .get("x-omniswitch-class")
+        .and_then(|v| v.to_str().ok())
+    {
         if table.classes.contains_key(c) {
             return Some(c.to_string());
         }
     }
     table.classes.iter().find_map(|(name, chain)| {
-        let ok = chain.iter().any(|t| {
-            table.providers.get(&t.provider_id).map(|p| p.protocol) == Some(want)
-        });
-        if ok { Some(name.clone()) } else { None }
+        let ok = chain
+            .iter()
+            .any(|t| table.providers.get(&t.provider_id).map(|p| p.protocol) == Some(want));
+        if ok {
+            Some(name.clone())
+        } else {
+            None
+        }
     })
 }
 
 /// Núcleo: escolhe alvo → resolve key → forwarda; em erro retriável (429/5xx/rede) põe a
 /// chave em cooldown e tenta o próximo, até `max_attempts` ou esgotar. Devolve a Response
 /// axum (streaming no sucesso).
-async fn route_and_forward(s: &RouterState, headers: &HeaderMap, want: Protocol, path: &str, body: bytes::Bytes) -> Response {
+async fn route_and_forward(
+    s: &RouterState,
+    headers: &HeaderMap,
+    want: Protocol,
+    path: &str,
+    body: bytes::Bytes,
+) -> Response {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -116,7 +139,11 @@ async fn route_and_forward(s: &RouterState, headers: &HeaderMap, want: Protocol,
             Some(c) => c,
             None => return err_json(502, "nenhuma classe compatível com o protocolo"),
         };
-        (t.classes[&class].clone(), t.default_strategy, t.providers.clone())
+        (
+            t.classes[&class].clone(),
+            t.default_strategy,
+            t.providers.clone(),
+        )
     };
     let mut attempted: HashSet<usize> = HashSet::new();
     let mut last_err = String::from("cadeia esgotada");
@@ -139,7 +166,16 @@ async fn route_and_forward(s: &RouterState, headers: &HeaderMap, want: Protocol,
             last_err = format!("keyRef '{}' não encontrado no keychain", target.key_ref);
             continue;
         };
-        match forward::forward_once(&s.client, &prov.base_url, path, prov.protocol, &key, body.clone()).await {
+        match forward::forward_once(
+            &s.client,
+            &prov.base_url,
+            path,
+            prov.protocol,
+            &key,
+            body.clone(),
+        )
+        .await
+        {
             Ok(fr) => match forward::classify_status(fr.status) {
                 forward::Outcome::Retriable => {
                     if forward::is_rate_limited(fr.status) {
@@ -153,7 +189,10 @@ async fn route_and_forward(s: &RouterState, headers: &HeaderMap, want: Protocol,
                     return relay(fr);
                 }
             },
-            Err(e) => { last_err = e; continue; }
+            Err(e) => {
+                last_err = e;
+                continue;
+            }
         }
     }
     err_json(502, &format!("OmniSwitch esgotou os alvos: {last_err}"))
@@ -164,18 +203,29 @@ fn relay(fr: forward::ForwardResponse) -> Response {
     let mut builder = Response::builder().status(fr.status);
     for (k, v) in fr.headers.iter() {
         let name = k.as_str().to_ascii_lowercase();
-        if name == "transfer-encoding" || name == "connection" { continue; }
+        if name == "transfer-encoding" || name == "connection" {
+            continue;
+        }
         builder = builder.header(k, v);
     }
-    builder.header("x-omniswitch", "1").body(Body::from_stream(fr.resp.bytes_stream())).unwrap()
+    builder
+        .header("x-omniswitch", "1")
+        .body(Body::from_stream(fr.resp.bytes_stream()))
+        .unwrap()
 }
 
 fn err_json(code: u16, msg: &str) -> Response {
     Response::builder()
         .status(code)
         .header("content-type", "application/json")
-        .header("x-omniswitch-exhausted", if code == 502 { "true" } else { "false" })
-        .body(Body::from(format!("{{\"error\":{{\"message\":{:?}}}}}", msg)))
+        .header(
+            "x-omniswitch-exhausted",
+            if code == 502 { "true" } else { "false" },
+        )
+        .body(Body::from(format!(
+            "{{\"error\":{{\"message\":{:?}}}}}",
+            msg
+        )))
         .unwrap()
 }
 
@@ -213,8 +263,12 @@ pub fn load_state(token: String) -> RouterState {
 }
 
 pub fn config_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
-    std::path::PathBuf::from(home).join(".omnirift").join("llm_router.json")
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    std::path::PathBuf::from(home)
+        .join(".omnirift")
+        .join("llm_router.json")
 }
 
 /// Sobe o server no runtime tokio (loopback:ROUTER_PORT). Fail-soft: bind falha só loga.
@@ -226,7 +280,9 @@ pub async fn boot(state: RouterState) {
             log::info!("OmniSwitch server: http://{addr}");
             let _ = axum::serve(listener, app).await;
         }
-        Err(e) => log::warn!("OmniSwitch: bind {addr} falhou ({e}) — roteador desligado nesta sessão"),
+        Err(e) => {
+            log::warn!("OmniSwitch: bind {addr} falhou ({e}) — roteador desligado nesta sessão")
+        }
     }
 }
 
@@ -236,7 +292,9 @@ mod tests {
     use crate::llm_router::table;
 
     fn state() -> RouterState {
-        let t = table::parse(r#"{"classes":{"code":[{"providerId":"p","model":"m","keyRef":"k"}]}}"#).unwrap();
+        let t =
+            table::parse(r#"{"classes":{"code":[{"providerId":"p","model":"m","keyRef":"k"}]}}"#)
+                .unwrap();
         RouterState {
             table: Arc::new(Mutex::new(t)),
             health: Arc::new(Mutex::new(KeyHealth::new(60_000))),
@@ -254,7 +312,12 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let body = reqwest::get(format!("http://{addr}/healthz")).await.unwrap().text().await.unwrap();
+        let body = reqwest::get(format!("http://{addr}/healthz"))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
         assert_eq!(body, "ok");
     }
 
@@ -287,14 +350,20 @@ mod tests {
     // upstream mock: devolve `first_status` na 1ª chamada, 200 nas seguintes.
     async fn mock_upstream(path: &'static str, first_status: u16) -> String {
         let calls = Arc::new(AU::new(0));
-        let app = Router::new().route(path, axum::routing::post(move || {
-            let c = calls.clone();
-            async move {
-                let n = c.fetch_add(1, Ordering::SeqCst);
-                let st = if n == 0 { first_status } else { 200 };
-                axum::http::Response::builder().status(st).body(Body::from("{\"ok\":true}")).unwrap()
-            }
-        }));
+        let app = Router::new().route(
+            path,
+            axum::routing::post(move || {
+                let c = calls.clone();
+                async move {
+                    let n = c.fetch_add(1, Ordering::SeqCst);
+                    let st = if n == 0 { first_status } else { 200 };
+                    axum::http::Response::builder()
+                        .status(st)
+                        .body(Body::from("{\"ok\":true}"))
+                        .unwrap()
+                }
+            }),
+        );
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
@@ -302,15 +371,22 @@ mod tests {
     }
 
     fn oai_state(base_a: &str, base_b: &str) -> RouterState {
-        let j = format!(r#"{{"classes":{{"code":[
+        let j = format!(
+            r#"{{"classes":{{"code":[
             {{"providerId":"a","model":"m1","keyRef":"credential.llm.__sw_a__"}},
             {{"providerId":"b","model":"m2","keyRef":"credential.llm.__sw_b__"}}]}},
           "providers":{{"a":{{"baseUrl":"{base_a}","protocol":"openai"}},
-                        "b":{{"baseUrl":"{base_b}","protocol":"openai"}}}}}}"#);
-        RouterState { table: Arc::new(Mutex::new(table::parse(&j).unwrap())),
-            health: Arc::new(Mutex::new(KeyHealth::new(60_000))), rr: Arc::new(AtomicUsize::new(0)),
-            client: reqwest::Client::new(), token: Arc::new("tk".to_string()), max_attempts: 3,
-            resolve_key: Arc::new(|_| Some("k".to_string())) }
+                        "b":{{"baseUrl":"{base_b}","protocol":"openai"}}}}}}"#
+        );
+        RouterState {
+            table: Arc::new(Mutex::new(table::parse(&j).unwrap())),
+            health: Arc::new(Mutex::new(KeyHealth::new(60_000))),
+            rr: Arc::new(AtomicUsize::new(0)),
+            client: reqwest::Client::new(),
+            token: Arc::new("tk".to_string()),
+            max_attempts: 3,
+            resolve_key: Arc::new(|_| Some("k".to_string())),
+        }
     }
 
     async fn serve(app: Router) -> String {
@@ -325,7 +401,12 @@ mod tests {
         let a = mock_upstream("/v1/chat/completions", 200).await;
         let b = mock_upstream("/v1/chat/completions", 200).await;
         let addr = serve(build_router(oai_state(&a, &b))).await;
-        let r = reqwest::Client::new().post(format!("http://{addr}/v1/chat/completions?token=tk")).body("{}").send().await.unwrap();
+        let r = reqwest::Client::new()
+            .post(format!("http://{addr}/v1/chat/completions?token=tk"))
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status().as_u16(), 200);
     }
 
@@ -334,7 +415,12 @@ mod tests {
         let a = mock_upstream("/v1/chat/completions", 429).await; // 1º alvo 429
         let b = mock_upstream("/v1/chat/completions", 200).await; // 2º alvo 200
         let addr = serve(build_router(oai_state(&a, &b))).await;
-        let r = reqwest::Client::new().post(format!("http://{addr}/v1/chat/completions?token=tk")).body("{}").send().await.unwrap();
+        let r = reqwest::Client::new()
+            .post(format!("http://{addr}/v1/chat/completions?token=tk"))
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status().as_u16(), 200); // caiu no 2º
     }
 
@@ -342,21 +428,38 @@ mod tests {
     async fn rejects_without_token() {
         let a = mock_upstream("/v1/chat/completions", 200).await;
         let addr = serve(build_router(oai_state(&a, &a))).await;
-        let r = reqwest::Client::new().post(format!("http://{addr}/v1/chat/completions")).body("{}").send().await.unwrap();
+        let r = reqwest::Client::new()
+            .post(format!("http://{addr}/v1/chat/completions"))
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status().as_u16(), 401);
     }
 
     #[tokio::test]
     async fn messages_forwards_when_provider_is_anthropic() {
         let up = mock_upstream("/v1/messages", 200).await;
-        let j = format!(r#"{{"classes":{{"claude":[{{"providerId":"an","model":"c","keyRef":"credential.llm.__sw_an__"}}]}},
-          "providers":{{"an":{{"baseUrl":"{up}","protocol":"anthropic"}}}}}}"#);
-        let st = RouterState { table: Arc::new(Mutex::new(table::parse(&j).unwrap())),
-            health: Arc::new(Mutex::new(KeyHealth::new(60_000))), rr: Arc::new(AtomicUsize::new(0)),
-            client: reqwest::Client::new(), token: Arc::new("tk".to_string()), max_attempts: 3,
-            resolve_key: Arc::new(|_| Some("k".to_string())) };
+        let j = format!(
+            r#"{{"classes":{{"claude":[{{"providerId":"an","model":"c","keyRef":"credential.llm.__sw_an__"}}]}},
+          "providers":{{"an":{{"baseUrl":"{up}","protocol":"anthropic"}}}}}}"#
+        );
+        let st = RouterState {
+            table: Arc::new(Mutex::new(table::parse(&j).unwrap())),
+            health: Arc::new(Mutex::new(KeyHealth::new(60_000))),
+            rr: Arc::new(AtomicUsize::new(0)),
+            client: reqwest::Client::new(),
+            token: Arc::new("tk".to_string()),
+            max_attempts: 3,
+            resolve_key: Arc::new(|_| Some("k".to_string())),
+        };
         let addr = serve(build_router(st)).await;
-        let r = reqwest::Client::new().post(format!("http://{addr}/v1/messages?token=tk")).body("{}").send().await.unwrap();
+        let r = reqwest::Client::new()
+            .post(format!("http://{addr}/v1/messages?token=tk"))
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status().as_u16(), 200);
     }
 }

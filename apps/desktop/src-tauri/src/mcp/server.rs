@@ -7,7 +7,6 @@
 /// Tools expostas:
 ///   - list_agents  → lista agentes registrados no canvas
 ///   - send_task    → envia tarefa para um agente, captura e retorna resultado
-
 use crate::mcp::{registry::to_tool_name, AgentRegistry, ClaimsRegistry};
 use crate::pty::{AgentState, AgentStatusEvent, PtyManager};
 use axum::{
@@ -20,7 +19,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use tauri::{Emitter, Manager};
 use dashmap::DashMap;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
@@ -30,6 +28,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use tauri::{Emitter, Manager};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -312,13 +311,11 @@ async fn handle_jsonrpc(state: Arc<McpState>, req: Value) -> Value {
         }),
 
         "tools/list" => {
-            let mut tools = vec![
-                json!({
-                    "name": "list_agents",
-                    "description": "Lista todos os agentes registrados no canvas com seus nomes de tool e descrição de capacidades.",
-                    "inputSchema": { "type": "object", "properties": {} }
-                }),
-            ];
+            let mut tools = vec![json!({
+                "name": "list_agents",
+                "description": "Lista todos os agentes registrados no canvas com seus nomes de tool e descrição de capacidades.",
+                "inputSchema": { "type": "object", "properties": {} }
+            })];
             // Cada agente registrado vira uma tool nativa
             for (label, entry) in state.agent_registry.list() {
                 let tool_name = to_tool_name(&label);
@@ -412,8 +409,17 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
                 agents
                     .iter()
                     .map(|(label, entry)| {
-                        let floor = entry.floor.as_deref().map(|f| format!(" @{f}")).unwrap_or_default();
-                        format!("• {} (tool: `{}`){floor} — {}", label, to_tool_name(label), entry.description)
+                        let floor = entry
+                            .floor
+                            .as_deref()
+                            .map(|f| format!(" @{f}"))
+                            .unwrap_or_default();
+                        format!(
+                            "• {} (tool: `{}`){floor} — {}",
+                            label,
+                            to_tool_name(label),
+                            entry.description
+                        )
                     })
                     .collect::<Vec<_>>()
                     .join("\n")
@@ -501,13 +507,16 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
         tool_name => {
             let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("");
 
-            let result = if let Some((label, _)) = state.agent_registry.get_by_tool_name(tool_name) {
+            let result = if let Some((label, _)) = state.agent_registry.get_by_tool_name(tool_name)
+            {
                 match do_send_task(&state, &label, task).await {
                     Ok(output) => output,
                     Err(e) => format!("❌ Erro: {e}"),
                 }
             } else {
-                format!("Tool desconhecida: `{tool_name}`. Use list_agents para ver as disponíveis.")
+                format!(
+                    "Tool desconhecida: `{tool_name}`. Use list_agents para ver as disponíveis."
+                )
             };
 
             wrap_tool_text(&state, tool_name, result)
@@ -517,17 +526,13 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
 
 // ── send_task: escreve no PTY, captura output até idle ───────────────────────
 
-async fn do_send_task(
-    state: &McpState,
-    label: &str,
-    task: &str,
-) -> anyhow::Result<String> {
-    let session_id = state
-        .agent_registry
-        .get_session_id(label)
-        .ok_or_else(|| anyhow::anyhow!(
-            "Agente '{}' não encontrado. Use list_agents para ver disponíveis.", label
-        ))?;
+async fn do_send_task(state: &McpState, label: &str, task: &str) -> anyhow::Result<String> {
+    let session_id = state.agent_registry.get_session_id(label).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Agente '{}' não encontrado. Use list_agents para ver disponíveis.",
+            label
+        )
+    })?;
 
     // Assina o stream de estado ANTES de enviar. Detecção VT100 (não line-mode):
     // line-mode trava em TUI — Claude/agy redesenham a tela e nunca "ficam idle".
@@ -563,7 +568,10 @@ async fn do_send_task(
     let _ = tokio::time::timeout(Duration::from_secs(180), settle).await;
 
     // Resultado = tela renderizada (VT100) do agente, não o stream cru.
-    Ok(state.pty_manager.read_screen(&session_id).unwrap_or_default())
+    Ok(state
+        .pty_manager
+        .read_screen(&session_id)
+        .unwrap_or_default())
 }
 
 // ── Orquestração: comunicação ativa peer-a-peer (camada 4) ──────────────────────
@@ -610,7 +618,9 @@ pub async fn orq_ask_and_wait(
         None => return format!("❌ Agente '{target_label}' não encontrado (use terminal_list)."),
     };
     if matches!(state.pty_manager.agent_state(&sid), Some(AgentState::Dead)) {
-        return format!("❌ Agente '{label}' está morto (sessão encerrada) — reabra-o antes de falar com ele.");
+        return format!(
+            "❌ Agente '{label}' está morto (sessão encerrada) — reabra-o antes de falar com ele."
+        );
     }
     let msg = crate::mcp::marker::incoming(from, question);
     let mut rx = state.pty_manager.subscribe_state();
@@ -724,7 +734,10 @@ mod tests {
                 session_id: "sid-1".to_string(),
             };
         } // drop aqui → remove
-        assert!(!sessions.contains_key("sid-1"), "guard deve limpar a sessão no Drop");
+        assert!(
+            !sessions.contains_key("sid-1"),
+            "guard deve limpar a sessão no Drop"
+        );
     }
 
     #[test]
@@ -760,7 +773,13 @@ mod tests {
     #[test]
     fn resolve_hook_target_known_label_returns_session_and_name() {
         let reg = AgentRegistry::new();
-        reg.register("Backend".into(), "sess-abc-123".into(), "API".into(), None, None);
+        reg.register(
+            "Backend".into(),
+            "sess-abc-123".into(),
+            "API".into(),
+            None,
+            None,
+        );
         let (sid, name) = resolve_hook_target(&reg, "Backend").expect("label registrado");
         assert_eq!(sid, "sess-abc-123");
         assert_eq!(name, "Backend");
@@ -773,9 +792,13 @@ mod tests {
         let reg = AgentRegistry::new();
         reg.register("DBA".into(), "sess-xyz".into(), "schema".into(), None, None);
         let state = map_state("done").expect("done é válido");
-        let (session_id, agent) =
-            resolve_hook_target(&reg, "DBA").expect("DBA registrado");
-        let ev = AgentStatusEvent { session_id, state, agent, message: Some("Edit".into()) };
+        let (session_id, agent) = resolve_hook_target(&reg, "DBA").expect("DBA registrado");
+        let ev = AgentStatusEvent {
+            session_id,
+            state,
+            agent,
+            message: Some("Edit".into()),
+        };
         assert_eq!(ev.session_id, "sess-xyz");
         assert_eq!(ev.state, AgentState::Done);
         assert_eq!(ev.agent, "DBA");

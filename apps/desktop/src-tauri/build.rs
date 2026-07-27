@@ -10,7 +10,11 @@ fn main() {
     // scripts/build-*.sh antes e exige os binários reais (stub aqui nunca mascara isso).
     if env::var("PROFILE").as_deref() == Ok("debug") {
         if let Ok(target) = env::var("TARGET") {
-            let ext = if target.contains("windows") { ".exe" } else { "" };
+            let ext = if target.contains("windows") {
+                ".exe"
+            } else {
+                ""
+            };
             let dir = PathBuf::from("binaries");
             let _ = fs::create_dir_all(&dir);
             for name in [

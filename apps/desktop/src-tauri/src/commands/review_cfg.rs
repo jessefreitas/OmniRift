@@ -109,7 +109,11 @@ fn sanitize_label(label: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("_");
-    if s.is_empty() { "agent".into() } else { s }
+    if s.is_empty() {
+        "agent".into()
+    } else {
+        s
+    }
 }
 
 /// Escreve a configuração do curl em arquivo próprio e devolve seu caminho.
@@ -120,7 +124,11 @@ fn sanitize_label(label: &str) -> String {
 /// exatamente o modelo de ameaça que justifica exigir autenticação nessa
 /// rota. Colocar o header no arquivo de configuração do curl e carregá-lo
 /// com `-K` isola o segredo de outros processos.
-fn write_hook_curl_config(dir: &std::path::Path, label: &str, token: &str) -> Option<std::path::PathBuf> {
+fn write_hook_curl_config(
+    dir: &std::path::Path,
+    label: &str,
+    token: &str,
+) -> Option<std::path::PathBuf> {
     let path = dir.join(format!("agent-hook-{}.curl", label));
     let contents = format!("header = \"x-omnirift-token: {token}\"\n");
     std::fs::write(&path, contents).ok()?;
@@ -176,7 +184,10 @@ pub fn agent_settings_config(
             .map(|t| t.0.clone())
             .unwrap_or_default()
     };
-    let hook_dir = { use tauri::Manager; app.path().app_data_dir().ok()? };
+    let hook_dir = {
+        use tauri::Manager;
+        app.path().app_data_dir().ok()?
+    };
     let hook_cfg = write_hook_curl_config(&hook_dir, sanitize_label(&label).as_str(), &hook_token)?;
     let script = ensure_review_script(&app).ok()?;
     let cfg = config_path(&app).ok()?;
@@ -285,7 +296,9 @@ fn inject_failproof_hooks(settings: &mut serde_json::Value, hooks_dir: &std::pat
     ] });
     match hooks.get_mut("SessionStart").and_then(|v| v.as_array_mut()) {
         Some(arr) => arr.push(fp_group),
-        None => { hooks.insert("SessionStart".into(), serde_json::json!([fp_group])); }
+        None => {
+            hooks.insert("SessionStart".into(), serde_json::json!([fp_group]));
+        }
     }
     // PostToolUse (só Bash): captura par falha→fix e devolve fix conhecido.
     // Stop fecha a janela do turno (par do watch_register no UserPromptSubmit). MERGE —
@@ -301,12 +314,18 @@ fn inject_failproof_hooks(settings: &mut serde_json::Value, hooks_dir: &std::pat
             { "type": "command", "command": cmd("watch_cleanup.py"), "timeout": 10 }
         ));
     }
-    hooks.insert("SessionEnd".into(), serde_json::json!([ { "hooks": [
+    hooks.insert(
+        "SessionEnd".into(),
+        serde_json::json!([ { "hooks": [
         { "type": "command", "command": cmd("watch_cleanup.py"), "timeout": 10 }
-    ] } ]));
-    hooks.insert("PostToolUse".into(), serde_json::json!([ { "matcher": "Bash", "hooks": [
+    ] } ]),
+    );
+    hooks.insert(
+        "PostToolUse".into(),
+        serde_json::json!([ { "matcher": "Bash", "hooks": [
         { "type": "command", "command": cmd("posttool_failure_capture.py"), "timeout": 10 }
-    ] } ]));
+    ] } ]),
+    );
 }
 
 /// Lê os hooks `SessionStart` do settings global do usuário (`~/.claude/settings.json`).
@@ -318,7 +337,9 @@ fn global_sessionstart_hooks() -> Option<serde_json::Value> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()?;
-    let path = std::path::Path::new(&home).join(".claude").join("settings.json");
+    let path = std::path::Path::new(&home)
+        .join(".claude")
+        .join("settings.json");
     let raw = std::fs::read_to_string(path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
     let ss = v.get("hooks")?.get("SessionStart")?;
@@ -476,28 +497,54 @@ mod tests {
         let h = &settings["hooks"];
         // SessionStart + PostToolUse(Bash) criados, apontando pros scripts certos.
         assert!(h["SessionStart"][0]["hooks"][0]["command"]
-            .as_str().unwrap().contains("sessionstart_known_failures.py"));
+            .as_str()
+            .unwrap()
+            .contains("sessionstart_known_failures.py"));
         assert_eq!(h["PostToolUse"][0]["matcher"], "Bash");
         assert!(h["PostToolUse"][0]["hooks"][0]["command"]
-            .as_str().unwrap().contains("posttool_failure_capture.py"));
+            .as_str()
+            .unwrap()
+            .contains("posttool_failure_capture.py"));
         // WATCH: o registro entra no SessionStart junto do known_failures, e a limpeza
         // no Stop. Sem estes dois o watchdog roda a cada 5min sobre um `watch/` vazio —
         // timer ativo vigiando nada, que é o mesmo teatro do gate que não escaneava.
         let ss = h["SessionStart"][0]["hooks"].as_array().unwrap();
-        assert_eq!(ss.len(), 1, "SessionStart NÃO registra watch (a janela é o turno)");
+        assert_eq!(
+            ss.len(),
+            1,
+            "SessionStart NÃO registra watch (a janela é o turno)"
+        );
         // Janela = turno: register no UserPromptSubmit, cleanup no Stop. SessionEnd limpa
         // como rede pra sessão que morre no meio do turno.
         let stop = h["Stop"][0]["hooks"].as_array().unwrap();
         assert_eq!(stop.len(), 2, "Stop = review + cleanup do watch");
-        assert!(stop[0]["command"].as_str().unwrap().contains("review"), "review não pode sumir");
-        assert!(stop[1]["command"].as_str().unwrap().contains("watch_cleanup.py"));
+        assert!(
+            stop[0]["command"].as_str().unwrap().contains("review"),
+            "review não pode sumir"
+        );
+        assert!(stop[1]["command"]
+            .as_str()
+            .unwrap()
+            .contains("watch_cleanup.py"));
         assert!(h["SessionEnd"][0]["hooks"][0]["command"]
-            .as_str().unwrap().contains("watch_cleanup.py"));
+            .as_str()
+            .unwrap()
+            .contains("watch_cleanup.py"));
         // UserPromptSubmit MERGE: agora tem 2 hooks (status + captador de correção).
         let ups = h["UserPromptSubmit"][0]["hooks"].as_array().unwrap();
-        assert_eq!(ups.len(), 3, "status + captador de correção + registro do watch");
-        assert!(ups[2]["command"].as_str().unwrap().contains("watch_register.py"));
-        assert!(ups[1]["command"].as_str().unwrap().contains("userprompt_correction_detector.py"));
+        assert_eq!(
+            ups.len(),
+            3,
+            "status + captador de correção + registro do watch"
+        );
+        assert!(ups[2]["command"]
+            .as_str()
+            .unwrap()
+            .contains("watch_register.py"));
+        assert!(ups[1]["command"]
+            .as_str()
+            .unwrap()
+            .contains("userprompt_correction_detector.py"));
         // Stop de review preservado intacto.
         assert_eq!(h["Stop"][0]["hooks"][0]["command"], "review");
     }
@@ -519,9 +566,18 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let cfg = write_hook_curl_config(&dir, "Backend", "s3cr3ttoken123").unwrap();
         let cmd = status_hook_cmd("Backend", "working", &cfg);
-        assert!(!cmd.contains("s3cr3ttoken123"), "token vazou na linha de comando: {cmd}");
-        assert!(cmd.contains("-K"), "deveria ler o header do arquivo de config: {cmd}");
-        assert!(cmd.contains("/agent-hook/Backend?state=working"), "rota/estado errados: {cmd}");
+        assert!(
+            !cmd.contains("s3cr3ttoken123"),
+            "token vazou na linha de comando: {cmd}"
+        );
+        assert!(
+            cmd.contains("-K"),
+            "deveria ler o header do arquivo de config: {cmd}"
+        );
+        assert!(
+            cmd.contains("/agent-hook/Backend?state=working"),
+            "rota/estado errados: {cmd}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -529,16 +585,23 @@ mod tests {
     /// se nao for legivel por outros usuarios.
     #[test]
     fn arquivo_de_config_carrega_o_header_e_e_privado() {
-        let dir = std::env::temp_dir().join(format!("omnirift-hookcfg-{}-perm", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("omnirift-hookcfg-{}-perm", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let cfg = write_hook_curl_config(&dir, "QA", "abc123").unwrap();
         let conteudo = std::fs::read_to_string(&cfg).unwrap();
-        assert!(conteudo.contains("x-omnirift-token: abc123"), "header ausente: {conteudo}");
+        assert!(
+            conteudo.contains("x-omnirift-token: abc123"),
+            "header ausente: {conteudo}"
+        );
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let modo = std::fs::metadata(&cfg).unwrap().permissions().mode() & 0o777;
-            assert_eq!(modo, 0o600, "arquivo com o token precisa ser 0600, veio {modo:o}");
+            assert_eq!(
+                modo, 0o600,
+                "arquivo com o token precisa ser 0600, veio {modo:o}"
+            );
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -552,9 +615,11 @@ mod tests {
         let cfg = write_hook_curl_config(&dir, "Front", "tk").unwrap();
         for st in ["working", "blocked", "done"] {
             let c = status_hook_cmd("Front", st, &cfg);
-            assert!(c.contains(&format!("state={st}")), "estado {st} ausente: {c}");
+            assert!(
+                c.contains(&format!("state={st}")),
+                "estado {st} ausente: {c}"
+            );
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
-
 }

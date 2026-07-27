@@ -36,14 +36,34 @@ pub async fn github_device_start(client_id: String) -> Result<DeviceStart, Strin
         .send()
         .await
         .map_err(|e| format!("erro de rede: {e}"))?;
-    let v: serde_json::Value = resp.json().await.map_err(|e| format!("resposta inválida: {e}"))?;
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("resposta inválida: {e}"))?;
     if let Some(err) = v.get("error").and_then(|x| x.as_str()) {
-        return Err(format!("GitHub: {err} — {}", v.get("error_description").and_then(|x| x.as_str()).unwrap_or("")));
+        return Err(format!(
+            "GitHub: {err} — {}",
+            v.get("error_description")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+        ));
     }
     Ok(DeviceStart {
-        device_code: v.get("device_code").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        user_code: v.get("user_code").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        verification_uri: v.get("verification_uri").and_then(|x| x.as_str()).unwrap_or("https://github.com/login/device").to_string(),
+        device_code: v
+            .get("device_code")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        user_code: v
+            .get("user_code")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        verification_uri: v
+            .get("verification_uri")
+            .and_then(|x| x.as_str())
+            .unwrap_or("https://github.com/login/device")
+            .to_string(),
         interval: v.get("interval").and_then(|x| x.as_u64()).unwrap_or(5),
         expires_in: v.get("expires_in").and_then(|x| x.as_u64()).unwrap_or(900),
     })
@@ -60,7 +80,10 @@ pub struct DevicePoll {
 
 /// Passo 2: faz UM poll do token. O frontend repete a cada `interval`s até "ok".
 #[tauri::command]
-pub async fn github_device_poll(client_id: String, device_code: String) -> Result<DevicePoll, String> {
+pub async fn github_device_poll(
+    client_id: String,
+    device_code: String,
+) -> Result<DevicePoll, String> {
     let resp = http()
         .post("https://github.com/login/oauth/access_token")
         .header("Accept", "application/json")
@@ -72,9 +95,16 @@ pub async fn github_device_poll(client_id: String, device_code: String) -> Resul
         .send()
         .await
         .map_err(|e| format!("erro de rede: {e}"))?;
-    let v: serde_json::Value = resp.json().await.map_err(|e| format!("resposta inválida: {e}"))?;
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("resposta inválida: {e}"))?;
     if let Some(tok) = v.get("access_token").and_then(|x| x.as_str()) {
-        return Ok(DevicePoll { status: "ok".into(), token: Some(tok.to_string()), error: None });
+        return Ok(DevicePoll {
+            status: "ok".into(),
+            token: Some(tok.to_string()),
+            error: None,
+        });
     }
     let err = v.get("error").and_then(|x| x.as_str()).unwrap_or("");
     let status = match err {
@@ -82,5 +112,13 @@ pub async fn github_device_poll(client_id: String, device_code: String) -> Resul
         "slow_down" => "slow_down",
         _ => "error",
     };
-    Ok(DevicePoll { status: status.into(), token: None, error: if status == "error" { Some(err.to_string()) } else { None } })
+    Ok(DevicePoll {
+        status: status.into(),
+        token: None,
+        error: if status == "error" {
+            Some(err.to_string())
+        } else {
+            None
+        },
+    })
 }

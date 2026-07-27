@@ -209,8 +209,16 @@ fn which(bin: &str) -> Option<String> {
     if !out.status.success() {
         return None;
     }
-    let p = String::from_utf8_lossy(&out.stdout).lines().next()?.trim().to_string();
-    if p.is_empty() { None } else { Some(p) }
+    let p = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .to_string();
+    if p.is_empty() {
+        None
+    } else {
+        Some(p)
+    }
 }
 
 #[cfg(windows)]
@@ -219,8 +227,16 @@ fn which(bin: &str) -> Option<String> {
     if !out.status.success() {
         return None;
     }
-    let p = String::from_utf8_lossy(&out.stdout).lines().next()?.trim().to_string();
-    if p.is_empty() { None } else { Some(p) }
+    let p = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .to_string();
+    if p.is_empty() {
+        None
+    } else {
+        Some(p)
+    }
 }
 
 /// Binário `serena` instalado (PATH ou uv tools).
@@ -245,7 +261,10 @@ fn find_uvx() -> Option<String> {
         return Some(p);
     }
     let home = home_dir()?;
-    for c in [format!("{home}/.local/bin/uvx"), format!("{home}/.cargo/bin/uvx")] {
+    for c in [
+        format!("{home}/.local/bin/uvx"),
+        format!("{home}/.cargo/bin/uvx"),
+    ] {
         if std::path::Path::new(&c).exists() {
             return Some(c);
         }
@@ -270,7 +289,10 @@ fn find_serena() -> Option<(String, Vec<String>)> {
         return Some((bin, vec![]));
     }
     if let Some(uvx) = find_uvx() {
-        return Some((uvx, vec!["--from".into(), "serena-agent".into(), "serena".into()]));
+        return Some((
+            uvx,
+            vec!["--from".into(), "serena-agent".into(), "serena".into()],
+        ));
     }
     None
 }
@@ -346,7 +368,10 @@ mod tests {
         let _ = pool.get_or_spawn(key).await.expect("reuso");
         let map = pool.instances.lock().await;
         let age = Instant::now().duration_since(map.get(key).unwrap().last_used);
-        assert!(age < Duration::from_secs(5), "last_used deve ter sido renovado");
+        assert!(
+            age < Duration::from_secs(5),
+            "last_used deve ter sido renovado"
+        );
         drop(map);
         pool.shutdown_all().await;
     }
@@ -358,7 +383,10 @@ mod tests {
         let pool = SerenaPool::new();
 
         // 3 instâncias com last_used escalonado: A é a mais antiga (vítima do LRU).
-        for (i, key) in ["/tmp/pool-A", "/tmp/pool-B", "/tmp/pool-C"].iter().enumerate() {
+        for (i, key) in ["/tmp/pool-A", "/tmp/pool-B", "/tmp/pool-C"]
+            .iter()
+            .enumerate()
+        {
             insert_fake(&pool, key).await;
             // A mais velho que B, B mais velho que C
             let mut map = pool.instances.lock().await;
@@ -377,7 +405,10 @@ mod tests {
                 .min_by_key(|(_, inst)| inst.last_used)
                 .map(|(k, _)| k.clone())
                 .unwrap();
-            assert_eq!(victim, "/tmp/pool-A", "A (mais antigo) deve ser a vítima LRU");
+            assert_eq!(
+                victim, "/tmp/pool-A",
+                "A (mais antigo) deve ser a vítima LRU"
+            );
             map.remove(&victim);
         }
         // Insere o 4º no lugar.

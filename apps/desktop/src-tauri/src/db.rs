@@ -5,10 +5,10 @@
 
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
-use tauri::Emitter;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use tauri::Emitter;
 
 pub struct Db(Mutex<Connection>);
 
@@ -386,10 +386,7 @@ fn migrate(conn: &Connection) {
     );
     // Cápsula do tempo (#31): coluna JSON opcional com o estado do projeto. Idempotente
     // (falha silenciosa se já existe, mesmo padrão de `auto` acima).
-    let _ = conn.execute(
-        "ALTER TABLE canvas_snapshots ADD COLUMN meta TEXT",
-        [],
-    );
+    let _ = conn.execute("ALTER TABLE canvas_snapshots ADD COLUMN meta TEXT", []);
     // Rename floor→parallel (Fase 2 · #6): renomeia as colunas legadas dos DBs
     // anteriores. Nomes de coluna são INTERNOS (o front lê o wire camelCase dos
     // structs, preservado via `#[serde(rename = "floorId")]`). `RENAME COLUMN`
@@ -418,7 +415,10 @@ pub(crate) fn rename_column_if_legacy(conn: &Connection, table: &str, old: &str,
     };
     let has = |c: &str| cols.iter().any(|n| n == c);
     if has(old) && !has(new) {
-        let _ = conn.execute(&format!("ALTER TABLE {table} RENAME COLUMN {old} TO {new}"), []);
+        let _ = conn.execute(
+            &format!("ALTER TABLE {table} RENAME COLUMN {old} TO {new}"),
+            [],
+        );
     }
 }
 
@@ -619,7 +619,12 @@ impl Db {
     }
 
     /// Lista memórias (filtro opcional por kind/scope).
-    pub fn memory_list(&self, kind: Option<&str>, scope: Option<&str>, limit: i64) -> Result<Vec<MemoryRow>> {
+    pub fn memory_list(
+        &self,
+        kind: Option<&str>,
+        scope: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<MemoryRow>> {
         let conn = self.0.lock();
         let mut stmt = conn.prepare(
             "SELECT id, scope, agent_id, kind, mem_key, value, tags, created_at
@@ -633,7 +638,9 @@ impl Db {
 
     /// Apaga uma memória por id.
     pub fn memory_forget(&self, id: i64) -> Result<()> {
-        self.0.lock().execute("DELETE FROM agent_memory WHERE id = ?1", [id])?;
+        self.0
+            .lock()
+            .execute("DELETE FROM agent_memory WHERE id = ?1", [id])?;
         Ok(())
     }
 
@@ -700,7 +707,9 @@ impl Db {
     }
 
     pub fn snapshot_delete(&self, id: i64) -> Result<()> {
-        self.0.lock().execute("DELETE FROM canvas_snapshots WHERE id = ?1", [id])?;
+        self.0
+            .lock()
+            .execute("DELETE FROM canvas_snapshots WHERE id = ?1", [id])?;
         Ok(())
     }
 
@@ -746,14 +755,21 @@ impl Db {
     }
 
     pub fn reminder_delete(&self, id: i64) -> Result<()> {
-        self.0.lock().execute("DELETE FROM reminders WHERE id = ?1", [id])?;
+        self.0
+            .lock()
+            .execute("DELETE FROM reminders WHERE id = ?1", [id])?;
         Ok(())
     }
 
     // ── Conexões de memória (provider plugável) ────────────────────────────
 
     /// UPSERT de uma conexão; preserva `is_active` no update.
-    pub fn conn_upsert(&self, kind: &str, endpoint: Option<&str>, token_enc: Option<&str>) -> Result<()> {
+    pub fn conn_upsert(
+        &self,
+        kind: &str,
+        endpoint: Option<&str>,
+        token_enc: Option<&str>,
+    ) -> Result<()> {
         self.0.lock().execute(
             "INSERT INTO memory_connections (kind, endpoint, token_enc, is_active, updated_at)
              VALUES (?1, ?2, ?3,
@@ -812,7 +828,8 @@ impl Db {
 
     pub fn conn_active(&self) -> Result<Option<String>> {
         let conn = self.0.lock();
-        let mut stmt = conn.prepare("SELECT kind FROM memory_connections WHERE is_active = 1 LIMIT 1")?;
+        let mut stmt =
+            conn.prepare("SELECT kind FROM memory_connections WHERE is_active = 1 LIMIT 1")?;
         let mut rows = stmt.query([])?;
         match rows.next()? {
             Some(r) => Ok(Some(r.get(0)?)),
@@ -836,7 +853,8 @@ impl Db {
 
     pub fn mcp_list(&self) -> Result<Vec<McpServerRow>> {
         let conn = self.0.lock();
-        let mut stmt = conn.prepare("SELECT name, spec_enc, enabled FROM mcp_servers ORDER BY name")?;
+        let mut stmt =
+            conn.prepare("SELECT name, spec_enc, enabled FROM mcp_servers ORDER BY name")?;
         let rows = stmt
             .query_map([], |r| {
                 Ok(McpServerRow {
@@ -850,9 +868,10 @@ impl Db {
     }
 
     pub fn mcp_remove(&self, name: &str) -> Result<()> {
-        self.0
-            .lock()
-            .execute("DELETE FROM mcp_servers WHERE name = ?1", rusqlite::params![name])?;
+        self.0.lock().execute(
+            "DELETE FROM mcp_servers WHERE name = ?1",
+            rusqlite::params![name],
+        )?;
         Ok(())
     }
 
@@ -996,9 +1015,10 @@ impl Db {
 
     /// Remove o orçamento de um projeto (ação do próprio usuário via UI).
     pub fn budget_remove(&self, project: &str) -> Result<()> {
-        self.0
-            .lock()
-            .execute("DELETE FROM project_budgets WHERE project = ?1", rusqlite::params![project])?;
+        self.0.lock().execute(
+            "DELETE FROM project_budgets WHERE project = ?1",
+            rusqlite::params![project],
+        )?;
         Ok(())
     }
 
@@ -1080,8 +1100,12 @@ pub fn session_end(
 }
 
 #[tauri::command]
-pub fn sessions_list(limit: Option<i64>, db: tauri::State<'_, Db>) -> Result<Vec<SessionRow>, String> {
-    db.sessions_list(limit.unwrap_or(200)).map_err(|e| format!("{e:#}"))
+pub fn sessions_list(
+    limit: Option<i64>,
+    db: tauri::State<'_, Db>,
+) -> Result<Vec<SessionRow>, String> {
+    db.sessions_list(limit.unwrap_or(200))
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -1125,8 +1149,15 @@ pub fn memory_add(
     db: tauri::State<'_, Db>,
 ) -> Result<i64, String> {
     let kind = kind.unwrap_or_else(|| "fact".into());
-    db.memory_remember(scope.as_deref(), None, &kind, key.as_deref(), &value, tags.as_deref())
-        .map_err(|e| format!("{e:#}"))
+    db.memory_remember(
+        scope.as_deref(),
+        None,
+        &kind,
+        key.as_deref(),
+        &value,
+        tags.as_deref(),
+    )
+    .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -1137,8 +1168,13 @@ pub fn snapshot_create(
     meta: Option<String>,
     db: tauri::State<'_, Db>,
 ) -> Result<i64, String> {
-    db.snapshot_create(label.as_deref(), &doc, auto.unwrap_or(false), meta.as_deref())
-        .map_err(|e| format!("{e:#}"))
+    db.snapshot_create(
+        label.as_deref(),
+        &doc,
+        auto.unwrap_or(false),
+        meta.as_deref(),
+    )
+    .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -1259,7 +1295,8 @@ pub(crate) const KANBAN_DEFAULT_COLS: [(&str, &str); 6] = [
 fn kanban_col_slug_ok(c: &str) -> bool {
     !c.is_empty()
         && c.len() <= 24
-        && c.bytes().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'))
+        && c.bytes()
+            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'))
 }
 
 /// Colunas efetivas do projeto: as custom (ordenadas por position) ou, sem custom,
@@ -1267,14 +1304,19 @@ fn kanban_col_slug_ok(c: &str) -> bool {
 pub(crate) fn kanban_effective_columns(db: &Db, project: &str) -> Vec<(String, String)> {
     match db.kanban_columns_list(project) {
         Ok(cols) if !cols.is_empty() => cols.into_iter().map(|(c, l, _)| (c, l)).collect(),
-        _ => KANBAN_DEFAULT_COLS.iter().map(|(c, l)| (c.to_string(), l.to_string())).collect(),
+        _ => KANBAN_DEFAULT_COLS
+            .iter()
+            .map(|(c, l)| (c.to_string(), l.to_string()))
+            .collect(),
     }
 }
 
 /// Coluna válida pro projeto — defesa contra tool-call de agente com coluna inventada.
 /// Aceita se estiver nas colunas custom do projeto OU (sem custom) no default de 6.
 pub(crate) fn kanban_valid_col(db: &Db, project: &str, c: &str) -> bool {
-    kanban_effective_columns(db, project).iter().any(|(col, _)| col == c)
+    kanban_effective_columns(db, project)
+        .iter()
+        .any(|(col, _)| col == c)
 }
 
 /// Slugs das colunas do projeto separados por `|` — pra mensagem de erro dinâmica.
@@ -1346,7 +1388,13 @@ impl Db {
         Ok(())
     }
 
-    pub fn kanban_update(&self, id: i64, title: Option<&str>, body: Option<&str>, agent: Option<&str>) -> Result<()> {
+    pub fn kanban_update(
+        &self,
+        id: i64,
+        title: Option<&str>,
+        body: Option<&str>,
+        agent: Option<&str>,
+    ) -> Result<()> {
         self.0.lock().execute(
             "UPDATE kanban_cards
                 SET title = COALESCE(?2, title),
@@ -1374,7 +1422,9 @@ impl Db {
     }
 
     pub fn kanban_delete(&self, id: i64) -> Result<()> {
-        self.0.lock().execute("DELETE FROM kanban_cards WHERE id = ?1", [id])?;
+        self.0
+            .lock()
+            .execute("DELETE FROM kanban_cards WHERE id = ?1", [id])?;
         Ok(())
     }
 
@@ -1382,9 +1432,11 @@ impl Db {
     pub fn kanban_card_project(&self, id: i64) -> Result<Option<String>> {
         let conn = self.0.lock();
         let p = conn
-            .query_row("SELECT project FROM kanban_cards WHERE id = ?1", [id], |r| {
-                r.get::<_, String>(0)
-            })
+            .query_row(
+                "SELECT project FROM kanban_cards WHERE id = ?1",
+                [id],
+                |r| r.get::<_, String>(0),
+            )
             .optional()?;
         Ok(p)
     }
@@ -1437,7 +1489,10 @@ impl Db {
     /// Deleta um sprint: os cards dele voltam pro product backlog (sprint_id = NULL).
     pub fn sprint_delete(&self, id: i64) -> Result<()> {
         let conn = self.0.lock();
-        conn.execute("UPDATE kanban_cards SET sprint_id = NULL WHERE sprint_id = ?1", [id])?;
+        conn.execute(
+            "UPDATE kanban_cards SET sprint_id = NULL WHERE sprint_id = ?1",
+            [id],
+        )?;
         conn.execute("DELETE FROM kanban_sprints WHERE id = ?1", [id])?;
         Ok(())
     }
@@ -1498,7 +1553,10 @@ impl Db {
 }
 
 #[tauri::command]
-pub fn kanban_query(project: String, db: tauri::State<'_, Db>) -> Result<Vec<KanbanCardRow>, String> {
+pub fn kanban_query(
+    project: String,
+    db: tauri::State<'_, Db>,
+) -> Result<Vec<KanbanCardRow>, String> {
     db.kanban_list(&project).map_err(|e| format!("{e:#}"))
 }
 
@@ -1506,7 +1564,10 @@ pub fn kanban_query(project: String, db: tauri::State<'_, Db>) -> Result<Vec<Kan
 // chegam em snake_case aqui (mapeamento padrão do Tauri v2, igual node_id↔nodeId). Cada mutação
 // emite kanban://changed pro painel recarregar. ─────────────────────────────────────────────
 #[tauri::command]
-pub fn sprint_list(project: String, db: tauri::State<'_, Db>) -> Result<Vec<KanbanSprintRow>, String> {
+pub fn sprint_list(
+    project: String,
+    db: tauri::State<'_, Db>,
+) -> Result<Vec<KanbanSprintRow>, String> {
     db.sprint_list(&project).map_err(|e| format!("{e:#}"))
 }
 
@@ -1521,21 +1582,35 @@ pub fn sprint_create(
     db: tauri::State<'_, Db>,
 ) -> Result<i64, String> {
     let id = db
-        .sprint_create(&project, &name, goal.as_deref(), starts_at.as_deref(), ends_at.as_deref())
+        .sprint_create(
+            &project,
+            &name,
+            goal.as_deref(),
+            starts_at.as_deref(),
+            ends_at.as_deref(),
+        )
         .map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
     Ok(id)
 }
 
 #[tauri::command]
-pub fn sprint_activate(id: i64, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
+pub fn sprint_activate(
+    id: i64,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Db>,
+) -> Result<(), String> {
     db.sprint_activate(id).map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
     Ok(())
 }
 
 #[tauri::command]
-pub fn sprint_delete(id: i64, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
+pub fn sprint_delete(
+    id: i64,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Db>,
+) -> Result<(), String> {
     db.sprint_delete(id).map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
     Ok(())
@@ -1548,7 +1623,8 @@ pub fn kanban_card_set_sprint(
     app: tauri::AppHandle,
     db: tauri::State<'_, Db>,
 ) -> Result<(), String> {
-    db.card_set_sprint(id, sprint_id).map_err(|e| format!("{e:#}"))?;
+    db.card_set_sprint(id, sprint_id)
+        .map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
     Ok(())
 }
@@ -1569,23 +1645,41 @@ pub fn kanban_card_create(
         None => kanban_first_col(&db, &project),
     };
     if !kanban_valid_col(&db, &project, &col) {
-        return Err(format!("coluna inválida: {col} (use {})", kanban_cols_hint(&db, &project)));
+        return Err(format!(
+            "coluna inválida: {col} (use {})",
+            kanban_cols_hint(&db, &project)
+        ));
     }
     let id = db
-        .kanban_create(&project, &col, &title, body.as_deref(), agent.as_deref(), node_id.as_deref())
+        .kanban_create(
+            &project,
+            &col,
+            &title,
+            body.as_deref(),
+            agent.as_deref(),
+            node_id.as_deref(),
+        )
         .map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
     Ok(id)
 }
 
 #[tauri::command]
-pub fn kanban_card_move(id: i64, col: String, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
+pub fn kanban_card_move(
+    id: i64,
+    col: String,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Db>,
+) -> Result<(), String> {
     let project = db
         .kanban_card_project(id)
         .map_err(|e| format!("{e:#}"))?
         .ok_or_else(|| format!("card #{id} não existe"))?;
     if !kanban_valid_col(&db, &project, &col) {
-        return Err(format!("coluna inválida: {col} (use {})", kanban_cols_hint(&db, &project)));
+        return Err(format!(
+            "coluna inválida: {col} (use {})",
+            kanban_cols_hint(&db, &project)
+        ));
     }
     db.kanban_move(id, &col).map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
@@ -1608,7 +1702,11 @@ pub fn kanban_card_update(
 }
 
 #[tauri::command]
-pub fn kanban_card_delete(id: i64, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
+pub fn kanban_card_delete(
+    id: i64,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Db>,
+) -> Result<(), String> {
     db.kanban_delete(id).map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
     Ok(())
@@ -1633,11 +1731,18 @@ pub struct KanbanColumnSpec {
 
 /// Colunas CUSTOM do projeto (vazio = o front usa o default de 6).
 #[tauri::command]
-pub fn kanban_columns_query(project: String, db: tauri::State<'_, Db>) -> Result<Vec<KanbanColumnRow>, String> {
+pub fn kanban_columns_query(
+    project: String,
+    db: tauri::State<'_, Db>,
+) -> Result<Vec<KanbanColumnRow>, String> {
     db.kanban_columns_list(&project)
         .map(|cols| {
             cols.into_iter()
-                .map(|(col, label, position)| KanbanColumnRow { col, label, position })
+                .map(|(col, label, position)| KanbanColumnRow {
+                    col,
+                    label,
+                    position,
+                })
                 .collect()
         })
         .map_err(|e| format!("{e:#}"))
@@ -1651,7 +1756,8 @@ pub fn kanban_columns_save(
     db: tauri::State<'_, Db>,
 ) -> Result<(), String> {
     let pairs: Vec<(String, String)> = cols.into_iter().map(|c| (c.col, c.label)).collect();
-    db.kanban_columns_set(&project, &pairs).map_err(|e| format!("{e:#}"))?;
+    db.kanban_columns_set(&project, &pairs)
+        .map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("kanban://changed", ());
     Ok(())
 }
@@ -1720,7 +1826,9 @@ impl Db {
     }
 
     pub fn snippet_delete(&self, id: i64) -> Result<()> {
-        self.0.lock().execute("DELETE FROM snippets WHERE id = ?1", [id])?;
+        self.0
+            .lock()
+            .execute("DELETE FROM snippets WHERE id = ?1", [id])?;
         Ok(())
     }
 }
@@ -1742,13 +1850,19 @@ pub fn snippet_create(
     // Título/lang em branco viram NULL — o painel mostra preview do content no lugar.
     let title = title.as_deref().map(str::trim).filter(|t| !t.is_empty());
     let lang = lang.as_deref().map(str::trim).filter(|l| !l.is_empty());
-    let id = db.snippet_add(&kind, title, &content, lang).map_err(|e| format!("{e:#}"))?;
+    let id = db
+        .snippet_add(&kind, title, &content, lang)
+        .map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("snippets://changed", ());
     Ok(id)
 }
 
 #[tauri::command]
-pub fn snippet_delete(id: i64, app: tauri::AppHandle, db: tauri::State<'_, Db>) -> Result<(), String> {
+pub fn snippet_delete(
+    id: i64,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Db>,
+) -> Result<(), String> {
     db.snippet_delete(id).map_err(|e| format!("{e:#}"))?;
     let _ = app.emit("snippets://changed", ());
     Ok(())
@@ -1768,16 +1882,37 @@ mod tests {
 
         // UPSERT: segundo save sobrescreve o mesmo row.
         db.save(r#"{"version":2,"name":"x"}"#).unwrap();
-        assert_eq!(db.load().unwrap().as_deref(), Some(r#"{"version":2,"name":"x"}"#));
+        assert_eq!(
+            db.load().unwrap().as_deref(),
+            Some(r#"{"version":2,"name":"x"}"#)
+        );
     }
 
     #[test]
     fn ledger_and_budget_roundtrip() {
         let db = Db::in_memory().unwrap();
-        db.ledger_add("2026-06-18T10:00:00", "anthropic", "opus", Some("/p/a"), Some("review"), 10, 20, 0.5)
-            .unwrap();
-        db.ledger_add("2026-06-17T10:00:00", "openai", "gpt-5", Some("/p/b"), None, 5, 5, 0.1)
-            .unwrap();
+        db.ledger_add(
+            "2026-06-18T10:00:00",
+            "anthropic",
+            "opus",
+            Some("/p/a"),
+            Some("review"),
+            10,
+            20,
+            0.5,
+        )
+        .unwrap();
+        db.ledger_add(
+            "2026-06-17T10:00:00",
+            "openai",
+            "gpt-5",
+            Some("/p/b"),
+            None,
+            5,
+            5,
+            0.1,
+        )
+        .unwrap();
 
         // Tudo + filtro por `since` (ISO comparável).
         assert_eq!(db.ledger_rows(None).unwrap().len(), 2);
@@ -1788,7 +1923,10 @@ mod tests {
         // Custo nativo de um projeto desde o início do mês.
         let cost = db.ledger_cost_since("/p/a", "2026-06-01T00:00:00").unwrap();
         assert!((cost - 0.5).abs() < 1e-9, "cost={cost}");
-        assert_eq!(db.ledger_cost_since("/p/b", "2026-06-18T00:00:00").unwrap(), 0.0);
+        assert_eq!(
+            db.ledger_cost_since("/p/b", "2026-06-18T00:00:00").unwrap(),
+            0.0
+        );
 
         // Orçamento: upsert sobrescreve (ON CONFLICT) e remove apaga.
         db.budget_set("/p/a", 100.0, 80).unwrap();
@@ -1813,16 +1951,23 @@ mod tests {
         };
 
         // Run com 2 achados.
-        db.review_history_add("repoA", Some("sha1"), Some("NO-GO"), &[item("a.rs", "leak"), item("b.rs", "todo")])
-            .unwrap();
+        db.review_history_add(
+            "repoA",
+            Some("sha1"),
+            Some("NO-GO"),
+            &[item("a.rs", "leak"), item("b.rs", "todo")],
+        )
+        .unwrap();
         // Run limpa → grava 1 linha-marcador (file NULL).
-        db.review_history_add("repoA", Some("sha2"), Some("GO"), &[]).unwrap();
+        db.review_history_add("repoA", Some("sha2"), Some("GO"), &[])
+            .unwrap();
         // Escopo diferente não vaza.
-        db.review_history_add("repoB", None, Some("GO"), &[item("z.rs", "x")]).unwrap();
+        db.review_history_add("repoB", None, Some("GO"), &[item("z.rs", "x")])
+            .unwrap();
 
         let rows = db.review_history_list("repoA", 100).unwrap();
         assert_eq!(rows.len(), 3); // 2 findings + 1 marcador
-        // Mais novo primeiro: a linha-marcador (sha2) vem antes.
+                                   // Mais novo primeiro: a linha-marcador (sha2) vem antes.
         assert_eq!(rows[0].sha.as_deref(), Some("sha2"));
         assert!(rows[0].file.is_none());
 
@@ -1851,8 +1996,15 @@ mod tests {
         for r in &rows {
             runs.insert(r.run_ts.clone());
         }
-        assert_eq!(runs.len(), 50, "deve manter só as 50 runs mais recentes do escopo");
-        assert!(!runs.contains("2020-01-01 00:00:00"), "a run mais antiga foi descartada");
+        assert_eq!(
+            runs.len(),
+            50,
+            "deve manter só as 50 runs mais recentes do escopo"
+        );
+        assert!(
+            !runs.contains("2020-01-01 00:00:00"),
+            "a run mais antiga foi descartada"
+        );
     }
 
     #[test]
@@ -1868,8 +2020,15 @@ mod tests {
         assert_eq!(kanban_first_col(&db, "/p"), "backlog");
 
         // Set custom → ordem preservada por position.
-        db.kanban_columns_set("/p", &[pair("ideias", "Ideias"), pair("fazendo", "Fazendo"), pair("feito", "Feito")])
-            .unwrap();
+        db.kanban_columns_set(
+            "/p",
+            &[
+                pair("ideias", "Ideias"),
+                pair("fazendo", "Fazendo"),
+                pair("feito", "Feito"),
+            ],
+        )
+        .unwrap();
         let cols = db.kanban_columns_list("/p").unwrap();
         assert_eq!(
             cols.iter().map(|(c, _, _)| c.as_str()).collect::<Vec<_>>(),
@@ -1887,17 +2046,33 @@ mod tests {
         assert!(kanban_valid_col(&db, "/q", "backlog"));
 
         // Substituição total (DELETE do projeto + INSERT em ordem).
-        db.kanban_columns_set("/p", &[pair("a", "A"), pair("b", "B")]).unwrap();
+        db.kanban_columns_set("/p", &[pair("a", "A"), pair("b", "B")])
+            .unwrap();
         assert_eq!(db.kanban_columns_list("/p").unwrap().len(), 2);
 
         // Validações rejeitam SEM tocar o estado anterior: <2 colunas, slug fora
         // de [a-z0-9_-]{1,24}, label vazio, slug duplicado.
         assert!(db.kanban_columns_set("/p", &[pair("a", "A")]).is_err());
-        assert!(db.kanban_columns_set("/p", &[pair("Maiús cula", "X"), pair("b", "B")]).is_err());
-        assert!(db.kanban_columns_set("/p", &[pair("a123456789012345678901234", "X"), pair("b", "B")]).is_err());
-        assert!(db.kanban_columns_set("/p", &[pair("a", "   "), pair("b", "B")]).is_err());
-        assert!(db.kanban_columns_set("/p", &[pair("a", "A"), pair("a", "A2")]).is_err());
-        assert_eq!(db.kanban_columns_list("/p").unwrap().len(), 2, "falha de validação não corrompe");
+        assert!(db
+            .kanban_columns_set("/p", &[pair("Maiús cula", "X"), pair("b", "B")])
+            .is_err());
+        assert!(db
+            .kanban_columns_set(
+                "/p",
+                &[pair("a123456789012345678901234", "X"), pair("b", "B")]
+            )
+            .is_err());
+        assert!(db
+            .kanban_columns_set("/p", &[pair("a", "   "), pair("b", "B")])
+            .is_err());
+        assert!(db
+            .kanban_columns_set("/p", &[pair("a", "A"), pair("a", "A2")])
+            .is_err());
+        assert_eq!(
+            db.kanban_columns_list("/p").unwrap().len(),
+            2,
+            "falha de validação não corrompe"
+        );
 
         // kanban_card_project acha o dono do card (base da validação do move).
         let id = db.kanban_create("/p", "a", "t", None, None, None).unwrap();
@@ -1911,8 +2086,12 @@ mod tests {
         assert!(db.snippets_list().unwrap().is_empty());
 
         let a = db.snippet_add("text", Some("t1"), "olá", None).unwrap();
-        let b = db.snippet_add("code", None, "fn main() {}", Some("rust")).unwrap();
-        let c = db.snippet_add("image", Some("print"), "/tmp/omnirift-pastes/x.png", None).unwrap();
+        let b = db
+            .snippet_add("code", None, "fn main() {}", Some("rust"))
+            .unwrap();
+        let c = db
+            .snippet_add("image", Some("print"), "/tmp/omnirift-pastes/x.png", None)
+            .unwrap();
         assert!(a < b && b < c);
 
         // Lista mais novo primeiro (id DESC); campos opcionais preservados.

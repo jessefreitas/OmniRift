@@ -50,20 +50,32 @@ pub fn socratic_system(language: &str, hint_level: u8, exercise_statement: &str)
     };
 
     let mut out = String::new();
-    out.push_str("Você é o OmniPartner Aprender, um tutor Socrático de programação dentro do OmniRift.\n");
+    out.push_str(
+        "Você é o OmniPartner Aprender, um tutor Socrático de programação dentro do OmniRift.\n",
+    );
     out.push_str(&format!(
         "Está ensinando {lang} a um INICIANTE — contextualize conceitos, exemplos e vocabulário nessa linguagem.\n"
     ));
-    out.push_str("Você está no diretório do projeto do aprendiz e pode citar arquivos reais dele.\n\n");
+    out.push_str(
+        "Você está no diretório do projeto do aprendiz e pode citar arquivos reais dele.\n\n",
+    );
 
     out.push_str("REGRAS INVIOLÁVEIS (o método Socrático vale mais que a resposta rápida):\n");
-    out.push_str(&format!("- Nível de dica atual: {level} de {MAX_HINT_LEVEL}.\n"));
+    out.push_str(&format!(
+        "- Nível de dica atual: {level} de {MAX_HINT_LEVEL}.\n"
+    ));
     out.push_str(rule_now);
     out.push('\n');
-    out.push_str("- Nível 1: SOMENTE perguntas orientadoras e conceitos; ZERO código, nem fragmento.\n");
+    out.push_str(
+        "- Nível 1: SOMENTE perguntas orientadoras e conceitos; ZERO código, nem fragmento.\n",
+    );
     out.push_str("- Nível 2: aponte o caminho (comandos/ideias concretas) com fragmentos de NO MÁXIMO 1 linha; NUNCA a solução inteira.\n");
-    out.push_str(&format!("- Nível {MAX_HINT_LEVEL} (o máximo): solução completa permitida, SEMPRE explicada.\n"));
-    out.push_str("- Nunca pule níveis: se o aprendiz ainda não esgotou as dicas, não adiante a solução.\n");
+    out.push_str(&format!(
+        "- Nível {MAX_HINT_LEVEL} (o máximo): solução completa permitida, SEMPRE explicada.\n"
+    ));
+    out.push_str(
+        "- Nunca pule níveis: se o aprendiz ainda não esgotou as dicas, não adiante a solução.\n",
+    );
     out.push_str("- Responda em PT-BR, curto (no máximo ~8 linhas). Uma ideia por vez.\n");
     out.push_str("- Você só CONVERSA: nada de executar comandos nem editar arquivos.\n\n");
 
@@ -157,14 +169,20 @@ mod tests {
         // Resposta 100% Socrática: só perguntas e conceito, zero código.
         let resp = "Boa pergunta! Como um script shell enxerga o que você digita depois do nome dele? \
                     E qual operador do shell faz contas com inteiros? Pense nisso e me diga o que achou.";
-        assert!(!response_leaks_solution(resp, 1, &[SUM_SOLUTION]), "conceito puro não vaza");
+        assert!(
+            !response_leaks_solution(resp, 1, &[SUM_SOLUTION]),
+            "conceito puro não vaza"
+        );
     }
 
     #[test]
     fn full_solution_level1_leaks_via_marker() {
         // O tutor "adiantou" a solução exata no nível 1 → marcador crava o vazamento.
         let resp = format!("Fácil, é só fazer: {SUM_SOLUTION} dentro do arquivo.");
-        assert!(response_leaks_solution(&resp, 1, &[SUM_SOLUTION]), "solução no nível 1 vaza");
+        assert!(
+            response_leaks_solution(&resp, 1, &[SUM_SOLUTION]),
+            "solução no nível 1 vaza"
+        );
     }
 
     #[test]
@@ -182,21 +200,30 @@ mod tests {
         // Bloco cercado com 4 linhas de código no nível 2, SEM marcador conhecido →
         // ainda assim é solução demais; o line-count pega.
         let resp = "Segue pronto:\n```bash\n#!/usr/bin/env bash\nmkdir -p scripts\ncd scripts\ncat > x.sh\n```\n";
-        assert!(response_leaks_solution(resp, 2, &[]), "bloco de código grande vaza");
+        assert!(
+            response_leaks_solution(resp, 2, &[]),
+            "bloco de código grande vaza"
+        );
     }
 
     #[test]
     fn one_line_fragment_level2_is_allowed() {
         // Nível 2 permite fragmento de 1 linha; sem marcador de solução → não vaza.
         let resp = "Você está perto. Lembre que os argumentos chegam em `$1` e `$2`:\n```bash\n$(( ... ))\n```\nMonte o resto.";
-        assert!(!response_leaks_solution(resp, 2, &[SUM_SOLUTION]), "1 linha é permitido no nível 2");
+        assert!(
+            !response_leaks_solution(resp, 2, &[SUM_SOLUTION]),
+            "1 linha é permitido no nível 2"
+        );
     }
 
     #[test]
     fn marker_match_is_case_insensitive() {
         let resp = "Basta escrever CONSOLE.LOG(NUMBER(PROCESS.ARGV[2]) + NUMBER(PROCESS.ARGV[3]))";
         let marker = "console.log(Number(process.argv[2]) + Number(process.argv[3]))";
-        assert!(response_leaks_solution(resp, 1, &[marker]), "case não deve escapar do detector");
+        assert!(
+            response_leaks_solution(resp, 1, &[marker]),
+            "case não deve escapar do detector"
+        );
     }
 
     #[test]
@@ -204,20 +231,29 @@ mod tests {
         // "sys" (3 chars) aparece na resposta, mas é curto demais pra ser marcador —
         // senão qualquer menção conceitual a "sys" bloquearia o tutor.
         let resp = "Procure pelo módulo sys; ele guarda os argumentos da linha de comando.";
-        assert!(!response_leaks_solution(resp, 1, &["sys"]), "marcador curto não gera falso-positivo");
+        assert!(
+            !response_leaks_solution(resp, 1, &["sys"]),
+            "marcador curto não gera falso-positivo"
+        );
     }
 
     #[test]
     fn empty_markers_and_prose_never_leaks() {
         let resp = "Que comando clássico do Unix conta as linhas de um arquivo?";
-        assert!(!response_leaks_solution(resp, 1, &[]), "prosa sem código e sem marcador nunca vaza");
+        assert!(
+            !response_leaks_solution(resp, 1, &[]),
+            "prosa sem código e sem marcador nunca vaza"
+        );
     }
 
     #[test]
     fn level_above_max_is_treated_as_reveal() {
         // hint_level fora da faixa (>= máximo) → tratado como nível máximo (liberado).
         let resp = format!("Solução: {SUM_SOLUTION}");
-        assert!(!response_leaks_solution(&resp, 99, &[SUM_SOLUTION]), "acima do máximo libera");
+        assert!(
+            !response_leaks_solution(&resp, 99, &[SUM_SOLUTION]),
+            "acima do máximo libera"
+        );
     }
 
     #[test]
@@ -226,7 +262,10 @@ mod tests {
         // line-count; prova que cercas e linhas em branco não são contadas como código.
         let resp = "```\n\n#!/usr/bin/env bash\necho oi\n\n```";
         assert_eq!(max_fenced_code_lines(resp), 2);
-        assert!(!response_leaks_solution(resp, 2, &[]), "2 linhas está no limite tolerado");
+        assert!(
+            !response_leaks_solution(resp, 2, &[]),
+            "2 linhas está no limite tolerado"
+        );
     }
 
     // ─────────────────────── system-prompt Socrático ───────────────────────
@@ -242,7 +281,10 @@ mod tests {
     #[test]
     fn socratic_system_max_level_allows_solution() {
         let p = socratic_system("Python", MAX_HINT_LEVEL, "Some dois números.");
-        assert!(p.contains("PODE mostrar a solução completa"), "nível máximo libera: {p}");
+        assert!(
+            p.contains("PODE mostrar a solução completa"),
+            "nível máximo libera: {p}"
+        );
         assert!(p.contains("Nível de dica atual: 3 de 3"));
     }
 
@@ -250,7 +292,10 @@ mod tests {
     fn socratic_system_carries_language_and_statement() {
         let p = socratic_system("JavaScript", 2, "Leia um campo de um JSON.");
         assert!(p.contains("JavaScript"), "linguagem interpolada");
-        assert!(p.contains("Leia um campo de um JSON."), "enunciado interpolado");
+        assert!(
+            p.contains("Leia um campo de um JSON."),
+            "enunciado interpolado"
+        );
     }
 
     #[test]
@@ -265,7 +310,10 @@ mod tests {
     #[test]
     fn socratic_system_defaults_empty_language() {
         let p = socratic_system("   ", 1, "x");
-        assert!(p.contains("ensinando programação"), "linguagem vazia vira genérica: {p}");
+        assert!(
+            p.contains("ensinando programação"),
+            "linguagem vazia vira genérica: {p}"
+        );
     }
 
     // ─────────────────────── wrappers de comando (adaptação de tipos) ───────────────────────
@@ -273,8 +321,16 @@ mod tests {
     #[test]
     fn learn_check_leak_command_delegates() {
         let markers = vec![SUM_SOLUTION.to_string()];
-        assert!(learn_check_leak(format!("faça {SUM_SOLUTION}"), 1, markers.clone()));
-        assert!(!learn_check_leak(format!("faça {SUM_SOLUTION}"), MAX_HINT_LEVEL, markers));
+        assert!(learn_check_leak(
+            format!("faça {SUM_SOLUTION}"),
+            1,
+            markers.clone()
+        ));
+        assert!(!learn_check_leak(
+            format!("faça {SUM_SOLUTION}"),
+            MAX_HINT_LEVEL,
+            markers
+        ));
     }
 
     #[test]

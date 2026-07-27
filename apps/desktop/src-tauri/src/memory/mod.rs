@@ -3,13 +3,13 @@
 //! `MemoryProvider` é a interface estável; `LocalProvider` (blackboard SQLite,
 //! default zero-config) e `OmniMemoryProvider` (gateway remoto) são as
 //! implementações iniciais. A `MemoryRegistry` mantém o provider ativo.
-pub mod types;
-pub mod provider;
 pub mod local;
-pub mod omnimemory;
 pub mod obsidian;
+pub mod omnimemory;
+pub mod provider;
 pub mod registry;
 pub mod secret_store;
+pub mod types;
 
 pub use local::LocalProvider;
 pub use obsidian::ObsidianProvider;

@@ -148,11 +148,45 @@ struct Agg {
 
 impl Agg {
     /// `inp` = input NÃO-cacheado; `cr`/`cc` = cache read/creation (separados).
-    fn add(&mut self, date: &str, cwd: &str, model: &str, calls: i64, inp: i64, out: i64, cr: i64, cc: i64) {
+    fn add(
+        &mut self,
+        date: &str,
+        cwd: &str,
+        model: &str,
+        calls: i64,
+        inp: i64,
+        out: i64,
+        cr: i64,
+        cc: i64,
+    ) {
         bump(&mut self.total, calls, inp, out, cr, cc, model);
-        bump(self.models.entry(model.to_string()).or_default(), calls, inp, out, cr, cc, model);
-        bump(self.projects.entry(cwd.to_string()).or_default(), calls, inp, out, cr, cc, model);
-        bump(self.days.entry(date.to_string()).or_default(), calls, inp, out, cr, cc, model);
+        bump(
+            self.models.entry(model.to_string()).or_default(),
+            calls,
+            inp,
+            out,
+            cr,
+            cc,
+            model,
+        );
+        bump(
+            self.projects.entry(cwd.to_string()).or_default(),
+            calls,
+            inp,
+            out,
+            cr,
+            cc,
+            model,
+        );
+        bump(
+            self.days.entry(date.to_string()).or_default(),
+            calls,
+            inp,
+            out,
+            cr,
+            cc,
+            model,
+        );
     }
 }
 
@@ -210,7 +244,11 @@ fn date_of(ts: Option<&str>) -> String {
 fn cutoff_date(since_days: Option<i64>) -> Option<String> {
     let n = since_days?;
     let today = Utc::now().date_naive();
-    let d = if n <= 0 { today } else { today - Duration::days(n) };
+    let d = if n <= 0 {
+        today
+    } else {
+        today - Duration::days(n)
+    };
     Some(d.format("%Y-%m-%d").to_string())
 }
 
@@ -233,8 +271,20 @@ fn within_date(date: &str, cutoff: &Option<String>) -> bool {
 
 type BucketMap = HashMap<(String, String, String), [i64; 5]>;
 
-fn add_to(map: &mut BucketMap, date: &str, cwd: &str, model: &str, calls: i64, inp: i64, out: i64, cr: i64, cc: i64) {
-    let e = map.entry((date.to_string(), cwd.to_string(), model.to_string())).or_insert([0; 5]);
+fn add_to(
+    map: &mut BucketMap,
+    date: &str,
+    cwd: &str,
+    model: &str,
+    calls: i64,
+    inp: i64,
+    out: i64,
+    cr: i64,
+    cc: i64,
+) {
+    let e = map
+        .entry((date.to_string(), cwd.to_string(), model.to_string()))
+        .or_insert([0; 5]);
     e[0] += calls;
     e[1] += inp;
     e[2] += out;
@@ -245,27 +295,37 @@ fn add_to(map: &mut BucketMap, date: &str, cwd: &str, model: &str, calls: i64, i
 /// Claude Code: ~/.claude/projects/<slug>/<uuid>.jsonl — uma usage por mensagem.
 fn scan_claude(home: &Path, map: &mut BucketMap, session_last: &mut Vec<String>) {
     let dir = home.join(".claude").join("projects");
-    let Ok(slugs) = std::fs::read_dir(&dir) else { return };
+    let Ok(slugs) = std::fs::read_dir(&dir) else {
+        return;
+    };
     // DEDUPE por (message.id, requestId): um turno da API vira N linhas no jsonl (1 por
     // content block, TODAS com o MESMO usage) e sessões retomadas (--resume) recopiam o
     // histórico em arquivo novo. Sem isto o custo infla ~2.6× (medido 2026-07-01: 2993 de
     // 5035 linhas eram cópias = +$3k fantasma no "Hoje"). Set GLOBAL (cruza arquivos).
     let mut seen: HashSet<(String, String)> = HashSet::new();
     for slug in slugs.flatten() {
-        let Ok(files) = std::fs::read_dir(slug.path()) else { continue };
+        let Ok(files) = std::fs::read_dir(slug.path()) else {
+            continue;
+        };
         for f in files.flatten() {
             let p = f.path();
             if p.extension().and_then(|x| x.to_str()) != Some("jsonl") {
                 continue;
             }
-            let Ok(content) = std::fs::read_to_string(&p) else { continue };
+            let Ok(content) = std::fs::read_to_string(&p) else {
+                continue;
+            };
             let mut last_date = String::new();
             for line in content.lines() {
                 if !line.contains("\"input_tokens\"") {
                     continue;
                 }
-                let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
-                let Some(msg) = v.get("message") else { continue };
+                let Ok(v) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                let Some(msg) = v.get("message") else {
+                    continue;
+                };
                 let Some(u) = msg.get("usage") else { continue };
                 // Linha repetida do mesmo request já contado → pula (sem ids não dá pra
                 // deduplicar; conta — melhor superestimar raro do que perder usage real).
@@ -285,8 +345,14 @@ fn scan_claude(home: &Path, map: &mut BucketMap, session_last: &mut Vec<String>)
                     continue;
                 }
                 let date = date_of(v.get("timestamp").and_then(|x| x.as_str()));
-                let model = msg.get("model").and_then(|x| x.as_str()).unwrap_or("unknown");
-                let cwd = v.get("cwd").and_then(|x| x.as_str()).unwrap_or("(sem projeto)");
+                let model = msg
+                    .get("model")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("unknown");
+                let cwd = v
+                    .get("cwd")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("(sem projeto)");
                 add_to(map, &date, cwd, model, 1, inp, out, cr, cc);
                 if date.as_str() > last_date.as_str() {
                     last_date = date;
@@ -300,12 +366,18 @@ fn scan_claude(home: &Path, map: &mut BucketMap, session_last: &mut Vec<String>)
 }
 
 fn collect_rollouts(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
             collect_rollouts(&p, out);
-        } else if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("rollout-") && n.ends_with(".jsonl")) {
+        } else if p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("rollout-") && n.ends_with(".jsonl"))
+        {
             out.push(p);
         }
     }
@@ -318,7 +390,9 @@ fn scan_codex(home: &Path, map: &mut BucketMap, session_last: &mut Vec<String>) 
     let mut files = Vec::new();
     collect_rollouts(&dir, &mut files);
     for p in files {
-        let Ok(content) = std::fs::read_to_string(&p) else { continue };
+        let Ok(content) = std::fs::read_to_string(&p) else {
+            continue;
+        };
         let mut cwd: Option<String> = None;
         let mut model = String::from("gpt");
         let mut last: Option<(i64, i64, i64)> = None; // (input, cached, output+reasoning)
@@ -357,7 +431,17 @@ fn scan_codex(home: &Path, map: &mut BucketMap, session_last: &mut Vec<String>) 
             let date = date_of(last_ts.as_deref());
             let non_cached = (inp - cached).max(0);
             let cwd = cwd.as_deref().unwrap_or("(sem projeto)");
-            add_to(map, &date, cwd, &model, calls.max(1), non_cached, out, cached, 0);
+            add_to(
+                map,
+                &date,
+                cwd,
+                &model,
+                calls.max(1),
+                non_cached,
+                out,
+                cached,
+                0,
+            );
             session_last.push(date);
         }
     }
@@ -387,20 +471,36 @@ fn build_buckets(home: &Path) -> (Vec<Bucket>, Vec<String>) {
 
 /// Garante o cache fresco (rebuild se vazio/stale ou `force`) e roda `f` sobre ele.
 /// O lock segura durante a varredura → chamadas concorrentes reusam o mesmo build.
-fn with_cache<R>(cache: &UsageCache, force: bool, f: impl FnOnce(&CacheInner) -> R) -> Result<R, String> {
+fn with_cache<R>(
+    cache: &UsageCache,
+    force: bool,
+    f: impl FnOnce(&CacheInner) -> R,
+) -> Result<R, String> {
     let home = home().ok_or_else(|| "HOME não encontrado".to_string())?;
     let mut g = cache.0.lock();
-    let stale = g.as_ref().map(|c| c.built.elapsed().as_secs() > CACHE_TTL_SECS).unwrap_or(true);
+    let stale = g
+        .as_ref()
+        .map(|c| c.built.elapsed().as_secs() > CACHE_TTL_SECS)
+        .unwrap_or(true);
     if force || stale {
         let (buckets, session_last) = build_buckets(&home);
-        *g = Some(CacheInner { built: Instant::now(), buckets, session_last });
+        *g = Some(CacheInner {
+            built: Instant::now(),
+            buckets,
+            session_last,
+        });
     }
     Ok(f(g.as_ref().expect("cache recém-preenchido")))
 }
 
 /// Agrega buckets (no período) + o ledger nativo → (agregado, subtotal nativo).
 /// `only` (cwd) filtra pra um único projeto quando setado.
-fn aggregate(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow], only: Option<&str>) -> (Agg, Tally) {
+fn aggregate(
+    c: &CacheInner,
+    cutoff: &Option<String>,
+    ledger: &[LedgerRow],
+    only: Option<&str>,
+) -> (Agg, Tally) {
     let mut agg = Agg::default();
     for b in &c.buckets {
         if only.is_some_and(|p| p != b.cwd) {
@@ -418,14 +518,36 @@ fn aggregate(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow], only
         }
         let date = r.at.get(..10).unwrap_or(NO_DATE);
         if within_date(date, cutoff) {
-            agg.add(date, project, &r.model, 1, r.input_tokens, r.output_tokens, 0, 0);
-            bump(&mut native, 1, r.input_tokens, r.output_tokens, 0, 0, &r.model);
+            agg.add(
+                date,
+                project,
+                &r.model,
+                1,
+                r.input_tokens,
+                r.output_tokens,
+                0,
+                0,
+            );
+            bump(
+                &mut native,
+                1,
+                r.input_tokens,
+                r.output_tokens,
+                0,
+                0,
+                &r.model,
+            );
         }
     }
     (agg, native)
 }
 
-fn build_report(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow], only: Option<&str>) -> UsageReport {
+fn build_report(
+    c: &CacheInner,
+    cutoff: &Option<String>,
+    ledger: &[LedgerRow],
+    only: Option<&str>,
+) -> UsageReport {
     let (agg, native) = aggregate(c, cutoff, ledger, only);
 
     let mut by_model: Vec<ModelUsage> = agg
@@ -455,8 +577,19 @@ fn build_report(c: &CacheInner, cutoff: &Option<String>, ledger: &[LedgerRow], o
         .collect();
     by_day.sort_by(|a, b| a.day.cmp(&b.day));
 
-    let sessions = c.session_last.iter().filter(|d| within_date(d, cutoff)).count() as i64;
-    UsageReport { total: agg.total, native, by_model, by_project, by_day, sessions }
+    let sessions = c
+        .session_last
+        .iter()
+        .filter(|d| within_date(d, cutoff))
+        .count() as i64;
+    UsageReport {
+        total: agg.total,
+        native,
+        by_model,
+        by_project,
+        by_day,
+        sessions,
+    }
 }
 
 /// Varre as sessões dos CLIs + o ledger nativo e agrega o uso de tokens.
@@ -487,9 +620,10 @@ pub async fn usage_scan(
     };
     if needs_rebuild {
         let home2 = home;
-        let (buckets, session_last) = tauri::async_runtime::spawn_blocking(move || build_buckets(&home2))
-            .await
-            .map_err(|e| format!("usage_scan join: {e}"))?;
+        let (buckets, session_last) =
+            tauri::async_runtime::spawn_blocking(move || build_buckets(&home2))
+                .await
+                .map_err(|e| format!("usage_scan join: {e}"))?;
         let mut g = cache.0.lock();
         *g = Some(CacheInner {
             built: Instant::now(),
@@ -505,7 +639,10 @@ pub async fn usage_scan(
 
 /// Gasto do mês corrente por projeto (CLI + nativo) vs orçamento → status.
 #[tauri::command]
-pub fn usage_budget_status(db: State<'_, Db>, cache: State<'_, UsageCache>) -> Result<Vec<BudgetStatus>, String> {
+pub fn usage_budget_status(
+    db: State<'_, Db>,
+    cache: State<'_, UsageCache>,
+) -> Result<Vec<BudgetStatus>, String> {
     let budgets = db.budgets_list().map_err(|e| e.to_string())?;
     if budgets.is_empty() {
         return Ok(vec![]);
@@ -514,14 +651,21 @@ pub fn usage_budget_status(db: State<'_, Db>, cache: State<'_, UsageCache>) -> R
     let ledger = db.ledger_rows(None).unwrap_or_default();
     let costs: HashMap<String, f64> = with_cache(&cache, false, |c| {
         let (agg, _) = aggregate(c, &cutoff, &ledger, None);
-        agg.projects.into_iter().map(|(k, t)| (k, t.cost_usd)).collect()
+        agg.projects
+            .into_iter()
+            .map(|(k, t)| (k, t.cost_usd))
+            .collect()
     })?;
 
     let out = budgets
         .into_iter()
         .map(|b| {
             let spent = costs.get(&b.project).copied().unwrap_or(0.0);
-            let pct = if b.monthly_usd > 0.0 { spent / b.monthly_usd * 100.0 } else { 0.0 };
+            let pct = if b.monthly_usd > 0.0 {
+                spent / b.monthly_usd * 100.0
+            } else {
+                0.0
+            };
             let status = if pct >= 100.0 {
                 "over"
             } else if pct >= b.alert_pct as f64 {
@@ -544,9 +688,15 @@ pub fn usage_budget_status(db: State<'_, Db>, cache: State<'_, UsageCache>) -> R
 
 /// Cria/atualiza o orçamento mensal (USD) de um projeto.
 #[tauri::command]
-pub fn budget_set(project: String, monthly_usd: f64, alert_pct: Option<i64>, db: State<'_, Db>) -> Result<(), String> {
+pub fn budget_set(
+    project: String,
+    monthly_usd: f64,
+    alert_pct: Option<i64>,
+    db: State<'_, Db>,
+) -> Result<(), String> {
     let pct = alert_pct.unwrap_or(80).clamp(1, 100);
-    db.budget_set(&project, monthly_usd, pct).map_err(|e| e.to_string())
+    db.budget_set(&project, monthly_usd, pct)
+        .map_err(|e| e.to_string())
 }
 
 /// Remove o orçamento de um projeto (ação do próprio usuário).
@@ -597,7 +747,16 @@ mod tests {
     }
 
     fn bucket(date: &str, cwd: &str, model: &str, inp: i64, out: i64) -> Bucket {
-        Bucket { date: date.into(), cwd: cwd.into(), model: model.into(), calls: 1, inp, out, cr: 0, cc: 0 }
+        Bucket {
+            date: date.into(),
+            cwd: cwd.into(),
+            model: model.into(),
+            calls: 1,
+            inp,
+            out,
+            cr: 0,
+            cc: 0,
+        }
     }
 
     #[test]
@@ -656,7 +815,8 @@ mod tests {
     fn scan_claude_dedupes_streamed_and_resumed_lines() {
         // 1 request da API vira N linhas no jsonl (streaming multi-block, MESMO usage) e o
         // resume recopia o histórico em arquivo novo — cada request só pode contar UMA vez.
-        let tmp = std::env::temp_dir().join(format!("omnirift-usage-dedupe-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("omnirift-usage-dedupe-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let projects = tmp.join(".claude/projects/slug");
         std::fs::create_dir_all(&projects).unwrap();
@@ -679,23 +839,38 @@ mod tests {
         std::fs::write(projects.join("a.jsonl"), a).unwrap();
 
         // b.jsonl: msg_1/req_1 reaparece (sessão retomada/replay).
-        std::fs::write(projects.join("b.jsonl"), format!("{}\n", line("msg_1", "req_1"))).unwrap();
+        std::fs::write(
+            projects.join("b.jsonl"),
+            format!("{}\n", line("msg_1", "req_1")),
+        )
+        .unwrap();
 
         let mut map: BucketMap = BucketMap::new();
         let mut session_last: Vec<String> = Vec::new();
         scan_claude(&tmp, &mut map, &mut session_last);
         let _ = std::fs::remove_dir_all(&tmp);
 
-        let key = ("2026-07-01".to_string(), "/proj/a".to_string(), "claude-opus-4".to_string());
+        let key = (
+            "2026-07-01".to_string(),
+            "/proj/a".to_string(),
+            "claude-opus-4".to_string(),
+        );
         let usage = map.get(&key).expect("bucket esperado não encontrado");
-        assert_eq!(usage[0], 2, "apenas 2 requests únicos devem contar (não 5 linhas)");
+        assert_eq!(
+            usage[0], 2,
+            "apenas 2 requests únicos devem contar (não 5 linhas)"
+        );
         assert_eq!(usage[1], 20, "input_tokens = 10 + 10 (1× por request)");
         assert_eq!(usage[2], 40, "output_tokens = 20 + 20 (1× por request)");
     }
 
     #[test]
     fn aggregate_merges_native_ledger() {
-        let c = CacheInner { built: Instant::now(), buckets: vec![], session_last: vec![] };
+        let c = CacheInner {
+            built: Instant::now(),
+            buckets: vec![],
+            session_last: vec![],
+        };
         let ledger = vec![LedgerRow {
             at: "2026-06-18T10:00:00".into(),
             model: "opus".into(),

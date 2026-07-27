@@ -34,7 +34,8 @@ pub trait MemoryProvider: Send + Sync {
             ran: false,
             decayed: 0,
             consolidated: false,
-            detail: "provider ativo não tem decaimento/consolidação (só o cérebro OmniMemory)".into(),
+            detail: "provider ativo não tem decaimento/consolidação (só o cérebro OmniMemory)"
+                .into(),
         })
     }
 }
@@ -88,7 +89,9 @@ mod tests {
 
     #[tokio::test]
     async fn save_then_search_roundtrip() {
-        let p = MockProvider { store: Mutex::new(vec![]) };
+        let p = MockProvider {
+            store: Mutex::new(vec![]),
+        };
         let id = p
             .save(NewMemory {
                 content: "decisão X".into(),

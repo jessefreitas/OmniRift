@@ -94,7 +94,8 @@ impl MemoryProvider for OmniMemoryProvider {
         // ANTES de cruzar a rede pro gateway remoto. O blackboard LOCAL não passa por
         // aqui — só o que sai. Ver crate::redactor (fronteira documentada lá).
         let content = crate::redactor::redact(&m.content);
-        let body = serde_json::json!({ "content": content, "category": m.category, "project": m.project });
+        let body =
+            serde_json::json!({ "content": content, "category": m.category, "project": m.project });
         // Gateway real: /actions/omnimemory/v1/save_project_memory (verificado
         // contra http_gateway.py — NÃO existe "save_memory"; o /v1 é obrigatório).
         let resp = self
@@ -142,23 +143,38 @@ impl MemoryProvider for OmniMemoryProvider {
         for item in arr {
             let id = item
                 .get("id")
-                .and_then(|x| x.as_str().map(String::from).or_else(|| x.is_number().then(|| x.to_string())))
+                .and_then(|x| {
+                    x.as_str()
+                        .map(String::from)
+                        .or_else(|| x.is_number().then(|| x.to_string()))
+                })
                 .unwrap_or_default();
-            let content = item.get("content").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let content = item
+                .get("content")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
             if id.is_empty() && content.is_empty() {
                 continue; // descarta registro sem id e sem conteúdo
             }
             out.push(MemoryRecord {
                 id,
                 content,
-                category: item.get("category").and_then(|x| x.as_str()).unwrap_or("note").to_string(),
-                project: item.get("project").and_then(|x| x.as_str()).map(String::from),
+                category: item
+                    .get("category")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("note")
+                    .to_string(),
+                project: item
+                    .get("project")
+                    .and_then(|x| x.as_str())
+                    .map(String::from),
             });
         }
         Ok(out)
     }
 
-async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>> {
+    async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>> {
         let base = self.base().ok_or_else(|| anyhow::anyhow!("sem endpoint"))?;
         // O gateway indexa memória por INTEIRO. Id não-numérico simplesmente não existe
         // lá — isso é AUSÊNCIA, não erro (não faz sentido estourar pro chamador).
@@ -191,17 +207,32 @@ async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>> {
             .unwrap_or(&v);
         let rid = obj
             .get("id")
-            .and_then(|x| x.as_str().map(String::from).or_else(|| x.is_number().then(|| x.to_string())))
+            .and_then(|x| {
+                x.as_str()
+                    .map(String::from)
+                    .or_else(|| x.is_number().then(|| x.to_string()))
+            })
             .unwrap_or_else(|| id.to_string());
-        let content = obj.get("content").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let content = obj
+            .get("content")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
         if content.is_empty() {
             return Ok(None);
         }
         Ok(Some(MemoryRecord {
             id: rid,
             content,
-            category: obj.get("category").and_then(|x| x.as_str()).unwrap_or("note").to_string(),
-            project: obj.get("project").and_then(|x| x.as_str()).map(String::from),
+            category: obj
+                .get("category")
+                .and_then(|x| x.as_str())
+                .unwrap_or("note")
+                .to_string(),
+            project: obj
+                .get("project")
+                .and_then(|x| x.as_str())
+                .map(String::from),
         }))
     }
 
@@ -236,7 +267,10 @@ async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>> {
     }
 
     fn agent_wiring(&self) -> AgentWiring {
-        match (self.cfg.endpoint.as_deref(), self.cfg.token.as_deref().filter(|t| !t.is_empty())) {
+        match (
+            self.cfg.endpoint.as_deref(),
+            self.cfg.token.as_deref().filter(|t| !t.is_empty()),
+        ) {
             (Some(endpoint), Some(token)) => AgentWiring {
                 mcp_servers: vec![(
                     "omnimemory".to_string(),
@@ -253,7 +287,7 @@ async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>> {
         }
     }
 
-/// 💤 Dream (grok 4.3): dispara decaimento de Ebbinghaus + consolidação no cérebro remoto.
+    /// 💤 Dream (grok 4.3): dispara decaimento de Ebbinghaus + consolidação no cérebro remoto.
     /// Fail-soft: se o gateway não expuser a ação (404/erro), reporta no `detail` em vez de abortar
     /// — o Dream é best-effort agendado por Routine, não pode derrubar o agendamento.
     async fn dream(&self, project: Option<&str>) -> anyhow::Result<DreamReport> {
@@ -265,7 +299,9 @@ async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>> {
         let mut decayed: u64 = 0;
         let decay_body = serde_json::json!({ "decay_rate": 0.35 });
         match self
-            .post(format!("{base}/actions/omnimemory/v1/apply_ebbinghaus_decay"))
+            .post(format!(
+                "{base}/actions/omnimemory/v1/apply_ebbinghaus_decay"
+            ))
             .json(&decay_body)
             .send()
             .await
@@ -276,7 +312,11 @@ async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>> {
                 decayed = v
                     .get("updated")
                     .and_then(|x| x.as_u64())
-                    .or_else(|| v.get("data").and_then(|d| d.get("updated")).and_then(|x| x.as_u64()))
+                    .or_else(|| {
+                        v.get("data")
+                            .and_then(|d| d.get("updated"))
+                            .and_then(|x| x.as_u64())
+                    })
                     .unwrap_or(0);
             }
             Ok(r) => notes.push(format!("decay: status {}", r.status())),
@@ -301,9 +341,17 @@ async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>> {
         let detail = if notes.is_empty() {
             format!("decaimento recalibrou {decayed} memórias + consolidação aplicada")
         } else {
-            format!("decaimento={decayed}, consolidação={consolidated} · avisos: {}", notes.join("; "))
+            format!(
+                "decaimento={decayed}, consolidação={consolidated} · avisos: {}",
+                notes.join("; ")
+            )
         };
-        Ok(DreamReport { ran, decayed, consolidated, detail })
+        Ok(DreamReport {
+            ran,
+            decayed,
+            consolidated,
+            detail,
+        })
     }
 }
 
@@ -338,12 +386,11 @@ mod tests {
         assert!(p2.agent_wiring().mcp_servers.is_empty());
     }
 
-/// get_memory: payload cru -> MemoryRecord; e {"status":"not_found"} com HTTP 200
-/// (tombstoned/archived no gateway) tem que virar None, não erro.
-#[tokio::test]
-async fn get_parses_record_and_treats_not_found_as_none() {
-    let app = axum::Router::new()
-        .route(
+    /// get_memory: payload cru -> MemoryRecord; e {"status":"not_found"} com HTTP 200
+    /// (tombstoned/archived no gateway) tem que virar None, não erro.
+    #[tokio::test]
+    async fn get_parses_record_and_treats_not_found_as_none() {
+        let app = axum::Router::new().route(
             "/actions/omnimemory/v1/get_memory",
             axum::routing::post(|body: String| async move {
                 if body.contains("\"memory_id\":42") {
@@ -353,49 +400,57 @@ async fn get_parses_record_and_treats_not_found_as_none() {
                 }
             }),
         );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
-    tokio::time::sleep(Duration::from_millis(80)).await;
-    let p = OmniMemoryProvider::new(cfg(Some(&format!("http://{addr}/mcp")), Some("t")));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let p = OmniMemoryProvider::new(cfg(Some(&format!("http://{addr}/mcp")), Some("t")));
 
-    let found = p.get("42").await.unwrap().expect("42 deve existir");
-    assert_eq!(found.id, "42");
-    assert_eq!(found.content, "decisao X");
-    assert_eq!(found.category, "decision");
+        let found = p.get("42").await.unwrap().expect("42 deve existir");
+        assert_eq!(found.id, "42");
+        assert_eq!(found.content, "decisao X");
+        assert_eq!(found.category, "decision");
 
-    let gone = p.get("99").await.unwrap();
-    assert!(gone.is_none(), "status not_found deve virar None");
-}
+        let gone = p.get("99").await.unwrap();
+        assert!(gone.is_none(), "status not_found deve virar None");
+    }
 
-/// Id não-numérico não existe no gateway (que indexa por inteiro): é AUSÊNCIA,
-/// não erro — e não deve nem bater na rede.
-#[tokio::test]
-async fn get_and_forget_com_id_nao_numerico_nao_estouram() {
-    let p = OmniMemoryProvider::new(cfg(Some("http://127.0.0.1:1/mcp"), Some("t")));
-    assert!(p.get("abc").await.unwrap().is_none());
-    assert!(!p.forget("abc").await.unwrap());
-}
+    /// Id não-numérico não existe no gateway (que indexa por inteiro): é AUSÊNCIA,
+    /// não erro — e não deve nem bater na rede.
+    #[tokio::test]
+    async fn get_and_forget_com_id_nao_numerico_nao_estouram() {
+        let p = OmniMemoryProvider::new(cfg(Some("http://127.0.0.1:1/mcp"), Some("t")));
+        assert!(p.get("abc").await.unwrap().is_none());
+        assert!(!p.forget("abc").await.unwrap());
+    }
 
-/// forget: 200 normal = apagou; 200 com {"status":"not_found"} = nada apagado.
-/// (get e forget estavam inconsistentes nisso — achado da auditoria.)
-#[tokio::test]
-async fn forget_distingue_apagou_de_nao_existia() {
-    let app = axum::Router::new().route(
-        "/actions/omnimemory/v1/delete_memory",
-        axum::routing::post(|body: String| async move {
-            if body.contains("\"memory_id\":7") { r#"{"status":"ok"}"# } else { r#"{"status":"not_found"}"# }
-        }),
-    );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
-    tokio::time::sleep(Duration::from_millis(80)).await;
-    let p = OmniMemoryProvider::new(cfg(Some(&format!("http://{addr}/mcp")), Some("t")));
+    /// forget: 200 normal = apagou; 200 com {"status":"not_found"} = nada apagado.
+    /// (get e forget estavam inconsistentes nisso — achado da auditoria.)
+    #[tokio::test]
+    async fn forget_distingue_apagou_de_nao_existia() {
+        let app = axum::Router::new().route(
+            "/actions/omnimemory/v1/delete_memory",
+            axum::routing::post(|body: String| async move {
+                if body.contains("\"memory_id\":7") {
+                    r#"{"status":"ok"}"#
+                } else {
+                    r#"{"status":"not_found"}"#
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let p = OmniMemoryProvider::new(cfg(Some(&format!("http://{addr}/mcp")), Some("t")));
 
-    assert!(p.forget("7").await.unwrap(), "7 existia -> true");
-    assert!(!p.forget("8").await.unwrap(), "not_found -> false");
-}
+        assert!(p.forget("7").await.unwrap(), "7 existia -> true");
+        assert!(!p.forget("8").await.unwrap(), "not_found -> false");
+    }
 
     #[tokio::test]
     async fn health_ok_against_stub() {
@@ -405,7 +460,9 @@ async fn forget_distingue_apagou_de_nao_existia() {
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
         tokio::time::sleep(Duration::from_millis(80)).await;
         let p = OmniMemoryProvider::new(cfg(Some(&format!("http://{addr}/mcp")), Some("t")));
         let h = p.health().await;

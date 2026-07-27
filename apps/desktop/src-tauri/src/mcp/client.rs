@@ -193,7 +193,8 @@ impl McpStdioClient {
 
     /// Escreve um valor JSON como UMA linha (objeto + `\n`) no stdin do subprocesso.
     async fn write_line(&mut self, value: &Value) -> Result<(), String> {
-        let mut bytes = serde_json::to_vec(value).map_err(|e| format!("serialize JSON-RPC: {e}"))?;
+        let mut bytes =
+            serde_json::to_vec(value).map_err(|e| format!("serialize JSON-RPC: {e}"))?;
         bytes.push(b'\n');
         self.stdin
             .write_all(&bytes)
@@ -213,7 +214,8 @@ impl McpStdioClient {
             method: method.to_string(),
             params,
         };
-        let value = serde_json::to_value(&note).map_err(|e| format!("serialize notification: {e}"))?;
+        let value =
+            serde_json::to_value(&note).map_err(|e| format!("serialize notification: {e}"))?;
         self.write_line(&value).await
     }
 
@@ -255,7 +257,10 @@ impl McpStdioClient {
             // Timeout: limpa o pendente e devolve erro suave.
             Err(_) => {
                 self.pending.lock().await.remove(&id);
-                Err(format!("timeout ({}s) esperando resposta de '{method}'", REQUEST_TIMEOUT.as_secs()))
+                Err(format!(
+                    "timeout ({}s) esperando resposta de '{method}'",
+                    REQUEST_TIMEOUT.as_secs()
+                ))
             }
         }
     }
@@ -281,10 +286,7 @@ impl McpStdioClient {
     /// `tools/list` → lista de tools expostas pelo servidor.
     pub async fn tools_list(&mut self) -> Result<Vec<ToolDef>, String> {
         let result = self.request("tools/list", None).await?;
-        let tools = result
-            .get("tools")
-            .cloned()
-            .unwrap_or(Value::Array(vec![]));
+        let tools = result.get("tools").cloned().unwrap_or(Value::Array(vec![]));
         serde_json::from_value(tools).map_err(|e| format!("parse tools/list: {e}"))
     }
 
@@ -453,7 +455,10 @@ mod tests {
         });
         let td: ToolDef = serde_json::from_value(item).unwrap();
         assert_eq!(td.name, "find_symbol");
-        assert_eq!(td.description.as_deref(), Some("Localiza um símbolo por nome."));
+        assert_eq!(
+            td.description.as_deref(),
+            Some("Localiza um símbolo por nome.")
+        );
         assert!(td.input_schema.is_some());
     }
 }

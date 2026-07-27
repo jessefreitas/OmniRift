@@ -46,9 +46,25 @@ fn ext_to_lang(ext: &str) -> Option<&'static str> {
 
 /// Pastas que não contam pra detecção (deps/builds/VCS).
 const SKIP_DIRS: &[&str] = &[
-    ".git", "node_modules", "target", "dist", "build", "out", "vendor", ".serena",
-    ".next", ".nuxt", "__pycache__", ".venv", "venv", ".cargo", ".idea", ".vscode",
-    "coverage", ".turbo", ".cache",
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "out",
+    "vendor",
+    ".serena",
+    ".next",
+    ".nuxt",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".cargo",
+    ".idea",
+    ".vscode",
+    "coverage",
+    ".turbo",
+    ".cache",
 ];
 
 #[derive(Serialize)]
@@ -70,7 +86,11 @@ pub fn serena_ensure_project(cwd: String) -> Result<SerenaEnsure, String> {
     }
     let yml = root.join(".serena").join("project.yml");
     if yml.exists() {
-        return Ok(SerenaEnsure { status: "exists".into(), languages: vec![], path: Some(yml.to_string_lossy().into_owned()) });
+        return Ok(SerenaEnsure {
+            status: "exists".into(),
+            languages: vec![],
+            path: Some(yml.to_string_lossy().into_owned()),
+        });
     }
 
     // walk iterativo limitado (disco lento → teto de arquivos/profundidade)
@@ -81,7 +101,9 @@ pub fn serena_ensure_project(cwd: String) -> Result<SerenaEnsure, String> {
         if depth > 6 || scanned > 20_000 {
             break;
         }
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in entries.flatten() {
             let p = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
@@ -102,14 +124,25 @@ pub fn serena_ensure_project(cwd: String) -> Result<SerenaEnsure, String> {
     }
 
     if counts.is_empty() {
-        return Ok(SerenaEnsure { status: "none".into(), languages: vec![], path: None });
+        return Ok(SerenaEnsure {
+            status: "none".into(),
+            languages: vec![],
+            path: None,
+        });
     }
     // ordena por contagem desc, depois alfabético pra estabilidade; cap em 6
     let mut langs: Vec<(&'static str, u32)> = counts.into_iter().collect();
     langs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
-    let chosen: Vec<String> = langs.iter().take(6).map(|(l, _)| (*l).to_string()).collect();
+    let chosen: Vec<String> = langs
+        .iter()
+        .take(6)
+        .map(|(l, _)| (*l).to_string())
+        .collect();
 
-    let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "project".into());
+    let name = root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "project".into());
     let mut body = String::from(
         "# Gerado automaticamente pelo OmniRift (detecção por extensão).\n\
          # Edite à vontade — o OmniRift NUNCA sobrescreve um project.yml existente.\n",
@@ -124,7 +157,11 @@ pub fn serena_ensure_project(cwd: String) -> Result<SerenaEnsure, String> {
     let serena_dir = root.join(".serena");
     std::fs::create_dir_all(&serena_dir).map_err(|e| format!("criar .serena: {e}"))?;
     std::fs::write(&yml, body).map_err(|e| format!("gravar project.yml: {e}"))?;
-    Ok(SerenaEnsure { status: "created".into(), languages: chosen, path: Some(yml.to_string_lossy().into_owned()) })
+    Ok(SerenaEnsure {
+        status: "created".into(),
+        languages: chosen,
+        path: Some(yml.to_string_lossy().into_owned()),
+    })
 }
 
 #[cfg(test)]
@@ -148,10 +185,22 @@ mod tests {
 
         let r = serena_ensure_project(dir.to_string_lossy().into_owned()).unwrap();
         assert_eq!(r.status, "created");
-        assert!(r.languages.contains(&"php".to_string()), "deve detectar php: {:?}", r.languages);
-        assert!(r.languages.contains(&"typescript".to_string()), "deve detectar ts: {:?}", r.languages);
+        assert!(
+            r.languages.contains(&"php".to_string()),
+            "deve detectar php: {:?}",
+            r.languages
+        );
+        assert!(
+            r.languages.contains(&"typescript".to_string()),
+            "deve detectar ts: {:?}",
+            r.languages
+        );
         // php é dominante (3 arquivos) → primeira linguagem (default/fallback)
-        assert_eq!(r.languages[0], "php", "php deve ser a default: {:?}", r.languages);
+        assert_eq!(
+            r.languages[0], "php",
+            "php deve ser a default: {:?}",
+            r.languages
+        );
 
         // 2ª chamada não sobrescreve
         let r2 = serena_ensure_project(dir.to_string_lossy().into_owned()).unwrap();

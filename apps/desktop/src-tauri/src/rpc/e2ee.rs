@@ -164,7 +164,9 @@ impl E2eeChannel {
         // Decodifica o bundle. Erro de base64 ou bundle curto = falha de decrypt (conta).
         let bundle = match B64.decode(frame_b64.as_bytes()) {
             Ok(b) if b.len() >= NONCE_LEN + TAG_LEN => b,
-            Ok(_) => return self.register_failure(E2eeError::Decrypt("bundle curto demais".into())),
+            Ok(_) => {
+                return self.register_failure(E2eeError::Decrypt("bundle curto demais".into()))
+            }
             Err(e) => return self.register_failure(E2eeError::Decrypt(format!("base64: {e}"))),
         };
 
@@ -330,7 +332,10 @@ mod tests {
         // 1º uso: ok.
         assert!(ch.decrypt_frame(&frame).is_ok());
         // 2º uso do MESMO frame (mesmo nonce) → replay rejeitado.
-        assert_eq!(ch.decrypt_frame(&frame).unwrap_err(), E2eeError::ReplayedNonce);
+        assert_eq!(
+            ch.decrypt_frame(&frame).unwrap_err(),
+            E2eeError::ReplayedNonce
+        );
         // E o canal NÃO morreu (replay não é falha de cripto).
         assert!(!ch.is_dead());
     }

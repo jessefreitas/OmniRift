@@ -9,7 +9,11 @@ use std::process::Command;
 #[tauri::command]
 pub fn whatis_lookup(name: String) -> String {
     // Sanitiza: só nomes de comando plausíveis (evita injeção de args).
-    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c)) {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c))
+    {
         return String::new();
     }
     let out = match Command::new("whatis").arg(&name).no_window().output() {

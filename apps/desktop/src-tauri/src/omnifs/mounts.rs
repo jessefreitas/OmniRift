@@ -104,42 +104,63 @@ mod tests {
     #[test]
     fn fuse_mount_present_in_detects_fuse_line() {
         let content = "omnifs /home/user/OmniDrive fuse rw,nosuid 0 0\n";
-        assert_eq!(fuse_mount_present_in(content, Path::new("/home/user/OmniDrive")), true);
+        assert_eq!(
+            fuse_mount_present_in(content, Path::new("/home/user/OmniDrive")),
+            true
+        );
     }
 
     #[test]
     fn fuse_mount_present_in_different_mount_false() {
         let content = "omnifs /home/user/OmniDrive fuse rw,nosuid 0 0\n";
-        assert_eq!(fuse_mount_present_in(content, Path::new("/home/user/OutroDrive")), false);
+        assert_eq!(
+            fuse_mount_present_in(content, Path::new("/home/user/OutroDrive")),
+            false
+        );
     }
 
     #[test]
     fn fuse_mount_present_in_non_fuse_false() {
         let content = "/dev/sda1 /home/user/OmniDrive ext4 rw,relatime 0 0\n";
-        assert_eq!(fuse_mount_present_in(content, Path::new("/home/user/OmniDrive")), false);
+        assert_eq!(
+            fuse_mount_present_in(content, Path::new("/home/user/OmniDrive")),
+            false
+        );
     }
 
     #[test]
     fn fuse_mount_present_in_decodes_octal_space() {
         let content = "omnifs /home/u/My\\040Drive fuse rw,nosuid 0 0\n";
-        assert_eq!(fuse_mount_present_in(content, Path::new("/home/u/My Drive")), true);
+        assert_eq!(
+            fuse_mount_present_in(content, Path::new("/home/u/My Drive")),
+            true
+        );
     }
 
     #[test]
     fn fuse_mount_present_in_fuse_dot_subtype_counts() {
         let content = "omnifs /home/u/OmniDrive fuse.omnifs rw 0 0\n";
-        assert_eq!(fuse_mount_present_in(content, Path::new("/home/u/OmniDrive")), true);
+        assert_eq!(
+            fuse_mount_present_in(content, Path::new("/home/u/OmniDrive")),
+            true
+        );
     }
 
     #[test]
     fn fuse_mount_present_in_ignores_trailing_slash() {
         let content = "omnifs /home/u/OmniDrive fuse rw,nosuid 0 0\n";
-        assert_eq!(fuse_mount_present_in(content, Path::new("/home/u/OmniDrive/")), true);
+        assert_eq!(
+            fuse_mount_present_in(content, Path::new("/home/u/OmniDrive/")),
+            true
+        );
     }
 
     #[test]
     fn fuse_mount_present_in_empty_content_false() {
-        assert_eq!(fuse_mount_present_in("", Path::new("/home/user/OmniDrive")), false);
+        assert_eq!(
+            fuse_mount_present_in("", Path::new("/home/user/OmniDrive")),
+            false
+        );
     }
 
     #[test]
@@ -152,6 +173,9 @@ mod tests {
 
     #[test]
     fn store_socket_path_fallback_without_file_name() {
-        assert_eq!(store_socket_path(Path::new("/")), PathBuf::from("/omnifs.sock"));
+        assert_eq!(
+            store_socket_path(Path::new("/")),
+            PathBuf::from("/omnifs.sock")
+        );
     }
 }

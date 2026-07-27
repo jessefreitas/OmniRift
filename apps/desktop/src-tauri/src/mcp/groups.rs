@@ -48,11 +48,14 @@ pub(crate) fn word_boundary_match(text: &str, token: &str) -> bool {
     let mut start = 0;
     while let Some(pos) = hay[start..].find(&needle) {
         let idx = start + pos;
-        let before_ok = idx == 0
-            || !hay[..idx].chars().next_back().map(is_word).unwrap_or(false);
+        let before_ok = idx == 0 || !hay[..idx].chars().next_back().map(is_word).unwrap_or(false);
         let after_idx = idx + nlen;
         let after_ok = after_idx >= bytes.len()
-            || !hay[after_idx..].chars().next().map(is_word).unwrap_or(false);
+            || !hay[after_idx..]
+                .chars()
+                .next()
+                .map(is_word)
+                .unwrap_or(false);
         if before_ok && after_ok {
             return true;
         }
@@ -117,7 +120,10 @@ pub fn resolve_group(addr: &str, agents: &[AgentInfo]) -> Vec<SessionId> {
     // `@<role-ou-label>` — match por word-boundary em role OU label.
     pick(&|a| {
         word_boundary_match(&a.label, rest)
-            || a.role.as_deref().map(|r| word_boundary_match(r, rest)).unwrap_or(false)
+            || a.role
+                .as_deref()
+                .map(|r| word_boundary_match(r, rest))
+                .unwrap_or(false)
     })
 }
 
@@ -125,7 +131,13 @@ pub fn resolve_group(addr: &str, agents: &[AgentInfo]) -> Vec<SessionId> {
 mod tests {
     use super::*;
 
-    fn agent(sid: &str, label: &str, role: Option<&str>, floor: Option<&str>, state: AgentState) -> AgentInfo {
+    fn agent(
+        sid: &str,
+        label: &str,
+        role: Option<&str>,
+        floor: Option<&str>,
+        state: AgentState,
+    ) -> AgentInfo {
         AgentInfo {
             session_id: sid.into(),
             label: label.into(),
@@ -137,9 +149,27 @@ mod tests {
 
     fn fixture() -> Vec<AgentInfo> {
         vec![
-            agent("s1", "Backend", Some("claude-code"), Some("feat/api"), AgentState::Working),
-            agent("s2", "Frontend", Some("claude-code"), Some("feat/ui"), AgentState::Idle),
-            agent("s3", "DBA", Some("codex"), Some("feat/api"), AgentState::Done),
+            agent(
+                "s1",
+                "Backend",
+                Some("claude-code"),
+                Some("feat/api"),
+                AgentState::Working,
+            ),
+            agent(
+                "s2",
+                "Frontend",
+                Some("claude-code"),
+                Some("feat/ui"),
+                AgentState::Idle,
+            ),
+            agent(
+                "s3",
+                "DBA",
+                Some("codex"),
+                Some("feat/api"),
+                AgentState::Done,
+            ),
             agent("s4", "Reviewer", None, Some("feat/ui"), AgentState::Idle),
         ]
     }
@@ -156,7 +186,13 @@ mod tests {
         // no meio de char multibyte (label/role PT com acento: ç/é/ã) → panic. Agora avança
         // nlen. Labels acentuados devem casar/não-casar sem derrubar o processo.
         let a = vec![
-            agent("s1", "Atenção", Some("revisão"), Some("feat/ção"), AgentState::Idle),
+            agent(
+                "s1",
+                "Atenção",
+                Some("revisão"),
+                Some("feat/ção"),
+                AgentState::Idle,
+            ),
             agent("s2", "São Paulo", None, None, AgentState::Working),
         ];
         assert_eq!(resolve_group("@atenção", &a), vec!["s1"]);

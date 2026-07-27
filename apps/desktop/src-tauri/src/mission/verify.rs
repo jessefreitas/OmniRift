@@ -7,9 +7,17 @@ use std::process::Command;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AcceptanceRule {
-    PathExists { path: String },
-    PathNotStub { path: String, min_bytes: Option<u64> },
-    Command { cmd: String, cwd: Option<String> },
+    PathExists {
+        path: String,
+    },
+    PathNotStub {
+        path: String,
+        min_bytes: Option<u64>,
+    },
+    Command {
+        cmd: String,
+        cwd: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,9 +89,15 @@ fn check_one(cwd: &Path, rule: &AcceptanceRule) -> RuleResult {
                 .unwrap_or_else(|| cwd.to_path_buf());
             // Shell leve: sh -c no Unix. Windows: cmd /C.
             #[cfg(windows)]
-            let output = Command::new("cmd").args(["/C", cmd]).current_dir(&dir).output();
+            let output = Command::new("cmd")
+                .args(["/C", cmd])
+                .current_dir(&dir)
+                .output();
             #[cfg(not(windows))]
-            let output = Command::new("sh").args(["-c", cmd]).current_dir(&dir).output();
+            let output = Command::new("sh")
+                .args(["-c", cmd])
+                .current_dir(&dir)
+                .output();
 
             match output {
                 Ok(o) => {

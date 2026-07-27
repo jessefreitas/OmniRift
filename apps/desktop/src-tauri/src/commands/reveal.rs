@@ -36,8 +36,8 @@ pub fn validate_reveal_target(path: &str, allowed: &[PathBuf]) -> Result<PathBuf
 
     // canonicalize já falha se o arquivo não existe — é o nosso teste de existência
     // e o que resolve `..`/symlink antes da comparação.
-    let target = std::fs::canonicalize(path)
-        .map_err(|e| format!("caminho inválido ({path}): {e}"))?;
+    let target =
+        std::fs::canonicalize(path).map_err(|e| format!("caminho inválido ({path}): {e}"))?;
 
     // As permitidas também canonicalizadas: no macOS o temp/log dir passa por
     // symlink (/var → /private/var) e a comparação crua daria falso negativo.

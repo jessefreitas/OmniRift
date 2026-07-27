@@ -19,7 +19,12 @@ pub struct EditorInfo {
 // id, label, comando, é_terminal
 const KNOWN: &[(&str, &str, &str, bool)] = &[
     ("vscode", "VS Code", "code", false),
-    ("vscode-insiders", "VS Code Insiders", "code-insiders", false),
+    (
+        "vscode-insiders",
+        "VS Code Insiders",
+        "code-insiders",
+        false,
+    ),
     ("cursor", "Cursor", "cursor", false),
     ("windsurf", "Windsurf", "windsurf", false),
     ("zed", "Zed", "zed", false),
@@ -27,7 +32,12 @@ const KNOWN: &[(&str, &str, &str, bool)] = &[
     ("intellij", "IntelliJ IDEA", "idea", false),
     ("pycharm", "PyCharm", "pycharm", false),
     ("webstorm", "WebStorm", "webstorm", false),
-    ("gnome-text-editor", "GNOME Text Editor", "gnome-text-editor", false),
+    (
+        "gnome-text-editor",
+        "GNOME Text Editor",
+        "gnome-text-editor",
+        false,
+    ),
     ("gedit", "gedit", "gedit", false),
     ("kate", "Kate", "kate", false),
     ("nvim", "Neovim", "nvim", true),
@@ -62,15 +72,21 @@ fn resolve_offpath(cmd: &str) -> Option<String> {
         format!("{home}/.local/share/flatpak/exports/share/applications"),
     ];
     for dir in dirs {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
                 continue;
             }
-            let Ok(content) = std::fs::read_to_string(&path) else { continue };
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             for line in content.lines() {
-                let Some(rest) = line.strip_prefix("Exec=") else { continue };
+                let Some(rest) = line.strip_prefix("Exec=") else {
+                    continue;
+                };
                 // 1º token (o binário), ignorando field codes (%F/%U/…).
                 let bin = rest.split_whitespace().next().unwrap_or("");
                 let base = bin.rsplit('/').next().unwrap_or(bin);
@@ -176,6 +192,8 @@ pub fn open_in_editor(cmd: String, path: String, line: Option<u32>) -> Result<()
             c.arg(&path);
         }
     }
-    c.no_window().spawn().map_err(|e| format!("falha ao abrir '{cmd}': {e}"))?;
+    c.no_window()
+        .spawn()
+        .map_err(|e| format!("falha ao abrir '{cmd}': {e}"))?;
     Ok(())
 }

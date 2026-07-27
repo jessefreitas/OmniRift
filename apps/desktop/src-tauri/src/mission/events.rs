@@ -167,7 +167,12 @@ pub fn validate_chain(
     let dispatched: HashSet<String> = events
         .iter()
         .filter(|e| e.kind == "dispatch")
-        .filter_map(|e| e.payload.get("node_id").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|e| {
+            e.payload
+                .get("node_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
 
     for nid in plan_node_ids {
@@ -178,7 +183,11 @@ pub fn validate_chain(
 
     if expect_persona {
         for e in events.iter().filter(|e| e.kind == "persona_injected") {
-            let sha = e.payload.get("sha256").and_then(|v| v.as_str()).unwrap_or("");
+            let sha = e
+                .payload
+                .get("sha256")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if sha.is_empty() {
                 details.push("persona_injected com sha256 vazio".into());
             }
@@ -382,7 +391,12 @@ mod tests {
         let _ = db.with_conn(|conn| ensure_schema(conn));
         let delivered = create_mission(&db, "done", r#"{"nodes":[]}"#, None);
         set_mission_status(&db, &delivered, "delivered");
-        let active = create_mission(&db, "wip", r#"{"nodes":[{"id":"a","role":"a","deps":[],"task":"t"}]}"#, None);
+        let active = create_mission(
+            &db,
+            "wip",
+            r#"{"nodes":[{"id":"a","role":"a","deps":[],"task":"t"}]}"#,
+            None,
+        );
         set_mission_status(&db, &active, "running");
         let recent = recent_mission(&db).expect("recent");
         assert_eq!(recent.0, active);

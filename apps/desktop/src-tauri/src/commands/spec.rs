@@ -67,6 +67,10 @@ pub fn spec_path_conflicts(dir: String, extra_roots: Option<Vec<String>>) -> Vec
     let extra = extra_roots.unwrap_or_default();
     spec::spec_path_conflicts(Path::new(&dir), &extra)
         .into_iter()
-        .map(|c| PathConflictDto { path: c.path, spec_a: c.holder, spec_b: c.requester })
+        .map(|c| PathConflictDto {
+            path: c.path,
+            spec_a: c.holder,
+            spec_b: c.requester,
+        })
         .collect()
 }

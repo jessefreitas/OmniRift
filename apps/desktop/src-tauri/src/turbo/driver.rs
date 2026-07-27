@@ -78,11 +78,7 @@ pub fn run_condition(cwd: &str, condition: &str) -> ConditionResult {
 
 /// Prompt do IMPLEMENTER. Inclui o goal + (a partir da 2ª iteração) o erro da
 /// condição anterior pra ele corrigir. Pede explicitamente pra NÃO commitar.
-pub fn build_implementer_prompt(
-    goal: &str,
-    condition: &str,
-    prev_error: Option<&str>,
-) -> String {
+pub fn build_implementer_prompt(goal: &str, condition: &str, prev_error: Option<&str>) -> String {
     let mut p = String::new();
     p.push_str(
         "Você é o IMPLEMENTER de um loop autônomo (TURBO mode) no OmniRift. Trabalhe no \
@@ -109,7 +105,12 @@ pub fn build_implementer_prompt(
 
 /// Prompt do VERIFIER (agente SEPARADO — maker ≠ checker). Recebe o `git diff` + o
 /// resultado da condição e responde GO/NO-GO + motivo. Não escreve código.
-pub fn build_verifier_prompt(goal: &str, condition: &str, diff: &str, condition_out: &str) -> String {
+pub fn build_verifier_prompt(
+    goal: &str,
+    condition: &str,
+    diff: &str,
+    condition_out: &str,
+) -> String {
     let mut p = String::new();
     p.push_str(
         "Você é o VERIFIER de um loop autônomo (TURBO mode) no OmniRift. Você NÃO escreveu \
@@ -232,8 +233,7 @@ pub async fn drive(app: AppHandle, cwd: String, mut run: TurboRun, cancels: Arc<
                 persist_and_emit(&app, &cwd, &run);
 
                 let diff = collect_diff(&cwd);
-                let vprompt =
-                    build_verifier_prompt(&run.goal, &run.condition, &diff, &cond.output);
+                let vprompt = build_verifier_prompt(&run.goal, &run.condition, &diff, &cond.output);
                 let verdict = match run_headless_agent(&run.verifier_cli, &vprompt, &cwd).await {
                     Ok(out) => truncate_out(out.trim(), OUT_CAP),
                     Err(e) => format!("(verifier indisponível: {e})"),
@@ -321,7 +321,10 @@ mod tests {
         assert!(p.contains("fix the bug"));
         assert!(p.contains("cargo test"));
         assert!(p.contains("NÃO faça commit"), "instrui a não commitar");
-        assert!(!p.contains("tentativa anterior"), "1ª iter sem erro anterior");
+        assert!(
+            !p.contains("tentativa anterior"),
+            "1ª iter sem erro anterior"
+        );
     }
 
     #[test]
@@ -337,7 +340,10 @@ mod tests {
         assert!(p.contains("diff --git a/x b/x"), "inclui o diff");
         assert!(p.contains("test ok"), "inclui o resultado da condição");
         assert!(p.contains("GO") && p.contains("NO-GO"), "pede GO/NO-GO");
-        assert!(p.contains("maker ≠ checker") || p.contains("NÃO escreveu"), "reforça independência");
+        assert!(
+            p.contains("maker ≠ checker") || p.contains("NÃO escreveu"),
+            "reforça independência"
+        );
     }
 
     #[test]

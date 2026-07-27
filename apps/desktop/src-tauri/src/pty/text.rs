@@ -88,7 +88,10 @@ mod tests {
 
     #[test]
     fn strips_ansi_color() {
-        assert_eq!(clean_terminal_output(b"\x1b[32mhello\x1b[0m\nworld"), "hello\nworld");
+        assert_eq!(
+            clean_terminal_output(b"\x1b[32mhello\x1b[0m\nworld"),
+            "hello\nworld"
+        );
     }
 
     #[test]

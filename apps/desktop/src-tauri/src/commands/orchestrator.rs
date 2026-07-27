@@ -43,7 +43,8 @@ pub async fn orchestrator_dispatch_task(
     };
     emit_log(&app, &entry);
 
-    let result = orchestrator::dispatch_task(&state, &db, &targets, &task, context.as_deref(), &p).await;
+    let result =
+        orchestrator::dispatch_task(&state, &db, &targets, &task, context.as_deref(), &p).await;
 
     // Log do resultado
     let id2 = orchestrator::log_entry(&db, &targets, "user", &result, "done", 0, None);
@@ -103,6 +104,8 @@ pub async fn orchestrator_log(
 }
 
 #[tauri::command]
-pub async fn orchestrator_stream_load(db: State<'_, Db>) -> CmdResult<Vec<orchestrator::OrchestratorLog>> {
+pub async fn orchestrator_stream_load(
+    db: State<'_, Db>,
+) -> CmdResult<Vec<orchestrator::OrchestratorLog>> {
     Ok(orchestrator::load_stream(&db))
 }

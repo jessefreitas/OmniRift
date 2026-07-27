@@ -25,7 +25,12 @@ pub struct ChatProc {
 
 /// Spawna o processo claude persistente e liga a task que lê o stdout e emite os deltas.
 /// `persona` (system prompt do copiloto) entra UMA vez aqui — não se repete por mensagem.
-async fn spawn_proc(app: &AppHandle, cli: &str, cwd: &str, persona: &str) -> Result<ChatProc, String> {
+async fn spawn_proc(
+    app: &AppHandle,
+    cli: &str,
+    cwd: &str,
+    persona: &str,
+) -> Result<ChatProc, String> {
     let mut cmd = Command::new(cli);
     cmd.args([
         "--print",
@@ -73,10 +78,11 @@ async fn spawn_proc(app: &AppHandle, cli: &str, cwd: &str, persona: &str) -> Res
             match ev.get("type").and_then(|v| v.as_str()) {
                 Some("stream_event") => {
                     let delta = ev.get("event").and_then(|e| e.get("delta"));
-                    let is_text =
-                        delta.and_then(|d| d.get("type")).and_then(|t| t.as_str()) == Some("text_delta");
+                    let is_text = delta.and_then(|d| d.get("type")).and_then(|t| t.as_str())
+                        == Some("text_delta");
                     if is_text {
-                        if let Some(t) = delta.and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
+                        if let Some(t) = delta.and_then(|d| d.get("text")).and_then(|t| t.as_str())
+                        {
                             let _ = app2.emit("constructor://chat-delta", t);
                         }
                     }
@@ -127,7 +133,9 @@ pub async fn constructor_chat_send(
             || match guard.as_mut() {
                 None => true,
                 Some(p) => {
-                    p.cwd != cwd || p.cli != cli || matches!(p.child.try_wait(), Ok(Some(_)) | Err(_))
+                    p.cwd != cwd
+                        || p.cli != cli
+                        || matches!(p.child.try_wait(), Ok(Some(_)) | Err(_))
                 }
             };
         if needs_spawn {

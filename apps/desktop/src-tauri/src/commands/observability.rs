@@ -31,8 +31,7 @@ pub fn observability_timeline(
     session_id: String,
     limit: Option<i64>,
 ) -> Result<Vec<RunEvent>, String> {
-    store::query_timeline(db.inner(), &session_id, limit.unwrap_or(1000))
-        .map_err(|e| e.to_string())
+    store::query_timeline(db.inner(), &session_id, limit.unwrap_or(1000)).map_err(|e| e.to_string())
 }
 
 // Conta eventos de uma sessão.

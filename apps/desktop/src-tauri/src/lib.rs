@@ -38,122 +38,130 @@ pub mod rpc;
 pub mod spec;
 pub mod turbo;
 
-use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles, subagent_write};
-use commands::skills::{skills_import_github, skills_import_md, skills_list};
-use commands::skill_wiring::{agent_skills_config, list_installed_skills};
-use commands::usage::{budget_remove, budget_set, usage_budget_status, usage_scan};
-use commands::browser::browser_shot;
-use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
-use commands::code::{
-    code_metrics, code_metrics_project, code_open, code_save, code_unwatch, code_watch, CodeWatchers,
-};
-use commands::dbnode::db_query;
-use commands::debug::debug_request;
-use commands::debug_log::{debug_log_mark, debug_log_path, debug_log_write};
-use commands::diagnostics::{collect_diagnostics, diagnostics_export};
-use commands::reveal::reveal_path;
-use commands::metrics::{metrics_set_realtime, metrics_snapshot};
-use commands::compress::{compressor_list, compressor_savings};
-use commands::editor::{detect_editors, open_in_editor};
-use commands::fsinfo::{fs_cow_info, reflink_clone};
-use commands::explain::whatis_lookup;
-use commands::fs::{list_dir, read_file, write_file};
-use commands::git_secret::{git_token_delete, git_token_get, git_token_set};
-use commands::gitremote::{git_clone, git_list_repos};
-use commands::github_auth::{github_device_poll, github_device_start};
-use commands::http::http_request;
-use commands::omniswitch::{omniswitch_url, omniswitch_config_get, omniswitch_config_set, omniswitch_health};
-use health::ai::{health_analyze_file, health_db_report_get, health_report_get, health_reports_list};
-use health::backup::{health_backup, health_backup_list, health_backup_restore};
-use health::db::{db_scan_repo, health_analyze_db};
-use learn::{learn_check_leak, learn_socratic_prompt};
-use health::db_live::{db_introspect, health_analyze_db_live};
-use health::scan::project_scan;
-use health::HealthCache;
-use commands::license::{license_activate, license_status, license_store_meta, license_stored_key, license_was_beta};
-use commands::llm::{learn_ask_grounded, llm_chat, llm_list_models, llm_via_cli};
-use commands::review_cfg::{
-    agent_config_dir, agent_settings_config, review_config_path, review_config_write, review_context_read,
-    review_context_write, review_pathrules_read, review_pathrules_write, review_suppress_read,
-    review_suppress_write,
-};
-use commands::review_history::{review_history_add, review_history_list};
-use commands::debug_mode::{debug_mode_get, debug_mode_set};
-use commands::sandbox::{sandbox_set_enabled, sandbox_status};
-use commands::observability::{
-    observability_count, observability_record, observability_record_batch, observability_timeline,
-};
-use commands::role_import::{role_import_file, role_template, role_template_save};
-use commands::routines::{
-    routines_delete, routines_list, routines_record_run, routines_runs, routines_upsert,
-};
-use commands::mcp_servers::{
-    mcp_server_remove, mcp_server_set_enabled, mcp_server_upsert, mcp_servers_import_global,
-    mcp_servers_list,
-};
-use commands::scheduler::{scheduler_install, scheduler_list, scheduler_uninstall};
-use commands::serena::serena_ensure_project;
-use commands::git::{
-    parallel_git_create, parallel_git_diff, parallel_git_land, parallel_git_remove, parallel_git_status,
-    parallel_run_hook, git_repo_info,
-};
-use commands::mcp::{
-    agent_mcp_config, parallel_mirror_set, canvas_agents_set, get_max_agents, mcp_inventory, mcp_list_agents, mcp_register_agent,
-    mcp_server_url, mcp_unregister_agent, save_paste_image, set_max_agents,
-};
-use commands::memory::{
-    memory_active, memory_connect, memory_dream, memory_migrate, memory_migrate_preview,
-    memory_providers_list, memory_set_active, memory_test,
-};
-use commands::omnifs::{
-    omnifs_is_managed_cwd, omnifs_log, omnifs_provision, omnifs_recover, omnifs_reindex,
-    omnifs_rollback, omnifs_search, omnifs_snapshot_now, omnifs_status,
-};
-use commands::hosts::{hosts_add, hosts_list, hosts_remove};
-use commands::pty::{
-    pty_kill, pty_list, pty_list_alive, pty_pipe_create, pty_pipe_list, pty_pipe_remove, pty_proc_info,
-    pty_proc_info_all,
-    pty_read_screen, pty_resize, pty_snapshot, pty_spawn, pty_write,
-};
 use commands::acp::{
     acp_agent_register, acp_agent_unregister, acp_attach, acp_authenticate, acp_cancel, acp_gc,
     acp_permission_respond, acp_prompt, acp_set_config_option, acp_set_model, acp_spawn,
     hermes_list_models,
 };
+use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles, subagent_write};
+use commands::browser::browser_shot;
+use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
+use commands::code::{
+    code_metrics, code_metrics_project, code_open, code_save, code_unwatch, code_watch,
+    CodeWatchers,
+};
+use commands::compress::{compressor_list, compressor_savings};
+use commands::dbnode::db_query;
+use commands::debug::debug_request;
+use commands::debug_log::{debug_log_mark, debug_log_path, debug_log_write};
+use commands::debug_mode::{debug_mode_get, debug_mode_set};
+use commands::diagnostics::{collect_diagnostics, diagnostics_export};
+use commands::editor::{detect_editors, open_in_editor};
+use commands::explain::whatis_lookup;
 use commands::folder_canvas::{folder_canvas_load, folder_canvas_save};
-use commands::omnigraph::{
-    graph_node_body, omnigraph_available, omnigraph_diff, omnigraph_graph_json, omnigraph_impact,
-    omnigraph_list_snapshots, omnigraph_rebuild, omnigraph_report, omnigraph_report_full,
-    omnigraph_snapshot_graph,
+use commands::fs::{list_dir, read_file, write_file};
+use commands::fsinfo::{fs_cow_info, reflink_clone};
+use commands::git::{
+    git_repo_info, parallel_git_create, parallel_git_diff, parallel_git_land, parallel_git_remove,
+    parallel_git_status, parallel_run_hook,
 };
-use commands::pipeline::{pipeline_load, pipeline_save};
-use commands::providers::{
-    claude_ollama_models, provider_delete, provider_list_models, provider_resolve, provider_save, providers_list,
+use commands::git_secret::{git_token_delete, git_token_get, git_token_set};
+use commands::github_auth::{github_device_poll, github_device_start};
+use commands::gitremote::{git_clone, git_list_repos};
+use commands::hosts::{hosts_add, hosts_list, hosts_remove};
+use commands::http::http_request;
+use commands::license::{
+    license_activate, license_status, license_store_meta, license_stored_key, license_was_beta,
 };
-use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
-use turbo::commands::{run_check, turbo_list, turbo_start, turbo_status, turbo_stop};
-use commands::workspace::{workspace_load, workspace_save};
-use commands::orchestrator::{
-    orchestrator_dispatch_task, orchestrator_log, orchestrator_stream_load,
+use commands::llm::{learn_ask_grounded, llm_chat, llm_list_models, llm_via_cli};
+use commands::mcp::{
+    agent_mcp_config, canvas_agents_set, get_max_agents, mcp_inventory, mcp_list_agents,
+    mcp_register_agent, mcp_server_url, mcp_unregister_agent, parallel_mirror_set,
+    save_paste_image, set_max_agents,
 };
+use commands::mcp_servers::{
+    mcp_server_remove, mcp_server_set_enabled, mcp_server_upsert, mcp_servers_import_global,
+    mcp_servers_list,
+};
+use commands::memory::{
+    memory_active, memory_connect, memory_dream, memory_migrate, memory_migrate_preview,
+    memory_providers_list, memory_set_active, memory_test,
+};
+use commands::metrics::{metrics_set_realtime, metrics_snapshot};
 use commands::mission::{
     mission_capability_list, mission_capability_search, mission_create, mission_events_list,
     mission_handoff_consume, mission_handoff_read, mission_handoff_write, mission_recent,
     mission_status, mission_validate_chain, mission_verify,
 };
-use commands::orchestration::orchestration_doctor;
-use db::{
-    db_load_workspace, db_save_workspace, kanban_card_create, kanban_card_delete,
-    kanban_card_move, kanban_card_update, kanban_columns_query, kanban_columns_save,
-    kanban_query, kanban_card_set_sprint, sprint_list, sprint_create, sprint_activate,
-    sprint_delete, memory_add, memory_delete, memory_query, reminder_add,
-    reminder_delete, reminder_set_done, reminders_list, session_end, session_event,
-    session_events_list, session_start, sessions_list, snapshot_create, snapshot_delete,
-    snapshot_get, snapshot_prune_auto, snapshots_list, snippet_create, snippet_delete,
-    snippets_query,
+use commands::observability::{
+    observability_count, observability_record, observability_record_batch, observability_timeline,
 };
+use commands::omnifs::{
+    omnifs_is_managed_cwd, omnifs_log, omnifs_provision, omnifs_recover, omnifs_reindex,
+    omnifs_rollback, omnifs_search, omnifs_snapshot_now, omnifs_status,
+};
+use commands::omnigraph::{
+    graph_node_body, omnigraph_available, omnigraph_diff, omnigraph_graph_json, omnigraph_impact,
+    omnigraph_list_snapshots, omnigraph_rebuild, omnigraph_report, omnigraph_report_full,
+    omnigraph_snapshot_graph,
+};
+use commands::omniswitch::{
+    omniswitch_config_get, omniswitch_config_set, omniswitch_health, omniswitch_url,
+};
+use commands::orchestration::orchestration_doctor;
+use commands::orchestrator::{
+    orchestrator_dispatch_task, orchestrator_log, orchestrator_stream_load,
+};
+use commands::pipeline::{pipeline_load, pipeline_save};
+use commands::providers::{
+    claude_ollama_models, provider_delete, provider_list_models, provider_resolve, provider_save,
+    providers_list,
+};
+use commands::pty::{
+    pty_kill, pty_list, pty_list_alive, pty_pipe_create, pty_pipe_list, pty_pipe_remove,
+    pty_proc_info, pty_proc_info_all, pty_read_screen, pty_resize, pty_snapshot, pty_spawn,
+    pty_write,
+};
+use commands::reveal::reveal_path;
+use commands::review_cfg::{
+    agent_config_dir, agent_settings_config, review_config_path, review_config_write,
+    review_context_read, review_context_write, review_pathrules_read, review_pathrules_write,
+    review_suppress_read, review_suppress_write,
+};
+use commands::review_history::{review_history_add, review_history_list};
+use commands::role_import::{role_import_file, role_template, role_template_save};
+use commands::routines::{
+    routines_delete, routines_list, routines_record_run, routines_runs, routines_upsert,
+};
+use commands::sandbox::{sandbox_set_enabled, sandbox_status};
+use commands::scheduler::{scheduler_install, scheduler_list, scheduler_uninstall};
+use commands::serena::serena_ensure_project;
+use commands::skill_wiring::{agent_skills_config, list_installed_skills};
+use commands::skills::{skills_import_github, skills_import_md, skills_list};
+use commands::spec::{spec_archive, spec_list_files, spec_path_conflicts, spec_unarchive};
+use commands::usage::{budget_remove, budget_set, usage_budget_status, usage_scan};
+use commands::workspace::{workspace_load, workspace_save};
+use db::{
+    db_load_workspace, db_save_workspace, kanban_card_create, kanban_card_delete, kanban_card_move,
+    kanban_card_set_sprint, kanban_card_update, kanban_columns_query, kanban_columns_save,
+    kanban_query, memory_add, memory_delete, memory_query, reminder_add, reminder_delete,
+    reminder_set_done, reminders_list, session_end, session_event, session_events_list,
+    session_start, sessions_list, snapshot_create, snapshot_delete, snapshot_get,
+    snapshot_prune_auto, snapshots_list, snippet_create, snippet_delete, snippets_query,
+    sprint_activate, sprint_create, sprint_delete, sprint_list,
+};
+use health::ai::{
+    health_analyze_file, health_db_report_get, health_report_get, health_reports_list,
+};
+use health::backup::{health_backup, health_backup_list, health_backup_restore};
+use health::db::{db_scan_repo, health_analyze_db};
+use health::db_live::{db_introspect, health_analyze_db_live};
+use health::scan::project_scan;
+use health::HealthCache;
+use learn::{learn_check_leak, learn_socratic_prompt};
 use mcp::{mcp_router, serena_health, AgentRegistry, ClaimsRegistry, MCP_PORT};
 use pty::PtyManager;
+use turbo::commands::{run_check, turbo_list, turbo_start, turbo_status, turbo_stop};
 // Comandos do relay mobile (ref #9 — Área de Conexões / Mobile).
 use rpc::{mobile_devices_list, mobile_pairing_offer, mobile_revoke, mobile_set_steering};
 use std::sync::Arc;
@@ -186,7 +194,9 @@ fn inherit_login_shell_path() {
         let _ = tx.send(res);
     });
 
-    let Ok(Ok(path)) = rx.recv_timeout(Duration::from_secs(8)) else { return };
+    let Ok(Ok(path)) = rx.recv_timeout(Duration::from_secs(8)) else {
+        return;
+    };
     let p = path.trim();
     let current = std::env::var("PATH").unwrap_or_default();
     if p.contains('/') && p.split(':').count() >= current.split(':').count() {
@@ -217,8 +227,9 @@ pub fn run() {
     let acp_manager = Arc::new(crate::acp::AcpManager::new());
     let agent_registry = Arc::new(AgentRegistry::new());
 
-    let floor_mirror: Arc<parking_lot::Mutex<serde_json::Value>> =
-        Arc::new(parking_lot::Mutex::new(serde_json::json!({ "floors": [], "activeFloorId": null })));
+    let floor_mirror: Arc<parking_lot::Mutex<serde_json::Value>> = Arc::new(
+        parking_lot::Mutex::new(serde_json::json!({ "floors": [], "activeFloorId": null })),
+    );
     // Espelho dos agentes do canvas (TODOS os terminais) — lido pelo mobile via agents.list.
     // Separado do floor_mirror e do AgentRegistry (canal curado do Orquestrador).
     let canvas_agents: Arc<parking_lot::Mutex<serde_json::Value>> =
@@ -288,7 +299,11 @@ pub fn run() {
             // Monitor de recursos (sub-fase A): sampler em thread de fundo (1s) que
             // emite `resource://sample`. Degrada sozinho; falha de leitura não derruba.
             let sampler = Arc::new(crate::metrics::sampler::Sampler::new());
-            sampler.start(app.handle().clone(), std::time::Duration::from_secs(1), sampler_pm);
+            sampler.start(
+                app.handle().clone(),
+                std::time::Duration::from_secs(1),
+                sampler_pm,
+            );
             app.manage(sampler);
 
             // Substrato RPC (ref #8): sobe o socket local + grava runtime.json pro
@@ -315,11 +330,22 @@ pub fn run() {
             // o MESMO valor no agent-mcp.json (URL `?token=`); o server exige em /sse e
             // /message. Sem ele qualquer processo local rodava terminal_run. (Auditoria #1.)
             let mcp_token = crate::rpc::metadata::generate_token();
-            app.manage(std::sync::Arc::new(crate::mcp::server::McpAuthToken(mcp_token.clone())));
+            app.manage(std::sync::Arc::new(crate::mcp::server::McpAuthToken(
+                mcp_token.clone(),
+            )));
 
             // Sobe MCP server no runtime tokio do Tauri — visível apenas localmente.
             tauri::async_runtime::spawn(async move {
-                let router = mcp_router(mcp_pm, mcp_ar, app_handle, mcp_fm, memory_registry, max_agents, mcp_claims, mcp_token);
+                let router = mcp_router(
+                    mcp_pm,
+                    mcp_ar,
+                    app_handle,
+                    mcp_fm,
+                    memory_registry,
+                    max_agents,
+                    mcp_claims,
+                    mcp_token,
+                );
                 let addr = format!("127.0.0.1:{MCP_PORT}");
                 match tokio::net::TcpListener::bind(&addr).await {
                     Ok(listener) => {
@@ -382,7 +408,9 @@ pub fn run() {
             // (LogDir) nunca sofre EPIPE — só pipes/sockets/ttys sofrem — então tirar o
             // Stdout do build de produção elimina esse modo de crash por completo.
             #[cfg(debug_assertions)]
-            targets.push(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout));
+            targets.push(tauri_plugin_log::Target::new(
+                tauri_plugin_log::TargetKind::Stdout,
+            ));
             tauri_plugin_log::Builder::new()
                 .targets(targets)
                 // Nível vem do MODO DEBUG (marcador ~/.omnirift/debug-mode), lido aqui
@@ -397,7 +425,13 @@ pub fn run() {
                 .format(|out, message, record| {
                     let ts = chrono::Utc::now().format("[%Y-%m-%d][%H:%M:%S]");
                     let msg = crate::redactor::redact(&message.to_string());
-                    out.finish(format_args!("{}[{}][{}] {}", ts, record.target(), record.level(), msg));
+                    out.finish(format_args!(
+                        "{}[{}][{}] {}",
+                        ts,
+                        record.target(),
+                        record.level(),
+                        msg
+                    ));
                 })
                 // Rotação razoável: mantém só o log atual até ~5 MB, depois rotaciona.
                 .max_file_size(5 * 1024 * 1024)
@@ -686,7 +720,9 @@ pub fn run() {
             // Mata o(s) omnicompress-proxy ao sair (backstop do Drop).
             if let tauri::RunEvent::Exit = event {
                 use tauri::Manager;
-                app_handle.state::<crate::compress::OmnicompressProxies>().stop();
+                app_handle
+                    .state::<crate::compress::OmnicompressProxies>()
+                    .stop();
                 // Remove o runtime.json (ref #8) — CLI futuro não tenta socket morto.
                 crate::rpc::shutdown();
             }

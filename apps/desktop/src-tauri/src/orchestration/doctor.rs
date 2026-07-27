@@ -58,11 +58,7 @@ impl DoctorCheck {
 /// env — em produção usa o PATH real do processo.
 pub fn binary_on_path(binary: &str) -> Option<String> {
     let finder = if cfg!(windows) { "where" } else { "which" };
-    let out = Command::new(finder)
-        .arg(binary)
-        .no_window()
-        .output()
-        .ok()?;
+    let out = Command::new(finder).arg(binary).no_window().output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -302,7 +298,11 @@ mod tests {
         let dir = std::env::temp_dir().join("omnirift-doctor-no-git");
         let _ = std::fs::create_dir_all(&dir);
         let c = check_worktree(Some(dir.to_str().unwrap()));
-        assert!(c.ok, "shell puro sem .git não é falha — detail={}", c.detail);
+        assert!(
+            c.ok,
+            "shell puro sem .git não é falha — detail={}",
+            c.detail
+        );
         assert!(c.detail.contains("sem .git"));
     }
 

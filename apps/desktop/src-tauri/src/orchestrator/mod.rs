@@ -101,7 +101,7 @@ pub fn load_stream(db: &Db) -> Vec<OrchestratorLog> {
     db.with_conn(|conn| {
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, source, target, payload, status, stage, parent_id
-             FROM orchestration_log ORDER BY timestamp DESC LIMIT 200"
+             FROM orchestration_log ORDER BY timestamp DESC LIMIT 200",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(OrchestratorLog {
@@ -142,7 +142,8 @@ pub async fn dispatch_task(
     let resolved = crate::mcp::resolve_group(targets, &agents);
 
     if resolved.is_empty() {
-        let available: Vec<String> = agents.iter()
+        let available: Vec<String> = agents
+            .iter()
             .map(|a| format!("@{} ({})", a.label, agent_state_str(&a.state)))
             .collect();
         return format!(
@@ -161,18 +162,35 @@ pub async fn dispatch_task(
         task.to_string()
     };
 
-    let labels: Vec<String> = resolved.iter()
-        .filter_map(|sid| agents.iter().find(|a| &a.session_id == sid).map(|a| a.label.clone()))
+    let labels: Vec<String> = resolved
+        .iter()
+        .filter_map(|sid| {
+            agents
+                .iter()
+                .find(|a| &a.session_id == sid)
+                .map(|a| a.label.clone())
+        })
         .collect();
 
     // Log do despacho
-    log_entry(db, "conductor", &labels.join(", "), &full_task, "dispatched", 0, None);
+    log_entry(
+        db,
+        "conductor",
+        &labels.join(", "),
+        &full_task,
+        "dispatched",
+        0,
+        None,
+    );
 
     if !should_wait(priority) {
         for sid in &resolved {
             let _ = dispatch_to_session(state, sid, &full_task).await;
         }
-        return format!("{{\"status\": \"dispatched\", \"targets\": {}}}", labels.len());
+        return format!(
+            "{{\"status\": \"dispatched\", \"targets\": {}}}",
+            labels.len()
+        );
     }
 
     // Blocking — despacha e ESPERA cada alvo assentar (Working→Done/Idle/Blocked/Dead).
@@ -184,7 +202,15 @@ pub async fn dispatch_task(
             .map(|a| a.label.clone())
             .unwrap_or_else(|| sid.clone());
 
-        log_entry(db, &label, "conductor", "tarefa recebida", "working", 0, None);
+        log_entry(
+            db,
+            &label,
+            "conductor",
+            "tarefa recebida",
+            "working",
+            0,
+            None,
+        );
 
         let wait = wait_session_settle(state, sid, &full_task, BLOCKING_TIMEOUT_SECS).await;
         let status = if wait.timed_out {
@@ -203,7 +229,15 @@ pub async fn dispatch_task(
         ));
     }
 
-    log_entry(db, "conductor", "user", &results.join("\n"), "done", 0, None);
+    log_entry(
+        db,
+        "conductor",
+        "user",
+        &results.join("\n"),
+        "done",
+        0,
+        None,
+    );
     results.join("\n")
 }
 
@@ -251,11 +285,11 @@ async fn wait_session_settle(
         }
     };
 
-    let (timed_out, final_state) = match tokio::time::timeout(Duration::from_secs(timeout_secs), settle).await
-    {
-        Ok(st) => (false, st),
-        Err(_) => (true, state.pty_manager.agent_state(session_id)),
-    };
+    let (timed_out, final_state) =
+        match tokio::time::timeout(Duration::from_secs(timeout_secs), settle).await {
+            Ok(st) => (false, st),
+            Err(_) => (true, state.pty_manager.agent_state(session_id)),
+        };
 
     let screen = state
         .pty_manager

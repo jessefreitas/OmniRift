@@ -182,7 +182,11 @@ pub fn parallel_git_remove(
     branch: String,
     delete_branch: bool,
 ) -> Result<(), String> {
-    let b = if delete_branch { Some(branch.as_str()) } else { None };
+    let b = if delete_branch {
+        Some(branch.as_str())
+    } else {
+        None
+    };
     git::worktree_remove(Path::new(&repo_root), Path::new(&worktree_path), b)
         .map_err(|e| e.to_string())?;
     let _ = app.emit(

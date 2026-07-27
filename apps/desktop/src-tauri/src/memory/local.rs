@@ -107,7 +107,10 @@ mod tests {
             })
             .await
             .unwrap();
-        assert!(hits.iter().any(|m| m.id == id), "esperava achar a memória salva");
+        assert!(
+            hits.iter().any(|m| m.id == id),
+            "esperava achar a memória salva"
+        );
         assert_eq!(hits[0].category, "note");
     }
 }

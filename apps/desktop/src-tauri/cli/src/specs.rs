@@ -256,13 +256,16 @@ pub fn validate(parsed: &ParsedArgs) -> Result<&'static CommandSpec, ArgError> {
     let Some(name) = parsed.command.as_deref() else {
         return Err(ArgError("nenhum comando informado".into()));
     };
-    let spec = find_spec(name)
-        .ok_or_else(|| ArgError(format!("comando desconhecido: '{name}'. Rode 'omnirift help'.")))?;
+    let spec = find_spec(name).ok_or_else(|| {
+        ArgError(format!(
+            "comando desconhecido: '{name}'. Rode 'omnirift help'."
+        ))
+    })?;
 
     // Flags: cada uma tem que ser global OU declarada na spec.
     for (flag, _) in &parsed.flags {
-        let known = GLOBAL_FLAGS.contains(&flag.as_str())
-            || spec.allowed_flags.contains(&flag.as_str());
+        let known =
+            GLOBAL_FLAGS.contains(&flag.as_str()) || spec.allowed_flags.contains(&flag.as_str());
         if !known {
             return Err(ArgError(format!(
                 "flag desconhecida para '{name}': '--{flag}'. Uso: {}",
@@ -278,7 +281,10 @@ pub fn validate(parsed: &ParsedArgs) -> Result<&'static CommandSpec, ArgError> {
     let got = parsed.positionals.len();
     if got < need {
         let missing = spec.positionals[got];
-        return Err(ArgError(format!("falta o argumento <{missing}>. Uso: {}", spec.usage)));
+        return Err(ArgError(format!(
+            "falta o argumento <{missing}>. Uso: {}",
+            spec.usage
+        )));
     }
     if got > need && !spec.variadic_tail {
         return Err(ArgError(format!(
@@ -296,9 +302,18 @@ pub fn render_help() -> String {
     let mut out = String::new();
     out.push_str("omnirift — CLI do OmniRift (pilota o app via socket RPC local)\n\n");
     out.push_str("USO:\n  omnirift <comando> [args] [--json]\n\nCOMANDOS:\n");
-    let width = command_specs().iter().map(|s| s.name.len()).max().unwrap_or(0);
+    let width = command_specs()
+        .iter()
+        .map(|s| s.name.len())
+        .max()
+        .unwrap_or(0);
     for spec in command_specs() {
-        out.push_str(&format!("  {:width$}  {}\n", spec.name, spec.summary, width = width));
+        out.push_str(&format!(
+            "  {:width$}  {}\n",
+            spec.name,
+            spec.summary,
+            width = width
+        ));
     }
     out.push_str("\nFLAGS GLOBAIS:\n");
     out.push_str("  --json      Imprime a resposta JSON crua (em vez de texto humano).\n");
@@ -478,8 +493,14 @@ mod tests {
     // send: variádico — sessionId + 1+ tokens de texto.
     #[test]
     fn send_accepts_variadic_text() {
-        let p = parse_args(&["send".into(), "s1".into(), "oi".into(), "tudo".into(), "bem".into()])
-            .unwrap();
+        let p = parse_args(&[
+            "send".into(),
+            "s1".into(),
+            "oi".into(),
+            "tudo".into(),
+            "bem".into(),
+        ])
+        .unwrap();
         let spec = validate(&p).unwrap();
         assert_eq!(spec.name, "send");
         assert!(spec.variadic_tail, "send é variádico");

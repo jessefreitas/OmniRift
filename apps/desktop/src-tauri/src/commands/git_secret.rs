@@ -38,7 +38,11 @@ fn fallback_store_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("OMNIRIFT_GIT_TOKENS_PATH") {
         return Some(PathBuf::from(p));
     }
-    Some(Path::new(&home_dir()?).join(".omnirift").join("git_tokens.json"))
+    Some(
+        Path::new(&home_dir()?)
+            .join(".omnirift")
+            .join("git_tokens.json"),
+    )
 }
 
 fn read_map(path: &Path) -> BTreeMap<String, String> {

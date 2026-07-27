@@ -29,7 +29,11 @@ fn http() -> reqwest::Client {
 /// Lista os repos do usuário num provider. `kind` = "github" | "forgejo".
 /// `base_url` p/ forgejo (ex: https://git.omnimemory.com.br); github usa api.github.com.
 #[tauri::command]
-pub async fn git_list_repos(kind: String, base_url: String, token: String) -> Result<Vec<RemoteRepo>, String> {
+pub async fn git_list_repos(
+    kind: String,
+    base_url: String,
+    token: String,
+) -> Result<Vec<RemoteRepo>, String> {
     let token = token.trim().to_string();
     if token.is_empty() {
         return Err("token vazio".into());
@@ -41,13 +45,19 @@ pub async fn git_list_repos(kind: String, base_url: String, token: String) -> Re
             format!("Bearer {token}"),
         ),
         "gitlab" => (
-            format!("{}/api/v4/projects?membership=true&per_page=100&order_by=last_activity_at", base_url.trim_end_matches('/')),
+            format!(
+                "{}/api/v4/projects?membership=true&per_page=100&order_by=last_activity_at",
+                base_url.trim_end_matches('/')
+            ),
             "PRIVATE-TOKEN",
             token.clone(),
         ),
         // forgejo / gitea
         _ => (
-            format!("{}/api/v1/repos/search?limit=50&exclusive=false", base_url.trim_end_matches('/')),
+            format!(
+                "{}/api/v1/repos/search?limit=50&exclusive=false",
+                base_url.trim_end_matches('/')
+            ),
             "Authorization",
             format!("token {token}"),
         ),
@@ -62,29 +72,64 @@ pub async fn git_list_repos(kind: String, base_url: String, token: String) -> Re
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("{kind} retornou {status}: {}", text.chars().take(200).collect::<String>()));
+        return Err(format!(
+            "{kind} retornou {status}: {}",
+            text.chars().take(200).collect::<String>()
+        ));
     }
-    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("resposta não-JSON: {e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("resposta não-JSON: {e}"))?;
     // GitHub/GitLab: array no topo. Forgejo search: { data: [...] }.
-    let arr = v.as_array().cloned().or_else(|| v.get("data").and_then(|x| x.as_array().cloned())).unwrap_or_default();
+    let arr = v
+        .as_array()
+        .cloned()
+        .or_else(|| v.get("data").and_then(|x| x.as_array().cloned()))
+        .unwrap_or_default();
     let gitlab = kind == "gitlab"; // GitLab usa nomes de campo próprios.
     let repos = arr
         .iter()
         .map(|r| RemoteRepo {
-            name: r.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            name: r
+                .get("name")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             full_name: r
-                .get(if gitlab { "path_with_namespace" } else { "full_name" })
-                .and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                .get(if gitlab {
+                    "path_with_namespace"
+                } else {
+                    "full_name"
+                })
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             clone_url: r
-                .get(if gitlab { "http_url_to_repo" } else { "clone_url" })
-                .and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                .get(if gitlab {
+                    "http_url_to_repo"
+                } else {
+                    "clone_url"
+                })
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             private: if gitlab {
-                r.get("visibility").and_then(|x| x.as_str()).map(|vis| vis != "public").unwrap_or(true)
+                r.get("visibility")
+                    .and_then(|x| x.as_str())
+                    .map(|vis| vis != "public")
+                    .unwrap_or(true)
             } else {
                 r.get("private").and_then(|x| x.as_bool()).unwrap_or(false)
             },
-            description: r.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-            default_branch: r.get("default_branch").and_then(|x| x.as_str()).unwrap_or("main").to_string(),
+            description: r
+                .get("description")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            default_branch: r
+                .get("default_branch")
+                .and_then(|x| x.as_str())
+                .unwrap_or("main")
+                .to_string(),
         })
         .filter(|r| !r.clone_url.is_empty())
         .collect();
@@ -94,7 +139,11 @@ pub async fn git_list_repos(kind: String, base_url: String, token: String) -> Re
 /// Clona um repo em `dest/<name>`. Embute o token na URL p/ repos privados.
 /// Devolve o caminho local do clone. Se já existir, devolve o caminho (não re-clona).
 #[tauri::command]
-pub fn git_clone(clone_url: String, dest_dir: String, token: Option<String>) -> Result<String, String> {
+pub fn git_clone(
+    clone_url: String,
+    dest_dir: String,
+    token: Option<String>,
+) -> Result<String, String> {
     let name = clone_url
         .trim_end_matches(".git")
         .rsplit('/')
@@ -108,11 +157,19 @@ pub fn git_clone(clone_url: String, dest_dir: String, token: Option<String>) -> 
     std::fs::create_dir_all(&dest_dir).map_err(|e| format!("criar dest: {e}"))?;
     // Token na URL (https://<token>@host/...) p/ clonar privado sem prompt.
     let auth_url = match token.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
-        Some(t) if clone_url.starts_with("https://") => clone_url.replacen("https://", &format!("https://{t}@"), 1),
+        Some(t) if clone_url.starts_with("https://") => {
+            clone_url.replacen("https://", &format!("https://{t}@"), 1)
+        }
         _ => clone_url.clone(),
     };
     let out = std::process::Command::new("git")
-        .args(["clone", "--depth", "50", &auth_url, &target.to_string_lossy()])
+        .args([
+            "clone",
+            "--depth",
+            "50",
+            &auth_url,
+            &target.to_string_lossy(),
+        ])
         .env("GIT_TERMINAL_PROMPT", "0")
         .no_window()
         .output()

@@ -1,5 +1,5 @@
 use crate::db::Db;
-use crate::observability::event::{RunEvent, RuntimeKind, EventSource, EventConfidence};
+use crate::observability::event::{EventConfidence, EventSource, RunEvent, RuntimeKind};
 use rusqlite::{params, OptionalExtension};
 
 // ---- conversores enum <-> string lowercase ----
@@ -125,7 +125,9 @@ pub fn query_timeline(db: &Db, session_id: &str, limit: i64) -> rusqlite::Result
                 occurred_at_ms: row.get(10)?,
                 monotonic_seq: row.get(11)?,
                 duration_ms: row.get(12)?,
-                payload_json: row.get::<_, Option<String>>(13)?.unwrap_or_else(|| "{}".to_string()),
+                payload_json: row
+                    .get::<_, Option<String>>(13)?
+                    .unwrap_or_else(|| "{}".to_string()),
             })
         })?;
         rows.collect()

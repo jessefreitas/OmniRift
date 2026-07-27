@@ -96,7 +96,10 @@ fn ensure_column(conn: &Connection, table: &str, col: &str, decl: &str) -> rusql
         .any(|name| name == col);
     drop(stmt);
     if !exists {
-        conn.execute(&format!("ALTER TABLE {table} ADD COLUMN \"{col}\" {decl}"), [])?;
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN \"{col}\" {decl}"),
+            [],
+        )?;
     }
     Ok(())
 }
@@ -191,7 +194,10 @@ fn upsert_impl(db: &Db, mut routine: Routine) -> rusqlite::Result<Routine> {
 fn delete_impl(db: &Db, id: &str) -> rusqlite::Result<()> {
     db.with_conn(|c| {
         ensure_schema(c)?;
-        c.execute("DELETE FROM routine_runs WHERE routine_id = ?1", rusqlite::params![id])?;
+        c.execute(
+            "DELETE FROM routine_runs WHERE routine_id = ?1",
+            rusqlite::params![id],
+        )?;
         c.execute("DELETE FROM routines WHERE id = ?1", rusqlite::params![id])?;
         Ok(())
     })
@@ -215,7 +221,13 @@ fn record_run_impl(
         c.execute(
             "INSERT INTO routine_runs (id, routine_id, started_at, exit_code, status)
              VALUES (?1,?2,?3,?4,?5)",
-            rusqlite::params![run.id, run.routine_id, run.started_at, run.exit_code, run.status],
+            rusqlite::params![
+                run.id,
+                run.routine_id,
+                run.started_at,
+                run.exit_code,
+                run.status
+            ],
         )?;
         Ok(())
     })?;
@@ -333,7 +345,10 @@ mod tests {
         assert_eq!(list.len(), 1, "update por id não duplica");
         assert_eq!(b.name, "New");
         assert!(!b.enabled);
-        assert_eq!(b.created_at, a.created_at, "created_at preservado no update");
+        assert_eq!(
+            b.created_at, a.created_at,
+            "created_at preservado no update"
+        );
         assert!(b.updated_at >= a.updated_at);
     }
 
@@ -420,7 +435,10 @@ mod tests {
         let list = list_impl(&db).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, "legacy");
-        assert_eq!(list[0].trigger, None, "routine legada nasce sem trigger (deriva no front)");
+        assert_eq!(
+            list[0].trigger, None,
+            "routine legada nasce sem trigger (deriva no front)"
+        );
         // E a coluna existe de fato (PRAGMA enxerga "trigger").
         let has_trigger = db
             .with_conn(|c| {
@@ -432,7 +450,10 @@ mod tests {
                 Ok(cols)
             })
             .unwrap();
-        assert!(has_trigger.iter().any(|c| c == "trigger"), "coluna trigger migrada");
+        assert!(
+            has_trigger.iter().any(|c| c == "trigger"),
+            "coluna trigger migrada"
+        );
     }
 
     #[test]
@@ -444,7 +465,10 @@ mod tests {
         r.trigger = Some("gate:land".to_string());
         let saved = upsert_impl(&db, r).unwrap();
         assert_eq!(saved.trigger.as_deref(), Some("gate:land"));
-        assert_eq!(list_impl(&db).unwrap()[0].trigger.as_deref(), Some("gate:land"));
+        assert_eq!(
+            list_impl(&db).unwrap()[0].trigger.as_deref(),
+            Some("gate:land")
+        );
 
         // …e o histórico registra pass/fail do gate (exit 0 / 1).
         record_run_impl(&db, &saved.id, Some(0), "gate-pass").unwrap();
@@ -478,6 +502,10 @@ mod tests {
         edit.trigger = Some("floor-deleted".to_string());
         let updated = upsert_impl(&db, edit).unwrap();
         assert_eq!(updated.trigger.as_deref(), Some("floor-deleted"));
-        assert_eq!(list_impl(&db).unwrap().len(), 1, "update por id não duplica");
+        assert_eq!(
+            list_impl(&db).unwrap().len(),
+            1,
+            "update por id não duplica"
+        );
     }
 }

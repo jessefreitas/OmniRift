@@ -163,7 +163,11 @@ pub fn search_in(caps: &[Capability], query: &str) -> SearchSignal {
         })
         .filter(|s| s.score > 0.0)
         .collect();
-    scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     if scored.is_empty() {
         return SearchSignal::NoMatch;
@@ -189,9 +193,14 @@ pub fn seed_defaults(db: &Db) {
     let seeds: &[Capability] = &[
         Capability {
             id: "arch.api.contract".into(),
-            description: "Definir contratos de API, modelagem e divisão de trabalho entre times.".into(),
+            description: "Definir contratos de API, modelagem e divisão de trabalho entre times."
+                .into(),
             domains: vec!["architecture".into(), "api".into()],
-            examples: vec!["definir contratos".into(), "modelar API".into(), "dividir fatias".into()],
+            examples: vec![
+                "definir contratos".into(),
+                "modelar API".into(),
+                "dividir fatias".into(),
+            ],
             not_for: vec!["implementar endpoints".into()],
             invoke_kind: "role".into(),
             invoke_ref: "Arquiteto".into(),
@@ -200,7 +209,11 @@ pub fn seed_defaults(db: &Db) {
             id: "code.backend.implement".into(),
             description: "Implementar endpoints, banco e regras de negócio no backend.".into(),
             domains: vec!["code".into(), "backend".into()],
-            examples: vec!["implementar API".into(), "criar endpoint".into(), "regras de negócio".into()],
+            examples: vec![
+                "implementar API".into(),
+                "criar endpoint".into(),
+                "regras de negócio".into(),
+            ],
             not_for: vec!["escrever telas".into()],
             invoke_kind: "role".into(),
             invoke_ref: "Backend".into(),
@@ -209,7 +222,11 @@ pub fn seed_defaults(db: &Db) {
             id: "code.frontend.implement".into(),
             description: "Implementar telas e integrar com a API pelo contrato.".into(),
             domains: vec!["code".into(), "frontend".into()],
-            examples: vec!["implementar UI".into(), "tela".into(), "integrar frontend".into()],
+            examples: vec![
+                "implementar UI".into(),
+                "tela".into(),
+                "integrar frontend".into(),
+            ],
             not_for: vec!["schema SQL".into()],
             invoke_kind: "role".into(),
             invoke_ref: "Frontend".into(),
@@ -218,7 +235,11 @@ pub fn seed_defaults(db: &Db) {
             id: "test.integration.run".into(),
             description: "Escrever e rodar testes de integração contra o entregue.".into(),
             domains: vec!["test".into(), "qa".into()],
-            examples: vec!["testes de integração".into(), "rodar suíte".into(), "QA".into()],
+            examples: vec![
+                "testes de integração".into(),
+                "rodar suíte".into(),
+                "QA".into(),
+            ],
             not_for: vec!["review de diff".into()],
             invoke_kind: "role".into(),
             invoke_ref: "QA".into(),
@@ -227,7 +248,11 @@ pub fn seed_defaults(db: &Db) {
             id: "review.diff.approve".into(),
             description: "Revisar o diff completo e aprovar ou devolver.".into(),
             domains: vec!["review".into()],
-            examples: vec!["code review".into(), "revisar diff".into(), "aprovar PR".into()],
+            examples: vec![
+                "code review".into(),
+                "revisar diff".into(),
+                "aprovar PR".into(),
+            ],
             not_for: vec!["escrever feature".into()],
             invoke_kind: "role".into(),
             invoke_ref: "Code Reviewer".into(),
@@ -236,7 +261,11 @@ pub fn seed_defaults(db: &Db) {
             id: "bug.triage.repro".into(),
             description: "Reproduzir bug, isolar causa e escrever caso mínimo.".into(),
             domains: vec!["bug".into(), "debug".into()],
-            examples: vec!["reproduzir bug".into(), "triagem".into(), "caso mínimo".into()],
+            examples: vec![
+                "reproduzir bug".into(),
+                "triagem".into(),
+                "caso mínimo".into(),
+            ],
             not_for: vec!["corrigir em produção sem repro".into()],
             invoke_kind: "role".into(),
             invoke_ref: "Triagem".into(),
@@ -245,7 +274,11 @@ pub fn seed_defaults(db: &Db) {
             id: "bug.fix.patch".into(),
             description: "Corrigir causa raiz e adicionar teste de regressão.".into(),
             domains: vec!["bug".into(), "fix".into()],
-            examples: vec!["corrigir bug".into(), "fix".into(), "patch com regressão".into()],
+            examples: vec![
+                "corrigir bug".into(),
+                "fix".into(),
+                "patch com regressão".into(),
+            ],
             not_for: vec!["só documentar o bug".into()],
             invoke_kind: "role".into(),
             invoke_ref: "Fixer".into(),
@@ -254,7 +287,11 @@ pub fn seed_defaults(db: &Db) {
             id: "bug.verify.suite".into(),
             description: "Rodar todos os testes e validar o cenário original do bug.".into(),
             domains: vec!["bug".into(), "test".into()],
-            examples: vec!["verificar suíte".into(), "validar correção".into(), "regression guard".into()],
+            examples: vec![
+                "verificar suíte".into(),
+                "validar correção".into(),
+                "regression guard".into(),
+            ],
             not_for: vec!["triagem inicial".into()],
             invoke_kind: "role".into(),
             invoke_ref: "Verificador".into(),
@@ -272,7 +309,11 @@ pub fn seed_defaults(db: &Db) {
             id: "security.diff.owasp".into(),
             description: "Passada de segurança (OWASP) no diff.".into(),
             domains: vec!["security".into()],
-            examples: vec!["OWASP".into(), "segurança no diff".into(), "pentest leve".into()],
+            examples: vec![
+                "OWASP".into(),
+                "segurança no diff".into(),
+                "pentest leve".into(),
+            ],
             not_for: vec!["feature nova sem diff".into()],
             invoke_kind: "role".into(),
             invoke_ref: "Security".into(),

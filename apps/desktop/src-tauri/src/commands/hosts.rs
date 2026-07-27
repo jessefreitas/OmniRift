@@ -56,10 +56,12 @@ fn write_hosts_at(path: &Path, hosts: &[SshHostEntry]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("falha criando ~/.omnirift: {e}"))?;
     }
-    let json =
-        serde_json::to_string_pretty(hosts).map_err(|e| format!("falha serializando hosts: {e}"))?;
-    let mut f = std::fs::File::create(path).map_err(|e| format!("falha criando hosts.json: {e}"))?;
-    f.write_all(json.as_bytes()).map_err(|e| format!("falha gravando hosts.json: {e}"))?;
+    let json = serde_json::to_string_pretty(hosts)
+        .map_err(|e| format!("falha serializando hosts: {e}"))?;
+    let mut f =
+        std::fs::File::create(path).map_err(|e| format!("falha criando hosts.json: {e}"))?;
+    f.write_all(json.as_bytes())
+        .map_err(|e| format!("falha gravando hosts.json: {e}"))?;
     Ok(())
 }
 
@@ -94,11 +96,26 @@ pub fn hosts_list() -> Result<Vec<SshHostEntry>, String> {
 
 /// Adiciona um host SSH. Valida o `sshTarget` contra injeção e rejeita id duplicado.
 #[tauri::command]
-pub fn hosts_add(id: String, label: String, ssh_target: String) -> Result<Vec<SshHostEntry>, String> {
+pub fn hosts_add(
+    id: String,
+    label: String,
+    ssh_target: String,
+) -> Result<Vec<SshHostEntry>, String> {
     let path = hosts_path()?;
     let hosts = read_hosts_at(&path)?;
-    let label = if label.trim().is_empty() { ssh_target.clone() } else { label };
-    let next = add_host_pure(hosts, SshHostEntry { id, label, ssh_target })?;
+    let label = if label.trim().is_empty() {
+        ssh_target.clone()
+    } else {
+        label
+    };
+    let next = add_host_pure(
+        hosts,
+        SshHostEntry {
+            id,
+            label,
+            ssh_target,
+        },
+    )?;
     write_hosts_at(&path, &next)?;
     Ok(next)
 }
@@ -118,7 +135,11 @@ mod tests {
     use super::*;
 
     fn entry(id: &str, target: &str) -> SshHostEntry {
-        SshHostEntry { id: id.into(), label: id.into(), ssh_target: target.into() }
+        SshHostEntry {
+            id: id.into(),
+            label: id.into(),
+            ssh_target: target.into(),
+        }
     }
 
     #[test]
@@ -129,7 +150,10 @@ mod tests {
         // Ausente → lista vazia.
         assert_eq!(read_hosts_at(&path).unwrap(), vec![]);
 
-        let hosts = vec![entry("box-a", "user@a.example.com:22"), entry("box-b", "10.0.0.2")];
+        let hosts = vec![
+            entry("box-a", "user@a.example.com:22"),
+            entry("box-b", "10.0.0.2"),
+        ];
         write_hosts_at(&path, &hosts).unwrap();
 
         // Lê de volta idêntico.

@@ -114,7 +114,11 @@ fn parse_search_text(text: &str) -> Vec<SearchHit> {
                 Some((f, p)) => (f.trim().to_string(), p.trim().to_string()),
                 None => (rest.trim().to_string(), String::new()),
             };
-            Some(SearchHit { score, file, preview })
+            Some(SearchHit {
+                score,
+                file,
+                preview,
+            })
         })
         .collect()
 }
@@ -136,10 +140,12 @@ pub async fn omnifs_search(query: String) -> Result<Vec<SearchHit>, String> {
             None => crate::omnifs::socket_path(),
         };
         if !crate::omnifs::socket_alive(&sock) {
-            return Err("OmniFS: provisione a Pasta de Projetos OmniFS (Ferramentas → \
+            return Err(
+                "OmniFS: provisione a Pasta de Projetos OmniFS (Ferramentas → \
                         \"OmniFS — Pasta de agentes\") — o daemon precisa estar no ar \
                         pra busca semântica."
-                .to_string());
+                    .to_string(),
+            );
         }
         let text = crate::omnifs::call("omnifs_search", serde_json::json!({ "query": query }))?;
         Ok(parse_search_text(&text))
@@ -168,7 +174,10 @@ mod tests {
     #[test]
     fn parse_search_text_ignora_indice_vazio_e_lixo() {
         // "nenhum resultado …" não tem score numérico → nada de hit falso.
-        assert!(parse_search_text("nenhum resultado (índice vazio? rode omnifs_index antes)").is_empty());
+        assert!(
+            parse_search_text("nenhum resultado (índice vazio? rode omnifs_index antes)")
+                .is_empty()
+        );
         assert!(parse_search_text("").is_empty());
         assert!(parse_search_text("   \n  \n").is_empty());
     }

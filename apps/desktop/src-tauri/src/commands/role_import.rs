@@ -44,9 +44,9 @@ fn parse_claude_md(content: &str, source_path: &str) -> Result<ImportedRole, Str
     let rest = content.trim_start().strip_prefix("---").ok_or_else(|| {
         "formato Claude (.md) exige frontmatter `---\\nname: …\\n---` no topo".to_string()
     })?;
-    let end = rest.find("\n---").ok_or_else(|| {
-        "frontmatter não fechado — falta a linha `---` de fechamento".to_string()
-    })?;
+    let end = rest
+        .find("\n---")
+        .ok_or_else(|| "frontmatter não fechado — falta a linha `---` de fechamento".to_string())?;
     let fm = &rest[..end];
     let body = rest[end + 4..].trim_start_matches('\n');
 
@@ -75,13 +75,12 @@ fn parse_claude_md(content: &str, source_path: &str) -> Result<ImportedRole, Str
 /// Parseia um `.toml` Codex: `name`, `description`, `developer_instructions`(→prompt).
 /// Erro claro se o TOML for inválido ou faltar `name`/`developer_instructions`.
 fn parse_codex_toml(content: &str, source_path: &str) -> Result<ImportedRole, String> {
-    let v: toml::Value =
-        toml::from_str(content).map_err(|e| format!("TOML inválido: {e}"))?;
+    let v: toml::Value = toml::from_str(content).map_err(|e| format!("TOML inválido: {e}"))?;
     let get = |k: &str| v.get(k).and_then(|x| x.as_str()).map(|s| s.to_string());
 
-    let name = get("name").filter(|s| !s.trim().is_empty()).ok_or_else(|| {
-        "campo obrigatório ausente: `name` no .toml".to_string()
-    })?;
+    let name = get("name")
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| "campo obrigatório ausente: `name` no .toml".to_string())?;
     let prompt = get("developer_instructions")
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| {
@@ -123,8 +122,8 @@ fn parse_role_file(path: &str, content: &str) -> Result<ImportedRole, String> {
 /// Lê e parseia um arquivo de agente como Role importável.
 #[tauri::command]
 pub fn role_import_file(path: String) -> Result<ImportedRole, String> {
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("não consegui ler `{path}`: {e}"))?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("não consegui ler `{path}`: {e}"))?;
     parse_role_file(&path, &content)
 }
 
@@ -176,7 +175,9 @@ pub fn role_template(kind: String) -> Result<String, String> {
     match kind.as_str() {
         "codex" => Ok(CODEX_TEMPLATE.to_string()),
         "claude" => Ok(CLAUDE_TEMPLATE.to_string()),
-        other => Err(format!("kind desconhecido: `{other}` — use \"codex\" ou \"claude\"")),
+        other => Err(format!(
+            "kind desconhecido: `{other}` — use \"codex\" ou \"claude\""
+        )),
     }
 }
 
@@ -214,7 +215,10 @@ Limite:
         assert_eq!(r.name, "fonder-ceo");
         assert_eq!(r.cli, "codex");
         assert_eq!(r.format, "codex");
-        assert!(r.prompt.contains("CEO Fonder"), "prompt deve conter a persona");
+        assert!(
+            r.prompt.contains("CEO Fonder"),
+            "prompt deve conter a persona"
+        );
         assert!(r.description.contains("router executivo"));
         assert_eq!(r.source_path, "fonder-ceo.toml");
     }
@@ -283,13 +287,11 @@ Limite:
     fn template_codex_is_reimportable() {
         let t = role_template("codex".into()).expect("template");
         // Preenche os campos vazios do template e confirma que reimporta.
-        let filled = t
-            .replacen("name = \"\"", "name = \"teste\"", 1)
-            .replacen(
-                "developer_instructions = \"\"\"",
-                "developer_instructions = \"\"\"\nVocê é o agente de teste.",
-                1,
-            );
+        let filled = t.replacen("name = \"\"", "name = \"teste\"", 1).replacen(
+            "developer_instructions = \"\"\"",
+            "developer_instructions = \"\"\"\nVocê é o agente de teste.",
+            1,
+        );
         let r = parse_role_file("modelo.toml", &filled).expect("reimport");
         assert_eq!(r.name, "teste");
         assert_eq!(r.cli, "codex");
@@ -302,8 +304,14 @@ Limite:
         // vazio, não por sintaxe).
         let t = role_template("codex".into()).expect("template");
         let e = parse_role_file("modelo.toml", &t).unwrap_err();
-        assert!(e.contains("name") || e.contains("developer_instructions"), "msg: {e}");
-        assert!(!e.contains("TOML inválido"), "template não pode ter sintaxe quebrada: {e}");
+        assert!(
+            e.contains("name") || e.contains("developer_instructions"),
+            "msg: {e}"
+        );
+        assert!(
+            !e.contains("TOML inválido"),
+            "template não pode ter sintaxe quebrada: {e}"
+        );
     }
 
     #[test]

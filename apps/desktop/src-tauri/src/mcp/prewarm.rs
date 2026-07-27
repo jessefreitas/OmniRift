@@ -27,7 +27,10 @@ pub fn spawn_prewarm() {
         let mut uvx: Option<PathBuf> = None;
         {
             let mut probe = std::process::Command::new("uvx");
-            probe.arg("--version").stdout(Stdio::null()).stderr(Stdio::null());
+            probe
+                .arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
             if let Some(p) = path_env {
                 probe.env("PATH", p);
             }
@@ -64,7 +67,10 @@ pub fn spawn_prewarm() {
         // ---------- Playwright (npx) ----------
         let npx_ok = {
             let mut probe = std::process::Command::new("npx");
-            probe.arg("--version").stdout(Stdio::null()).stderr(Stdio::null());
+            probe
+                .arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
             if let Some(p) = path_env {
                 probe.env("PATH", p);
             }

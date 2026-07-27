@@ -29,7 +29,11 @@ pub fn parse_tasks(content: &str) -> Vec<SpecTask> {
     for (i, caps) in heads.iter().enumerate() {
         let whole = caps.get(0).unwrap();
         let n: u32 = caps.get(1).unwrap().as_str().parse().unwrap_or(0);
-        let title = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("").to_string();
+        let title = caps
+            .get(2)
+            .map(|m| m.as_str().trim())
+            .unwrap_or("")
+            .to_string();
         let body_start = whole.end();
         let body_end = if i + 1 < heads.len() {
             heads[i + 1].get(0).unwrap().start()
@@ -199,7 +203,9 @@ pub fn list_spec_files(dir: &Path, extra_roots: &[String]) -> Vec<SpecFile> {
             }
             continue;
         }
-        let Ok(rd) = std::fs::read_dir(&root) else { continue };
+        let Ok(rd) = std::fs::read_dir(&root) else {
+            continue;
+        };
         for e in rd.flatten() {
             let p = e.path();
             if p.extension().and_then(|s| s.to_str()) != Some("md") {
@@ -314,8 +320,14 @@ Passo C.
 
     #[test]
     fn status_archive_wins() {
-        assert_eq!(compute_status("/x/docs/superpowers/archive/p.md", &None, 0, 0), "archived");
-        assert_eq!(compute_status("/x/plans/p.md", &Some("done".into()), 1, 3), "done");
+        assert_eq!(
+            compute_status("/x/docs/superpowers/archive/p.md", &None, 0, 0),
+            "archived"
+        );
+        assert_eq!(
+            compute_status("/x/plans/p.md", &Some("done".into()), 1, 3),
+            "done"
+        );
         assert_eq!(compute_status("/x/plans/p.md", &None, 3, 3), "done");
         assert_eq!(compute_status("/x/plans/p.md", &None, 1, 3), "active");
     }

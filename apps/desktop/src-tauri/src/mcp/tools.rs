@@ -30,7 +30,9 @@ pub fn output_matches(buf: &str, pattern: &str, use_regex: bool) -> Option<Strin
         let re = regex::Regex::new(pattern).ok()?;
         buf.lines().find(|l| re.is_match(l)).map(|s| s.to_string())
     } else {
-        buf.lines().find(|l| l.contains(pattern)).map(|s| s.to_string())
+        buf.lines()
+            .find(|l| l.contains(pattern))
+            .map(|s| s.to_string())
     }
 }
 
@@ -68,7 +70,10 @@ async fn acp_route_prompt(state: &McpState, terminal: &str, text: String) -> Opt
 }
 
 fn arg_str(args: &Value, key: &str) -> String {
-    args.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Como `arg_str`, mas None quando ausente/vazio (pra colunas opcionais).
@@ -436,7 +441,10 @@ pub fn spec_dispatch(tool: &str, args: Value) -> String {
             }
             let mut s = format!("Spec: {title} ({path})\n{} tasks:\n", tasks.len());
             for t in &tasks {
-                s.push_str(&format!("\n--- Task {} : {} ---\n{}\n", t.n, t.title, t.body));
+                s.push_str(&format!(
+                    "\n--- Task {} : {} ---\n{}\n",
+                    t.n, t.title, t.body
+                ));
             }
             s.push_str(
                 "\nAgora agrupe as Tasks INDEPENDENTES e, pra cada grupo, chame \
@@ -495,7 +503,14 @@ pub fn claim_dispatch(state: &McpState, tool: &str, args: Value) -> String {
                 return "Nenhum claim ativo.".into();
             }
             list.iter()
-                .map(|e| format!("• '{}'{} — {}", e.raw_path, floor_suffix(&e.floor), e.agent_label))
+                .map(|e| {
+                    format!(
+                        "• '{}'{} — {}",
+                        e.raw_path,
+                        floor_suffix(&e.floor),
+                        e.agent_label
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         }
@@ -503,7 +518,11 @@ pub fn claim_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             let paths: Vec<String> = args
                 .get("paths")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             if paths.is_empty() {
                 return "❌ 'paths' (lista) é obrigatório".into();
@@ -533,10 +552,13 @@ pub fn claim_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             let extra: Vec<String> = args
                 .get("extra_roots")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
-            let conflicts =
-                crate::spec::spec_path_conflicts(std::path::Path::new(&dir), &extra);
+            let conflicts = crate::spec::spec_path_conflicts(std::path::Path::new(&dir), &extra);
             if conflicts.is_empty() {
                 return "✅ Nenhuma sobreposição entre os `paths:` das specs ativas.".into();
             }
@@ -638,12 +660,20 @@ fn memory_meta_footer(
 }
 
 /// Formata memórias Local com summary default + paginação + meta.truncation (T1).
-pub(crate) fn fmt_memories(rows: &[crate::db::MemoryRow], title: &str, opts: &MemoryFmtOpts) -> String {
+pub(crate) fn fmt_memories(
+    rows: &[crate::db::MemoryRow],
+    title: &str,
+    opts: &MemoryFmtOpts,
+) -> String {
     if rows.is_empty() {
         return format!("Nada na memória pra '{title}'.");
     }
     let total = rows.len();
-    let page = rows.iter().skip(opts.offset).take(opts.limit).collect::<Vec<_>>();
+    let page = rows
+        .iter()
+        .skip(opts.offset)
+        .take(opts.limit)
+        .collect::<Vec<_>>();
     if page.is_empty() {
         return format!(
             "Nada na página offset={} (total_matched={total}) pra '{title}'.{}",
@@ -662,7 +692,11 @@ pub(crate) fn fmt_memories(rows: &[crate::db::MemoryRow], title: &str, opts: &Me
     let mut any_trunc = false;
     let mut s = format!("{} resultado(s) — {title} [{mode}]:\n", page.len());
     for m in &page {
-        let key = m.mem_key.as_deref().map(|k| format!(" [{k}]")).unwrap_or_default();
+        let key = m
+            .mem_key
+            .as_deref()
+            .map(|k| format!(" [{k}]"))
+            .unwrap_or_default();
         let body = if opts.raw {
             m.value.clone()
         } else {
@@ -795,7 +829,11 @@ async fn memory_dispatch_provider(state: &McpState, tool: &str, args: Value) -> 
             }
             let category = arg_opt(&args, "kind").unwrap_or_else(|| "fact".into());
             match p
-                .save(NewMemory { content: value, category, project: arg_opt(&args, "scope") })
+                .save(NewMemory {
+                    content: value,
+                    category,
+                    project: arg_opt(&args, "scope"),
+                })
                 .await
             {
                 Ok(id) => format!("✅ memória {id} gravada ({kind:?})"),
@@ -811,7 +849,11 @@ async fn memory_dispatch_provider(state: &McpState, tool: &str, args: Value) -> 
             let why = arg_str(&args, "why");
             let value = format!("ERRO: {what}\nCAUSA: {why}\nFIX: {fix}");
             match p
-                .save(NewMemory { content: value, category: "error".into(), project: arg_opt(&args, "scope") })
+                .save(NewMemory {
+                    content: value,
+                    category: "error".into(),
+                    project: arg_opt(&args, "scope"),
+                })
                 .await
             {
                 Ok(id) => format!("✅ erro {id} registrado ({kind:?})"),
@@ -855,14 +897,19 @@ async fn memory_dispatch_provider(state: &McpState, tool: &str, args: Value) -> 
         "memory_forget" => {
             // ids de provider remoto são string; aceita number também.
             let id = arg_opt(&args, "id").unwrap_or_else(|| {
-                args.get("id").and_then(|v| v.as_i64()).map(|n| n.to_string()).unwrap_or_default()
+                args.get("id")
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n.to_string())
+                    .unwrap_or_default()
             });
             if id.is_empty() {
                 return "❌ 'id' inválido".into();
             }
             match p.forget(&id).await {
                 Ok(true) => format!("🗑 memória {id} apagada"),
-                Ok(false) => format!("memória {id} não encontrada (ou forget não suportado por {kind:?})"),
+                Ok(false) => {
+                    format!("memória {id} não encontrada (ou forget não suportado por {kind:?})")
+                }
                 Err(e) => format!("❌ {e}"),
             }
         }
@@ -880,7 +927,11 @@ pub(crate) fn fmt_records(
         return format!("Nada na memória pra '{title}'.");
     }
     let total = recs.len();
-    let page = recs.iter().skip(opts.offset).take(opts.limit).collect::<Vec<_>>();
+    let page = recs
+        .iter()
+        .skip(opts.offset)
+        .take(opts.limit)
+        .collect::<Vec<_>>();
     if page.is_empty() {
         return format!(
             "Nada na página offset={} (total_matched={total}) pra '{title}'.{}",
@@ -934,7 +985,10 @@ pub(crate) fn active_floor_name(state: &McpState) -> Option<String> {
 
 /// Sufixo de floor pra exibição: ` @<floor>` ou vazio.
 fn floor_suffix(floor: &Option<String>) -> String {
-    floor.as_deref().map(|f| format!(" @{f}")).unwrap_or_default()
+    floor
+        .as_deref()
+        .map(|f| format!(" @{f}"))
+        .unwrap_or_default()
 }
 
 // Tabela deliberadamente conservativa: termos genéricos demais ("web", "app", "dev", "db", "ops")
@@ -946,7 +1000,10 @@ const ROLE_SYNONYMS: &[(&str, &[&str])] = &[
     ("dba", &["dba", "database", "banco", "sql"]),
     ("qa", &["qa", "tester", "testes", "qualidade"]),
     ("devops", &["devops", "infra", "deploy", "sre"]),
-    ("security", &["security", "seguranca", "segurança", "appsec"]),
+    (
+        "security",
+        &["security", "seguranca", "segurança", "appsec"],
+    ),
     ("reviewer", &["reviewer", "review", "revisor"]),
     ("architect", &["architect", "arquiteto", "arquitetura"]),
     ("debugger", &["debugger", "debug", "depurador"]),
@@ -999,10 +1056,19 @@ fn duplicate_agent_refusal(state: &McpState, name: &str, role: Option<&str>) -> 
 
 /// Decisão PURA do guard de duplicado: separada de `McpState` (que carrega um
 /// `tauri::AppHandle` e por isso não é construível em teste).
-fn duplicate_refusal_from_roster(agents: &[crate::mcp::AgentInfo], name: &str, role: Option<&str>) -> Option<String> {
+fn duplicate_refusal_from_roster(
+    agents: &[crate::mcp::AgentInfo],
+    name: &str,
+    role: Option<&str>,
+) -> Option<String> {
     let livres: Vec<_> = agents
         .iter()
-        .filter(|a| matches!(a.state, crate::pty::AgentState::Idle | crate::pty::AgentState::Done))
+        .filter(|a| {
+            matches!(
+                a.state,
+                crate::pty::AgentState::Idle | crate::pty::AgentState::Done
+            )
+        })
         .cloned()
         .collect();
 
@@ -1092,7 +1158,11 @@ fn over_agent_cap(state: &McpState) -> Option<String> {
 /// Resolve o `from` de uma chamada de orquestração: usa o label que o agente passou (o
 /// preâmbulo o instrui), normaliza o prefixo `@`, default `@orquestrador` se vazio.
 fn orq_from(args: &Value) -> String {
-    let raw = args.get("from").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let raw = args
+        .get("from")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     if raw.is_empty() {
         return "@orquestrador".to_string();
     }
@@ -1163,7 +1233,11 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                         .agent_state(&entry.session_id)
                         .map(|s| format!("{s:?}").to_lowercase())
                         .unwrap_or_else(|| "unknown".into());
-                    format!("• {label} [{st}]{} — {}", floor_suffix(&entry.floor), entry.description)
+                    format!(
+                        "• {label} [{st}]{} — {}",
+                        floor_suffix(&entry.floor),
+                        entry.description
+                    )
                 })
                 .collect();
             for (label, _id, ready) in acp {
@@ -1181,7 +1255,11 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                 Ok(id) => match state.pty_manager.read_screen(&id) {
                     Ok(screen) => {
                         let text = last_lines(&screen, lines);
-                        if text.is_empty() { "(tela vazia)".into() } else { text }
+                        if text.is_empty() {
+                            "(tela vazia)".into()
+                        } else {
+                            text
+                        }
                     }
                     Err(e) => format!("❌ {e}"),
                 },
@@ -1211,7 +1289,10 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                 return r;
             }
             match resolve(state, &terminal) {
-                Ok(id) => match state.pty_manager.write(&id, format!("{command}\r").as_bytes()) {
+                Ok(id) => match state
+                    .pty_manager
+                    .write(&id, format!("{command}\r").as_bytes())
+                {
                     Ok(()) => "ok".into(),
                     Err(e) => format!("❌ {e}"),
                 },
@@ -1232,11 +1313,22 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
         "terminal_wait_status" => {
             let terminal = arg_str(&args, "terminal");
             let target = arg_str(&args, "status").to_lowercase();
-            let timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(30000);
-            let id = match resolve(state, &terminal) { Ok(i) => i, Err(e) => return format!("❌ {e}") };
+            let timeout_ms = args
+                .get("timeout_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(30000);
+            let id = match resolve(state, &terminal) {
+                Ok(i) => i,
+                Err(e) => return format!("❌ {e}"),
+            };
 
             let matches = |s: &crate::pty::AgentState| format!("{s:?}").to_lowercase() == target;
-            if state.pty_manager.agent_state(&id).map(|s| matches(&s)).unwrap_or(false) {
+            if state
+                .pty_manager
+                .agent_state(&id)
+                .map(|s| matches(&s))
+                .unwrap_or(false)
+            {
                 return format!("reached {target}");
             }
             let mut rx = state.pty_manager.subscribe_state();
@@ -1252,8 +1344,11 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             match tokio::time::timeout(Duration::from_millis(timeout_ms), wait).await {
                 Ok(()) => format!("reached {target}"),
                 Err(_) => {
-                    let cur = state.pty_manager.agent_state(&id)
-                        .map(|s| format!("{s:?}").to_lowercase()).unwrap_or_else(|| "unknown".into());
+                    let cur = state
+                        .pty_manager
+                        .agent_state(&id)
+                        .map(|s| format!("{s:?}").to_lowercase())
+                        .unwrap_or_else(|| "unknown".into());
                     format!("timeout após {timeout_ms}ms (estado atual: {cur})")
                 }
             }
@@ -1262,14 +1357,24 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             let terminal = arg_str(&args, "terminal");
             let pattern = arg_str(&args, "pattern");
             let use_regex = args.get("regex").and_then(|v| v.as_bool()).unwrap_or(false);
-            let timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(30000);
-            let id = match resolve(state, &terminal) { Ok(i) => i, Err(e) => return format!("❌ {e}") };
+            let timeout_ms = args
+                .get("timeout_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(30000);
+            let id = match resolve(state, &terminal) {
+                Ok(i) => i,
+                Err(e) => return format!("❌ {e}"),
+            };
             let mut rx = match state.pty_manager.subscribe_by_id(&id) {
-                Ok(r) => r, Err(e) => return format!("❌ {e}"),
+                Ok(r) => r,
+                Err(e) => return format!("❌ {e}"),
             };
             // Casa contra a tela renderizada (não o stream cru — TUIs redesenham).
             let check = || {
-                state.pty_manager.read_screen(&id).ok()
+                state
+                    .pty_manager
+                    .read_screen(&id)
+                    .ok()
                     .and_then(|s| output_matches(&s, &pattern, use_regex))
             };
             if let Some(line) = check() {
@@ -1279,7 +1384,9 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                 loop {
                     match rx.recv().await {
                         Ok(_) => {
-                            if let Some(line) = check() { return Some(line); }
+                            if let Some(line) = check() {
+                                return Some(line);
+                            }
                         }
                         Err(_) => return None,
                     }
@@ -1304,7 +1411,10 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             if let Some(msg) = duplicate_agent_refusal(state, &label, Some(&role)) {
                 return msg;
             }
-            let cwd = args.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let cwd = args
+                .get("cwd")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             let position = args.get("position").cloned();
             let id = uuid::Uuid::new_v4().to_string();
 
@@ -1322,17 +1432,32 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                 }
             });
 
-            let _ = state.app.emit("canvas://spawn-request", json!({
-                "id": id, "command": command, "label": label,
-                "role": role, "cwd": cwd, "position": position
-            }));
+            let _ = state.app.emit(
+                "canvas://spawn-request",
+                json!({
+                    "id": id, "command": command, "label": label,
+                    "role": role, "cwd": cwd, "position": position
+                }),
+            );
 
-            let acked = tokio::time::timeout(Duration::from_secs(8), rx).await.is_ok();
+            let acked = tokio::time::timeout(Duration::from_secs(8), rx)
+                .await
+                .is_ok();
             state.app.unlisten(listener_id);
 
             let floor = active_floor_name(state);
-            let role_reg = if role.trim().is_empty() { None } else { Some(role.clone()) };
-            state.agent_registry.register(label.clone(), id.clone(), command.clone(), floor, role_reg);
+            let role_reg = if role.trim().is_empty() {
+                None
+            } else {
+                Some(role.clone())
+            };
+            state.agent_registry.register(
+                label.clone(),
+                id.clone(),
+                command.clone(),
+                floor,
+                role_reg,
+            );
 
             if acked {
                 format!("criado: {label} (id {id})")
@@ -1373,18 +1498,33 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             });
 
             // Frontend: cria o floor (git worktree) + foca + spawna o terminal com este id.
-            let _ = state.app.emit("canvas://spawn-on-parallel", json!({
-                "id": id, "branch": branch, "command": command,
-                "label": label, "role": role, "git": git
-            }));
+            let _ = state.app.emit(
+                "canvas://spawn-on-parallel",
+                json!({
+                    "id": id, "branch": branch, "command": command,
+                    "label": label, "role": role, "git": git
+                }),
+            );
 
             // worktree add + spawn demora mais que um spawn simples → timeout maior.
-            let acked = tokio::time::timeout(Duration::from_secs(15), rx).await.is_ok();
+            let acked = tokio::time::timeout(Duration::from_secs(15), rx)
+                .await
+                .is_ok();
             state.app.unlisten(listener_id);
 
             // Registra com floor = branch (topologia cross-floor pro Orquestrador).
-            let role_reg = if role.trim().is_empty() { None } else { Some(role.clone()) };
-            state.agent_registry.register(label.clone(), id.clone(), command.clone(), Some(branch.clone()), role_reg);
+            let role_reg = if role.trim().is_empty() {
+                None
+            } else {
+                Some(role.clone())
+            };
+            state.agent_registry.register(
+                label.clone(),
+                id.clone(),
+                command.clone(),
+                Some(branch.clone()),
+                role_reg,
+            );
 
             // Injeta a tarefa depois que o agente sobe (deixa a TUI assentar).
             if acked && !task.is_empty() {
@@ -1407,11 +1547,18 @@ pub async fn workspace_dispatch(state: &McpState, tool: &str, args: Value) -> St
     match tool {
         "workspace_list" => {
             let mirror = state.floor_mirror.lock().clone();
-            let floors = mirror.get("floors").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let floors = mirror
+                .get("floors")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
             if floors.is_empty() {
                 return "Nenhum floor no espelho ainda.".into();
             }
-            let active = mirror.get("activeFloorId").and_then(|v| v.as_str()).unwrap_or("");
+            let active = mirror
+                .get("activeFloorId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             floors
                 .iter()
                 .map(|f| {
@@ -1426,18 +1573,24 @@ pub async fn workspace_dispatch(state: &McpState, tool: &str, args: Value) -> St
         }
         "workspace_create" => {
             let name = arg_str(&args, "name");
-            let _ = state.app.emit("canvas://floor-create", json!({ "name": name }));
+            let _ = state
+                .app
+                .emit("canvas://floor-create", json!({ "name": name }));
             format!("solicitado: criar floor '{name}'")
         }
         "workspace_focus" => {
             let target = arg_str(&args, "target");
-            let _ = state.app.emit("canvas://floor-focus", json!({ "target": target }));
+            let _ = state
+                .app
+                .emit("canvas://floor-focus", json!({ "target": target }));
             format!("solicitado: focar floor '{target}'")
         }
         "workspace_rename" => {
             let id = arg_str(&args, "id");
             let name = arg_str(&args, "name");
-            let _ = state.app.emit("canvas://floor-rename", json!({ "id": id, "name": name }));
+            let _ = state
+                .app
+                .emit("canvas://floor-rename", json!({ "id": id, "name": name }));
             format!("solicitado: renomear floor '{id}' → '{name}'")
         }
         "workspace_close" => {
@@ -1538,7 +1691,11 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                 delivered.join(", ")
             );
             if !failed.is_empty() {
-                s.push_str(&format!("\n⚠️ falhou em {}: {}", failed.len(), failed.join(", ")));
+                s.push_str(&format!(
+                    "\n⚠️ falhou em {}: {}",
+                    failed.len(),
+                    failed.join(", ")
+                ));
             }
             s
         }
@@ -1557,7 +1714,12 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                         crate::pty::AgentState::Done => "done",
                         crate::pty::AgentState::Dead => "dead",
                     };
-                    format!("- @{} [{}] floor: {}", a.label, st, a.floor.as_deref().unwrap_or("ativo"))
+                    format!(
+                        "- @{} [{}] floor: {}",
+                        a.label,
+                        st,
+                        a.floor.as_deref().unwrap_or("ativo")
+                    )
                 })
                 .collect();
             format!("Agentes no canvas:\n{}", lines.join("\n"))
@@ -1566,14 +1728,23 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
             let target = arg_str(&args, "target");
             let task = arg_str(&args, "task");
             let context = arg_str(&args, "context");
-            let priority = if arg_str(&args, "priority") == "async" { "async" } else { "blocking" };
+            let priority = if arg_str(&args, "priority") == "async" {
+                "async"
+            } else {
+                "blocking"
+            };
             if target.is_empty() || task.is_empty() {
                 return "❌ 'target' e 'task' são obrigatórios".into();
             }
-            let ctx = if context.is_empty() { None } else { Some(context.as_str()) };
+            let ctx = if context.is_empty() {
+                None
+            } else {
+                Some(context.as_str())
+            };
             match state.app.try_state::<crate::db::Db>() {
                 Some(db) => {
-                    crate::orchestrator::dispatch_task(state, &db, &target, &task, ctx, priority).await
+                    crate::orchestrator::dispatch_task(state, &db, &target, &task, ctx, priority)
+                        .await
                 }
                 None => {
                     // Fallback sem DB: wait local (mesmo settle do ask).
@@ -1618,7 +1789,9 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                                             {
                                                 return;
                                             }
-                                            crate::pty::AgentState::Blocked if saw_working => return,
+                                            crate::pty::AgentState::Blocked if saw_working => {
+                                                return
+                                            }
                                             crate::pty::AgentState::Dead => return,
                                             _ => {}
                                         },
@@ -1629,7 +1802,17 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                             };
                             let _ = tokio::time::timeout(Duration::from_secs(300), settle).await;
                             let screen = state.pty_manager.read_screen(sid).unwrap_or_default();
-                            out.push(format!("{label}: {}", screen.chars().rev().take(200).collect::<String>().chars().rev().collect::<String>()));
+                            out.push(format!(
+                                "{label}: {}",
+                                screen
+                                    .chars()
+                                    .rev()
+                                    .take(200)
+                                    .collect::<String>()
+                                    .chars()
+                                    .rev()
+                                    .collect::<String>()
+                            ));
                         }
                     }
                     out.join("\n")
@@ -1653,18 +1836,32 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 let _ = state.pty_manager.write(sid, b"\r");
             }
-            let label = resolved.iter()
-                .filter_map(|sid| agents.iter().find(|a| &a.session_id == sid).map(|a| a.label.clone()))
+            let label = resolved
+                .iter()
+                .filter_map(|sid| {
+                    agents
+                        .iter()
+                        .find(|a| &a.session_id == sid)
+                        .map(|a| a.label.clone())
+                })
                 .next()
                 .unwrap_or_default();
-            format!("Pergunta enviada pra @{}. A resposta aparecerá no terminal dele (e na stream).", label)
+            format!(
+                "Pergunta enviada pra @{}. A resposta aparecerá no terminal dele (e na stream).",
+                label
+            )
         }
         "orchestrator_handoff" => {
             let target = arg_str(&args, "target");
             let context = arg_str(&args, "context");
-            let artifacts = args.get("artifacts")
+            let artifacts = args
+                .get("artifacts")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect::<Vec<_>>()
+                })
                 .unwrap_or_default();
             if target.is_empty() || context.is_empty() {
                 return "❌ 'target' e 'context' são obrigatórios".into();
@@ -1676,25 +1873,47 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
             }
             let handoff_text = format!(
                 "[HANDOFF de outro agente]: {context}\n{}\nPor favor, continue o trabalho.",
-                if artifacts.is_empty() { String::new() } else { format!("Arquivos: {}", artifacts.join(", ")) }
+                if artifacts.is_empty() {
+                    String::new()
+                } else {
+                    format!("Arquivos: {}", artifacts.join(", "))
+                }
             );
             for sid in &resolved {
                 let _ = state.pty_manager.write(sid, handoff_text.as_bytes());
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 let _ = state.pty_manager.write(sid, b"\r");
             }
-            let label = resolved.iter()
-                .filter_map(|sid| agents.iter().find(|a| &a.session_id == sid).map(|a| a.label.clone()))
+            let label = resolved
+                .iter()
+                .filter_map(|sid| {
+                    agents
+                        .iter()
+                        .find(|a| &a.session_id == sid)
+                        .map(|a| a.label.clone())
+                })
                 .next()
                 .unwrap_or_default();
-            format!("✅ Handoff enviado pra @{} — contexto + {} artefato(s).", label, artifacts.len())
+            format!(
+                "✅ Handoff enviado pra @{} — contexto + {} artefato(s).",
+                label,
+                artifacts.len()
+            )
         }
         "orchestrator_spawn_agent" => {
             let name = arg_str(&args, "name");
             let cli = arg_str(&args, "cli");
             let floor = arg_str(&args, "floor");
-            let floor_label = if floor.is_empty() { "ativo".to_string() } else { floor.clone() };
-            let floor_emit = if floor.is_empty() { "active".to_string() } else { floor };
+            let floor_label = if floor.is_empty() {
+                "ativo".to_string()
+            } else {
+                floor.clone()
+            };
+            let floor_emit = if floor.is_empty() {
+                "active".to_string()
+            } else {
+                floor
+            };
             let role = arg_str(&args, "role");
             let system_prompt = arg_str(&args, "systemPrompt");
             if name.is_empty() || cli.is_empty() {
@@ -1704,13 +1923,16 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                 return msg;
             }
             // Emite evento pro frontend criar o nó no canvas
-            let _ = state.app.emit("orchestrator://spawn-agent", json!({
-                "name": name,
-                "cli": cli,
-                "floor": floor_emit,
-                "role": role,
-                "systemPrompt": system_prompt,
-            }));
+            let _ = state.app.emit(
+                "orchestrator://spawn-agent",
+                json!({
+                    "name": name,
+                    "cli": cli,
+                    "floor": floor_emit,
+                    "role": role,
+                    "systemPrompt": system_prompt,
+                }),
+            );
             format!("✅ Solicitada criação do agente '{}' (CLI: {}, floor: {}). O nó aparecerá no canvas.", name, cli, floor_label)
         }
         "orchestration_doctor" => {
@@ -1755,11 +1977,20 @@ pub fn review_tool_def() -> Value {
 /// Consolida os achados dos dois e aplica GO/NO-GO: 1+ CRITICAL OU 2+ WARNING = NO-GO.
 /// Ferramenta ausente / timeout = pulada (NEUTRAL, não bloqueia).
 pub async fn review_dispatch(state: &McpState, args: Value) -> String {
-    let cwd = args.get("cwd").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let cwd = args
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
     if cwd.is_empty() {
         return "Erro: passe `cwd` (a pasta absoluta do seu worktree) para review_current.".into();
     }
-    let base = args.get("base").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let base = args
+        .get("base")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     // ── Estágio 1 — pré-flight determinístico (working tree do cwd) ──────────────
     let preflight = run_preflight(&cwd).await;
@@ -1778,7 +2009,11 @@ pub async fn review_dispatch(state: &McpState, args: Value) -> String {
     let cwd_py = cwd.clone();
     let result = tokio::task::spawn_blocking(move || {
         let mut cmd = std::process::Command::new("python3");
-        cmd.arg(&script).arg("--cwd").arg(&cwd_py).arg("--config").arg(&cfg);
+        cmd.arg(&script)
+            .arg("--cwd")
+            .arg(&cwd_py)
+            .arg("--config")
+            .arg(&cfg);
         if !base.is_empty() {
             cmd.arg("--base").arg(&base);
         }
@@ -1802,11 +2037,15 @@ pub async fn review_dispatch(state: &McpState, args: Value) -> String {
                     stage2_nogo = verdict == "NO-GO";
                     stage2_crit = v.get("crit").and_then(|x| x.as_i64()).unwrap_or(0);
                     stage2_warn = v.get("warn").and_then(|x| x.as_i64()).unwrap_or(0);
-                    stage2_summary =
-                        v.get("summary").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    stage2_summary = v
+                        .get("summary")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if let Some(e) = v.get("llmError").and_then(|x| x.as_str()) {
-                        stage2_note =
-                            Some(format!("LLM indisponível: {e} — Estágio 2 rodou só o pré-flight interno"));
+                        stage2_note = Some(format!(
+                            "LLM indisponível: {e} — Estágio 2 rodou só o pré-flight interno"
+                        ));
                     }
                 }
                 Err(_) => {
@@ -1816,7 +2055,9 @@ pub async fn review_dispatch(state: &McpState, args: Value) -> String {
             }
         }
         Ok(Err(e)) => {
-            stage2_note = Some(format!("Estágio 2 indisponível (python3 local-review.py: {e}) — NEUTRAL"))
+            stage2_note = Some(format!(
+                "Estágio 2 indisponível (python3 local-review.py: {e}) — NEUTRAL"
+            ))
         }
         Err(e) => stage2_note = Some(format!("Estágio 2 falhou na execução: {e} — NEUTRAL")),
     }
@@ -1856,8 +2097,8 @@ struct PreflightReport {
 /// Desfecho de um binário externo do pré-flight.
 enum ToolRun {
     Ran(std::process::Output),
-    Missing,          // nenhum candidato existe no PATH (NEUTRAL)
-    Failed(String),   // timeout ou erro de execução (NEUTRAL)
+    Missing,        // nenhum candidato existe no PATH (NEUTRAL)
+    Failed(String), // timeout ou erro de execução (NEUTRAL)
 }
 
 /// code_chunks — fatia um arquivo de código por AST (função/classe/método) e devolve os
@@ -1989,7 +2230,10 @@ fn semgrep_findings_from_value(v: &Value) -> Vec<ReviewHistItem> {
                 .and_then(|s| s.get("line"))
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
-            let rule = r.get("check_id").and_then(|v| v.as_str()).unwrap_or("semgrep");
+            let rule = r
+                .get("check_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("semgrep");
             let extra = r.get("extra");
             let sev_raw = extra
                 .and_then(|e| e.get("severity"))
@@ -2009,7 +2253,11 @@ fn semgrep_findings_from_value(v: &Value) -> Vec<ReviewHistItem> {
                 file: format!("{path}:{line}"),
                 category: "security".into(),
                 severity: severity.into(),
-                title: format!("{} [{}]", truncate_chars(short, 140), truncate_chars(rule, 80)),
+                title: format!(
+                    "{} [{}]",
+                    truncate_chars(short, 140),
+                    truncate_chars(rule, 80)
+                ),
             }
         })
         .collect()
@@ -2059,7 +2307,11 @@ pub async fn mission_dispatch(state: &McpState, tool: &str, args: Value) -> Stri
                 not_for: json_str_array(&args, "not_for"),
                 invoke_kind: {
                     let k = arg_str(&args, "invoke_kind");
-                    if k.is_empty() { "role".into() } else { k }
+                    if k.is_empty() {
+                        "role".into()
+                    } else {
+                        k
+                    }
                 },
                 invoke_ref: arg_str(&args, "invoke_ref"),
             };
@@ -2174,8 +2426,9 @@ pub async fn mission_dispatch(state: &McpState, tool: &str, args: Value) -> Stri
             let key = arg_str(&args, "key");
             if !key.is_empty() {
                 return match crate::mission::handoff::load(&db, &key) {
-                    Some(h) => serde_json::to_string_pretty(&h)
-                        .unwrap_or_else(|e| format!("❌ {e}")),
+                    Some(h) => {
+                        serde_json::to_string_pretty(&h).unwrap_or_else(|e| format!("❌ {e}"))
+                    }
                     None => format!("❌ handoff '{key}' não encontrado"),
                 };
             }
@@ -2184,7 +2437,11 @@ pub async fn mission_dispatch(state: &McpState, tool: &str, args: Value) -> Stri
                 return "❌ 'mission_id' é obrigatório (ou passe 'key')".into();
             }
             let to = arg_str(&args, "to_agent");
-            let to_opt = if to.is_empty() { None } else { Some(to.as_str()) };
+            let to_opt = if to.is_empty() {
+                None
+            } else {
+                Some(to.as_str())
+            };
             let pending = crate::mission::handoff::load_pending(&db, &mission_id, to_opt);
             let items: Vec<Value> = pending
                 .into_iter()
@@ -2232,11 +2489,20 @@ fn danger_regexes() -> &'static Vec<(regex::Regex, &'static str)> {
             p(r"\bexec\s*\(", "uso de exec("),
             p(r"\bnew\s+Function\s*\(", "new Function("),
             p(r"shell\s*=\s*True", "subprocess shell=True"),
-            p(r"\bpickle\.loads?\s*\(", "pickle.load (desserialização insegura)"),
+            p(
+                r"\bpickle\.loads?\s*\(",
+                "pickle.load (desserialização insegura)",
+            ),
             // hash fraco SÓ em contexto de chamada (conservador — evita FP em comentário/nome)
-            p(r#"(?i)createHash\(\s*['"](md5|sha1)"#, "hash fraco (MD5/SHA1)"),
+            p(
+                r#"(?i)createHash\(\s*['"](md5|sha1)"#,
+                "hash fraco (MD5/SHA1)",
+            ),
             p(r"(?i)hashlib\.(md5|sha1)\s*\(", "hash fraco (MD5/SHA1)"),
-            p(r#"(?i)getInstance\(\s*"(md5|sha-?1)""#, "hash fraco (MD5/SHA1)"),
+            p(
+                r#"(?i)getInstance\(\s*"(md5|sha-?1)""#,
+                "hash fraco (MD5/SHA1)",
+            ),
         ]
     })
 }
@@ -2256,10 +2522,8 @@ fn scan_line_dangers(line: &str) -> Vec<&'static str> {
     }
     // SQL concatenada: `.query(`/`.execute(` com interpolação (`${`, `" +`, `' +`).
     let sql_call = line.contains(".query(") || line.contains(".execute(");
-    let interp = line.contains("${")
-        || line.contains("\" +")
-        || line.contains("' +")
-        || line.contains("`+");
+    let interp =
+        line.contains("${") || line.contains("\" +") || line.contains("' +") || line.contains("`+");
     if sql_call && interp {
         hits.push("SQL concatenada (possível injeção)");
     }
@@ -2353,7 +2617,11 @@ fn grep_dangers(cwd: &str) -> Vec<ReviewHistItem> {
         if !is_scannable(path) {
             continue;
         }
-        if entry.metadata().map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true) {
+        if entry
+            .metadata()
+            .map(|m| m.len() > MAX_FILE_BYTES)
+            .unwrap_or(true)
+        {
             continue;
         }
         seen_files += 1;
@@ -2473,9 +2741,10 @@ async fn preflight_semgrep(cwd: &str, report: &mut PreflightReport) {
                     // sem JSON válido → provável falha de rede/download de regras → NEUTRAL
                     let err = String::from_utf8_lossy(&out.stderr);
                     let snip = err.trim().lines().last().unwrap_or("saída não-JSON");
-                    report
-                        .skipped
-                        .push(format!("semgrep: saída inconclusiva ({})", truncate_chars(snip, 100)));
+                    report.skipped.push(format!(
+                        "semgrep: saída inconclusiva ({})",
+                        truncate_chars(snip, 100)
+                    ));
                 }
             }
         }
@@ -2485,7 +2754,10 @@ async fn preflight_semgrep(cwd: &str, report: &mut PreflightReport) {
 /// Orquestra o Estágio 1: gitleaks + semgrep (subprocessos, timeout+kill_on_drop) +
 /// grep (sync IO-bound → spawn_blocking, pra não travar o executor async).
 async fn run_preflight(cwd: &str) -> PreflightReport {
-    let mut report = PreflightReport { findings: Vec::new(), skipped: Vec::new() };
+    let mut report = PreflightReport {
+        findings: Vec::new(),
+        skipped: Vec::new(),
+    };
     preflight_gitleaks(cwd, &mut report).await;
     preflight_semgrep(cwd, &mut report).await;
     let cwd_owned = cwd.to_string();
@@ -2505,7 +2777,11 @@ fn decide_go_nogo(
     stage2_warn: i64,
     stage2_nogo: bool,
 ) -> &'static str {
-    let crit = preflight.iter().filter(|f| f.severity == "CRITICAL").count() as i64 + stage2_crit;
+    let crit = preflight
+        .iter()
+        .filter(|f| f.severity == "CRITICAL")
+        .count() as i64
+        + stage2_crit;
     let warn = preflight.iter().filter(|f| f.severity == "WARNING").count() as i64 + stage2_warn;
     if stage2_nogo || crit >= 1 || warn >= 2 {
         "NO-GO"
@@ -2576,7 +2852,11 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
     let db = state.app.state::<crate::db::Db>();
     match tool {
         "kanban_list" => {
-            let Some(project) = args.get("project").and_then(|v| v.as_str()).filter(|p| !p.is_empty()) else {
+            let Some(project) = args
+                .get("project")
+                .and_then(|v| v.as_str())
+                .filter(|p| !p.is_empty())
+            else {
                 return "parâmetro 'project' é obrigatório".into();
             };
             match db.kanban_list(project) {
@@ -2594,21 +2874,42 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             }
         }
         "kanban_card_create" => {
-            let Some(project) = args.get("project").and_then(|v| v.as_str()).filter(|p| !p.is_empty()) else {
+            let Some(project) = args
+                .get("project")
+                .and_then(|v| v.as_str())
+                .filter(|p| !p.is_empty())
+            else {
                 return "parâmetro 'project' é obrigatório".into();
             };
-            let Some(title) = args.get("title").and_then(|v| v.as_str()).filter(|t| !t.is_empty()) else {
+            let Some(title) = args
+                .get("title")
+                .and_then(|v| v.as_str())
+                .filter(|t| !t.is_empty())
+            else {
                 return "parâmetro 'title' é obrigatório".into();
             };
-            let column = match args.get("column").and_then(|v| v.as_str()).filter(|c| !c.is_empty()) {
+            let column = match args
+                .get("column")
+                .and_then(|v| v.as_str())
+                .filter(|c| !c.is_empty())
+            {
                 Some(c) => c.to_string(),
                 None => crate::db::kanban_first_col(&db, project),
             };
             if !crate::db::kanban_valid_col(&db, project, &column) {
-                return format!("coluna inválida: use {}", crate::db::kanban_cols_hint(&db, project));
+                return format!(
+                    "coluna inválida: use {}",
+                    crate::db::kanban_cols_hint(&db, project)
+                );
             }
-            let body = args.get("body").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
-            let agent = args.get("agent").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+            let body = args
+                .get("body")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty());
+            let agent = args
+                .get("agent")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty());
             match db.kanban_create(project, &column, title, body, agent, None) {
                 Ok(id) => {
                     let _ = state.app.emit("kanban://changed", ());
@@ -2621,7 +2922,11 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             let Some(id) = args.get("id").and_then(|v| v.as_i64()).filter(|i| *i > 0) else {
                 return "parâmetro 'id' deve ser um número positivo".into();
             };
-            let Some(column) = args.get("column").and_then(|v| v.as_str()).filter(|c| !c.is_empty()) else {
+            let Some(column) = args
+                .get("column")
+                .and_then(|v| v.as_str())
+                .filter(|c| !c.is_empty())
+            else {
                 return "parâmetro 'column' é obrigatório".into();
             };
             let project = match db.kanban_card_project(id) {
@@ -2630,7 +2935,10 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
                 Err(e) => return format!("erro ao buscar card: {e:#}"),
             };
             if !crate::db::kanban_valid_col(&db, &project, column) {
-                return format!("coluna inválida: use {}", crate::db::kanban_cols_hint(&db, &project));
+                return format!(
+                    "coluna inválida: use {}",
+                    crate::db::kanban_cols_hint(&db, &project)
+                );
             }
             match db.kanban_move(id, column) {
                 Ok(()) => {
@@ -2644,7 +2952,11 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             let Some(id) = args.get("id").and_then(|v| v.as_i64()).filter(|i| *i > 0) else {
                 return "parâmetro 'id' deve ser um número positivo".into();
             };
-            let Some(note) = args.get("note").and_then(|v| v.as_str()).filter(|n| !n.is_empty()) else {
+            let Some(note) = args
+                .get("note")
+                .and_then(|v| v.as_str())
+                .filter(|n| !n.is_empty())
+            else {
                 return "parâmetro 'note' é obrigatório".into();
             };
             match db.kanban_note(id, note) {
@@ -2704,9 +3016,12 @@ pub fn agent_lifecycle_dispatch(state: &McpState, tool: &str, args: Value) -> St
         "agent_wake" => {
             // O front re-spawna: TerminalNode escuta canvas://agent-wake (via
             // orchestration-client) e chama reconnect() quando o sessionId bate.
-            let _ = state.app.emit("canvas://agent-wake", json!({
-                "sessionId": id, "label": terminal
-            }));
+            let _ = state.app.emit(
+                "canvas://agent-wake",
+                json!({
+                    "sessionId": id, "label": terminal
+                }),
+            );
             format!(
                 "pedido de wake enviado pra '{terminal}' — o nó re-spawna o processo com o \
                  mesmo command/args/env. Confirme com terminal_wait_status (idle/working)."
@@ -2733,9 +3048,19 @@ pub(crate) const EVICT_THRESHOLD_CHARS: usize = 20_000;
 pub(crate) fn evict_file_name(tool: &str, timestamp_ms: u128) -> String {
     let safe: String = tool
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    let safe = if safe.is_empty() { "tool".to_string() } else { safe };
+    let safe = if safe.is_empty() {
+        "tool".to_string()
+    } else {
+        safe
+    };
     format!("{timestamp_ms}-{safe}.txt")
 }
 
@@ -2802,14 +3127,20 @@ mod tests {
     #[test]
     fn output_substring_returns_line() {
         let buf = "linha um\nfoo bar baz\nfim";
-        assert_eq!(output_matches(buf, "bar", false).as_deref(), Some("foo bar baz"));
+        assert_eq!(
+            output_matches(buf, "bar", false).as_deref(),
+            Some("foo bar baz")
+        );
         assert_eq!(output_matches(buf, "ausente", false), None);
     }
 
     #[test]
     fn output_regex_returns_line() {
         let buf = "abc\nerror: 42\nxyz";
-        assert_eq!(output_matches(buf, r"error: \d+", true).as_deref(), Some("error: 42"));
+        assert_eq!(
+            output_matches(buf, r"error: \d+", true).as_deref(),
+            Some("error: 42")
+        );
         assert_eq!(output_matches(buf, r"^never$", true), None);
     }
 
@@ -2817,8 +3148,15 @@ mod tests {
 
     #[test]
     fn evict_stub_has_path_head_tail_and_instruction() {
-        let text = (1..=100).map(|i| format!("linha {i}")).collect::<Vec<_>>().join("\n");
-        let stub = evict_stub("terminal_read", "/data/tool-results/123-terminal_read.txt", &text);
+        let text = (1..=100)
+            .map(|i| format!("linha {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let stub = evict_stub(
+            "terminal_read",
+            "/data/tool-results/123-terminal_read.txt",
+            &text,
+        );
         // caminho do arquivo completo
         assert!(stub.contains("Arquivo completo: /data/tool-results/123-terminal_read.txt"));
         // primeiras 5 linhas numeradas (nº real da linha)
@@ -2828,7 +3166,10 @@ mod tests {
         // últimas 5 linhas numeradas
         assert!(stub.contains("    96\tlinha 96"));
         assert!(stub.contains("   100\tlinha 100"));
-        assert!(!stub.contains("\tlinha 95"), "cauda deve começar na antepenúltima janela (96)");
+        assert!(
+            !stub.contains("\tlinha 95"),
+            "cauda deve começar na antepenúltima janela (96)"
+        );
         // metadados + instrução de leitura paginada
         assert!(stub.contains("terminal_read"));
         assert!(stub.contains("100 linhas"));
@@ -2850,7 +3191,10 @@ mod tests {
     fn evict_file_name_sanitizes_tool() {
         // Tool dinâmica (label de agente) não pode injetar path no filename.
         assert_eq!(evict_file_name("terminal_read", 42), "42-terminal_read.txt");
-        assert_eq!(evict_file_name("../../etc/passwd", 42), "42-______etc_passwd.txt");
+        assert_eq!(
+            evict_file_name("../../etc/passwd", 42),
+            "42-______etc_passwd.txt"
+        );
         assert_eq!(evict_file_name("", 7), "7-tool.txt");
     }
 
@@ -2894,10 +3238,7 @@ mod tests {
 
     #[test]
     fn memory_fmt_opts_reads_raw_full_offset_limit() {
-        let opts = memory_fmt_opts(
-            &json!({ "offset": 5, "limit": 3, "raw": true }),
-            10,
-        );
+        let opts = memory_fmt_opts(&json!({ "offset": 5, "limit": 3, "raw": true }), 10);
         assert_eq!(opts.offset, 5);
         assert_eq!(opts.limit, 3);
         assert!(opts.raw);
@@ -2971,7 +3312,10 @@ mod tests {
     fn decide_2_warnings_is_nogo() {
         // 2+ WARNING = NO-GO; 1 sozinho ainda é GO.
         assert_eq!(decide_go_nogo(&[item("WARNING")], 0, 0, false), "GO");
-        assert_eq!(decide_go_nogo(&[item("WARNING"), item("WARNING")], 0, 0, false), "NO-GO");
+        assert_eq!(
+            decide_go_nogo(&[item("WARNING"), item("WARNING")], 0, 0, false),
+            "NO-GO"
+        );
     }
 
     #[test]
@@ -2979,7 +3323,10 @@ mod tests {
         // 1 WARNING do pré-flight + 1 WARNING do Estágio 2 = 2 → NO-GO (contagens somam).
         assert_eq!(decide_go_nogo(&[item("WARNING")], 0, 1, false), "NO-GO");
         // Só INFO/style não bloqueia.
-        assert_eq!(decide_go_nogo(&[item("INFO"), item("INFO")], 0, 0, false), "GO");
+        assert_eq!(
+            decide_go_nogo(&[item("INFO"), item("INFO")], 0, 0, false),
+            "GO"
+        );
         // Nada em nenhum estágio → GO.
         assert_eq!(decide_go_nogo(&[], 0, 0, false), "GO");
     }
@@ -3000,7 +3347,9 @@ mod tests {
         ]"#;
         let got = parse_gitleaks(sample);
         assert_eq!(got.len(), 2);
-        assert!(got.iter().all(|f| f.severity == "CRITICAL" && f.category == "security"));
+        assert!(got
+            .iter()
+            .all(|f| f.severity == "CRITICAL" && f.category == "security"));
         assert_eq!(got[0].file, "src/cfg.rs:42");
         assert!(got[0].title.contains("aws-access-token"));
         // RuleID vazio → cai na Description.
@@ -3045,14 +3394,18 @@ mod tests {
     #[test]
     fn scan_line_dangers_flags_known_patterns() {
         assert!(scan_line_dangers("const r = eval(userInput);").contains(&"uso de eval("));
-        assert!(scan_line_dangers("out = subprocess.run(cmd, shell=True)").contains(&"subprocess shell=True"));
-        assert!(scan_line_dangers("data = pickle.loads(buf)").contains(&"pickle.load (desserialização insegura)"));
+        assert!(scan_line_dangers("out = subprocess.run(cmd, shell=True)")
+            .contains(&"subprocess shell=True"));
+        assert!(scan_line_dangers("data = pickle.loads(buf)")
+            .contains(&"pickle.load (desserialização insegura)"));
         assert!(scan_line_dangers("cfg = yaml.load(f)").contains(&"yaml.load sem Loader"));
         // yaml.load COM Loader → não flaga.
         assert!(scan_line_dangers("cfg = yaml.load(f, Loader=SafeLoader)").is_empty());
         // SQL concatenada.
-        assert!(scan_line_dangers("db.query(`SELECT * FROM u WHERE id=${id}`)")
-            .contains(&"SQL concatenada (possível injeção)"));
+        assert!(
+            scan_line_dangers("db.query(`SELECT * FROM u WHERE id=${id}`)")
+                .contains(&"SQL concatenada (possível injeção)")
+        );
         // Comparação de assinatura não-constante.
         assert!(scan_line_dangers("if (signature === expected) {")
             .contains(&"comparação de assinatura não-constante (===)"));
@@ -3107,10 +3460,16 @@ mod tests {
         let args = serde_json::json!({ "path": file.to_str().unwrap() });
         let out = super::code_chunks_dispatch(args);
         let v: serde_json::Value = serde_json::from_str(&out).expect("JSON válido");
-        let arr = v.get("chunks").and_then(|c| c.as_array()).expect("chunks[]");
+        let arr = v
+            .get("chunks")
+            .and_then(|c| c.as_array())
+            .expect("chunks[]");
         assert!(!arr.is_empty(), "sem chunks: {out}");
         let joined = out.as_str();
-        assert!(joined.contains("alpha") && joined.contains("beta"), "faltou símbolo: {out}");
+        assert!(
+            joined.contains("alpha") && joined.contains("beta"),
+            "faltou símbolo: {out}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3135,21 +3494,38 @@ mod tests {
         let roster = vec![ag("Backend", Some("backend"), crate::pty::AgentState::Idle)];
         let msg = duplicate_refusal_from_roster(&roster, "Backend", Some("backend"))
             .expect("deveria recusar porque há agente livre com mesmo nome");
-        assert!(msg.contains("mesmo nome"), "a recusa deveria citar conflito por mesmo nome");
+        assert!(
+            msg.contains("mesmo nome"),
+            "a recusa deveria citar conflito por mesmo nome"
+        );
     }
 
     #[test]
     fn papel_igual_com_nome_diferente_recusa() {
-        let roster = vec![ag("Frontend", Some("frontend"), crate::pty::AgentState::Idle)];
+        let roster = vec![ag(
+            "Frontend",
+            Some("frontend"),
+            crate::pty::AgentState::Idle,
+        )];
         let msg = duplicate_refusal_from_roster(&roster, "UI Dev", Some("frontend"))
             .expect("deveria recusar pelo papel mesmo com nome diferente (regressão do sinônimo)");
-        assert!(msg.contains("mesmo papel"), "a recusa deveria citar conflito por mesmo papel");
-        assert!(msg.contains("@Frontend"), "a mensagem deveria apontar o agente existente @Frontend");
+        assert!(
+            msg.contains("mesmo papel"),
+            "a recusa deveria citar conflito por mesmo papel"
+        );
+        assert!(
+            msg.contains("@Frontend"),
+            "a mensagem deveria apontar o agente existente @Frontend"
+        );
     }
 
     #[test]
     fn agente_working_nao_bloqueia() {
-        let roster = vec![ag("Backend", Some("backend"), crate::pty::AgentState::Working)];
+        let roster = vec![ag(
+            "Backend",
+            Some("backend"),
+            crate::pty::AgentState::Working,
+        )];
         assert!(
             duplicate_refusal_from_roster(&roster, "Backend", Some("backend")).is_none(),
             "agente ocupado (Working) não deve bloquear novo spawn"
@@ -3158,7 +3534,11 @@ mod tests {
 
     #[test]
     fn papel_diferente_passa() {
-        let roster = vec![ag("Frontend", Some("frontend"), crate::pty::AgentState::Idle)];
+        let roster = vec![ag(
+            "Frontend",
+            Some("frontend"),
+            crate::pty::AgentState::Idle,
+        )];
         assert!(
             duplicate_refusal_from_roster(&roster, "DBA", Some("dba")).is_none(),
             "papel diferente não deve ser considerado duplicado"
@@ -3174,11 +3554,17 @@ mod tests {
         let roster = vec![ag("Frontend", None, crate::pty::AgentState::Idle)];
         let mut msg = duplicate_refusal_from_roster(&roster, "UI Dev", Some("frontend"))
             .expect("o papel do agente existente deve ser inferido do label 'Frontend'");
-        assert!(msg.contains("mesmo papel"), "a recusa deveria ser por papel inferido");
+        assert!(
+            msg.contains("mesmo papel"),
+            "a recusa deveria ser por papel inferido"
+        );
 
         msg = duplicate_refusal_from_roster(&roster, "Frontend", None)
             .expect("deveria recusar pelo nome quando não há papel");
-        assert!(msg.contains("mesmo nome"), "nome exato tem prioridade sobre papel");
+        assert!(
+            msg.contains("mesmo nome"),
+            "nome exato tem prioridade sobre papel"
+        );
     }
 
     /// contraprova da inferência — nome que não casa com nenhum sinônimo conhecido
@@ -3201,11 +3587,20 @@ mod tests {
         ];
         let msg = duplicate_refusal_from_roster(&roster, "Frontend", None)
             .expect("deveria recusar porque Frontend está livre");
-        assert!(msg.contains("@DBA"), "a lista de livres deveria incluir @DBA");
+        assert!(
+            msg.contains("@DBA"),
+            "a lista de livres deveria incluir @DBA"
+        );
         // "DBA" não declarou papel, mas o próprio nome infere "dba" — a lista precisa deixar
         // explícito que ali houve palpite, não declaração.
-        assert!(msg.contains("(papel inferido do nome: dba)"), "a lista deveria marcar o papel de DBA como inferido");
-        assert!(!msg.contains("@Backend"), "agente Working não deve aparecer na lista de livres");
+        assert!(
+            msg.contains("(papel inferido do nome: dba)"),
+            "a lista deveria marcar o papel de DBA como inferido"
+        );
+        assert!(
+            !msg.contains("@Backend"),
+            "agente Working não deve aparecer na lista de livres"
+        );
     }
 
     #[test]
@@ -3219,12 +3614,18 @@ mod tests {
 
     #[test]
     fn papel_casa_ignorando_caixa_e_espaco() {
-        let roster = vec![ag("Frontend", Some("  FrontEnd "), crate::pty::AgentState::Idle)];
+        let roster = vec![ag(
+            "Frontend",
+            Some("  FrontEnd "),
+            crate::pty::AgentState::Idle,
+        )];
         let msg = duplicate_refusal_from_roster(&roster, "X", Some("frontend"))
             .expect("deveria casar papel ignorando caixa e espaços");
-        assert!(msg.contains("mesmo papel"), "a recusa deveria ser por mesmo papel");
+        assert!(
+            msg.contains("mesmo papel"),
+            "a recusa deveria ser por mesmo papel"
+        );
     }
-
 
     #[test]
     fn role_declarado_normaliza() {

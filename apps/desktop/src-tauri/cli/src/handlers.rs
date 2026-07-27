@@ -23,14 +23,22 @@ pub struct CallPlan {
 /// runtime. Puro: não toca em socket.
 pub fn build_call(command: &str, args: &ParsedArgs) -> Result<CallPlan, ArgError> {
     match command {
-        "status" => Ok(CallPlan { method: "status", params: Value::Null }),
-        "agents" => Ok(CallPlan { method: "agents.list", params: Value::Null }),
+        "status" => Ok(CallPlan {
+            method: "status",
+            params: Value::Null,
+        }),
+        "agents" => Ok(CallPlan {
+            method: "agents.list",
+            params: Value::Null,
+        }),
         "snapshot" => build_snapshot(args),
         // Fase 2 — mutações.
         "spawn" => build_spawn(args),
         "send" => build_send(args),
         "kill" => build_kill(args),
-        other => Err(ArgError(format!("sem handler para '{other}' (bug de wiring)"))),
+        other => Err(ArgError(format!(
+            "sem handler para '{other}' (bug de wiring)"
+        ))),
     }
 }
 
@@ -48,7 +56,10 @@ fn build_snapshot(args: &ParsedArgs) -> Result<CallPlan, ArgError> {
             .map_err(|_| ArgError(format!("--rows precisa ser um inteiro: '{rows_raw}'")))?;
         params["rows"] = json!(rows);
     }
-    Ok(CallPlan { method: "pty.snapshot", params })
+    Ok(CallPlan {
+        method: "pty.snapshot",
+        params,
+    })
 }
 
 /// `spawn <command> [--args "a b c"] [--cwd P] [--label L]` → params
@@ -71,7 +82,10 @@ fn build_spawn(args: &ParsedArgs) -> Result<CallPlan, ArgError> {
     if let Some(label) = args.flag_str("label") {
         params["label"] = json!(label);
     }
-    Ok(CallPlan { method: "agent.spawn", params })
+    Ok(CallPlan {
+        method: "agent.spawn",
+        params,
+    })
 }
 
 /// `send <sessionId> <texto...>` → params `{sessionId, input}`. O texto é variádico: junta
@@ -83,7 +97,9 @@ fn build_send(args: &ParsedArgs) -> Result<CallPlan, ArgError> {
         .ok_or_else(|| ArgError("send exige <sessionId>".into()))?;
     let rest = &args.positionals[1..];
     if rest.is_empty() {
-        return Err(ArgError("send exige <texto...> (a mensagem a enviar)".into()));
+        return Err(ArgError(
+            "send exige <texto...> (a mensagem a enviar)".into(),
+        ));
     }
     let input = rest.join(" ");
     Ok(CallPlan {
@@ -227,7 +243,8 @@ mod tests {
     #[test]
     fn snapshot_rejects_non_numeric_rows() {
         // parse aceita string; build_call rejeita.
-        let p = parse_args(&["snapshot".into(), "s".into(), "--rows".into(), "abc".into()]).unwrap();
+        let p =
+            parse_args(&["snapshot".into(), "s".into(), "--rows".into(), "abc".into()]).unwrap();
         validate(&p).unwrap();
         let err = build_call("snapshot", &p).unwrap_err();
         assert!(err.0.contains("inteiro"), "msg: {}", err.0);
@@ -304,7 +321,9 @@ mod tests {
     fn spawn_with_all_flags() {
         let plan = build_call(
             "spawn",
-            &parse(&["spawn", "claude", "--label", "alpha", "--cwd", "/tmp/w", "--args", "a b c"]),
+            &parse(&[
+                "spawn", "claude", "--label", "alpha", "--cwd", "/tmp/w", "--args", "a b c",
+            ]),
         )
         .unwrap();
         assert_eq!(plan.method, "agent.spawn");
@@ -324,7 +343,10 @@ mod tests {
     fn send_joins_variadic_text_into_input() {
         let plan = build_call("send", &parse(&["send", "s1", "oi", "tudo", "bem"])).unwrap();
         assert_eq!(plan.method, "agent.send");
-        assert_eq!(plan.params, json!({ "sessionId": "s1", "input": "oi tudo bem" }));
+        assert_eq!(
+            plan.params,
+            json!({ "sessionId": "s1", "input": "oi tudo bem" })
+        );
     }
 
     #[test]

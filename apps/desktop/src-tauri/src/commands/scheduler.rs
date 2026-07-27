@@ -12,7 +12,13 @@ use std::process::Command;
 fn slug(name: &str) -> String {
     let s: String = name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect();
     let s = s.trim_matches('-').to_string();
     if s.is_empty() {
@@ -106,7 +112,10 @@ fn install_impl(
     let on = if let Some(t) = at_time {
         format!("OnCalendar=*-*-* {t}:00\nPersistent=true")
     } else {
-        format!("OnBootSec=2min\nOnUnitActiveSec={}min", interval_min.unwrap_or(30))
+        format!(
+            "OnBootSec=2min\nOnUnitActiveSec={}min",
+            interval_min.unwrap_or(30)
+        )
     };
     let timer = format!(
         "[Unit]\nDescription=OmniRift timer: {name}\n\n[Timer]\n{on}\n\n[Install]\nWantedBy=timers.target\n",
@@ -137,7 +146,10 @@ fn list_impl() -> Result<Vec<String>, String> {
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().to_string();
-            if let Some(rest) = n.strip_prefix("omnirift-").and_then(|x| x.strip_suffix(".timer")) {
+            if let Some(rest) = n
+                .strip_prefix("omnirift-")
+                .and_then(|x| x.strip_suffix(".timer"))
+            {
                 out.push(rest.to_string());
             }
         }
@@ -149,7 +161,9 @@ fn list_impl() -> Result<Vec<String>, String> {
 #[cfg(target_os = "windows")]
 fn script_dir() -> Result<std::path::PathBuf, String> {
     let appdata = std::env::var("APPDATA").map_err(|_| "sem APPDATA".to_string())?;
-    let dir = std::path::PathBuf::from(appdata).join("OmniRift").join("scheduler");
+    let dir = std::path::PathBuf::from(appdata)
+        .join("OmniRift")
+        .join("scheduler");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
@@ -172,19 +186,28 @@ fn install_impl(
     let tn = format!("OmniRift\\{slug}");
     let tr = format!("\"{}\"", script.display());
     let mut args: Vec<String> = vec![
-        "/Create".into(), "/F".into(),
-        "/TN".into(), tn.clone(),
-        "/TR".into(), tr,
+        "/Create".into(),
+        "/F".into(),
+        "/TN".into(),
+        tn.clone(),
+        "/TR".into(),
+        tr,
     ];
     if let Some(t) = at_time {
         args.extend(["/SC".into(), "DAILY".into(), "/ST".into(), t.to_string()]);
     } else {
         args.extend([
-            "/SC".into(), "MINUTE".into(),
-            "/MO".into(), interval_min.unwrap_or(30).to_string(),
+            "/SC".into(),
+            "MINUTE".into(),
+            "/MO".into(),
+            interval_min.unwrap_or(30).to_string(),
         ]);
     }
-    let out = Command::new("schtasks").args(&args).no_window().output().map_err(|e| e.to_string())?;
+    let out = Command::new("schtasks")
+        .args(&args)
+        .no_window()
+        .output()
+        .map_err(|e| e.to_string())?;
     if out.status.success() {
         Ok(format!("Agendado no Task Scheduler: {tn}"))
     } else {
@@ -196,7 +219,10 @@ fn install_impl(
 fn uninstall_impl(slug: &str) -> Result<String, String> {
     use crate::proc_ext::NoWindow;
     let tn = format!("OmniRift\\{slug}");
-    let _ = Command::new("schtasks").args(["/Delete", "/F", "/TN", &tn]).no_window().output();
+    let _ = Command::new("schtasks")
+        .args(["/Delete", "/F", "/TN", &tn])
+        .no_window()
+        .output();
     if let Ok(dir) = script_dir() {
         let _ = std::fs::remove_file(dir.join(format!("omnirift-{slug}.cmd")));
     }
@@ -210,7 +236,10 @@ fn list_impl() -> Result<Vec<String>, String> {
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().to_string();
-            if let Some(rest) = n.strip_prefix("omnirift-").and_then(|x| x.strip_suffix(".cmd")) {
+            if let Some(rest) = n
+                .strip_prefix("omnirift-")
+                .and_then(|x| x.strip_suffix(".cmd"))
+            {
                 out.push(rest.to_string());
             }
         }
@@ -220,7 +249,14 @@ fn list_impl() -> Result<Vec<String>, String> {
 
 // ── Outros SOs ───────────────────────────────────────────────────────────────
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn install_impl(_: &str, _: &str, _: &str, _: &str, _: Option<&str>, _: Option<u32>) -> Result<String, String> {
+fn install_impl(
+    _: &str,
+    _: &str,
+    _: &str,
+    _: &str,
+    _: Option<&str>,
+    _: Option<u32>,
+) -> Result<String, String> {
     Err("Agendador OS-level só suportado em Linux e Windows.".into())
 }
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]

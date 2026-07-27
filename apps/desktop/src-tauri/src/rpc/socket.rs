@@ -52,7 +52,12 @@ pub fn socket_path() -> Option<PathBuf> {
 #[cfg(unix)]
 fn fallback_socket_path() -> Option<PathBuf> {
     let home = home_dir()?;
-    Some(PathBuf::from(home).join(".omnirift").join("run").join("omnirift.sock"))
+    Some(
+        PathBuf::from(home)
+            .join(".omnirift")
+            .join("run")
+            .join("omnirift.sock"),
+    )
 }
 
 /// Nome do named pipe da sessão (Windows). Formato `\\.\pipe\omnirift-<8 hex do pid>` —
@@ -80,11 +85,7 @@ fn home_dir() -> Option<String> {
 /// função faz o `spawn` interno do accept-loop ela mesma, então só precisa rodar
 /// dentro do runtime do Tauri.
 #[cfg(unix)]
-pub fn spawn_listener(
-    app: AppHandle,
-    registry: Arc<Registry>,
-    token: String,
-) -> Option<PathBuf> {
+pub fn spawn_listener(app: AppHandle, registry: Arc<Registry>, token: String) -> Option<PathBuf> {
     use tokio::net::UnixListener;
 
     let path = socket_path()?;
@@ -155,11 +156,7 @@ pub fn spawn_listener(
 /// **Sempre chame via `tauri::async_runtime::spawn` no caminho de setup** — esta função faz
 /// o `spawn` interno do accept-loop ela mesma (NUNCA `tokio::spawn`).
 #[cfg(windows)]
-pub fn spawn_listener(
-    app: AppHandle,
-    registry: Arc<Registry>,
-    token: String,
-) -> Option<PathBuf> {
+pub fn spawn_listener(app: AppHandle, registry: Arc<Registry>, token: String) -> Option<PathBuf> {
     use tokio::net::windows::named_pipe::ServerOptions;
 
     let name = pipe_name();
@@ -167,10 +164,7 @@ pub fn spawn_listener(
     // 1ª instância (a `first_pipe_instance(true)` garante que ninguém "sequestrou" o nome
     // antes — se outro processo já criou um pipe com esse nome, o create falha em vez de
     // criar uma instância adicional num pipe alheio). [hardening]
-    let first = match ServerOptions::new()
-        .first_pipe_instance(true)
-        .create(&name)
-    {
+    let first = match ServerOptions::new().first_pipe_instance(true).create(&name) {
         Ok(p) => p,
         Err(e) => {
             log::error!("RPC pipe: falha ao criar {name:?}: {e} — RPC local desabilitado");
@@ -197,7 +191,9 @@ pub fn spawn_listener(
                         continue;
                     }
                     Err(e) => {
-                        log::error!("RPC pipe: não consegui recriar a instância ({e}) — loop encerrado");
+                        log::error!(
+                            "RPC pipe: não consegui recriar a instância ({e}) — loop encerrado"
+                        );
                         return;
                     }
                 }
@@ -220,7 +216,13 @@ pub fn spawn_listener(
                 Some(p) => std::mem::replace(&mut server, p),
                 None => {
                     // Sem próxima instância: atende a conexão atual aqui e encerra o loop.
-                    handle_connection_win(server, app.clone(), Arc::clone(&registry), token.clone()).await;
+                    handle_connection_win(
+                        server,
+                        app.clone(),
+                        Arc::clone(&registry),
+                        token.clone(),
+                    )
+                    .await;
                     return;
                 }
             };
@@ -347,7 +349,10 @@ pub fn parse_and_auth(line: &str, session_token: &str) -> Result<RpcRequest, Rpc
     // Auth: token do envelope tem que bater com o da sessão (gravado em runtime.json).
     // Compare em tempo ~constante (sem short-circuit) — evita timing side-channel. [GLM-audit]
     if !ct_eq(req.token.as_bytes(), session_token.as_bytes()) {
-        return Err(RpcResponse::failure(req.id, "unauthorized: token inválido".to_string()));
+        return Err(RpcResponse::failure(
+            req.id,
+            "unauthorized: token inválido".to_string(),
+        ));
     }
     Ok(req)
 }

@@ -59,8 +59,10 @@ pub fn debug_mode_set(enabled: bool) -> bool {
     // Se a persistência falhou, is_enabled() volta o estado REAL e o toggle
     // da UI desmarca sozinho — mas sem este aviso a causa ficaria invisível.
     if is_enabled() != enabled {
-        log::warn!("modo debug: não consegui {} o marcador em ~/.omnirift/debug-mode (permissão/disco?)",
-                   if enabled { "criar" } else { "remover" });
+        log::warn!(
+            "modo debug: não consegui {} o marcador em ~/.omnirift/debug-mode (permissão/disco?)",
+            if enabled { "criar" } else { "remover" }
+        );
     }
     log::set_max_level(level_filter());
     is_enabled()

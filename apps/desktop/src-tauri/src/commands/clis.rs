@@ -62,29 +62,72 @@ pub async fn cli_install(app: tauri::AppHandle, id: String) -> Result<CliInfo, S
         .find(|e| e.id == id)
         .ok_or_else(|| format!("CLI '{id}' não está no catálogo."))?;
 
-    emit_progress(&app, &entry.id, "checking", format!("Verificando '{}' no PATH…", entry.binary), None);
+    emit_progress(
+        &app,
+        &entry.id,
+        "checking",
+        format!("Verificando '{}' no PATH…", entry.binary),
+        None,
+    );
 
     if is_binary_on_path(entry.binary) {
         let version = detect_version(entry.binary);
         let info = entry.to_info(true, version);
-        emit_progress(&app, &entry.id, "done", format!("'{}' já estava instalado.", entry.label), Some(true));
+        emit_progress(
+            &app,
+            &entry.id,
+            "done",
+            format!("'{}' já estava instalado.", entry.label),
+            Some(true),
+        );
         return Ok(info);
     }
 
-    emit_progress(&app, &entry.id, "installing", format!("Instalando '{}' via {}…", entry.label, entry.installer), None);
+    emit_progress(
+        &app,
+        &entry.id,
+        "installing",
+        format!("Instalando '{}' via {}…", entry.label, entry.installer),
+        None,
+    );
 
-    let result = dispatch_install(&entry.id, entry.installer, entry.binary, entry.installer_hint).await;
+    let result = dispatch_install(
+        &entry.id,
+        entry.installer,
+        entry.binary,
+        entry.installer_hint,
+    )
+    .await;
 
     match result {
         Ok(stdout) => {
-            emit_progress(&app, &entry.id, "validating", "Validando instalação…".to_string(), None);
+            emit_progress(
+                &app,
+                &entry.id,
+                "validating",
+                "Validando instalação…".to_string(),
+                None,
+            );
             let installed = is_binary_on_path(entry.binary);
-            let version = if installed { detect_version(entry.binary) } else { None };
+            let version = if installed {
+                detect_version(entry.binary)
+            } else {
+                None
+            };
             if installed {
-                emit_progress(&app, &entry.id, "done", format!("'{}' instalado.", entry.label), Some(true));
+                emit_progress(
+                    &app,
+                    &entry.id,
+                    "done",
+                    format!("'{}' instalado.", entry.label),
+                    Some(true),
+                );
                 Ok(entry.to_info(true, version))
             } else {
-                let msg = format!("Instalador terminou mas '{}' não está no PATH.\n--- stdout ---\n{stdout}", entry.binary);
+                let msg = format!(
+                    "Instalador terminou mas '{}' não está no PATH.\n--- stdout ---\n{stdout}",
+                    entry.binary
+                );
                 emit_progress(&app, &entry.id, "error", msg.clone(), Some(false));
                 Err(msg)
             }
@@ -110,9 +153,18 @@ pub async fn cli_uninstall(app: tauri::AppHandle, id: String) -> Result<(), Stri
             match result {
                 Ok(_) => {
                     if is_binary_on_path(entry.binary) {
-                        Err(format!("'{}': binário ainda no PATH após desinstalação.", entry.label))
+                        Err(format!(
+                            "'{}': binário ainda no PATH após desinstalação.",
+                            entry.label
+                        ))
                     } else {
-                        emit_progress(&app, &entry.id, "done", format!("'{}' removido.", entry.label), Some(true));
+                        emit_progress(
+                            &app,
+                            &entry.id,
+                            "done",
+                            format!("'{}' removido.", entry.label),
+                            Some(true),
+                        );
                         Ok(())
                     }
                 }
@@ -143,7 +195,11 @@ pub fn cli_validate(id: String) -> Result<CliInfo, String> {
         .find(|e| e.id == id)
         .ok_or_else(|| format!("CLI '{id}' não está no catálogo."))?;
     let installed = is_binary_on_path(entry.binary);
-    let version = if installed { detect_version(entry.binary) } else { None };
+    let version = if installed {
+        detect_version(entry.binary)
+    } else {
+        None
+    };
     Ok(entry.to_info(installed, version))
 }
 
@@ -176,35 +232,134 @@ impl CatalogEntry {
 }
 
 const CATALOG: &[CatalogEntry] = &[
-    CatalogEntry { id: "claude",       label: "Claude Code",        description: "O CLI oficial da Anthropic — orquestra Claude Sonnet/Opus no terminal.",            homepage: "https://claude.ai/download",                          binary: "claude",   installer: "npm",     installer_hint: Some("npm install -g @anthropic-ai/claude-code") },
-    CatalogEntry { id: "codex",        label: "Codex (OpenAI)",     description: "O agente de código da OpenAI (GPT-5).",                                              homepage: "https://github.com/openai/codex",                     binary: "codex",    installer: "npm",     installer_hint: Some("npm install -g @openai/codex") },
-    CatalogEntry { id: "opencode",     label: "OpenCode",          description: "CLI open-source compatível com múltiplos LLMs.",                                       homepage: "https://github.com/sst/opencode",                     binary: "opencode", installer: "npm",     installer_hint: Some("npm install -g opencode-ai") },
-    CatalogEntry { id: "gemini",       label: "Gemini CLI",        description: "CLI do Google para Gemini 2.5 Pro.",                                                  homepage: "https://github.com/google-gemini/gemini-cli",        binary: "gemini",   installer: "npm",     installer_hint: Some("npm install -g @google/gemini-cli") },
-    CatalogEntry { id: "aider",        label: "Aider",             description: "Pair programmer open-source (git-aware, multi-LLM).",                                 homepage: "https://aider.chat",                                  binary: "aider",    installer: "pipx",    installer_hint: Some("pipx install aider-chat") },
-    CatalogEntry { id: "crush",        label: "Crush",             description: "CLI de IA da Charm.",                                                                homepage: "https://github.com/charmbracelet/crush",              binary: "crush",    installer: "npm",     installer_hint: Some("npm install -g crush-ai") },
-    CatalogEntry { id: "antigravity",  label: "Antigravity (AGY)",  description: "CLI experimental do Google.",                                                         homepage: "https://github.com/google/antigravity",               binary: "agy",      installer: "curl-sh", installer_hint: Some("curl -fsSL https://storage.googleapis.com/antigravity-release/install.sh | bash") },
-    CatalogEntry { id: "continue",     label: "Continue",          description: "CLI do Continue.dev (JetBrains/VS Code pair programmer).",                             homepage: "https://continue.dev",                                binary: "continue", installer: "npm",     installer_hint: Some("npm install -g @continuedev/cli") },
-    CatalogEntry { id: "roo",          label: "Roo Code (CLI)",    description: "CLI do Roo Code.",                                                                   homepage: "https://github.com/RooCodeInc/Roo-Code",              binary: "roo-cli",   installer: "npm",     installer_hint: Some("npm install -g roo-cli") },
-    CatalogEntry { id: "kilo",         label: "Kilo Code",         description: "CLI do Kilo Code (fork do Roo).",                                                    homepage: "https://kilocode.ai",                                 binary: "kilo",     installer: "npm",     installer_hint: Some("npm install -g @kilocode/cli") },
-    CatalogEntry { id: "kimi",         label: "Kimi Code",         description: "CLI da Moonshot (Kimi K2) — fala ACP nativo via `kimi acp`. Requer Node 22.19+.", homepage: "https://github.com/MoonshotAI/kimi-code",             binary: "kimi",     installer: "npm",     installer_hint: Some("npm install -g @moonshot-ai/kimi-code") },
-    CatalogEntry { id: "amp",          label: "Amp",             description: "CLI da Sourcegraph (Cody-derivado).",                                                homepage: "https://github.com/sourcegraph/amp",                  binary: "amp",      installer: "curl-sh", installer_hint: Some("curl -fsSL https://amp.sourcegraph.com/install.sh | bash") },
+    CatalogEntry {
+        id: "claude",
+        label: "Claude Code",
+        description: "O CLI oficial da Anthropic — orquestra Claude Sonnet/Opus no terminal.",
+        homepage: "https://claude.ai/download",
+        binary: "claude",
+        installer: "npm",
+        installer_hint: Some("npm install -g @anthropic-ai/claude-code"),
+    },
+    CatalogEntry {
+        id: "codex",
+        label: "Codex (OpenAI)",
+        description: "O agente de código da OpenAI (GPT-5).",
+        homepage: "https://github.com/openai/codex",
+        binary: "codex",
+        installer: "npm",
+        installer_hint: Some("npm install -g @openai/codex"),
+    },
+    CatalogEntry {
+        id: "opencode",
+        label: "OpenCode",
+        description: "CLI open-source compatível com múltiplos LLMs.",
+        homepage: "https://github.com/sst/opencode",
+        binary: "opencode",
+        installer: "npm",
+        installer_hint: Some("npm install -g opencode-ai"),
+    },
+    CatalogEntry {
+        id: "gemini",
+        label: "Gemini CLI",
+        description: "CLI do Google para Gemini 2.5 Pro.",
+        homepage: "https://github.com/google-gemini/gemini-cli",
+        binary: "gemini",
+        installer: "npm",
+        installer_hint: Some("npm install -g @google/gemini-cli"),
+    },
+    CatalogEntry {
+        id: "aider",
+        label: "Aider",
+        description: "Pair programmer open-source (git-aware, multi-LLM).",
+        homepage: "https://aider.chat",
+        binary: "aider",
+        installer: "pipx",
+        installer_hint: Some("pipx install aider-chat"),
+    },
+    CatalogEntry {
+        id: "crush",
+        label: "Crush",
+        description: "CLI de IA da Charm.",
+        homepage: "https://github.com/charmbracelet/crush",
+        binary: "crush",
+        installer: "npm",
+        installer_hint: Some("npm install -g crush-ai"),
+    },
+    CatalogEntry {
+        id: "antigravity",
+        label: "Antigravity (AGY)",
+        description: "CLI experimental do Google.",
+        homepage: "https://github.com/google/antigravity",
+        binary: "agy",
+        installer: "curl-sh",
+        installer_hint: Some(
+            "curl -fsSL https://storage.googleapis.com/antigravity-release/install.sh | bash",
+        ),
+    },
+    CatalogEntry {
+        id: "continue",
+        label: "Continue",
+        description: "CLI do Continue.dev (JetBrains/VS Code pair programmer).",
+        homepage: "https://continue.dev",
+        binary: "continue",
+        installer: "npm",
+        installer_hint: Some("npm install -g @continuedev/cli"),
+    },
+    CatalogEntry {
+        id: "roo",
+        label: "Roo Code (CLI)",
+        description: "CLI do Roo Code.",
+        homepage: "https://github.com/RooCodeInc/Roo-Code",
+        binary: "roo-cli",
+        installer: "npm",
+        installer_hint: Some("npm install -g roo-cli"),
+    },
+    CatalogEntry {
+        id: "kilo",
+        label: "Kilo Code",
+        description: "CLI do Kilo Code (fork do Roo).",
+        homepage: "https://kilocode.ai",
+        binary: "kilo",
+        installer: "npm",
+        installer_hint: Some("npm install -g @kilocode/cli"),
+    },
+    CatalogEntry {
+        id: "kimi",
+        label: "Kimi Code",
+        description:
+            "CLI da Moonshot (Kimi K2) — fala ACP nativo via `kimi acp`. Requer Node 22.19+.",
+        homepage: "https://github.com/MoonshotAI/kimi-code",
+        binary: "kimi",
+        installer: "npm",
+        installer_hint: Some("npm install -g @moonshot-ai/kimi-code"),
+    },
+    CatalogEntry {
+        id: "amp",
+        label: "Amp",
+        description: "CLI da Sourcegraph (Cody-derivado).",
+        homepage: "https://github.com/sourcegraph/amp",
+        binary: "amp",
+        installer: "curl-sh",
+        installer_hint: Some("curl -fsSL https://amp.sourcegraph.com/install.sh | bash"),
+    },
 ];
 
 /// Mapa id → nome do pacote npm (quando installer == "npm").
 fn npm_pkg(id: &str) -> &str {
     match id {
-        "claude"   => "@anthropic-ai/claude-code",
-        "codex"    => "@openai/codex",
+        "claude" => "@anthropic-ai/claude-code",
+        "codex" => "@openai/codex",
         "opencode" => "opencode-ai",
-        "gemini"   => "@google/gemini-cli",
-        "crush"    => "crush-ai",
+        "gemini" => "@google/gemini-cli",
+        "crush" => "crush-ai",
         "continue" => "@continuedev/cli",
-        "roo"      => "roo-cli",
-        "kilo"     => "@kilocode/cli",
+        "roo" => "roo-cli",
+        "kilo" => "@kilocode/cli",
         // Scoped na org oficial: existem `kimi-code`/`kimi-cli` unscoped de TERCEIROS
         // que instalam um binário `kimi` homônimo. Nunca trocar pelo nome curto.
-        "kimi"     => "@moonshot-ai/kimi-code",
-        _          => "",
+        "kimi" => "@moonshot-ai/kimi-code",
+        _ => "",
     }
 }
 
@@ -212,7 +367,7 @@ fn npm_pkg(id: &str) -> &str {
 fn pipx_pkg(id: &str) -> &str {
     match id {
         "aider" => "aider-chat",
-        _       => "",
+        _ => "",
     }
 }
 
@@ -233,7 +388,8 @@ async fn dispatch_install(
             // que é root e daria EACCES sem sudo. No Windows o `-g` já vai pra %APPDATA%
             // (user-writável) — mantém o comportamento nativo lá.
             if cfg!(target_os = "windows") {
-                run_capture(TokioCommand::new("cmd").args(["/C", "npm", "install", "-g", pkg])).await
+                run_capture(TokioCommand::new("cmd").args(["/C", "npm", "install", "-g", pkg]))
+                    .await
             } else {
                 let mut c = TokioCommand::new("npm");
                 c.args(["install", "-g"]);
@@ -271,9 +427,7 @@ async fn dispatch_install(
             c.arg(binary);
             run_capture(&mut c).await
         }
-        "brew" => {
-            run_capture(TokioCommand::new("brew").args(["install", binary])).await
-        }
+        "brew" => run_capture(TokioCommand::new("brew").args(["install", binary])).await,
         "curl-sh" => {
             if cfg!(target_os = "windows") {
                 return Err("curl-sh é Unix-only. Use curl-ps1 no Windows.".into());
@@ -282,7 +436,8 @@ async fn dispatch_install(
                 .and_then(|h| h.split_whitespace().find(|t| t.starts_with("http")))
                 .ok_or_else(|| "curl-sh: URL ausente no installer_hint.".to_string())?;
             // Roda `curl -fsSL <url> | bash` via `bash -c`.
-            run_capture(TokioCommand::new("bash").args(["-c", &format!("curl -fsSL {url} | bash")])).await
+            run_capture(TokioCommand::new("bash").args(["-c", &format!("curl -fsSL {url} | bash")]))
+                .await
         }
         "curl-ps1" => {
             if !cfg!(target_os = "windows") {
@@ -291,13 +446,22 @@ async fn dispatch_install(
             let url = installer_hint
                 .and_then(|h| h.split_whitespace().find(|t| t.starts_with("http")))
                 .ok_or_else(|| "curl-ps1: URL ausente no installer_hint.".to_string())?;
-            run_capture(TokioCommand::new("powershell").args(["-Command", &format!("iwr {url} | iex")])).await
+            run_capture(
+                TokioCommand::new("powershell").args(["-Command", &format!("iwr {url} | iex")]),
+            )
+            .await
         }
         "winget" => {
             if !cfg!(target_os = "windows") {
                 return Err("winget é Windows-only.".into());
             }
-            run_capture(TokioCommand::new("winget").args(["install", binary, "--accept-package-agreements", "--accept-source-agreements"])).await
+            run_capture(TokioCommand::new("winget").args([
+                "install",
+                binary,
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ]))
+            .await
         }
         other => Err(format!("Installer '{other}' desconhecido.")),
     }
@@ -314,7 +478,8 @@ async fn dispatch_uninstall(id: &str, installer: &str, binary: &str) -> Result<S
             // Mesmo prefixo do install (~/.omnirift/tools) — senão o uninstall procura em
             // /usr e não acha o que instalamos no dir do usuário.
             if cfg!(target_os = "windows") {
-                run_capture(TokioCommand::new("cmd").args(["/C", "npm", "uninstall", "-g", pkg])).await
+                run_capture(TokioCommand::new("cmd").args(["/C", "npm", "uninstall", "-g", pkg]))
+                    .await
             } else {
                 let mut c = TokioCommand::new("npm");
                 c.args(["uninstall", "-g"]);
@@ -347,12 +512,8 @@ async fn dispatch_uninstall(id: &str, installer: &str, binary: &str) -> Result<S
             c.arg(binary);
             run_capture(&mut c).await
         }
-        "brew" => {
-            run_capture(TokioCommand::new("brew").args(["uninstall", binary])).await
-        }
-        "winget" => {
-            run_capture(TokioCommand::new("winget").args(["uninstall", binary])).await
-        }
+        "brew" => run_capture(TokioCommand::new("brew").args(["uninstall", binary])).await,
+        "winget" => run_capture(TokioCommand::new("winget").args(["uninstall", binary])).await,
         other => Err(format!("Installer '{other}' não tem desinstalador.")),
     }
 }
@@ -378,7 +539,13 @@ async fn run_capture(cmd: &mut TokioCommand) -> Result<String, String> {
     }
 }
 
-fn emit_progress(app: &tauri::AppHandle, id: &str, stage: &str, message: String, success: Option<bool>) {
+fn emit_progress(
+    app: &tauri::AppHandle,
+    id: &str,
+    stage: &str,
+    message: String,
+    success: Option<bool>,
+) {
     let _ = app.emit(
         "cli-install-progress",
         InstallProgress {
@@ -397,7 +564,11 @@ fn emit_progress(app: &tauri::AppHandle, id: &str, stage: &str, message: String,
 /// None se `$HOME`/`%USERPROFILE%` não estiver setado (fallback = global de antes).
 pub(crate) fn tools_prefix() -> Option<std::path::PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    Some(std::path::PathBuf::from(home).join(".omnirift").join("tools"))
+    Some(
+        std::path::PathBuf::from(home)
+            .join(".omnirift")
+            .join("tools"),
+    )
 }
 
 /// `~/.omnirift/tools/bin` — onde os binários instalados aparecem (npm/cargo/pipx).
@@ -454,7 +625,10 @@ mod tests {
     use super::*;
 
     fn entry(id: &str) -> &'static CatalogEntry {
-        CATALOG.iter().find(|e| e.id == id).expect("id ausente no catálogo")
+        CATALOG
+            .iter()
+            .find(|e| e.id == id)
+            .expect("id ausente no catálogo")
     }
 
     #[test]
@@ -566,7 +740,10 @@ fn detect_version(binary: &str) -> Option<String> {
             .no_window()
             .output()
     } else {
-        StdCommand::new(target).arg("--version").no_window().output()
+        StdCommand::new(target)
+            .arg("--version")
+            .no_window()
+            .output()
     };
     match out {
         Ok(o) if o.status.success() => {

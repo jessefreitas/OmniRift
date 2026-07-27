@@ -67,7 +67,13 @@ fn memory_query_for(
 ) -> String {
     if let Some(err) = error_text.map(str::trim).filter(|s| !s.is_empty()) {
         // 1ª linha do erro é a mais informativa pra similaridade.
-        return err.lines().next().unwrap_or(err).chars().take(160).collect();
+        return err
+            .lines()
+            .next()
+            .unwrap_or(err)
+            .chars()
+            .take(160)
+            .collect();
     }
     if let Some(w) = worst {
         return format!("bug {} {} complexidade alta", file_name, w.name);

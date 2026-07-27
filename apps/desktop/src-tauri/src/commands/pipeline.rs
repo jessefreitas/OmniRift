@@ -20,26 +20,38 @@ fn slot_path(cwd: &str) -> Result<PathBuf, String> {
     let mut h = Sha256::new();
     h.update(cwd.as_bytes());
     let hex = format!("{:x}", h.finalize());
-    Ok(Path::new(&home).join(".omnirift").join("pipelines").join(format!("{hex}.json")))
+    Ok(Path::new(&home)
+        .join(".omnirift")
+        .join("pipelines")
+        .join(format!("{hex}.json")))
 }
 
 /// Grava o plano de pipeline (JSON) atrelado a um projeto (cwd). cwd vazio = usa slot "global".
 #[tauri::command]
 pub fn pipeline_save(cwd: String, doc: String) -> Result<(), String> {
-    let key = if cwd.trim().is_empty() { "__global__" } else { cwd.trim() };
+    let key = if cwd.trim().is_empty() {
+        "__global__"
+    } else {
+        cwd.trim()
+    };
     let path = slot_path(key)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("criar dir: {e}"))?;
     }
     let mut f = std::fs::File::create(&path).map_err(|e| format!("criar arquivo: {e}"))?;
-    f.write_all(doc.as_bytes()).map_err(|e| format!("gravar: {e}"))?;
+    f.write_all(doc.as_bytes())
+        .map_err(|e| format!("gravar: {e}"))?;
     Ok(())
 }
 
 /// Carrega o plano de pipeline do projeto (None = nunca gravado).
 #[tauri::command]
 pub fn pipeline_load(cwd: String) -> Result<Option<String>, String> {
-    let key = if cwd.trim().is_empty() { "__global__" } else { cwd.trim() };
+    let key = if cwd.trim().is_empty() {
+        "__global__"
+    } else {
+        cwd.trim()
+    };
     let path = slot_path(key)?;
     match std::fs::read_to_string(&path) {
         Ok(s) if s.trim().is_empty() => Ok(None),

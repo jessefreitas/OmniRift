@@ -1,3 +1,3 @@
 eslint=106
-clippy=86
-fmt=839
+clippy=84
+fmt=0

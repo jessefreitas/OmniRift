@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::process::Command;
 
-use crate::proc_ext::NoWindow;
 use super::GpuStats;
+use crate::proc_ext::NoWindow;
 
 /// `nvidia-smi` está disponível? (decidido 1× no boot do sampler pra não spawnar
 /// comando à toa em máquina sem NVIDIA).
@@ -60,7 +60,10 @@ pub fn probe_gpus() -> Vec<GpuStats> {
 pub fn vram_by_pid() -> HashMap<u32, u64> {
     let mut m = HashMap::new();
     let out = Command::new("nvidia-smi")
-        .args(["--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"])
+        .args([
+            "--query-compute-apps=pid,used_memory",
+            "--format=csv,noheader,nounits",
+        ])
         .no_window()
         .output();
     let Ok(out) = out else { return m };

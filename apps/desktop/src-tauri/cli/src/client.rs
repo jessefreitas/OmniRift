@@ -99,14 +99,18 @@ fn home_dir() -> Option<String> {
 /// Caminho canônico do `runtime.json` (`~/.omnirift/runtime.json`). Espelha
 /// `metadata_path()` do #8A.
 pub fn metadata_path() -> Option<std::path::PathBuf> {
-    Some(std::path::Path::new(&home_dir()?).join(".omnirift").join("runtime.json"))
+    Some(
+        std::path::Path::new(&home_dir()?)
+            .join(".omnirift")
+            .join("runtime.json"),
+    )
 }
 
 /// Lê e desserializa o `runtime.json`. Ausente → `NotRunning` (mensagem amigável:
 /// "abra o app primeiro"); presente-mas-torto → `BadMetadata`.
 pub fn read_metadata() -> Result<RuntimeMetadata, ClientError> {
-    let path = metadata_path()
-        .ok_or_else(|| ClientError::NotRunning("HOME indisponível".into()))?;
+    let path =
+        metadata_path().ok_or_else(|| ClientError::NotRunning("HOME indisponível".into()))?;
     let raw = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -114,7 +118,11 @@ pub fn read_metadata() -> Result<RuntimeMetadata, ClientError> {
                 "abra o app OmniRift primeiro (runtime.json não encontrado)".into(),
             ));
         }
-        Err(e) => return Err(ClientError::Transport(format!("não consegui ler {path:?}: {e}"))),
+        Err(e) => {
+            return Err(ClientError::Transport(format!(
+                "não consegui ler {path:?}: {e}"
+            )))
+        }
     };
     parse_metadata(&raw)
 }
@@ -140,9 +148,9 @@ pub fn response_into_result(resp: RpcResponse) -> Result<Value, ClientError> {
     if resp.ok {
         Ok(resp.result.unwrap_or(Value::Null))
     } else {
-        Err(ClientError::Rpc(
-            resp.error.unwrap_or_else(|| "erro desconhecido (sem campo 'error')".into()),
-        ))
+        Err(ClientError::Rpc(resp.error.unwrap_or_else(|| {
+            "erro desconhecido (sem campo 'error')".into()
+        })))
     }
 }
 
@@ -152,7 +160,10 @@ fn gen_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
     static CTR: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let pid = std::process::id() as u128;
     let ctr = CTR.fetch_add(1, Ordering::Relaxed) as u128;
     format!("{:x}-{:x}-{:x}", nanos, pid, ctr)
@@ -219,17 +230,24 @@ pub fn send_frame(socket_path: &str, frame: &str) -> Result<String, ClientError>
     let mut reader = BufReader::new(stream.take(MAX_RESP));
     let mut line = String::new();
     let n = reader.read_line(&mut line).map_err(|e| {
-        if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) {
+        if matches!(
+            e.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ) {
             ClientError::Transport("o app não respondeu a tempo (timeout 10s)".into())
         } else {
             ClientError::Transport(format!("leitura do socket: {e}"))
         }
     })?;
     if n == 0 {
-        return Err(ClientError::BadResponse("o app fechou a conexão sem responder".into()));
+        return Err(ClientError::BadResponse(
+            "o app fechou a conexão sem responder".into(),
+        ));
     }
     if !line.ends_with('\n') {
-        return Err(ClientError::BadResponse("resposta excedeu o teto de tamanho".into()));
+        return Err(ClientError::BadResponse(
+            "resposta excedeu o teto de tamanho".into(),
+        ));
     }
     Ok(line)
 }
@@ -288,10 +306,14 @@ pub fn send_frame(socket_path: &str, frame: &str) -> Result<String, ClientError>
         .read_line(&mut line)
         .map_err(|e| ClientError::Transport(format!("leitura do pipe: {e}")))?;
     if n == 0 {
-        return Err(ClientError::BadResponse("o app fechou a conexão sem responder".into()));
+        return Err(ClientError::BadResponse(
+            "o app fechou a conexão sem responder".into(),
+        ));
     }
     if !line.ends_with('\n') {
-        return Err(ClientError::BadResponse("resposta excedeu o teto de tamanho".into()));
+        return Err(ClientError::BadResponse(
+            "resposta excedeu o teto de tamanho".into(),
+        ));
     }
     Ok(line)
 }
