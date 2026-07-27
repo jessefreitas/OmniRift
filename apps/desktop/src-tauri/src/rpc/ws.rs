@@ -72,7 +72,10 @@ pub struct MobileRelay {
 
 impl MobileRelay {
     pub fn new(devices: Arc<DeviceRegistry>) -> Self {
-        Self { devices, resolved_port: parking_lot::Mutex::new(0) }
+        Self {
+            devices,
+            resolved_port: parking_lot::Mutex::new(0),
+        }
     }
 
     pub fn port(&self) -> u16 {
@@ -121,7 +124,9 @@ pub fn spawn_server(
         let listener = match TcpListener::bind(("0.0.0.0", DEFAULT_WS_PORT)).await {
             Ok(l) => l,
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
-                log::warn!("relay mobile: porta {DEFAULT_WS_PORT} ocupada ({e}) — fallback p/ porta do OS");
+                log::warn!(
+                    "relay mobile: porta {DEFAULT_WS_PORT} ocupada ({e}) — fallback p/ porta do OS"
+                );
                 match TcpListener::bind(("0.0.0.0", 0)).await {
                     Ok(l) => l,
                     Err(e2) => {
@@ -164,7 +169,9 @@ pub fn spawn_server(
             let keypair = Arc::clone(&keypair);
             tauri::async_runtime::spawn(async move {
                 let _permit = permit; // segura o slot enquanto a conexão vive
-                if let Err(e) = serve_connection(stream, peer, app, registry, devices, keypair).await {
+                if let Err(e) =
+                    serve_connection(stream, peer, app, registry, devices, keypair).await
+                {
                     log::debug!("relay mobile: conexão {peer} encerrada: {e}");
                 }
             });
@@ -251,7 +258,10 @@ where
 
     // 1º auth ok → marca visto (sai de "pending", entra em "paired").
     let _ = devices.touch_last_seen(&device.device_id);
-    log::info!("relay mobile: device '{}' autenticado ({peer_label})", device.name);
+    log::info!(
+        "relay mobile: device '{}' autenticado ({peer_label})",
+        device.name
+    );
 
     // --- Loop principal: RPC cifrado + heartbeat ---
     let ctx = RpcContext::new(app.clone());
@@ -332,7 +342,9 @@ where
     let parsed: HandshakeMsg =
         serde_json::from_str(&hello).map_err(|e| format!("hello inválido: {e}"))?;
     let HandshakeMsg::Hello { public_key_b64 } = parsed;
-    channel.accept_hello(&public_key_b64).map_err(|e| format!("hello: {e}"))?;
+    channel
+        .accept_hello(&public_key_b64)
+        .map_err(|e| format!("hello: {e}"))?;
 
     // 2) e2ee_ready (texto puro).
     sink.send(Message::Text(json!({"type":"e2ee_ready"}).to_string()))
@@ -341,15 +353,19 @@ where
 
     // 3) e2ee_auth (cifrado) → token.
     let auth_frame = next_text(source).await?;
-    let plain = channel.decrypt_frame(&auth_frame).map_err(|e| format!("auth decrypt: {e}"))?;
+    let plain = channel
+        .decrypt_frame(&auth_frame)
+        .map_err(|e| format!("auth decrypt: {e}"))?;
     let auth: AuthMsg =
         serde_json::from_slice(&plain).map_err(|e| format!("auth inválido: {e}"))?;
 
     // Valida o token. Falhou → manda e2ee_error cifrado e fecha (identidade vem do canal).
     let Some(mut device) = devices.validate_token(&auth.device_token) else {
-        if let Ok(err_frame) =
-            channel.encrypt_frame(json!({"type":"e2ee_error","error":{"code":"unauthorized"}}).to_string().as_bytes())
-        {
+        if let Ok(err_frame) = channel.encrypt_frame(
+            json!({"type":"e2ee_error","error":{"code":"unauthorized"}})
+                .to_string()
+                .as_bytes(),
+        ) {
             let _ = sink.send(Message::Text(err_frame)).await;
         }
         return Err("device token inválido".into());
@@ -363,8 +379,10 @@ where
     if let Some(install_id) = auth.install_id.as_deref() {
         match devices.reconcile_install(&device.device_id, install_id) {
             Ok(_) => {
-                if let Some(updated) =
-                    devices.list().into_iter().find(|d| d.device_id == device.device_id)
+                if let Some(updated) = devices
+                    .list()
+                    .into_iter()
+                    .find(|d| d.device_id == device.device_id)
                 {
                     device = updated; // versão pós-reconcile (steer herdado, se houver)
                 }
@@ -376,11 +394,15 @@ where
     }
 
     // 4) e2ee_authenticated (cifrado) → ready.
-    channel.mark_ready().map_err(|e| format!("mark_ready: {e}"))?;
+    channel
+        .mark_ready()
+        .map_err(|e| format!("mark_ready: {e}"))?;
     let ok_frame = channel
         .encrypt_frame(json!({"type":"e2ee_authenticated"}).to_string().as_bytes())
         .map_err(|e| format!("authenticated encrypt: {e}"))?;
-    sink.send(Message::Text(ok_frame)).await.map_err(|e| format!("authenticated write: {e}"))?;
+    sink.send(Message::Text(ok_frame))
+        .await
+        .map_err(|e| format!("authenticated write: {e}"))?;
 
     Ok(device)
 }
@@ -432,7 +454,11 @@ fn handle_rpc_frame(
         // Frame torto → erro genérico (id desconhecido). Tenta cifrar.
         Err(e) => {
             return channel
-                .encrypt_frame(json!({"id":"","ok":false,"error":format!("invalid_request: {e}")}).to_string().as_bytes())
+                .encrypt_frame(
+                    json!({"id":"","ok":false,"error":format!("invalid_request: {e}")})
+                        .to_string()
+                        .as_bytes(),
+                )
                 .ok();
         }
     };
@@ -442,8 +468,8 @@ fn handle_rpc_frame(
     // Mobile; as 3 mutações de agente SÓ se o desktop concedeu `steer` a ESTE device. Um
     // método não-mutação fora da allowlist segue forbidden mesmo com steer. [segurança]
     // gate = is_allowed(method, scope) || (device.steer && is_steer_allowed(method))
-    let permitted =
-        allowlist::is_allowed(&req.method, scope) || (device.steer && allowlist::is_steer_allowed(&req.method));
+    let permitted = allowlist::is_allowed(&req.method, scope)
+        || (device.steer && allowlist::is_steer_allowed(&req.method));
     if !permitted {
         return channel
             .encrypt_frame(json!({"id":req.id,"ok":false,"error":format!("forbidden: '{}' não permitido p/ mobile", req.method)}).to_string().as_bytes())
@@ -455,7 +481,11 @@ fn handle_rpc_frame(
     if req.method == "notifications.subscribe" {
         install_push_stream(app, channel, device, push_tx.clone());
         return channel
-            .encrypt_frame(json!({"id":req.id,"ok":true,"result":{"subscribed":true}}).to_string().as_bytes())
+            .encrypt_frame(
+                json!({"id":req.id,"ok":true,"result":{"subscribed":true}})
+                    .to_string()
+                    .as_bytes(),
+            )
             .ok();
     }
 
@@ -510,10 +540,14 @@ fn install_push_stream(
                         "event": "agent.done",
                         "sessionId": session_id,
                     });
-                    let Ok(frame) = encryptor.encrypt(event.to_string().as_bytes()) else { continue };
+                    let Ok(frame) = encryptor.encrypt(event.to_string().as_bytes()) else {
+                        continue;
+                    };
                     // Se o receptor (a conexão) foi embora, encerra a task de push.
                     if push_tx.send(frame).is_err() {
-                        log::debug!("relay mobile: push p/ '{device_name}' encerrado (conexão fechou)");
+                        log::debug!(
+                            "relay mobile: push p/ '{device_name}' encerrado (conexão fechou)"
+                        );
                         break;
                     }
                 }
@@ -591,7 +625,10 @@ mod tests {
         }
         // Não-mutação fora da allowlist segue forbidden mesmo com steer.
         for m in ["pty.kill", "pty.write", "método.inventado"] {
-            assert!(!ws_gate(m, &dev), "'{m}' forbidden mesmo com steer (não abre tudo)");
+            assert!(
+                !ws_gate(m, &dev),
+                "'{m}' forbidden mesmo com steer (não abre tudo)"
+            );
         }
     }
 }

@@ -47,7 +47,9 @@ pub enum PairingError {
 impl std::fmt::Display for PairingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PairingError::BadScheme => write!(f, "scheme inválido (esperado omnirift://pair?code=)"),
+            PairingError::BadScheme => {
+                write!(f, "scheme inválido (esperado omnirift://pair?code=)")
+            }
             PairingError::BadBase64 => write!(f, "code não é base64url válido"),
             PairingError::BadJson => write!(f, "code não decodifica num PairingOffer"),
             PairingError::BadVersion(v) => write!(f, "versão {v} != {PAIRING_OFFER_VERSION}"),
@@ -59,7 +61,11 @@ impl std::fmt::Display for PairingError {
 /// Monta o offer detectando o IP de LAN do desktop. `port` é a porta REAL em que o ws.rs
 /// está escutando (pode ser ≠ 6768 se houve fallback pra porta do OS). Os dois segredos
 /// (token, pública) vêm de fora (devices.rs + keypair.rs).
-pub fn create_pairing_offer(port: u16, device_token: String, public_key_b64: String) -> PairingOffer {
+pub fn create_pairing_offer(
+    port: u16,
+    device_token: String,
+    public_key_b64: String,
+) -> PairingOffer {
     let host = lan_ip();
     // Relay endpoint (fora da LAN): o room deste device no CF Worker. Montado internamente
     // — a assinatura não muda, o offer ganha o `relay` de graça.
@@ -79,7 +85,9 @@ fn lan_ip() -> String {
     match local_ip_address::local_ip() {
         Ok(ip) => ip.to_string(),
         Err(e) => {
-            log::warn!("pairing: IP de LAN não detectado ({e}) — usando 127.0.0.1 (só dev/emulador)");
+            log::warn!(
+                "pairing: IP de LAN não detectado ({e}) — usando 127.0.0.1 (só dev/emulador)"
+            );
             "127.0.0.1".to_string()
         }
     }
@@ -96,8 +104,12 @@ pub fn encode_pairing_offer(offer: &PairingOffer) -> String {
 /// Decodifica um deep-link → offer validado. Valida o scheme, o base64url, o JSON, a
 /// versão (== 2) e que os campos não estão vazios. [audit: validar v + campos]
 pub fn decode_pairing_offer(url: &str) -> Result<PairingOffer, PairingError> {
-    let code = url.strip_prefix("omnirift://pair?code=").ok_or(PairingError::BadScheme)?;
-    let json = B64URL.decode(code.as_bytes()).map_err(|_| PairingError::BadBase64)?;
+    let code = url
+        .strip_prefix("omnirift://pair?code=")
+        .ok_or(PairingError::BadScheme)?;
+    let json = B64URL
+        .decode(code.as_bytes())
+        .map_err(|_| PairingError::BadBase64)?;
     let offer: PairingOffer = serde_json::from_slice(&json).map_err(|_| PairingError::BadJson)?;
     if offer.v != PAIRING_OFFER_VERSION {
         return Err(PairingError::BadVersion(offer.v));
@@ -123,7 +135,11 @@ mod tests {
         let offer = create_pairing_offer(6768, "tok".into(), "pk".into());
         assert_eq!(offer.v, 2);
         assert!(offer.endpoint.starts_with("ws://"));
-        assert!(offer.endpoint.ends_with(":6768"), "endpoint = {}", offer.endpoint);
+        assert!(
+            offer.endpoint.ends_with(":6768"),
+            "endpoint = {}",
+            offer.endpoint
+        );
     }
 
     #[test]
@@ -146,8 +162,14 @@ mod tests {
 
     #[test]
     fn decode_rejects_wrong_scheme() {
-        assert_eq!(decode_pairing_offer("ref://pair?code=xx").unwrap_err(), PairingError::BadScheme);
-        assert_eq!(decode_pairing_offer("https://x").unwrap_err(), PairingError::BadScheme);
+        assert_eq!(
+            decode_pairing_offer("ref://pair?code=xx").unwrap_err(),
+            PairingError::BadScheme
+        );
+        assert_eq!(
+            decode_pairing_offer("https://x").unwrap_err(),
+            PairingError::BadScheme
+        );
     }
 
     #[test]
@@ -163,7 +185,10 @@ mod tests {
             "omnirift://pair?code={}",
             B64URL.encode(serde_json::to_string(&bad).unwrap().as_bytes())
         );
-        assert_eq!(decode_pairing_offer(&url).unwrap_err(), PairingError::BadVersion(1));
+        assert_eq!(
+            decode_pairing_offer(&url).unwrap_err(),
+            PairingError::BadVersion(1)
+        );
     }
 
     #[test]
@@ -179,7 +204,10 @@ mod tests {
             "omnirift://pair?code={}",
             B64URL.encode(serde_json::to_string(&bad).unwrap().as_bytes())
         );
-        assert_eq!(decode_pairing_offer(&url).unwrap_err(), PairingError::EmptyField("deviceToken"));
+        assert_eq!(
+            decode_pairing_offer(&url).unwrap_err(),
+            PairingError::EmptyField("deviceToken")
+        );
     }
 
     #[test]

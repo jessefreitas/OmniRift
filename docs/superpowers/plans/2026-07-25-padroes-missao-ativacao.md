@@ -1,0 +1,320 @@
+# Missão: padrões M1–M4 de ativação (implementation plan)
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
+> (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
+>
+> Spec: `docs/superpowers/specs/2026-07-25-aprendizados-scaffold-prompts-design.md`
+> Missão: `docs/superpowers/specs/2026-07-25-mission-orchestration-design.md`
+>
+> **Não** integrar scaffold CLI externo de prompts / vendorar tree `.core`. Clean-room only.
+
+**Goal:** absorver first-value, handoff tipado, suggested-next e doctor no host
+OmniRift (Missão + spawn + dock), sem segundo control plane.
+
+**Architecture:** funções puras TS/Rust + pontos de injeção já existentes
+(AgentNode priming, `buildRoleSpawn`/`firstMessage`, `pty_write` pós-ready,
+blackboard `memory_*`, `mission_events`, OrchestratorDock).
+
+**Tech Stack:** React/TS (desktop), Rust Tauri (`mission/`, `mcp/`, `memory/`),
+MCP `mission_*` / `orchestrator_*`, testes puros via `scripts/run-*-tests.mjs`.
+
+---
+
+## Achados da inspeção (branch `feat/mission-orchestration`)
+
+| Área | Estado atual |
+|---|---|
+| `mission/` | `capabilities`, `dag`, `events`, `runner`, `verify` — MCP `mission_*` / `capability_*` |
+| Spawn PTY | `Sidebar.spawnRole` / `spawnOrchestrator`, `buildRoleSpawn`, `TerminalNode.switch*` |
+| Spawn ACP | `AgentNode` priming persona + AGENTS.md quando `status === "ready"` |
+| Contrato | `ORCHESTRATOR_CONTRACT` / `DEV_CONTRACT` em `agent-contract.ts` (longo, silencioso) |
+| Dock | `OrchestratorDock.tsx` — host do xterm; sem suggested-next |
+| Handoff | `orchestrator_handoff` + ask/tell prosa; sem schema tipado no blackboard |
+| Doctor | M4 ✅ — `orchestration/doctor` + UI (PATH/MCP/memory/worktree/hooks) |
+
+Gap M1 concreto: spawns claude-code com system-prompt nos args **não** mandam
+1ª mensagem → nó mudo até input humano.
+
+---
+
+## File structure (previsto)
+
+| Path | M | Ação |
+|---|---|---|
+| `apps/desktop/src/lib/first-value.ts` | M1 | Create — builder puro |
+| `apps/desktop/src/lib/first-value.test.ts` | M1 | Create |
+| `apps/desktop/scripts/run-first-value-tests.mjs` | M1 | Create |
+| `apps/desktop/src/lib/agent-spawn.ts` | M1 | Modify — `firstMessage` sempre com greeting |
+| `apps/desktop/src/components/nodes/AgentNode.tsx` | M1 | Modify — priming |
+| `apps/desktop/src/components/Sidebar.tsx` | M1 | Modify — orch + shell wrap |
+| `apps/desktop/src/lib/orchestration-client.ts` | M1 | Modify — spawn MCP |
+| `apps/desktop/src-tauri/src/mission/handoff.rs` (ou memory key) | M2 | Create |
+| `apps/desktop/src-tauri/src/mcp/tools.rs` | M2/M4 | Modify |
+| `apps/desktop/src/components/OrchestratorDock.tsx` | M3 | Modify |
+| `apps/desktop/src/lib/mission-suggested-next.ts` | M3 | Create |
+| `apps/desktop/src-tauri/src/orchestration/doctor.rs` | M4 | Create |
+| `apps/desktop/src/components/OrchestrationDoctorPanel.tsx` | M4 | Create (UI) |
+
+---
+
+## M1 — First-value no spawn
+
+### Objetivo
+
+Após spawn (PTY idle/done ou ACP ready), sessão recebe bloco **5–8 linhas**:
+persona/label, status, comandos chave, próximo passo; opcional floor /
+missão / capability. Sem emoji excessivo, sem teatro.
+
+### API
+
+```ts
+// apps/desktop/src/lib/first-value.ts
+type FirstValueKind = "orchestrator" | "worker" | "agent";
+
+type FirstValueCtx = {
+  label: string;
+  role?: string;
+  kind?: FirstValueKind;
+  floor?: string;
+  status?: string;       // default "pronto"
+  missionId?: string;
+  capability?: string;
+  keyCommands?: string[];
+  nextStep?: string;
+};
+
+function defaultKeyCommands(kind: FirstValueKind): string[];
+function buildFirstValueGreeting(ctx: FirstValueCtx): string; // 5–8 linhas
+function withFirstValueGreeting(body: string | undefined, ctx: FirstValueCtx): string;
+```
+
+### Arquivos a tocar
+
+1. `first-value.ts` + teste + runner script + `package.json` script
+2. `agent-spawn.ts` — todo `RoleSpawn` devolve `firstMessage` com greeting
+   (prepend se já houver persona; só greeting se system-prompt nos args)
+3. `AgentNode.tsx` — prepend no priming persona
+4. `Sidebar.tsx` — `spawnOrchestrator` injeta greeting pós-ready; shell wrap
+5. `orchestration-client.ts` — após `orchestrator://spawn-agent`, inject greeting
+
+### Testes (TDD)
+
+- [x] greeting tem 5–8 linhas não-vazias
+- [x] inclui label + Status
+- [x] comandos default por kind (orch vs worker)
+- [x] missionId/capability aparecem só se passados
+- [x] `withFirstValueGreeting` prepend + body; body vazio → só greeting
+- [x] sem emoji de teatro (sem 🎭/🚀 no builder)
+
+### Critério de done
+
+- [x] Função pura + testes (`npm run test:first-value` no desktop)
+- [x] Spawn role claude-code: `buildRoleSpawn` sempre devolve `firstMessage` com greeting
+- [x] ACP AgentNode priming começa com o bloco
+- [x] Orquestrador spawn injeta greeting pós-ready
+- [x] `orchestrator://spawn-agent` injeta greeting pós-ready
+- [x] Zero dependência de scaffold CLI externo
+
+**Nota M1 (follow-up Code Reviewer):** triplicação wait-ready→inject extraída para
+`injectWhenPtyReady` em `apps/desktop/src/lib/inject-when-pty-ready.ts`
+(Sidebar / TerminalNode / orchestration-client). Feito junto com M2.
+
+---
+
+## M2 — Handoff tipado ✅
+
+### Objetivo
+
+Artefato consumível no blackboard; greeting do próximo cita o handoff
+não-consumido.
+
+### Schema
+
+```ts
+type MissionHandoff = {
+  from_agent: string;
+  to_agent: string;
+  last_command: string;
+  decisions: string[];
+  files_modified: string[];
+  blockers: string[];
+  next_action: string;
+  consumed: boolean;
+  timestamp: string; // ISO
+};
+// key: handoff:<missionId>:<from>:<to>
+// storage: agent_memory kind=mission_handoff (Local / SQLite)
+```
+
+### API
+
+| Camada | Superfície |
+|---|---|
+| Rust | `mission::handoff::{save, load_pending, mark_consumed}` (escopo por `mission_id`) |
+| MCP | `mission_handoff_write`, `mission_handoff_read`, `mission_handoff_consume` |
+| Tauri | mesmos nomes (UI / `mission-client.ts`) |
+| TS | `mission-handoff.ts` + `mission-client.ts`; runner cita no dispatch |
+
+### Arquivos
+
+- [x] `apps/desktop/src-tauri/src/mission/handoff.rs` (+ `mod.rs`)
+- [x] `mcp/tools.rs` schemas/handlers
+- [x] `commands/mission.rs` + registro em `lib.rs`
+- [x] `mission-client.ts` + `mission-handoff.ts`
+- [x] runner: write após settle; cite+consume no dispatch do sucessor
+- [x] eventos `handoff_written` / `handoff_consumed` (não quebram `validate_chain`)
+- [x] Testes Rust + TS (`npm run test:mission-handoff`)
+- [x] `injectWhenPtyReady` (follow-up review M1)
+
+### Testes
+
+- [x] round-trip JSON no key `handoff:…`
+- [x] `consumed=true` some da lista pending
+- [x] greeting helper (`nextStepFromHandoff`) inclui `next_action`
+- [x] validate: campos obrigatórios rejeitam vazio `from`/`to`
+
+### Critério de done
+
+- [x] Handoff gravado sem prosa solta; próximo agente consome uma vez no dispatch;
+  eventos `handoff_written` / `handoff_consumed` (não quebram `validate_chain`).
+  Commit: `9ead153`.
+
+### Nota omp T1 ✅
+
+Summarize > dump nas tools MCP `memory_recall` / `memory_list`
+(`apps/desktop/src-tauri/src/mcp/tools.rs`):
+
+- default: summary (1ª linha, cap 240 chars) + `offset`/`limit`
+- `raw: true` / `full: true` → dump completo
+- footer `meta: { truncation, mode, next_offset, … }`
+
+Código entrou em `9ead153` (mesmo commit do M2). Spec:
+`docs/superpowers/specs/2026-07-25-oh-my-pi-aprendizados-design.md` §3.1.
+Testes: `cargo test --lib summarize_memory` / `fmt_memories` / `memory_fmt_opts`.
+
+### Nota omp T2 ✅
+
+Higiene ACP (escopo contido — sem refatorar o adapter):
+
+- Helpers puros em `acp/mod.rs`: `resolve_cwd_abs`, `client_owned_mcp_servers`,
+  `UPDATE_TEXT_SOFT_CAP` (4096) no coalesce do EventLog
+- Front: `acp-hygiene.ts` (`capAcpText` + `trimAcpMsgHistory`) wired em `AgentNode`
+- Testes: `cargo test --lib` (cwd/MCP ownership/soft-cap) + `npm run test:acp-hygiene`
+
+**Gaps documentados (não nesta rodada):**
+
+- Adapter third-party ainda pode poluir stdout se violar NDJSON — só logamos stderr
+- Não policamos se o adapter *ignorar* `mcpServers` do client (depende do provider)
+- Soft-cap de texto é na janela/EventLog; conversa real no adapter não é truncada
+
+---
+
+## M3 — Suggested-next no dock ✅
+
+### Objetivo
+
+Após `layer_finished` / `gate_passed` / `gate_failed`, UI sugere próximo
+passo acionável.
+
+### API
+
+```ts
+// mission-suggested-next.ts (puro)
+type SuggestedNext = {
+  label: string;          // "QA · verify"
+  reason: string;         // "layer 0 finished"
+  missionId: string;
+  agent?: string;         // "@QA"
+  action?: "verify" | "dispatch" | "approve" | "retry";
+};
+
+function suggestNext(events: MissionEvent[], pkg: MissionPackage): SuggestedNext | null;
+```
+
+### Arquivos
+
+- [x] `mission-suggested-next.ts` + teste + `npm run test:mission-suggested-next`
+- [x] `OrchestratorDock.tsx` — faixa acima do xterm com sugestão + botão verify
+- [x] Poll `mission_recent` (Tauri) no dock → selector puro
+- Opcional: toast OmniPartner espelhando a mesma sugestão (não nesta rodada)
+
+### Testes
+
+- [x] após layer N finished com N+1 no DAG → sugere dispatch do próximo nó
+- [x] após acceptance pending → sugere verify (`@QA · verify`)
+- [x] `gate_failed` → sugere retry/humano
+- [x] `delivered` → null (sem sugestão)
+
+### Critério de done
+
+- [x] Dock mostra sugestão visível (assert DOM quando houver testing-library;
+  até lá: teste puro do selector + wiring no OrchestratorDock).
+
+---
+
+## M4 — Doctor orquestração ✅
+
+### Objetivo
+
+Diagnóstico “por que a frota não ativa?” — paralelo, fail-soft.
+
+### Checks
+
+| Check | Passa se |
+|---|---|
+| CLI PATH | `claude` / `codex` / `uvx` / `npx` / `git` resolvem |
+| MCP | TCP `127.0.0.1:7844` (omnirift-agents) |
+| Memory | provider ativo responde `health` |
+| Worktree | cwd existe + `.git` (dir ou file de worktree) |
+| Hooks | failproof scripts + Stop em `agent_settings_config` |
+
+### API
+
+```rust
+// orchestration/doctor.rs
+struct DoctorReport { checks: Vec<DoctorCheck>, ok: bool }
+// Tauri: orchestration_doctor(cwd?) -> DoctorReport
+// MCP: orchestration_doctor (read-only)
+```
+
+### Arquivos
+
+- [x] `apps/desktop/src-tauri/src/orchestration/{mod,doctor}.rs`
+- [x] `apps/desktop/src-tauri/src/commands/orchestration.rs` + registro em `lib.rs`
+- [x] MCP `orchestration_doctor` em `mcp/tools.rs`
+- [x] UI `OrchestrationDoctorPanel.tsx` + Command Palette / Sidebar / dock / Connections
+- [x] Client `orchestration-doctor-client.ts`
+- [x] Testes Rust: worktree / mcp fail-soft / serde
+
+### Critério de done
+
+- [x] Um comando devolve relatório estruturado; UI lista ❌/✅; sem healers
+  destrutivos no dia 1 (só diagnóstico).
+
+### Como abrir
+
+1. Command Palette → “Doctor da orquestração”
+2. Sidebar → Ferramentas → Orquestrar → Doctor da orquestração
+3. Ícone estetoscópio no header do OrchestratorDock
+4. Botão no rodapé da Área de Conexões
+5. MCP: `orchestration_doctor` (cwd opcional)
+
+---
+
+## Ordem de execução
+
+```
+M1 (esta sessão se barato) → M2 → M3 → M4
+```
+
+Não misturar M2–M4 na mesma PR sem necessidade. Cada M = commit focado +
+testes do módulo.
+
+---
+
+## Fora de escopo
+
+- Integrar / vendorar scaffold CLI externo de prompts
+- Context brackets / AgentPack / `human_approved` (M5+)
+- Pocket slim
+- Merge em `main` sem pedido explícito

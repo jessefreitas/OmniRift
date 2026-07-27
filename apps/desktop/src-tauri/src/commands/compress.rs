@@ -4,7 +4,9 @@
 
 use serde::Serialize;
 
-use crate::compress::{Compressor, HeadroomProvider, OmnicompressProvider, RtkProvider, SavingsReport};
+use crate::compress::{
+    Compressor, HeadroomProvider, OmnicompressProvider, RtkProvider, SavingsReport,
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,7 +29,12 @@ pub fn compressor_list() -> Vec<CompressorInfo> {
     // REACHABLE (não só binário), então ligar por padrão é seguro (ver omnicompress.rs).
     let entries: Vec<(Box<dyn Compressor>, &str, &str, bool)> = vec![
         (Box::new(OmnicompressProvider), "OmniCompress", "llm", true),
-        (Box::new(RtkProvider), "RTK · Rust Token Killer", "shell", false),
+        (
+            Box::new(RtkProvider),
+            "RTK · Rust Token Killer",
+            "shell",
+            false,
+        ),
         (Box::new(HeadroomProvider), "Headroom", "llm", false),
     ];
     entries

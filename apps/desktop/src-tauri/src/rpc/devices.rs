@@ -72,16 +72,21 @@ impl DeviceRegistry {
     /// mutação consciente). [audit: não tratar corrompido como vazio destrutivo]
     pub fn open(path: PathBuf) -> Self {
         let devices = match std::fs::read_to_string(&path) {
-            Ok(raw) => match serde_json::from_str::<Vec<DeviceEntry>>(&raw) {
-                Ok(list) => list,
-                Err(e) => {
-                    log::error!("devices.json corrompido ({e}) — iniciando vazio SEM sobrescrever {path:?}");
-                    Vec::new()
+            Ok(raw) => {
+                match serde_json::from_str::<Vec<DeviceEntry>>(&raw) {
+                    Ok(list) => list,
+                    Err(e) => {
+                        log::error!("devices.json corrompido ({e}) — iniciando vazio SEM sobrescrever {path:?}");
+                        Vec::new()
+                    }
                 }
-            },
+            }
             Err(_) => Vec::new(),
         };
-        Self { path, devices: Mutex::new(devices) }
+        Self {
+            path,
+            devices: Mutex::new(devices),
+        }
     }
 
     /// Path canônico (`~/.omnirift/devices.json`). `None` se HOME ausente.
@@ -102,7 +107,7 @@ impl DeviceRegistry {
             name: name.to_string(),
             token: generate_device_token(),
             scope: DeviceScope::Mobile,
-            steer: false, // opt-in: device pareado nasce read-only (default OFF)
+            steer: false,     // opt-in: device pareado nasce read-only (default OFF)
             install_id: None, // preenchido no 1º auth via reconcile_install (celular manda o installId)
             paired_at: now_secs(),
             last_seen_at: 0,
@@ -118,7 +123,10 @@ impl DeviceRegistry {
     /// gera um token válido de imediato (o device vira "conectado" no 1º auth ok).
     pub fn validate_token(&self, token: &str) -> Option<DeviceEntry> {
         let guard = self.devices.lock();
-        guard.iter().find(|d| ct_eq(d.token.as_bytes(), token.as_bytes())).cloned()
+        guard
+            .iter()
+            .find(|d| ct_eq(d.token.as_bytes(), token.as_bytes()))
+            .cloned()
     }
 
     /// Marca o device como visto agora (1º auth bem-sucedido / atividade). Persiste.
@@ -168,9 +176,9 @@ impl DeviceRegistry {
             return Ok(false);
         }
         // 3. Varre os OUTROS devices do mesmo installId (pareamentos anteriores do celular).
-        let inherited_steer = guard
-            .iter()
-            .any(|d| d.device_id != device_id && d.install_id.as_deref() == Some(install_id) && d.steer);
+        let inherited_steer = guard.iter().any(|d| {
+            d.device_id != device_id && d.install_id.as_deref() == Some(install_id) && d.steer
+        });
         // Remove os órfãos (dedup): outros devices com o mesmo installId.
         guard.retain(|d| d.device_id == device_id || d.install_id.as_deref() != Some(install_id));
         // 2 + herança: grava o installId no atual e herda steering se algum antigo tinha.
@@ -285,7 +293,11 @@ fn open_owner_only(path: &Path) -> std::io::Result<std::fs::File> {
 
 #[cfg(not(unix))]
 fn open_owner_only(path: &Path) -> std::io::Result<std::fs::File> {
-    std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(path)
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
 }
 
 #[cfg(test)]
@@ -309,15 +321,23 @@ mod tests {
 
         let dev = reg.get_or_create_pending("iPhone do Jesse").unwrap();
         // Token válido → resolve pro mesmo device.
-        let found = reg.validate_token(&dev.token).expect("token recém-criado é válido");
+        let found = reg
+            .validate_token(&dev.token)
+            .expect("token recém-criado é válido");
         assert_eq!(found.device_id, dev.device_id);
         // Token aleatório → rejeitado.
         assert!(reg.validate_token("deadbeef").is_none());
 
         // Revoga → some + token deixa de validar.
         assert!(reg.remove(&dev.device_id).unwrap());
-        assert!(reg.validate_token(&dev.token).is_none(), "token revogado não valida mais");
-        assert!(!reg.remove(&dev.device_id).unwrap(), "remover de novo = false");
+        assert!(
+            reg.validate_token(&dev.token).is_none(),
+            "token revogado não valida mais"
+        );
+        assert!(
+            !reg.remove(&dev.device_id).unwrap(),
+            "remover de novo = false"
+        );
     }
 
     #[test]
@@ -327,7 +347,10 @@ mod tests {
         let reg = DeviceRegistry::open(path);
         let a = reg.get_or_create_pending("Pixel").unwrap();
         let b = reg.get_or_create_pending("Pixel").unwrap();
-        assert_eq!(a.device_id, b.device_id, "pendente do mesmo nome é reusado (sem órfão)");
+        assert_eq!(
+            a.device_id, b.device_id,
+            "pendente do mesmo nome é reusado (sem órfão)"
+        );
         assert_eq!(reg.list().len(), 1);
         // Nome diferente → novo device.
         let c = reg.get_or_create_pending("Galaxy").unwrap();
@@ -343,7 +366,11 @@ mod tests {
         let dev = reg.get_or_create_pending("Pixel").unwrap();
         assert_eq!(dev.last_seen_at, 0, "nasce pendente");
         reg.touch_last_seen(&dev.device_id).unwrap();
-        let after = reg.list().into_iter().find(|d| d.device_id == dev.device_id).unwrap();
+        let after = reg
+            .list()
+            .into_iter()
+            .find(|d| d.device_id == dev.device_id)
+            .unwrap();
         assert!(after.last_seen_at > 0, "vira conectado após touch");
         // Não é mais coalescível: novo pending do mesmo nome cria outro.
         let again = reg.get_or_create_pending("Pixel").unwrap();
@@ -361,7 +388,10 @@ mod tests {
         }
         // Reabre: o device gravado ainda valida.
         let reg2 = DeviceRegistry::open(path);
-        assert!(reg2.validate_token(&token).is_some(), "device persiste em disco");
+        assert!(
+            reg2.validate_token(&token).is_some(),
+            "device persiste em disco"
+        );
     }
 
     #[test]
@@ -381,7 +411,10 @@ mod tests {
         let path = dir.path().join("devices.json");
         let reg = DeviceRegistry::open(path);
         let dev = reg.get_or_create_pending("Pixel").unwrap();
-        assert!(!dev.steer, "device nasce read-only (steer=false, default OFF)");
+        assert!(
+            !dev.steer,
+            "device nasce read-only (steer=false, default OFF)"
+        );
     }
 
     #[test]
@@ -422,8 +455,15 @@ mod tests {
         )
         .unwrap();
         let reg = DeviceRegistry::open(path);
-        let dev = reg.list().into_iter().next().expect("device legado carregou");
-        assert!(!dev.steer, "json sem campo steer desserializa como false (migração segura)");
+        let dev = reg
+            .list()
+            .into_iter()
+            .next()
+            .expect("device legado carregou");
+        assert!(
+            !dev.steer,
+            "json sem campo steer desserializa como false (migração segura)"
+        );
     }
 
     #[test]
@@ -437,9 +477,19 @@ mod tests {
         )
         .unwrap();
         let reg = DeviceRegistry::open(path);
-        let dev = reg.list().into_iter().next().expect("device legado carregou");
-        assert!(dev.install_id.is_none(), "json sem installId desserializa como None (migração)");
-        assert!(dev.steer, "steer legado preservado (campos existentes intactos)");
+        let dev = reg
+            .list()
+            .into_iter()
+            .next()
+            .expect("device legado carregou");
+        assert!(
+            dev.install_id.is_none(),
+            "json sem installId desserializa como None (migração)"
+        );
+        assert!(
+            dev.steer,
+            "steer legado preservado (campos existentes intactos)"
+        );
     }
 
     #[test]
@@ -460,10 +510,17 @@ mod tests {
         assert!(!new.steer, "B nasce read-only");
 
         // Reconcilia B com o MESMO installId → herda steer de A e remove A (dedup).
-        assert!(reg.reconcile_install(&new.device_id, "inst-1").unwrap(), "herdou steering do A");
+        assert!(
+            reg.reconcile_install(&new.device_id, "inst-1").unwrap(),
+            "herdou steering do A"
+        );
 
         let list = reg.list();
-        assert_eq!(list.len(), 1, "device antigo (A) removido — sem órfão duplicado");
+        assert_eq!(
+            list.len(),
+            1,
+            "device antigo (A) removido — sem órfão duplicado"
+        );
         assert_eq!(list[0].device_id, new.device_id, "sobra o device NOVO");
         assert!(list[0].steer, "B herdou o steering do pareamento anterior");
         assert_eq!(list[0].install_id.as_deref(), Some("inst-1"));
@@ -478,8 +535,16 @@ mod tests {
         assert!(!dev.steer);
         // installId inédito → nada a herdar (false); só grava o installId no device atual.
         assert!(!reg.reconcile_install(&dev.device_id, "inst-novo").unwrap());
-        let after = reg.list().into_iter().find(|d| d.device_id == dev.device_id).unwrap();
-        assert_eq!(after.install_id.as_deref(), Some("inst-novo"), "installId gravado");
+        let after = reg
+            .list()
+            .into_iter()
+            .find(|d| d.device_id == dev.device_id)
+            .unwrap();
+        assert_eq!(
+            after.install_id.as_deref(),
+            Some("inst-novo"),
+            "installId gravado"
+        );
         assert!(!after.steer, "sem pareamento anterior → não herda steering");
         assert_eq!(reg.list().len(), 1, "nada removido");
         // Device inexistente → Ok(false), no-op (não cria nada).
@@ -499,12 +564,22 @@ mod tests {
 
         let b = reg.get_or_create_pending("Celular B").unwrap();
         // installId DIFERENTE → não herda o steer do A nem remove o A.
-        assert!(!reg.reconcile_install(&b.device_id, "inst-B").unwrap(), "installId distinto não herda");
+        assert!(
+            !reg.reconcile_install(&b.device_id, "inst-B").unwrap(),
+            "installId distinto não herda"
+        );
 
         let list = reg.list();
-        assert_eq!(list.len(), 2, "os dois devices coexistem (installIds distintos)");
+        assert_eq!(
+            list.len(),
+            2,
+            "os dois devices coexistem (installIds distintos)"
+        );
         let bb = list.iter().find(|d| d.device_id == b.device_id).unwrap();
-        assert!(!bb.steer, "B não herdou steering de A (installId diferente)");
+        assert!(
+            !bb.steer,
+            "B não herdou steering de A (installId diferente)"
+        );
         assert_eq!(bb.install_id.as_deref(), Some("inst-B"));
         let aa = list.iter().find(|d| d.device_id == a.device_id).unwrap();
         assert!(aa.steer, "A intacto com seu próprio steering");
@@ -521,7 +596,11 @@ mod tests {
         let dev = reg.get_or_create_pending("Pixel").unwrap();
         reg.set_steer(&dev.device_id, true).unwrap(); // re-save via set_steer
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "set_steer preserva 0600 (save atômico)");
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "set_steer preserva 0600 (save atômico)"
+        );
     }
 
     #[cfg(unix)]
@@ -533,6 +612,10 @@ mod tests {
         let reg = DeviceRegistry::open(path.clone());
         reg.get_or_create_pending("Pixel").unwrap(); // força um save
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "devices.json deve ser 0600 (tokens são segredos)");
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "devices.json deve ser 0600 (tokens são segredos)"
+        );
     }
 }

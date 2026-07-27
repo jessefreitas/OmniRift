@@ -9,8 +9,11 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { floorMirrorSet, canvasAgentsSet, agentMcpConfig, agentSettingsConfig, mcpRegisterAgent } from "@/lib/mcp-client";
 import { parallelGitCreate } from "@/lib/git-client";
 import { workerClaudeArgs } from "@/lib/agent-contract";
+import { buildFirstValueGreeting } from "@/lib/first-value";
+import { injectWhenPtyReady } from "@/lib/inject-when-pty-ready";
 import { ROLE_CLIS } from "@/lib/agent-roles";
 import { hasTerminalView, wakeDetachedTerminal } from "@/lib/terminal-sessions";
+import { ptyWrite } from "@/lib/pty-client";
 import type { AgentRole } from "@/types/pty";
 
 interface SpawnRequest {
@@ -208,7 +211,7 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
             await agentSettingsConfig(p.name).catch(() => null),
           )
         : undefined;
-    s.addTerminal({ id, command: cliDef.command, args, label: p.name, role: cliDef.role });
+    const created = s.addTerminal({ id, command: cliDef.command, args, label: p.name, role: cliDef.role });
     // `p.role` (papel declarado no plano: Frontend/Backend/QA…) alimenta o guard
     // anti-duplicata do backend, que casa por PAPEL além do nome — é o que impede o
     // Arquiteto de abrir um "UI Dev" quando já tem um "Frontend" livre no canvas.
@@ -218,6 +221,27 @@ export async function initOrchestrationBridge(): Promise<UnlistenFn> {
     if (orchSid && orchSid !== id) s.addEdge(orchSid, id, "generic");
     // Sincroniza o checkbox "MCP AGENTS" do Sidebar (estado local do componente).
     window.dispatchEvent(new CustomEvent("omnirift:mcp-registered", { detail: { sessionId: id } }));
+    // M1 first-value: greeting pós-ready. Handoff M2 no mission_run.
+    if (created) {
+      const sid = created.session_id;
+      const floor =
+        s.parallels.find((f) => f.id === s.activeParallelId)?.name ?? undefined;
+      const greeting = buildFirstValueGreeting({
+        label: p.name,
+        role: p.role || p.name,
+        kind: "worker",
+        floor,
+      });
+      injectWhenPtyReady(greeting, {
+        getStatus: () => useCanvasStore.getState().terminalStatuses[sid],
+        subscribe: (cb) => useCanvasStore.subscribe(cb),
+        write: (t) => {
+          void ptyWrite(sid, t)
+            .then(() => setTimeout(() => void ptyWrite(sid, "\r").catch(() => {}), 200))
+            .catch(() => {});
+        },
+      });
+    }
   });
 
   const unCreate = await listen<{ name?: string }>("canvas://floor-create", (e) => {

@@ -177,7 +177,8 @@ fn introspect_sqlite_blocking(file_path: &str) -> Result<DbScan, String> {
 
             let mut cols = Vec::new();
             for row in rows {
-                let (name, type_, notnull, pk) = row.map_err(|_| "falha ao introspectar".to_string())?;
+                let (name, type_, notnull, pk) =
+                    row.map_err(|_| "falha ao introspectar".to_string())?;
                 let is_pk = pk > 0;
                 cols.push(DbColumn {
                     fk: fk_cols.contains(&name),
@@ -319,10 +320,7 @@ async fn introspect_postgres(conn_str: &str) -> Result<DbScan, String> {
 
 /// Faz UM connect (TLS ou NoTls) e devolve o `Client` já com a connection task
 /// rodando em background (a task termina sozinha quando o `Client` é dropado).
-async fn connect_postgres(
-    conn_str: &str,
-    use_tls: bool,
-) -> Result<tokio_postgres::Client, ()> {
+async fn connect_postgres(conn_str: &str, use_tls: bool) -> Result<tokio_postgres::Client, ()> {
     if use_tls {
         let (client, connection) = tokio_postgres::connect(conn_str, make_tls())
             .await
@@ -470,8 +468,9 @@ async fn introspect_postgres_with(client: &tokio_postgres::Client) -> Result<DbS
 /// tem cap de 8s. 🔒 A conn string NUNCA é logada nem aparece em erros.
 #[tauri::command]
 pub async fn db_introspect(conn_str: String) -> Result<DbScan, String> {
-    let dialect = Dialect::detect(&conn_str)
-        .ok_or_else(|| "connection string não reconhecida (use postgres:// ou sqlite:)".to_string())?;
+    let dialect = Dialect::detect(&conn_str).ok_or_else(|| {
+        "connection string não reconhecida (use postgres:// ou sqlite:)".to_string()
+    })?;
 
     let fut = async move {
         match dialect {
@@ -520,10 +519,7 @@ mod tests {
             Some(Dialect::Postgres)
         );
         // Case-insensitive.
-        assert_eq!(
-            Dialect::detect("POSTGRES://x"),
-            Some(Dialect::Postgres)
-        );
+        assert_eq!(Dialect::detect("POSTGRES://x"), Some(Dialect::Postgres));
     }
 
     #[test]
@@ -558,9 +554,7 @@ mod tests {
         assert!(postgres_wants_tls("postgres://h/db?sslmode=require"));
         assert!(postgres_wants_tls("postgres://x.neon.tech/db"));
         assert!(!postgres_wants_tls("postgres://localhost:5432/db"));
-        assert!(!postgres_wants_tls(
-            "postgres://h/db?sslmode=disable"
-        ));
+        assert!(!postgres_wants_tls("postgres://h/db?sslmode=disable"));
     }
 
     // ── Introspecção SQLite round-trip (rusqlite, sem servidor) ───────────────
@@ -658,10 +652,8 @@ mod tests {
         {
             let conn = Connection::open(&db_path).unwrap();
             // AUTOINCREMENT cria a tabela interna sqlite_sequence.
-            conn.execute_batch(
-                "CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT);",
-            )
-            .unwrap();
+            conn.execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT);")
+                .unwrap();
         }
         let scan = introspect_sqlite_blocking(&db_path_str).unwrap();
         let names: Vec<&str> = scan.tables.iter().map(|t| t.name.as_str()).collect();
@@ -689,8 +681,10 @@ mod tests {
         let db_path = dir.path().join("cmd.db");
         {
             let conn = Connection::open(&db_path).unwrap();
-            conn.execute_batch("CREATE TABLE widgets (id INTEGER PRIMARY KEY, label TEXT NOT NULL);")
-                .unwrap();
+            conn.execute_batch(
+                "CREATE TABLE widgets (id INTEGER PRIMARY KEY, label TEXT NOT NULL);",
+            )
+            .unwrap();
         }
         let conn_str = format!("sqlite:{}", db_path.to_string_lossy());
         let scan = db_introspect(conn_str).await.unwrap();
@@ -700,7 +694,9 @@ mod tests {
 
     #[tokio::test]
     async fn db_introspect_unknown_dialect_errs() {
-        let err = db_introspect("mysql://u@h/db".to_string()).await.unwrap_err();
+        let err = db_introspect("mysql://u@h/db".to_string())
+            .await
+            .unwrap_err();
         assert!(err.contains("não reconhecida"), "erro de dialeto: {err}");
     }
 }

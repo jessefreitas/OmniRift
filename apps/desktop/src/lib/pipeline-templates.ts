@@ -19,11 +19,11 @@ const FULLSTACK_PLAN: PipelinePlan = {
     "Time fullstack: arquiteto define contratos, backend e frontend implementam em paralelo, QA testa e o revisor gate-keia a entrega.",
   floors: [{ name: "principal", why: "fluxo único com ondas" }],
   agents: [
-    { role: "Arquiteto", model: "opus", wave: 1, why: "define contratos de API, modelagem e divide o trabalho" },
-    { role: "Backend", model: "sonnet", wave: 2, why: "implementa endpoints, banco e regras de negócio" },
-    { role: "Frontend", model: "sonnet", wave: 2, why: "implementa telas e integra com a API pelo contrato" },
-    { role: "QA", model: "haiku", wave: 3, why: "escreve e roda testes de integração contra o entregue" },
-    { role: "Code Reviewer", model: "sonnet", wave: 4, why: "revisa o diff completo e aprova ou devolve" },
+    { role: "Arquiteto", model: "opus", wave: 1, deps: [], why: "define contratos de API, modelagem e divide o trabalho" },
+    { role: "Backend", model: "sonnet", wave: 2, deps: ["Arquiteto"], why: "implementa endpoints, banco e regras de negócio" },
+    { role: "Frontend", model: "sonnet", wave: 2, deps: ["Arquiteto"], why: "implementa telas e integra com a API pelo contrato" },
+    { role: "QA", model: "haiku", wave: 3, deps: ["Backend", "Frontend"], why: "escreve e roda testes de integração contra o entregue" },
+    { role: "Code Reviewer", model: "sonnet", wave: 4, deps: ["QA"], why: "revisa o diff completo e aprova ou devolve" },
   ],
   subagents: [
     { parent: "Backend", role: "DBA", model: "haiku", why: "schema, migrations e índices sob demanda" },
@@ -45,9 +45,9 @@ const BUGSQUAD_PLAN: PipelinePlan = {
     "Esquadrão de bugs: triagem reproduz e prioriza, o fixer corrige com teste de regressão, o verificador roda a suíte inteira.",
   floors: [{ name: "principal", why: "fluxo único" }],
   agents: [
-    { role: "Triagem", model: "haiku", wave: 1, why: "reproduz o bug, isola a causa e escreve o caso mínimo" },
-    { role: "Fixer", model: "sonnet", wave: 2, why: "corrige a causa raiz e adiciona teste de regressão" },
-    { role: "Verificador", model: "haiku", wave: 3, why: "roda TODOS os testes (guard) e valida o cenário original" },
+    { role: "Triagem", model: "haiku", wave: 1, deps: [], why: "reproduz o bug, isola a causa e escreve o caso mínimo" },
+    { role: "Fixer", model: "sonnet", wave: 2, deps: ["Triagem"], why: "corrige a causa raiz e adiciona teste de regressão" },
+    { role: "Verificador", model: "haiku", wave: 3, deps: ["Fixer"], why: "roda TODOS os testes (guard) e valida o cenário original" },
   ],
   subagents: [],
   connections: [

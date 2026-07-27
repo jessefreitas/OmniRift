@@ -44,10 +44,18 @@ pub struct Limits {
 
 impl Limits {
     fn community() -> Self {
-        Self { canvas: COMMUNITY_CANVAS, agents: COMMUNITY_AGENTS, parallels: COMMUNITY_PARALLELS }
+        Self {
+            canvas: COMMUNITY_CANVAS,
+            agents: COMMUNITY_AGENTS,
+            parallels: COMMUNITY_PARALLELS,
+        }
     }
     fn unlimited() -> Self {
-        Self { canvas: 0, agents: 0, parallels: 0 }
+        Self {
+            canvas: 0,
+            agents: 0,
+            parallels: 0,
+        }
     }
 }
 
@@ -56,7 +64,11 @@ impl Limits {
 fn limits_for(tier: &str, lim: Option<&LimPayload>) -> Limits {
     if tier == "full" {
         match lim {
-            Some(l) => Limits { canvas: l.canvas, agents: l.agents, parallels: l.parallels },
+            Some(l) => Limits {
+                canvas: l.canvas,
+                agents: l.agents,
+                parallels: l.parallels,
+            },
             None => Limits::unlimited(),
         }
     } else {
@@ -149,7 +161,12 @@ fn read_machine_id() -> String {
     {
         use crate::proc_ext::NoWindow;
         if let Ok(out) = std::process::Command::new("reg")
-            .args(["query", "HKLM\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid"])
+            .args([
+                "query",
+                "HKLM\\SOFTWARE\\Microsoft\\Cryptography",
+                "/v",
+                "MachineGuid",
+            ])
             .no_window()
             .output()
         {
@@ -161,8 +178,12 @@ fn read_machine_id() -> String {
             }
         }
     }
-    let host = std::env::var("HOSTNAME").or_else(|_| std::env::var("COMPUTERNAME")).unwrap_or_default();
-    let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default();
+    let host = std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("COMPUTERNAME"))
+        .unwrap_or_default();
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_default();
     format!("{host}:{user}:omnirift-fallback")
 }
 
@@ -185,24 +206,40 @@ struct Verified {
 
 /// Verifica: assinatura confere com a pubkey + fp casa + não expirou.
 fn verify_key(key: &str, fp: &str) -> Result<Verified, String> {
-    let (payload_b64, sig_b64) = key.trim().split_once('.').ok_or("formato inválido (esperado payload.sig)")?;
-    let sig_bytes = URL_SAFE_NO_PAD.decode(sig_b64).map_err(|_| "assinatura inválida")?;
+    let (payload_b64, sig_b64) = key
+        .trim()
+        .split_once('.')
+        .ok_or("formato inválido (esperado payload.sig)")?;
+    let sig_bytes = URL_SAFE_NO_PAD
+        .decode(sig_b64)
+        .map_err(|_| "assinatura inválida")?;
     let sig = Signature::from_slice(&sig_bytes).map_err(|_| "assinatura inválida")?;
     let vk = VerifyingKey::from_bytes(&PUBKEY).map_err(|_| "pubkey inválida")?;
-    vk.verify(payload_b64.as_bytes(), &sig).map_err(|_| "assinatura não confere")?;
-    let raw = URL_SAFE_NO_PAD.decode(payload_b64).map_err(|_| "payload inválido")?;
+    vk.verify(payload_b64.as_bytes(), &sig)
+        .map_err(|_| "assinatura não confere")?;
+    let raw = URL_SAFE_NO_PAD
+        .decode(payload_b64)
+        .map_err(|_| "payload inválido")?;
     let p: Payload = serde_json::from_slice(&raw).map_err(|_| "payload inválido")?;
     if p.fp != fp {
         return Err("esta chave é de outra máquina".into());
     }
     if let Some(exp) = p.exp {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         if now > exp {
             return Err("chave expirada".into());
         }
     }
     let limits = limits_for(&p.tier, p.lim.as_ref());
-    Ok(Verified { holder: p.holder, tier: p.tier, limits, exp: p.exp })
+    Ok(Verified {
+        holder: p.holder,
+        tier: p.tier,
+        limits,
+        exp: p.exp,
+    })
 }
 
 fn license_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
@@ -273,7 +310,11 @@ pub fn license_activate(app: tauri::AppHandle, key: String) -> Result<LicenseSta
 // (O entitlement em si fica em license.key; a verificação de tier continua só nele.) ──
 
 /// Grava metadados (só os campos fornecidos): `license.id` = lic_ key, `was_beta` = flag.
-fn write_meta(dir: &std::path::Path, license_key: Option<&str>, was_beta: Option<bool>) -> std::io::Result<()> {
+fn write_meta(
+    dir: &std::path::Path,
+    license_key: Option<&str>,
+    was_beta: Option<bool>,
+) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     if let Some(k) = license_key {
         std::fs::write(dir.join("license.id"), k.trim())?;
@@ -285,11 +326,16 @@ fn write_meta(dir: &std::path::Path, license_key: Option<&str>, was_beta: Option
 }
 
 fn read_stored_key(dir: &std::path::Path) -> Option<String> {
-    std::fs::read_to_string(dir.join("license.id")).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    std::fs::read_to_string(dir.join("license.id"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn read_was_beta(dir: &std::path::Path) -> bool {
-    std::fs::read_to_string(dir.join("was_beta")).map(|s| s.trim() == "1").unwrap_or(false)
+    std::fs::read_to_string(dir.join("was_beta"))
+        .map(|s| s.trim() == "1")
+        .unwrap_or(false)
 }
 
 fn app_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
@@ -299,7 +345,11 @@ fn app_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
 
 /// Persiste a license key (`lic_`) e/ou o flag was_beta. Campos `None` ficam intactos.
 #[tauri::command]
-pub fn license_store_meta(app: tauri::AppHandle, license_key: Option<String>, was_beta: Option<bool>) -> Result<(), String> {
+pub fn license_store_meta(
+    app: tauri::AppHandle,
+    license_key: Option<String>,
+    was_beta: Option<bool>,
+) -> Result<(), String> {
     let dir = app_dir(&app).ok_or("sem dir de dados")?;
     write_meta(&dir, license_key.as_deref(), was_beta).map_err(|e| e.to_string())
 }
@@ -361,7 +411,18 @@ mod tests {
         assert_eq!(limits_for("community", None), Limits::community());
         assert_eq!(limits_for("qualquer", None), Limits::community());
         // token full com lim explícito (plano futuro) é respeitado
-        let l = LimPayload { canvas: 3, agents: 0, parallels: 2 };
-        assert_eq!(limits_for("full", Some(&l)), Limits { canvas: 3, agents: 0, parallels: 2 });
+        let l = LimPayload {
+            canvas: 3,
+            agents: 0,
+            parallels: 2,
+        };
+        assert_eq!(
+            limits_for("full", Some(&l)),
+            Limits {
+                canvas: 3,
+                agents: 0,
+                parallels: 2
+            }
+        );
     }
 }

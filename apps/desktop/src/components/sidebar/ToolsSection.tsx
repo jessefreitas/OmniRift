@@ -48,6 +48,7 @@ function loadCollapsed(): Record<string, boolean> {
 export function ToolsSection({ toolDefs, cats, toolCat, tools, isOpen, sectionTitle, runTool, secStyle }: ToolsSectionProps) {
   const tr = useT();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed);
+  const visibleIds = new Set(toolDefs.map((tool) => tool.id));
 
   function toggle(catId: string) {
     setCollapsed((prev) => {
@@ -90,7 +91,9 @@ export function ToolsSection({ toolDefs, cats, toolCat, tools, isOpen, sectionTi
         <div className="space-y-2">
           {cats.map((cat) => {
             // Itens desta categoria, na ordem global (reordenável por drag dentro do grupo).
-            const items = tools.order.filter((id) => (toolCat[id] ?? "system") === cat.id);
+            const items = tools.order.filter(
+              (id) => visibleIds.has(id) && (toolCat[id] ?? "system") === cat.id,
+            );
             if (items.length === 0) return null;
             const open = !collapsed[cat.id];
             return (

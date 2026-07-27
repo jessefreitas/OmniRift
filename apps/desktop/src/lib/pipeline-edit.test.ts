@@ -1,6 +1,20 @@
 // testes caseiros para pipeline-edit.ts — runner executa o bundle com node e usa exit code
 
-import { uniqueRole, updateAgent, removeAgent, addAgent, removeSubagent } from "./pipeline-edit";
+import {
+  uniqueRole,
+  updateAgent,
+  removeAgent,
+  addAgent,
+  addConnection,
+  updateConnection,
+  removeConnection,
+  removeSubagent,
+  applySetupPreset,
+  createManualPlan,
+  effectiveAgentRuntime,
+  materializeAgentSetup,
+  pipelineSetupIssues,
+} from "./pipeline-edit";
 import type { PipelinePlan } from "./pipeline-client";
 
 let pass = 0;
@@ -117,6 +131,71 @@ function plano(): PipelinePlan {
   eq(a.connections.length, 2, "adicionar não inventa conexão");
 }
 
+// fluxo manual nasce imediatamente editável e montável
+{
+  const manual = createManualPlan();
+  eq(manual.summary, "Meu fluxo de agentes", "fluxo manual tem objetivo editável");
+  eq(manual.agents.length, 1, "fluxo manual já mostra o primeiro card de agente");
+  eq(manual.agents[0].runtime, "claude-terminal", "primeiro agente manual tem runtime executável");
+  eq(pipelineSetupIssues(manual, []), [], "fluxo manual inicial passa no gate");
+}
+
+// ondas inválidas são normalizadas para manter o layout e a admissão executáveis
+{
+  const p = addAgent(plano(), 0);
+  eq(p.agents[3].wave, 1, "onda zero vira onda 1");
+  const moved = updateAgent(p, 3, { wave: -7 });
+  eq(moved.agents[3].wave, 1, "edição de onda negativa também é normalizada");
+}
+
+// conexões manuais sincronizam deps e rejeitam ligações inválidas
+{
+  const base = {
+    ...plano(),
+    connections: [],
+    agents: plano().agents.map((agent) => ({ ...agent, deps: [] })),
+  };
+  const connected = addConnection(base, "Backend", "Frontend", "contrato");
+  eq(connected.connections.length, 1, "conexão manual entra no fluxo");
+  eq(connected.agents[1].deps, ["Backend"], "destino passa a depender da origem");
+  eq(addConnection(connected, "backend", "frontend").connections.length, 1, "conexão duplicada não entra");
+  eq(addConnection(connected, "Backend", "Backend").connections.length, 1, "auto-conexão não entra");
+
+  const redirected = updateConnection(connected, 0, { to: "QA", why: "entrega" });
+  eq(redirected.connections[0], { from: "Backend", to: "QA", why: "entrega" }, "conexão pode ser redirecionada");
+  eq(redirected.agents[1].deps, [], "destino anterior perde a dependência");
+  eq(redirected.agents[2].deps, ["Backend"], "novo destino recebe a dependência");
+
+  const disconnected = removeConnection(redirected, 0);
+  eq(disconnected.connections.length, 0, "conexão pode ser removida");
+  eq(disconnected.agents[2].deps, [], "remover conexão limpa deps");
+}
+
+// renomear/remover também mantém deps legados sem referências órfãs
+{
+  const base = plano();
+  base.agents[1].deps = ["Backend"];
+  const renamed = updateAgent(base, 0, { role: "API" });
+  eq(renamed.agents[1].deps, ["API"], "rename cascateia para deps");
+  const removed = removeAgent(renamed, 0);
+  eq(removed.agents[0].deps, [], "remoção limpa deps dos sobreviventes");
+}
+
+// plano vazio não pode ser montado silenciosamente
+{
+  const empty = {
+    ...plano(),
+    agents: [],
+    connections: [],
+    subagents: [],
+    criticalPath: [],
+  };
+  assert(
+    pipelineSetupIssues(empty, []).some((issue) => issue.includes("pelo menos um agente")),
+    "gate explica como recuperar um plano vazio",
+  );
+}
+
 // uniqueRole considera subagentes também
 {
   eq(uniqueRole(plano(), "Migrations"), "Migrations 2", "colide com subagente existente");
@@ -128,6 +207,41 @@ function plano(): PipelinePlan {
   const s = removeSubagent(plano(), "backend", "MIGRATIONS");
   eq(s.subagents.length, 0, "casamento é case-insensitive");
   eq(s.agents.length, 3, "remover subagente não mexe nos agentes");
+}
+
+// setup legado: presets viram runtimes reais e o híbrido escolhe o líder pela menor onda
+{
+  const p = plano();
+  eq(effectiveAgentRuntime(p, 0, "hybrid"), "claude-acp", "líder do híbrido nasce coordenador ACP");
+  eq(effectiveAgentRuntime(p, 1, "hybrid"), "claude-terminal", "worker do híbrido nasce executor");
+  eq(effectiveAgentRuntime(p, 2, "agent"), "claude-acp", "preset ACP vale para todo agente");
+  eq(effectiveAgentRuntime(p, 2, "terminal"), "claude-terminal", "preset terminal vale para todo agente");
+}
+
+// override por agente sobrevive à materialização; preset explícito sobrescreve em lote
+{
+  const p = plano();
+  p.agents[1].runtime = "codex-acp";
+  const materialized = materializeAgentSetup(p, "hybrid");
+  eq(materialized.agents.map((a) => a.runtime), ["claude-acp", "codex-acp", "claude-terminal"], "materialização preserva override individual");
+  materialized.agents[1].model = "provider/modelo-custom";
+  const allTerminal = applySetupPreset(materialized, "terminal");
+  eq(allTerminal.agents.map((a) => a.runtime), ["claude-terminal", "claude-terminal", "claude-terminal"], "preset em lote sobrescreve runtimes");
+  eq(allTerminal.agents[1].model, undefined, "preset Claude limpa modelo incompatível de outro runtime");
+}
+
+// Hermes não pode montar sem provider existente + modelo (explícito ou default)
+{
+  const p = plano();
+  p.agents[0] = { ...p.agents[0], runtime: "hermes-acp", model: undefined };
+  assert(pipelineSetupIssues(p, []).some((x) => x.includes("provider")), "Hermes sem provider é bloqueado");
+  p.agents[0].providerId = "router";
+  assert(pipelineSetupIssues(p, [{ id: "router" }]).some((x) => x.includes("modelo")), "Hermes sem modelo é bloqueado");
+  assert(
+    pipelineSetupIssues(p, [{ id: "router", kind: "openrouter", hasKey: false, model: "modelo-default" }]).some((x) => x.includes("chave")),
+    "provider remoto sem chave é bloqueado",
+  );
+  eq(pipelineSetupIssues(p, [{ id: "router", model: "modelo-default" }]), [], "modelo default do provider completa o setup");
 }
 
 console.log(`\n${pass} passaram, ${fail} falharam`);

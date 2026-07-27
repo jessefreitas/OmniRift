@@ -1,8 +1,8 @@
 //! Comandos Tauri do OmniSwitch: URL+token pro env do agente, get/set da tabela de
 //! roteamento (`~/.omnirift/llm_router.json`) e snapshot de saúde das chaves.
 
-use tauri::State;
 use crate::llm_router::server::RouterState;
+use tauri::State;
 
 /// URL base do router + token (pro front montar o env ANTHROPIC_BASE_URL/OPENAI_BASE_URL
 /// e a key-token do agente). Loopback.

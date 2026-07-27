@@ -33,6 +33,7 @@ function alertsSignature(alerts: FluencyAlert[]): string {
 export function FluencyChip() {
   const t = useT();
   const [alerts, setAlerts] = useState<FluencyAlert[]>(() => getRecentFluencyAlerts());
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const intervalRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -51,6 +52,7 @@ export function FluencyChip() {
       if (intervalRef.current !== null) return;
       // Tick só enquanto há alerta (pra TTL sumir sem re-render eterno no App).
       intervalRef.current = window.setInterval(() => {
+        setNowMs(Date.now());
         const next = getRecentFluencyAlerts();
         apply(next);
         if (next.length === 0) disarm();
@@ -58,6 +60,7 @@ export function FluencyChip() {
     };
 
     const onAlert = () => {
+      setNowMs(Date.now());
       apply(getRecentFluencyAlerts());
       arm();
     };
@@ -99,7 +102,7 @@ export function FluencyChip() {
         {alerts.length > 1 ? ` ·×${alerts.length}` : ""}
       </span>
       <span className="text-textMuted opacity-50 text-[10px]">
-        {Math.max(0, Math.ceil((FLUENCY.CHIP_TTL_MS - (Date.now() - last.atMs)) / 1000))}s
+        {Math.max(0, Math.ceil((FLUENCY.CHIP_TTL_MS - (nowMs - last.atMs)) / 1000))}s
       </span>
     </div>
   );

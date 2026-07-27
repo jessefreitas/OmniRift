@@ -15,7 +15,18 @@ pub const ROUTER_PORT: u16 = 7845;
 use std::collections::HashMap;
 
 /// Custo relativo de um alvo (usado por `cost-first`). Ord: Low < Mid < High.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Default,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Cost {
     Low,
@@ -25,7 +36,18 @@ pub enum Cost {
 }
 
 /// Capacidade relativa de um alvo (usado por `capability-first`). Ord: Low < Mid < High.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Default,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Capability {
     Low,

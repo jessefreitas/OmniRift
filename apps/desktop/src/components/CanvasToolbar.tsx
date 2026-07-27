@@ -4,13 +4,15 @@
 // um criador do store; o node nasce numa posição default e o usuário arrasta.
 
 import type { LucideIcon } from "lucide-react";
-import { Activity, Braces, Brain, Database, FileCode2, FileText, Filter, FolderTree, Frame, GitPullRequestArrow, Globe, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench, Zap } from "lucide-react";
+import { Activity, Braces, Brain, Database, FileCode2, FileText, Filter, FolderTree, Frame, GitPullRequestArrow, Globe, Network, Pencil, ScrollText, StickyNote, TerminalSquare, Webhook, Wrench, Zap } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { Tooltip } from "@/components/Tooltip";
 import { WorkflowTemplatesMenu } from "@/components/WorkflowTemplatesMenu";
 import { useT } from "@/lib/i18n";
+import { useExperienceMode, useReducedUi } from "@/lib/experience-mode";
+import { currentShell } from "@/lib/shell";
 
 function ToolBtn({
   label,
@@ -38,6 +40,8 @@ function ToolBtn({
 
 export function CanvasToolbar() {
   const t = useT();
+  const reduced = useReducedUi();
+  const expMode = useExperienceMode();
   const addTerminal = useCanvasStore((s) => s.addTerminal);
   const addNote = useCanvasStore((s) => s.addNote);
   const addGroup = useCanvasStore((s) => s.addGroup);
@@ -61,12 +65,44 @@ export function CanvasToolbar() {
     if (typeof sel === "string") addCodeNode({ filePath: sel });
   }
 
+  if (reduced) {
+    return (
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-0.5 px-1.5 py-1 rounded-xl bg-surface2/90 backdrop-blur border border-brand/30 shadow-lg">
+        {expMode === "pocket" && <>
+          <ToolBtn
+            label={t("pocket.setup", "Montar equipe de agentes")}
+            icon={Network}
+            onClick={() => window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "pipeline" }))}
+          />
+          <span className="mx-0.5 h-4 w-px bg-border" />
+        </>}
+        <ToolBtn
+          label={t("toolbar.terminal", "Terminal (shell)")}
+          icon={TerminalSquare}
+          onClick={() => { const sh = currentShell(); addTerminal({ command: sh.command, args: sh.args, role: "shell", label: "shell" }); }}
+        />
+        <ToolBtn
+          label={t("toolbar.agent", "Agente (ACP — estruturado)")}
+          icon={Brain}
+          onClick={() => addAgent({})}
+        />
+        <ToolBtn label={t("toolbar.note", "Nota")} icon={StickyNote} onClick={() => addNote()} />
+        <ToolBtn
+          label={currentCwd ? t("toolbar.fileTree", "Árvore de arquivos do projeto") : t("toolbar.openProjectFirst", "Abra um projeto primeiro")}
+          icon={FolderTree}
+          disabled={!currentCwd}
+          onClick={() => currentCwd && addFileTree({ rootPath: currentCwd })}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-0.5 px-1.5 py-1 rounded-xl bg-surface2/90 backdrop-blur border border-border shadow-lg">
       <ToolBtn
         label={t("toolbar.terminal", "Terminal (shell)")}
         icon={TerminalSquare}
-        onClick={() => addTerminal({ command: "bash", role: "shell", label: "shell" })}
+        onClick={() => { const sh = currentShell(); addTerminal({ command: sh.command, args: sh.args, role: "shell", label: "shell" }); }}
       />
       <ToolBtn
         label={t("toolbar.agent", "Agente (ACP — estruturado)")}

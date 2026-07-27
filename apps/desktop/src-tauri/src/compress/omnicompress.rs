@@ -32,8 +32,12 @@ fn proxy_host_port(url: &str) -> String {
 /// O proxy está de pé? TCP connect rápido (250ms) — não bloqueia o app.
 fn proxy_reachable(url: &str) -> bool {
     let hp = proxy_host_port(url);
-    let Ok(mut addrs) = hp.to_socket_addrs() else { return false };
-    addrs.next().is_some_and(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok())
+    let Ok(mut addrs) = hp.to_socket_addrs() else {
+        return false;
+    };
+    addrs
+        .next()
+        .is_some_and(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok())
 }
 
 pub struct OmnicompressProvider;
@@ -61,11 +65,14 @@ impl Compressor for OmnicompressProvider {
         match cli {
             CliFamily::Shell => {} // shell não fala com LLM
             CliFamily::Claude => {
-                deco.env.push(("ANTHROPIC_BASE_URL".into(), ANTHROPIC_PROXY.into()));
+                deco.env
+                    .push(("ANTHROPIC_BASE_URL".into(), ANTHROPIC_PROXY.into()));
             }
             _ => {
-                deco.env.push(("OPENAI_BASE_URL".into(), OPENAI_PROXY.into()));
-                deco.env.push(("OPENAI_API_BASE".into(), OPENAI_PROXY.into()));
+                deco.env
+                    .push(("OPENAI_BASE_URL".into(), OPENAI_PROXY.into()));
+                deco.env
+                    .push(("OPENAI_API_BASE".into(), OPENAI_PROXY.into()));
             }
         }
     }
@@ -90,13 +97,19 @@ mod tests {
         // Claude → só Anthropic (proxy 8787).
         let mut claude = SpawnDecoration::default();
         OmnicompressProvider.decorate(CliFamily::Claude, "n", &mut claude);
-        assert!(claude.env.iter().any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v.contains("8787")));
+        assert!(claude
+            .env
+            .iter()
+            .any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v.contains("8787")));
         assert!(!claude.env.iter().any(|(k, _)| k == "OPENAI_BASE_URL"));
 
         // Codex → só OpenAI (proxy 8788).
         let mut codex = SpawnDecoration::default();
         OmnicompressProvider.decorate(CliFamily::Codex, "n", &mut codex);
-        assert!(codex.env.iter().any(|(k, v)| k == "OPENAI_BASE_URL" && v.contains("8788")));
+        assert!(codex
+            .env
+            .iter()
+            .any(|(k, v)| k == "OPENAI_BASE_URL" && v.contains("8788")));
         assert!(!codex.env.iter().any(|(k, _)| k == "ANTHROPIC_BASE_URL"));
     }
 }

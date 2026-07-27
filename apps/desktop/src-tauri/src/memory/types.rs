@@ -38,10 +38,16 @@ pub struct ProviderHealth {
 }
 impl ProviderHealth {
     pub fn ok(d: &str) -> Self {
-        Self { ok: true, detail: d.into() }
+        Self {
+            ok: true,
+            detail: d.into(),
+        }
     }
     pub fn fail(d: String) -> Self {
-        Self { ok: false, detail: d }
+        Self {
+            ok: false,
+            detail: d,
+        }
     }
 }
 

@@ -7,12 +7,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
-import { Network, Save, Sparkles, X } from "lucide-react";
+import { Bot, Network, RefreshCw, Save, Sparkles, X } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
 import { agentsMdInstruction, workerClaudeArgs } from "@/lib/agent-contract";
-import { llmProvidersList, type LlmProvider } from "@/lib/llm-providers-client";
+import {
+  llmProviderListModels,
+  llmProvidersList,
+  type LlmProvider,
+} from "@/lib/llm-providers-client";
 import { LLM_CATALOG } from "@/lib/llm-catalog";
 import {
   generatePipelinePlan,
@@ -33,7 +37,16 @@ import {
   updateAgent as planUpdateAgent,
   removeAgent as planRemoveAgent,
   addAgent as planAddAgent,
+  addConnection as planAddConnection,
+  updateConnection as planUpdateConnection,
+  removeConnection as planRemoveConnection,
   removeSubagent as planRemoveSubagent,
+  applySetupPreset,
+  createManualPlan,
+  effectiveAgentRuntime,
+  materializeAgentSetup,
+  pipelineSetupIssues,
+  type PipelineSetupPreset,
 } from "@/lib/pipeline-edit";
 import { fitActiveFloor } from "@/lib/canvas-focus";
 import { useT } from "@/lib/i18n";
@@ -43,6 +56,29 @@ const MODEL_COLORS: Record<string, string> = {
   sonnet: "bg-sky-500/20 text-sky-300",
   opus: "bg-purple-500/20 text-purple-300",
 };
+
+const RUNTIME_OPTIONS = [
+  {
+    id: "claude-terminal",
+    label: "Claude Code · terminal executor",
+    hint: "PTY nativo; edita arquivos e executa comandos.",
+  },
+  {
+    id: "claude-acp",
+    label: "Claude · OmniAgent coordenador",
+    hint: "Sessão ACP; coordena o time sem tools de execução.",
+  },
+  {
+    id: "codex-acp",
+    label: "Codex · OmniAgent",
+    hint: "Sessão ACP com login e modelos expostos pelo Codex.",
+  },
+  {
+    id: "hermes-acp",
+    label: "Hermes · LLM da Central de API",
+    hint: "OpenRouter, Ollama, OpenAI, Gemini, local e outros.",
+  },
+] as const;
 
 // Modo CLI local (sem chave): value do select = "__cli:<binário>". Default do modal —
 // o usuário já paga a subscription do Claude Code; a Central/BYOK é opt-in, não gate.
@@ -56,7 +92,7 @@ const ANCHOR_KEY = "omnirift-pipe-anchor-arch";
  * Quem não sabe disso monta em ACP e vê agentes que não executam nada. Pedido de beta
  * tester (Eric, 18/07): "esqueço sempre que o modo ACP não é ideal pra todo o time". */
 const MOUNT_AS_KEY = "omnirift-pipe-mount-as";
-type MountAs = "agent" | "terminal" | "hybrid";
+type MountAs = PipelineSetupPreset;
 function loadMountAs(): MountAs {
   try {
     const v = localStorage.getItem(MOUNT_AS_KEY);
@@ -97,6 +133,9 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   const [model, setModel] = useState("");
   const [desc, setDesc] = useState("");
   const [plan, setPlan] = useState<PipelinePlan | null>(null);
+  const [planView, setPlanView] = useState<"structure" | "setup">("structure");
+  const [modelsByProvider, setModelsByProvider] = useState<Record<string, string[]>>({});
+  const [loadingModelsFor, setLoadingModelsFor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -104,7 +143,9 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   // OmniGraph: só mostra o toggle se o binário/uvx existe; a preferência do toggle persiste.
   const [omnigraphOk, setOmniGraphOk] = useState(false);
-  const [anchorArch, setAnchorArch] = useState(false);
+  const [anchorArch, setAnchorArch] = useState(() => {
+    try { return localStorage.getItem(ANCHOR_KEY) === "1"; } catch { return false; }
+  });
 
   useEffect(() => {
     llmProvidersList().then((ps) => {
@@ -123,7 +164,6 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   // OmniGraph disponível? + preferência salva do toggle (mount-only — não depende do cwd).
   useEffect(() => {
     omnigraphAvailable().then(setOmniGraphOk).catch(() => setOmniGraphOk(false));
-    try { setAnchorArch(localStorage.getItem(ANCHOR_KEY) === "1"); } catch { /* localStorage off */ }
   }, []);
 
   const isCli = providerId.startsWith(CLI_PREFIX);
@@ -172,8 +212,73 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
 
   async function save() {
     if (!plan) return;
-    await pipelineSave(currentCwd, plan).catch(() => {});
+    const configured = materializeAgentSetup(plan, mountAs);
+    setPlan(configured);
+    await pipelineSave(currentCwd, configured).catch(() => {});
     setSavedAt(Date.now());
+  }
+
+  async function loadProviderModels(providerIdToLoad: string) {
+    if (!providerIdToLoad) return;
+    setLoadingModelsFor(providerIdToLoad);
+    try {
+      const models = await llmProviderListModels(providerIdToLoad);
+      setModelsByProvider((cur) => ({ ...cur, [providerIdToLoad]: models }));
+    } catch (e) {
+      setErr(`${t("pipe.modelsFail", "não consegui listar os modelos")}: ${String(e)}`);
+    } finally {
+      setLoadingModelsFor(null);
+    }
+  }
+
+  async function openProvidersCentral() {
+    if (plan) {
+      const configured = materializeAgentSetup(plan, mountAs);
+      await pipelineSave(currentCwd, configured).catch(() => {});
+    }
+    onClose();
+    window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "llm-providers" }));
+  }
+
+  function startManualFlow() {
+    setPlan(createManualPlan());
+    setPlanView("setup");
+    setSavedAt(null);
+    setErr(null);
+  }
+
+  function appendAgent(wave?: number) {
+    if (!plan) return;
+    const nextWave = wave ?? (
+      plan.agents.length === 0
+        ? 1
+        : Math.max(...plan.agents.map((agent) => agent.wave ?? 1)) + 1
+    );
+    setPlan(planAddAgent(plan, nextWave));
+    setErr(null);
+  }
+
+  function appendConnection() {
+    if (!plan || plan.agents.length < 2) {
+      setErr(t("pipe.needTwoAgents", "adicione pelo menos dois agentes para criar uma conexão"));
+      return;
+    }
+    for (const source of plan.agents) {
+      for (const target of plan.agents) {
+        if (source.role.toLowerCase() === target.role.toLowerCase()) continue;
+        const exists = plan.connections.some(
+          (connection) =>
+            connection.from.toLowerCase() === source.role.toLowerCase() &&
+            connection.to.toLowerCase() === target.role.toLowerCase(),
+        );
+        if (!exists) {
+          setPlan(planAddConnection(plan, source.role, target.role));
+          setErr(null);
+          return;
+        }
+      }
+    }
+    setErr(t("pipe.allConnected", "todas as conexões possíveis já foram adicionadas"));
   }
 
   // Monta a topologia COMPLETA no canvas: um OmniAgent (ou terminal claude com role NATIVO,
@@ -184,6 +289,16 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
   // 1º, que fica no floor ativo) vira um Parallel próprio — nós nascem lá via targetFloorId.
   async function build() {
     if (!plan) return;
+    const configuredPlan = materializeAgentSetup(plan, mountAs);
+    const setupIssues = pipelineSetupIssues(configuredPlan, providers);
+    if (setupIssues.length > 0) {
+      setPlan(configuredPlan);
+      setPlanView("setup");
+      setErr(setupIssues.join(" · "));
+      return;
+    }
+    setPlan(configuredPlan);
+    await pipelineSave(currentCwd, configuredPlan).catch(() => {});
     // F3 item 1: ponto de restauração ANTES de montar o time. Se o cwd do projeto
     // está num mount OmniFS vivo, tira um snapshot pré-onda — toda montagem de time
     // fica revertível (o time inteiro pode mexer no drive). Falha silenciosa se não
@@ -224,7 +339,9 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
       plan.connections.filter((c) => c.from.toLowerCase() === role.toLowerCase()).map((c) => c.to);
 
     // Terminal-com-role: o perfil MCP de dev é um só (resolve 1x); settings é por-agente.
-    const mcpPath = mountAs !== "agent" ? await agentMcpConfig().catch(() => null) : null;
+    const mcpPath = configuredPlan.agents.some((agent) => agent.runtime === "claude-terminal")
+      ? await agentMcpConfig().catch(() => null)
+      : null;
 
     const idByRole = new Map<string, string>();
     const floorByRole = new Map<string, string | undefined>();
@@ -233,13 +350,13 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
     let skippedByLimit = 0;
     // Líder = agente da MENOR onda (o Arquiteto, que "define contratos e divide o trabalho").
     // Ele vira o ORQUESTRADOR do time (persona de comando abaixo + coroa/dock via setOrchestratorSid).
-    const leaderRole = [...plan.agents].sort((x, y) => (x.wave ?? 1) - (y.wave ?? 1))[0]?.role.toLowerCase();
+    const leaderRole = [...configuredPlan.agents].sort((x, y) => (x.wave ?? 1) - (y.wave ?? 1))[0]?.role.toLowerCase();
     // ADMISSÃO POR ONDA: só a primeira onda ganha processo. As seguintes nascem
     // SUSPENSAS (card 💤, zero PTY) e o usuário religa quando a dependência entrega.
     // Antes disso a onda era só desenho — o Montar subia o time INTEIRO de uma vez
     // (11 claude em ~22s no diagnóstico do Jessé, main thread parada 1,85s).
-    const firstWave = Math.min(...plan.agents.map((a) => a.wave ?? 1));
-    for (const a of plan.agents) {
+    const firstWave = Math.min(...configuredPlan.agents.map((a) => a.wave ?? 1));
+    for (const a of configuredPlan.agents) {
       const wave = a.wave ?? 1;
       const bornDormant = wave !== firstWave;
       const targetFloorId = floorIdFor(a.floor);
@@ -292,7 +409,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
           : `Prepare sua fatia agora lendo ${repoHint}; execute quando ${ups.join(", ")} te entregar o trabalho.`);
 
       let nodeId: string;
-      if (mountAs === "terminal" || (mountAs === "hybrid" && !isLeader)) {
+      if (a.runtime === "claude-terminal") {
         // Terminal claude NATIVO: persona vira system prompt real (--append-system-prompt,
         // dentro do contrato dev) + modelo do plano via --model (o CLI aceita haiku/sonnet/opus).
         const settingsPath = await agentSettingsConfig(a.role).catch(() => null);
@@ -308,13 +425,31 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
         if (!node) { skippedByLimit++; continue; } // gate de licença (máx agentes) → pula o role
         nodeId = node.id;
       } else {
+        const acpProvider =
+          a.runtime === "codex-acp"
+            ? "codex"
+            : a.runtime === "hermes-acp"
+              ? "hermes"
+              : "claude";
+        const llmProvider = a.providerId
+          ? providers.find((provider) => provider.id === a.providerId)
+          : undefined;
+        const effectiveModel = a.model?.trim() || llmProvider?.model?.trim() || "";
         const node = addAgent({
           label: a.role,
           persona,
           position: { x, y },
-          // Modelo sugerido pelo plano nos PRINCIPAIS: o AgentNode aplica no ready
-          // (configOption "model" do Claude — mesmo cano do dropdown).
-          providerConfig: a.model ? { provider: "claude", model: a.model } : undefined,
+          provider: acpProvider,
+          // O setup persiste só metadados. Hermes resolve credentialId no keychain do backend;
+          // Claude/Codex aplicam o modelo pelo canal ACP após o ready.
+          providerConfig: effectiveModel
+            ? {
+                provider: llmProvider?.kind ?? acpProvider,
+                model: effectiveModel,
+                credentialId: llmProvider?.id,
+                baseUrl: llmProvider?.baseUrl,
+              }
+            : undefined,
           targetFloorId,
         });
         nodeId = node.id;
@@ -387,7 +522,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
       window.dispatchEvent(new CustomEvent("omnirift:mcp-remapped"));
     } catch { /* localStorage indisponível */ }
     console.info(
-      `[pipeline] Montar: ${idByRole.size} agentes (${mountAs}), ${createdFloors} paralelo(s) criado(s), ` +
+      `[pipeline] Montar: ${idByRole.size} agentes (setup por agente), ${createdFloors} paralelo(s) criado(s), ` +
       `${skippedCross} conexão(ões) cross-floor pulada(s), ${skippedByLimit} agente(s) barrado(s) por licença`,
     );
     // Enquadra o time recém-montado: sem isto, agente fora do viewport ficava invisível
@@ -401,7 +536,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
 
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="flex max-h-[90vh] w-[720px] max-w-[95vw] flex-col rounded-lg border border-border bg-surface1 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="flex max-h-[92vh] w-[1080px] max-w-[96vw] flex-col rounded-lg border border-border bg-surface1 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center gap-2 border-b border-border px-4 py-2.5">
           <Network size={15} className="text-brand" />
           <span className="flex-1 text-sm font-medium text-text">{t("pipe.title", "Arquiteto de Pipeline")}</span>
@@ -419,7 +554,12 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                 <button
                   key={tp.id}
                   onClick={() => {
-                    if (tp.plan) { setPlan(tp.plan); setSavedAt(null); setErr(null); }
+                    if (tp.plan) {
+                      setPlan(tp.plan);
+                      setPlanView("structure");
+                      setSavedAt(null);
+                      setErr(null);
+                    }
                     else setDesc(tp.desc);
                   }}
                   className="rounded-full border border-border bg-surface2 px-2 py-0.5 text-[11px] text-text/80 hover:border-brand hover:text-text"
@@ -428,6 +568,14 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                   {tp.emoji} {tp.label}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={startManualFlow}
+                className="rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-[11px] text-brand hover:border-brand hover:bg-brand/15"
+                title={t("pipe.manualFlowT", "Começa um plano editável sem chamar LLM nem usar um modelo pronto")}
+              >
+                ＋ {t("pipe.manualFlow", "Criar fluxo manual")}
+              </button>
             </div>
             <textarea
               value={desc}
@@ -444,8 +592,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                   // Entrada do CATÁLOGO (sem chave salva) → não vira seleção: abre a Central
                   // de API pra cadastrar (mesma mecânica do botão ➕ abaixo).
                   if (v.startsWith("__register:")) {
-                    onClose();
-                    window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "llm-providers" }));
+                    void openProvidersCentral();
                     return;
                   }
                   setProviderId(v);
@@ -513,7 +660,7 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
             {/* BYOK: o dropdown lista o que tem CHAVE na Central. Atalho pra cadastrar mais
                 (OpenRouter, Anthropic, Gemini, …) sem caçar no menu Ferramentas. */}
             <button
-              onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "llm-providers" })); }}
+              onClick={() => void openProvidersCentral()}
               className="text-[11px] text-brand hover:underline"
             >
               ➕ {t("pipe.addProvider", "cadastrar outro provider (OpenRouter, Anthropic, Gemini…) na Central de API")}
@@ -528,7 +675,13 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
           {plan && (
             <div className="space-y-3 rounded-md border border-border p-3">
               <div className="flex items-start gap-2">
-                <p className="flex-1 text-[13px] text-text">{plan.summary}</p>
+                <input
+                  value={plan.summary}
+                  onChange={(event) => setPlan({ ...plan, summary: event.target.value })}
+                  aria-label={t("pipe.flowObjective", "Objetivo do fluxo")}
+                  placeholder={t("pipe.flowObjectivePh", "Qual é o objetivo deste time?")}
+                  className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-[13px] text-text outline-none hover:border-border focus:border-brand focus:bg-bg/40"
+                />
                 {(() => {
                   const built = plan.agents.filter((a) => builtLabels.includes(a.role.toLowerCase())).length;
                   return (
@@ -542,7 +695,35 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                 })()}
               </div>
 
-              {plan.floors.length > 1 && (
+              <div className="flex items-center gap-1 rounded-md bg-bg/50 p-1">
+                <button
+                  type="button"
+                  onClick={() => setPlanView("structure")}
+                  className={`rounded px-3 py-1 text-[11px] ${
+                    planView === "structure"
+                      ? "bg-surface2 text-text shadow-sm"
+                      : "text-textMuted hover:text-text"
+                  }`}
+                >
+                  1 · {t("pipe.structureTab", "Estrutura e fluxo")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlanView("setup")}
+                  className={`flex items-center gap-1 rounded px-3 py-1 text-[11px] ${
+                    planView === "setup"
+                      ? "bg-brand/15 text-brand shadow-sm"
+                      : "text-textMuted hover:text-text"
+                  }`}
+                >
+                  <Bot size={12} /> 2 · {t("pipe.setupTab", "Setup dos agentes")}
+                </button>
+                <span className="ml-auto pr-2 text-[10px] text-textMuted">
+                  {t("pipe.setupSavedHint", "motor e modelo são salvos com o plano")}
+                </span>
+              </div>
+
+              {planView === "structure" && plan.floors.length > 1 && (
                 <div className="text-[11px] text-textMuted">
                   <span className="font-semibold text-text/80">{t("pipe.floors", "Paralelos")}:</span>{" "}
                   {plan.floors.map((f) => f.name).join(" · ")}
@@ -550,8 +731,39 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
               )}
 
               {/* O plano passou a ser editável: role pode mudar, então o índice real do agente (não o role) é a chave dos cards. */}
-              <div className="flex gap-3 overflow-x-auto pb-1">
-                {waves.map((w) => (
+              {planView === "structure" && (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="mr-auto text-[10px] text-textMuted">
+                      {t("pipe.structureExplain", "Organize as ondas e desenhe quem entrega para quem.")}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => appendAgent()}
+                      className="rounded-md border border-brand/40 bg-brand/10 px-2.5 py-1 text-[10px] text-brand hover:bg-brand/15"
+                    >
+                      ＋ {t("pipe.addAgent", "Adicionar agente")}
+                    </button>
+                  </div>
+
+                  {plan.agents.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-border px-4 py-6 text-center">
+                      <Bot size={22} className="text-brand" />
+                      <div>
+                        <p className="text-[12px] text-text">{t("pipe.emptyTeam", "Seu fluxo ainda não tem agentes")}</p>
+                        <p className="text-[10px] text-textMuted">{t("pipe.emptyTeamHint", "Adicione o primeiro papel e configure como ele vai operar.")}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => appendAgent(1)}
+                        className="rounded-md bg-brand px-3 py-1.5 text-[11px] text-bg hover:bg-brand-hover"
+                      >
+                        ＋ {t("pipe.addFirstAgent", "Adicionar primeiro agente")}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-3 overflow-x-auto pb-1">
+                      {waves.map((w) => (
                   <div key={w} className="min-w-[210px] flex-1 space-y-1.5">
                     <div className="text-[10px] uppercase tracking-wider text-textMuted">
                       {t("pipe.wave", "onda")} {w}
@@ -569,16 +781,12 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                               onChange={(e) => setPlan(planUpdateAgent(plan, i, { role: e.target.value }))}
                               className="flex-1 rounded border border-border/60 bg-bg/40 px-1 py-0.5 text-[11px] outline-none focus:border-brand"
                             />
-                            <select
-                              value={a.model ?? ""}
-                              onChange={(e) => setPlan(planUpdateAgent(plan, i, { model: e.target.value || undefined }))}
-                              className={`rounded border border-border/60 px-1 py-0.5 text-[10px] outline-none focus:border-brand ${MODEL_COLORS[a.model ?? ""] ?? "bg-white/10 text-text/60"}`}
+                            <span
+                              className="max-w-[105px] truncate rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-textMuted"
+                              title={RUNTIME_OPTIONS.find((r) => r.id === effectiveAgentRuntime(plan, i, mountAs))?.label}
                             >
-                              <option value="">— modelo —</option>
-                              <option value="haiku">haiku</option>
-                              <option value="sonnet">sonnet</option>
-                              <option value="opus">opus</option>
-                            </select>
+                              {RUNTIME_OPTIONS.find((r) => r.id === effectiveAgentRuntime(plan, i, mountAs))?.label}
+                            </span>
                             <button
                               type="button"
                               title={t("pipe.rmAgent", "remover este agente do plano (tira também os subagentes e conexões dele)")}
@@ -612,6 +820,17 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                             className="w-full resize-none rounded border border-border/60 bg-bg/40 px-1 py-0.5 text-[11px] outline-none focus:border-brand"
                           />
 
+                          <label className="flex items-center gap-1.5 text-[9px] uppercase tracking-wider text-textMuted">
+                            {t("pipe.wave", "onda")}
+                            <input
+                              type="number"
+                              min={1}
+                              value={a.wave ?? 1}
+                              onChange={(event) => setPlan(planUpdateAgent(plan, i, { wave: Number(event.target.value) || 1 }))}
+                              className="w-14 rounded border border-border/60 bg-bg/40 px-1 py-0.5 text-[10px] text-text outline-none focus:border-brand"
+                            />
+                          </label>
+
                           {plan.subagents
                             .filter((s) => s.parent?.toLowerCase() === a.role.toLowerCase())
                             .map((s) => (
@@ -637,59 +856,358 @@ export function PipelineArchitectModal({ onClose }: { onClose: () => void }) {
                       + agente
                     </button>
                   </div>
-                ))}
-              </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
 
               {/* Conexões */}
-              {plan.connections.length > 0 && (
-                <div>
-                  <div className="mb-1 text-[10px] uppercase tracking-wider text-textMuted">{t("pipe.connections", "Conexões")}</div>
-                  <div className="flex flex-wrap gap-1">
-                    {plan.connections.map((c, i) => (
-                      <span key={i} className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-text/80" title={c.why}>
-                        {c.from} <span className="text-brand">→</span> {c.to}
-                      </span>
-                    ))}
+              {planView === "structure" && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="text-[10px] uppercase tracking-wider text-textMuted">
+                      {t("pipe.connections", "Conexões")}
+                    </div>
+                    <span className="mr-auto text-[9px] text-textMuted">
+                      {t("pipe.connectionsHint", "a saída de um agente alimenta o próximo")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={appendConnection}
+                      disabled={plan.agents.length < 2}
+                      className="rounded border border-border px-2 py-1 text-[10px] text-textMuted hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      ＋ {t("pipe.addConnection", "Adicionar conexão")}
+                    </button>
                   </div>
+
+                  {plan.connections.length === 0 ? (
+                    <div className="rounded border border-dashed border-border/60 px-2 py-2 text-[10px] text-textMuted">
+                      {t("pipe.noConnections", "Sem conexões: os agentes começam em paralelo. Adicione uma conexão para criar uma sequência.")}
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {plan.connections.map((connection, index) => (
+                        <div
+                          key={`${connection.from}-${connection.to}-${index}`}
+                          className="grid grid-cols-[minmax(120px,0.8fr)_auto_minmax(120px,0.8fr)_minmax(160px,1.4fr)_auto] items-center gap-1.5 rounded border border-border/60 bg-bg/30 p-1.5"
+                        >
+                          <select
+                            value={connection.from}
+                            aria-label={t("pipe.connectionSource", "Agente de origem")}
+                            onChange={(event) => setPlan(planUpdateConnection(plan, index, { from: event.target.value }))}
+                            className={`${sel} min-w-0 py-1 text-[10px]`}
+                          >
+                            {plan.agents.map((agent) => (
+                              <option key={agent.role} value={agent.role}>{agent.role}</option>
+                            ))}
+                          </select>
+                          <span className="text-brand">→</span>
+                          <select
+                            value={connection.to}
+                            aria-label={t("pipe.connectionTarget", "Agente de destino")}
+                            onChange={(event) => setPlan(planUpdateConnection(plan, index, { to: event.target.value }))}
+                            className={`${sel} min-w-0 py-1 text-[10px]`}
+                          >
+                            {plan.agents.map((agent) => (
+                              <option key={agent.role} value={agent.role}>{agent.role}</option>
+                            ))}
+                          </select>
+                          <input
+                            value={connection.why}
+                            aria-label={t("pipe.connectionDelivery", "O que é entregue nesta conexão")}
+                            placeholder={t("pipe.connectionWhyPh", "o que passa entre eles")}
+                            onChange={(event) => setPlan(planUpdateConnection(plan, index, { why: event.target.value }))}
+                            className={`${sel} min-w-0 py-1 text-[10px]`}
+                          />
+                          <button
+                            type="button"
+                            title={t("pipe.removeConnection", "Remover conexão")}
+                            onClick={() => setPlan(planRemoveConnection(plan, index))}
+                            className="rounded p-1 text-textMuted hover:bg-danger/10 hover:text-danger"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Caminho crítico */}
-              {plan.criticalPath.length > 0 && (
+              {planView === "structure" && plan.criticalPath.length > 0 && (
                 <div className="text-[11px]">
                   <span className="font-semibold text-text/80">{t("pipe.critical", "Caminho crítico")}:</span>{" "}
                   <span className="font-mono text-orange-300">{plan.criticalPath.join(" → ")}</span>
                 </div>
               )}
 
-              {plan.collaboration && (
+              {planView === "structure" && plan.collaboration && (
                 <p className="text-[11px] leading-snug text-text/60"><span className="font-semibold text-text/80">{t("pipe.collab", "Colaboração")}:</span> {plan.collaboration}</p>
+              )}
+
+              {planView === "setup" && (
+                <div className="space-y-2.5">
+                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-brand/20 bg-brand/5 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12px] font-medium text-text">
+                        {t("pipe.setupLead", "Escolha como cada agente vai operar")}
+                      </div>
+                      <div className="text-[10px] text-textMuted">
+                        {t("pipe.setupExplain", "O runtime define o processo; o modelo define a inteligência. Use o preset no rodapé e ajuste as exceções aqui.")}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => appendAgent()}
+                        className="rounded-md border border-brand/40 bg-brand/10 px-2.5 py-1 text-[10px] text-brand hover:bg-brand/15"
+                      >
+                        ＋ {t("pipe.addAgent", "Adicionar agente")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void openProvidersCentral();
+                        }}
+                        className="text-[10px] text-brand hover:underline"
+                      >
+                        {t("pipe.manageProviders", "Gerenciar Central de API")}
+                      </button>
+                    </div>
+                  </div>
+
+                  {pipelineSetupIssues(materializeAgentSetup(plan, mountAs), providers).length > 0 && (
+                    <div className="rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[10px] text-amber-200">
+                      {pipelineSetupIssues(materializeAgentSetup(plan, mountAs), providers).join(" · ")}
+                    </div>
+                  )}
+
+                  {plan.agents.length === 0 && (
+                    <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-border px-4 py-6 text-center">
+                      <Bot size={22} className="text-brand" />
+                      <div>
+                        <p className="text-[12px] text-text">{t("pipe.emptySetup", "Adicione um agente para começar seu setup")}</p>
+                        <p className="text-[10px] text-textMuted">{t("pipe.emptySetupHint", "Você poderá escolher nome, missão, etapa, runtime, provider e modelo.")}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => appendAgent(1)}
+                        className="rounded-md bg-brand px-3 py-1.5 text-[11px] text-bg hover:bg-brand-hover"
+                      >
+                        ＋ {t("pipe.addFirstAgent", "Adicionar primeiro agente")}
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {plan.agents.map((agent, index) => {
+                      const runtime = effectiveAgentRuntime(plan, index, mountAs);
+                      const runtimeInfo = RUNTIME_OPTIONS.find((item) => item.id === runtime);
+                      const selectedProvider = providers.find((provider) => provider.id === agent.providerId);
+                      const providerModels = agent.providerId ? modelsByProvider[agent.providerId] ?? [] : [];
+                      return (
+                        <section
+                          key={`${agent.role}-${index}`}
+                          className="rounded-md border border-border bg-bg/35 p-3"
+                        >
+                          <div className="mb-2 flex items-start gap-2">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand">
+                              <Bot size={14} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <label className="block text-[9px] uppercase tracking-wider text-textMuted">
+                                {t("pipe.agentName", "Nome / papel")}
+                              </label>
+                              <input
+                                value={agent.role}
+                                aria-label={`${t("pipe.agentName", "Nome / papel")} ${index + 1}`}
+                                onChange={(event) => setPlan(planUpdateAgent(plan, index, { role: event.target.value }))}
+                                className={`${sel} mt-1 w-full py-1 text-[11px] font-medium`}
+                              />
+                            </div>
+                            <label className="w-16 text-[9px] uppercase tracking-wider text-textMuted">
+                              {t("pipe.wave", "onda")}
+                              <input
+                                type="number"
+                                min={1}
+                                value={agent.wave ?? 1}
+                                aria-label={`${t("pipe.wave", "onda")} ${agent.role}`}
+                                onChange={(event) => setPlan(planUpdateAgent(plan, index, { wave: Number(event.target.value) || 1 }))}
+                                className={`${sel} mt-1 w-full py-1 text-center text-[10px]`}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              title={t("pipe.rmAgent", "remover este agente do plano (tira também os subagentes e conexões dele)")}
+                              onClick={() => setPlan(planRemoveAgent(plan, index))}
+                              className="rounded p-1 text-textMuted hover:bg-danger/10 hover:text-danger"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+
+                          <label className="block text-[9px] uppercase tracking-wider text-textMuted">
+                            {t("pipe.agentMission", "Missão / responsabilidade")}
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={agent.why}
+                            aria-label={`${t("pipe.agentMission", "Missão / responsabilidade")} ${agent.role}`}
+                            placeholder={t("pipe.whyPh", "o que este agente faz")}
+                            onChange={(event) => setPlan(planUpdateAgent(plan, index, { why: event.target.value }))}
+                            className={`${sel} mt-1 w-full resize-none py-1 text-[11px]`}
+                          />
+
+                          {plan.floors.length > 1 && (
+                            <>
+                              <label className="mt-2 block text-[9px] uppercase tracking-wider text-textMuted">
+                                {t("pipe.floor", "Paralelo / floor")}
+                              </label>
+                              <select
+                                value={agent.floor ?? ""}
+                                onChange={(event) => setPlan(planUpdateAgent(plan, index, { floor: event.target.value || undefined }))}
+                                className={`${sel} mt-1 w-full text-[11px]`}
+                              >
+                                <option value="">{t("pipe.noFloor", "— sem paralelo —")}</option>
+                                {plan.floors.map((floor) => (
+                                  <option key={floor.name} value={floor.name}>{floor.name}</option>
+                                ))}
+                              </select>
+                            </>
+                          )}
+
+                          <label className="mt-2 block text-[9px] uppercase tracking-wider text-textMuted">
+                            {t("pipe.runtime", "Runtime / motor")}
+                          </label>
+                          <select
+                            value={runtime}
+                            onChange={(e) => {
+                              const next = e.target.value as (typeof RUNTIME_OPTIONS)[number]["id"];
+                              setPlan(planUpdateAgent(plan, index, {
+                                runtime: next,
+                                providerId: next === "hermes-acp" ? agent.providerId : undefined,
+                                model: undefined,
+                              }));
+                            }}
+                            className={`${sel} mt-1 w-full text-[11px]`}
+                          >
+                            {RUNTIME_OPTIONS.map((option) => (
+                              <option key={option.id} value={option.id}>{option.label}</option>
+                            ))}
+                          </select>
+                          <p className="mt-1 text-[9px] text-textMuted">{runtimeInfo?.hint}</p>
+
+                          {runtime === "hermes-acp" && (
+                            <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-1.5">
+                              <select
+                                value={agent.providerId ?? ""}
+                                onChange={(e) => {
+                                  const nextId = e.target.value || undefined;
+                                  const nextProvider = providers.find((provider) => provider.id === nextId);
+                                  setPlan(planUpdateAgent(plan, index, {
+                                    providerId: nextId,
+                                    model: nextProvider?.model || undefined,
+                                  }));
+                                }}
+                                className={`${sel} min-w-0 text-[11px]`}
+                              >
+                                <option value="">{t("pipe.pickInferenceProvider", "— provider de inferência —")}</option>
+                                {providers.map((provider) => (
+                                  <option key={provider.id} value={provider.id}>
+                                    {provider.label} · {provider.kind}{provider.hasKey ? " · chave salva" : ""}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                disabled={!agent.providerId || loadingModelsFor === agent.providerId}
+                                onClick={() => void loadProviderModels(agent.providerId ?? "")}
+                                title={t("pipe.listModels", "Listar modelos deste provider")}
+                                className="rounded-md border border-border px-2 text-textMuted hover:border-brand hover:text-brand disabled:opacity-30"
+                              >
+                                <RefreshCw size={12} className={loadingModelsFor === agent.providerId ? "animate-spin" : ""} />
+                              </button>
+                            </div>
+                          )}
+
+                          <label className="mt-2 block text-[9px] uppercase tracking-wider text-textMuted">
+                            {t("pipe.agentModel", "Modelo")}
+                          </label>
+                          {runtime === "claude-terminal" || runtime === "claude-acp" ? (
+                            <select
+                              value={agent.model ?? ""}
+                              onChange={(e) => setPlan(planUpdateAgent(plan, index, { model: e.target.value || undefined }))}
+                              className={`${sel} mt-1 w-full text-[11px] ${MODEL_COLORS[agent.model ?? ""] ?? ""}`}
+                            >
+                              <option value="">{t("pipe.defaultModel", "padrão do runtime")}</option>
+                              <option value="haiku">haiku · rápido/econômico</option>
+                              <option value="sonnet">sonnet · equilibrado</option>
+                              <option value="opus">opus · decisão crítica</option>
+                            </select>
+                          ) : (
+                            <>
+                              <input
+                                value={agent.model ?? selectedProvider?.model ?? ""}
+                                list={`pipeline-models-${index}`}
+                                onChange={(e) => setPlan(planUpdateAgent(plan, index, { model: e.target.value || undefined }))}
+                                placeholder={
+                                  runtime === "hermes-acp"
+                                    ? t("pipe.hermesModelPh", "escolha ou informe o ID do modelo")
+                                    : t("pipe.codexModelPh", "ID do modelo; vazio usa o padrão do login")
+                                }
+                                className={`${sel} mt-1 w-full font-mono text-[11px]`}
+                              />
+                              <datalist id={`pipeline-models-${index}`}>
+                                {providerModels.map((providerModel) => (
+                                  <option key={providerModel} value={providerModel} />
+                                ))}
+                              </datalist>
+                            </>
+                          )}
+                        </section>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </div>
           )}
         </div>
 
         {plan && (
-          <footer className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3">
+            <span className="mr-auto text-[10px] text-textMuted">
+              {plan.agents.length} {t("pipe.agentsConfigured", "agentes no setup")}
+            </span>
             <select
               value={mountAs}
               onChange={(e) => {
                 const v = e.target.value as MountAs;
                 setMountAs(v);
+                setPlan(applySetupPreset(plan, v));
+                setPlanView("setup");
                 // Lembra a escolha: quem troca de propósito não deve reconfigurar toda vez.
                 try { localStorage.setItem(MOUNT_AS_KEY, v); } catch { /* localStorage off */ }
               }}
-              title={t("pipe.mountAsT", "Terminal (padrão) = claude nativo com role via --append-system-prompt + --model do plano; executa de verdade. Híbrido = líder OmniAgent (ACP, orquestra) + executores terminal claude. OmniAgent = nó ACP: só coordena — as tools de execução são bloqueadas por design, então NÃO use pro time inteiro.")}
+              title={t("pipe.mountAsT", "Aplica um preset ao time inteiro; depois você pode ajustar runtime, provider e modelo agente por agente na aba Setup.")}
               className={`${sel} text-[11px]`}
             >
-              <option value="terminal">{t("pipe.asTerminal", "montar como terminal claude (role nativo) — padrão")}</option>
-              <option value="hybrid">{t("pipe.asHybrid", "montar híbrido (líder ACP + executores terminal)")}</option>
-              <option value="agent">{t("pipe.asAgent", "montar como OmniAgent (ACP) — só coordena, não executa")}</option>
+              <option value="terminal">{t("pipe.asTerminal", "Preset: todos Claude terminal (executores)")}</option>
+              <option value="hybrid">{t("pipe.asHybrid", "Preset: líder ACP + executores terminal")}</option>
+              <option value="agent">{t("pipe.asAgent", "Preset: todos Claude ACP (coordenadores)")}</option>
             </select>
             <button onClick={() => void save()} className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-text hover:bg-surface2">
               <Save size={13} /> {t("pipe.saveBtn", "Salvar plano")}
             </button>
-            <button onClick={() => void build()} className="flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs text-bg hover:bg-brand-hover">
+            <button
+              onClick={() => void build()}
+              disabled={plan.agents.length === 0}
+              title={plan.agents.length === 0 ? t("pipe.buildNeedsAgent", "Adicione pelo menos um agente antes de montar") : undefined}
+              className="flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs text-bg hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-35"
+            >
               <Network size={13} /> {t("pipe.build", "Montar no canvas")}
             </button>
           </footer>

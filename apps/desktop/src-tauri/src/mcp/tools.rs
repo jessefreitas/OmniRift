@@ -30,7 +30,9 @@ pub fn output_matches(buf: &str, pattern: &str, use_regex: bool) -> Option<Strin
         let re = regex::Regex::new(pattern).ok()?;
         buf.lines().find(|l| re.is_match(l)).map(|s| s.to_string())
     } else {
-        buf.lines().find(|l| l.contains(pattern)).map(|s| s.to_string())
+        buf.lines()
+            .find(|l| l.contains(pattern))
+            .map(|s| s.to_string())
     }
 }
 
@@ -68,7 +70,10 @@ async fn acp_route_prompt(state: &McpState, terminal: &str, text: String) -> Opt
 }
 
 fn arg_str(args: &Value, key: &str) -> String {
-    args.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Como `arg_str`, mas None quando ausente/vazio (pra colunas opcionais).
@@ -200,12 +205,15 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "path": { "type": "string", "description": "Caminho absoluto do .md da spec/plan." } },
                 "required": ["path"] } }),
         json!({ "name": "memory_recall",
-            "description": "ANTES de codar/decidir: busca memórias relevantes (fatos do blackboard + erros já cometidos) pra não repetir engano. Faça isso no começo de cada tarefa.",
+            "description": "ANTES de codar/decidir: busca memórias relevantes (fatos do blackboard + erros já cometidos) pra não repetir engano. Faça isso no começo de cada tarefa. Default = summary truncado; use raw/full=true pro dump completo.",
             "inputSchema": { "type": "object", "properties": {
                 "query": { "type": "string", "description": "Termos do que você vai fazer (ex: 'auth jwt refresh')." },
                 "kind": { "type": "string", "description": "Filtra: fact | error | note (opcional)." },
                 "scope": { "type": "string", "description": "Filtra por floor/projeto (opcional)." },
-                "limit": { "type": "number" } },
+                "limit": { "type": "number", "description": "Máx. itens por página (default 10)." },
+                "offset": { "type": "number", "description": "Offset de paginação (default 0)." },
+                "raw": { "type": "boolean", "description": "true = dump completo do value (alias: full)." },
+                "full": { "type": "boolean", "description": "Alias de raw." } },
                 "required": ["query"] } }),
         json!({ "name": "memory_remember",
             "description": "Grava um fato durável no blackboard compartilhado entre agentes (ex: decisão de arquitetura, convenção, endpoint). Outro agente recupera com memory_recall.",
@@ -228,9 +236,14 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "agent": { "type": "string" } },
                 "required": ["what", "fix"] } }),
         json!({ "name": "memory_list",
-            "description": "Lista as memórias gravadas (filtro opcional por kind/scope).",
+            "description": "Lista as memórias gravadas (filtro opcional por kind/scope). Default = summary; raw/full=true pro dump.",
             "inputSchema": { "type": "object", "properties": {
-                "kind": { "type": "string" }, "scope": { "type": "string" }, "limit": { "type": "number" } } } }),
+                "kind": { "type": "string" },
+                "scope": { "type": "string" },
+                "limit": { "type": "number", "description": "Máx. itens por página (default 20)." },
+                "offset": { "type": "number", "description": "Offset de paginação (default 0)." },
+                "raw": { "type": "boolean" },
+                "full": { "type": "boolean" } } } }),
         json!({ "name": "memory_forget",
             "description": "Apaga uma memória por id (ex: fato obsoleto).",
             "inputSchema": { "type": "object", "properties": {
@@ -274,6 +287,13 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "group": { "type": "string", "description": "Endereço do grupo: @all | @idle | @worktree:<floor> | @<role-ou-label>." },
                 "message": { "type": "string", "description": "Texto a injetar (seguido de Enter) em cada agente do grupo." } },
                 "required": ["group", "message"] } }),
+        json!({ "name": "orchestration_doctor",
+            "description": "Diagnóstico read-only: por que a frota/agente não ativou? Checa CLIs no PATH \
+                (claude/codex/uvx/npx/git), MCP omnirift-agents, memory provider ativo, worktree/cwd e hooks/failproof. \
+                Sem healers — só relatório ✅/❌ com hints.",
+            "inputSchema": { "type": "object", "properties": {
+                "cwd": { "type": "string", "description": "cwd/floor a validar (opcional; usa o do pedido se omitido)" } },
+                "required": [] } }),
         // ── Conductor Mode tools (orchestrator_*) ──────────────────
         json!({ "name": "orchestrator_status",
             "description": "Lista o estado de todos os agentes no canvas (idle/working/blocked/done). \
@@ -317,6 +337,85 @@ pub fn terminal_tool_defs() -> Vec<Value> {
                 "target": { "type": "string", "description": "@nome do agente a perguntar" },
                 "question": { "type": "string", "description": "a pergunta" } },
                 "required": ["target", "question"] } }),
+        // ── Missão (capabilities + DAG + verify) ──────────────────
+        json!({ "name": "capability_list",
+            "description": "Lista as capabilities tipadas registradas (domain.subdomain.verb).",
+            "inputSchema": { "type": "object", "properties": {} } }),
+        json!({ "name": "capability_search",
+            "description": "Busca capability por brief. Retorna HIGH (um match claro), AMBIGUOUS (top-N) ou NO_MATCH. \
+                Nunca invente um id que não apareceu aqui.",
+            "inputSchema": { "type": "object", "properties": {
+                "query": { "type": "string", "description": "brief ou termos da capacidade desejada" } },
+                "required": ["query"] } }),
+        json!({ "name": "capability_upsert",
+            "description": "Cria ou atualiza uma capability no registry.",
+            "inputSchema": { "type": "object", "properties": {
+                "id": { "type": "string" },
+                "description": { "type": "string" },
+                "domains": { "type": "array", "items": { "type": "string" } },
+                "examples": { "type": "array", "items": { "type": "string" } },
+                "not_for": { "type": "array", "items": { "type": "string" } },
+                "invoke_kind": { "type": "string", "default": "role" },
+                "invoke_ref": { "type": "string" } },
+                "required": ["id", "description"] } }),
+        json!({ "name": "mission_create",
+            "description": "Cria uma missão a partir de um brief + MissionPackage JSON (nodes com deps + acceptance). \
+                Emite brief_received e plan_committed.",
+            "inputSchema": { "type": "object", "properties": {
+                "brief": { "type": "string" },
+                "package": { "type": "object", "description": "MissionPackage (nodes, acceptance, …)" },
+                "package_json": { "type": "string", "description": "alternativa: package como string JSON" },
+                "cwd": { "type": "string" } },
+                "required": ["brief"] } }),
+        json!({ "name": "mission_run",
+            "description": "Executa a missão: layers do DAG com dispatch blocking, depois verify. Emite a cadeia de eventos.",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" } },
+                "required": ["mission_id"] } }),
+        json!({ "name": "mission_status",
+            "description": "Estado da missão + eventos + validate_chain.",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" } },
+                "required": ["mission_id"] } }),
+        json!({ "name": "mission_validate_chain",
+            "description": "Valida a cadeia de recibos da missão (sem evento = claim mentiroso).",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" } },
+                "required": ["mission_id"] } }),
+        json!({ "name": "mission_verify",
+            "description": "Roda AcceptanceRule[] da missão sob demanda (gate de entregável, ≠ gate:land).",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" } },
+                "required": ["mission_id"] } }),
+        json!({ "name": "mission_handoff_write",
+            "description": "Grava handoff tipado no blackboard (chave handoff:<mission>:<from>:<to>). \
+                Consumível uma vez pelo próximo agente.",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" },
+                "from_agent": { "type": "string" },
+                "to_agent": { "type": "string" },
+                "last_command": { "type": "string" },
+                "next_action": { "type": "string" },
+                "decisions": { "type": "array", "items": { "type": "string" } },
+                "files_modified": { "type": "array", "items": { "type": "string" } },
+                "blockers": { "type": "array", "items": { "type": "string" } } },
+                "required": ["mission_id", "from_agent", "to_agent", "next_action"] } }),
+        json!({ "name": "mission_handoff_read",
+            "description": "Lê handoffs pendentes (consumed=false) da missão. Filtra por to_agent se informado. \
+                Escopo por mission_id (não faz lookup cross-mission).",
+            "inputSchema": { "type": "object", "properties": {
+                "mission_id": { "type": "string" },
+                "to_agent": { "type": "string", "description": "destinatário (opcional)" },
+                "key": { "type": "string", "description": "chave exata (opcional; se presente ignora filtro)" } },
+                "required": ["mission_id"] } }),
+        json!({ "name": "mission_handoff_consume",
+            "description": "Marca handoff como consumido (lido/aplicado). Idempotente.",
+            "inputSchema": { "type": "object", "properties": {
+                "key": { "type": "string", "description": "handoff:<mission>:<from>:<to>" },
+                "mission_id": { "type": "string", "description": "alternativa: monta key com from+to" },
+                "from_agent": { "type": "string" },
+                "to_agent": { "type": "string" } },
+                "required": [] } }),
     ]
 }
 
@@ -342,7 +441,10 @@ pub fn spec_dispatch(tool: &str, args: Value) -> String {
             }
             let mut s = format!("Spec: {title} ({path})\n{} tasks:\n", tasks.len());
             for t in &tasks {
-                s.push_str(&format!("\n--- Task {} : {} ---\n{}\n", t.n, t.title, t.body));
+                s.push_str(&format!(
+                    "\n--- Task {} : {} ---\n{}\n",
+                    t.n, t.title, t.body
+                ));
             }
             s.push_str(
                 "\nAgora agrupe as Tasks INDEPENDENTES e, pra cada grupo, chame \
@@ -401,7 +503,14 @@ pub fn claim_dispatch(state: &McpState, tool: &str, args: Value) -> String {
                 return "Nenhum claim ativo.".into();
             }
             list.iter()
-                .map(|e| format!("• '{}'{} — {}", e.raw_path, floor_suffix(&e.floor), e.agent_label))
+                .map(|e| {
+                    format!(
+                        "• '{}'{} — {}",
+                        e.raw_path,
+                        floor_suffix(&e.floor),
+                        e.agent_label
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         }
@@ -409,7 +518,11 @@ pub fn claim_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             let paths: Vec<String> = args
                 .get("paths")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             if paths.is_empty() {
                 return "❌ 'paths' (lista) é obrigatório".into();
@@ -439,10 +552,13 @@ pub fn claim_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             let extra: Vec<String> = args
                 .get("extra_roots")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
-            let conflicts =
-                crate::spec::spec_path_conflicts(std::path::Path::new(&dir), &extra);
+            let conflicts = crate::spec::spec_path_conflicts(std::path::Path::new(&dir), &extra);
             if conflicts.is_empty() {
                 return "✅ Nenhuma sobreposição entre os `paths:` das specs ativas.".into();
             }
@@ -462,16 +578,142 @@ pub fn claim_dispatch(state: &McpState, tool: &str, args: Value) -> String {
     }
 }
 
-/// Formata uma lista de memórias pro agente ler.
-fn fmt_memories(rows: &[crate::db::MemoryRow], title: &str) -> String {
+/// Cap default do value em modo summary (T1 summarize > dump).
+pub(crate) const MEMORY_SUMMARY_CHARS: usize = 240;
+/// Cap de fetch interno antes de paginar (evita carregar o blackboard inteiro).
+pub(crate) const MEMORY_FETCH_CAP: i64 = 200;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MemoryFmtOpts {
+    pub offset: usize,
+    pub limit: usize,
+    pub raw: bool,
+}
+
+impl Default for MemoryFmtOpts {
+    fn default() -> Self {
+        Self {
+            offset: 0,
+            limit: 10,
+            raw: false,
+        }
+    }
+}
+
+/// Lê offset/limit/raw|full dos args MCP.
+pub(crate) fn memory_fmt_opts(args: &Value, default_limit: usize) -> MemoryFmtOpts {
+    let offset = args
+        .get("offset")
+        .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|n| n.max(0) as u64)))
+        .unwrap_or(0) as usize;
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|n| n.max(0) as u64)))
+        .unwrap_or(default_limit as u64)
+        .clamp(1, 100) as usize;
+    let raw = args.get("raw").and_then(|v| v.as_bool()).unwrap_or(false)
+        || args.get("full").and_then(|v| v.as_bool()).unwrap_or(false);
+    MemoryFmtOpts { offset, limit, raw }
+}
+
+/// Resume um value: 1ª linha útil, truncada a `cap` chars.
+pub(crate) fn summarize_memory_value(value: &str, cap: usize) -> (String, bool) {
+    let flat = value
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+        .replace('\t', " ");
+    if flat.chars().count() <= cap {
+        let truncated = flat.chars().count() < value.chars().count() || value.contains('\n');
+        return (flat, truncated && !value.trim().is_empty());
+    }
+    let mut out: String = flat.chars().take(cap.saturating_sub(1)).collect();
+    out.push('…');
+    (out, true)
+}
+
+fn memory_meta_footer(
+    mode: &str,
+    offset: usize,
+    limit: usize,
+    returned: usize,
+    total_matched: usize,
+    any_value_truncated: bool,
+) -> String {
+    let next_offset = if offset + returned < total_matched {
+        Some(offset + returned)
+    } else {
+        None
+    };
+    let truncation = any_value_truncated || next_offset.is_some();
+    let meta = json!({
+        "truncation": truncation,
+        "mode": mode,
+        "offset": offset,
+        "limit": limit,
+        "returned": returned,
+        "total_matched": total_matched,
+        "next_offset": next_offset,
+    });
+    format!("\n---\nmeta: {meta}")
+}
+
+/// Formata memórias Local com summary default + paginação + meta.truncation (T1).
+pub(crate) fn fmt_memories(
+    rows: &[crate::db::MemoryRow],
+    title: &str,
+    opts: &MemoryFmtOpts,
+) -> String {
     if rows.is_empty() {
         return format!("Nada na memória pra '{title}'.");
     }
-    let mut s = format!("{} resultado(s) — {title}:\n", rows.len());
-    for m in rows {
-        let key = m.mem_key.as_deref().map(|k| format!(" [{k}]")).unwrap_or_default();
-        s.push_str(&format!("\n#{} ({}){key}\n{}\n", m.id, m.kind, m.value));
+    let total = rows.len();
+    let page = rows
+        .iter()
+        .skip(opts.offset)
+        .take(opts.limit)
+        .collect::<Vec<_>>();
+    if page.is_empty() {
+        return format!(
+            "Nada na página offset={} (total_matched={total}) pra '{title}'.{}",
+            opts.offset,
+            memory_meta_footer(
+                if opts.raw { "raw" } else { "summary" },
+                opts.offset,
+                opts.limit,
+                0,
+                total,
+                false,
+            )
+        );
     }
+    let mode = if opts.raw { "raw" } else { "summary" };
+    let mut any_trunc = false;
+    let mut s = format!("{} resultado(s) — {title} [{mode}]:\n", page.len());
+    for m in &page {
+        let key = m
+            .mem_key
+            .as_deref()
+            .map(|k| format!(" [{k}]"))
+            .unwrap_or_default();
+        let body = if opts.raw {
+            m.value.clone()
+        } else {
+            let (sum, trunc) = summarize_memory_value(&m.value, MEMORY_SUMMARY_CHARS);
+            any_trunc |= trunc;
+            sum
+        };
+        s.push_str(&format!("\n#{} ({}){key}\n{}\n", m.id, m.kind, body));
+    }
+    s.push_str(&memory_meta_footer(
+        mode,
+        opts.offset,
+        opts.limit,
+        page.len(),
+        total,
+        any_trunc,
+    ));
     s
 }
 
@@ -533,25 +775,28 @@ fn memory_dispatch_local(state: &McpState, tool: &str, args: Value) -> String {
             if query.is_empty() {
                 return "❌ 'query' é obrigatório".into();
             }
-            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
+            let opts = memory_fmt_opts(&args, 10);
+            // Fetch um pouco além da página pra poder reportar next_offset/total.
+            let fetch = ((opts.offset + opts.limit) as i64 + 1).clamp(1, MEMORY_FETCH_CAP);
             match db.memory_recall(
                 &query,
                 arg_opt(&args, "kind").as_deref(),
                 arg_opt(&args, "scope").as_deref(),
-                limit,
+                fetch,
             ) {
-                Ok(rows) => fmt_memories(&rows, &format!("recall '{query}'")),
+                Ok(rows) => fmt_memories(&rows, &format!("recall '{query}'"), &opts),
                 Err(e) => format!("❌ {e}"),
             }
         }
         "memory_list" => {
-            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(50);
+            let opts = memory_fmt_opts(&args, 20);
+            let fetch = ((opts.offset + opts.limit) as i64 + 1).clamp(1, MEMORY_FETCH_CAP);
             match db.memory_list(
                 arg_opt(&args, "kind").as_deref(),
                 arg_opt(&args, "scope").as_deref(),
-                limit,
+                fetch,
             ) {
-                Ok(rows) => fmt_memories(&rows, "memórias"),
+                Ok(rows) => fmt_memories(&rows, "memórias", &opts),
                 Err(e) => format!("❌ {e}"),
             }
         }
@@ -584,7 +829,11 @@ async fn memory_dispatch_provider(state: &McpState, tool: &str, args: Value) -> 
             }
             let category = arg_opt(&args, "kind").unwrap_or_else(|| "fact".into());
             match p
-                .save(NewMemory { content: value, category, project: arg_opt(&args, "scope") })
+                .save(NewMemory {
+                    content: value,
+                    category,
+                    project: arg_opt(&args, "scope"),
+                })
                 .await
             {
                 Ok(id) => format!("✅ memória {id} gravada ({kind:?})"),
@@ -600,7 +849,11 @@ async fn memory_dispatch_provider(state: &McpState, tool: &str, args: Value) -> 
             let why = arg_str(&args, "why");
             let value = format!("ERRO: {what}\nCAUSA: {why}\nFIX: {fix}");
             match p
-                .save(NewMemory { content: value, category: "error".into(), project: arg_opt(&args, "scope") })
+                .save(NewMemory {
+                    content: value,
+                    category: "error".into(),
+                    project: arg_opt(&args, "scope"),
+                })
                 .await
             {
                 Ok(id) => format!("✅ erro {id} registrado ({kind:?})"),
@@ -612,36 +865,51 @@ async fn memory_dispatch_provider(state: &McpState, tool: &str, args: Value) -> 
             if query.is_empty() {
                 return "❌ 'query' é obrigatório".into();
             }
-            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10).max(1) as usize;
+            let opts = memory_fmt_opts(&args, 10);
+            let fetch = (opts.offset + opts.limit + 1).clamp(1, MEMORY_FETCH_CAP as usize);
             match p
-                .search(MemoryQuery { query: query.clone(), project: arg_opt(&args, "scope"), limit })
+                .search(MemoryQuery {
+                    query: query.clone(),
+                    project: arg_opt(&args, "scope"),
+                    limit: fetch,
+                })
                 .await
             {
-                Ok(recs) => fmt_records(&recs, &format!("recall '{query}'")),
+                Ok(recs) => fmt_records(&recs, &format!("recall '{query}'"), &opts),
                 Err(e) => format!("❌ {e}"),
             }
         }
         "memory_list" => {
-            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(50).max(1) as usize;
+            let opts = memory_fmt_opts(&args, 20);
+            let fetch = (opts.offset + opts.limit + 1).clamp(1, MEMORY_FETCH_CAP as usize);
             match p
-                .search(MemoryQuery { query: String::new(), project: arg_opt(&args, "scope"), limit })
+                .search(MemoryQuery {
+                    query: String::new(),
+                    project: arg_opt(&args, "scope"),
+                    limit: fetch,
+                })
                 .await
             {
-                Ok(recs) => fmt_records(&recs, "memórias"),
+                Ok(recs) => fmt_records(&recs, "memórias", &opts),
                 Err(e) => format!("❌ {e}"),
             }
         }
         "memory_forget" => {
             // ids de provider remoto são string; aceita number também.
             let id = arg_opt(&args, "id").unwrap_or_else(|| {
-                args.get("id").and_then(|v| v.as_i64()).map(|n| n.to_string()).unwrap_or_default()
+                args.get("id")
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n.to_string())
+                    .unwrap_or_default()
             });
             if id.is_empty() {
                 return "❌ 'id' inválido".into();
             }
             match p.forget(&id).await {
                 Ok(true) => format!("🗑 memória {id} apagada"),
-                Ok(false) => format!("memória {id} não encontrada (ou forget não suportado por {kind:?})"),
+                Ok(false) => {
+                    format!("memória {id} não encontrada (ou forget não suportado por {kind:?})")
+                }
                 Err(e) => format!("❌ {e}"),
             }
         }
@@ -649,15 +917,56 @@ async fn memory_dispatch_provider(state: &McpState, tool: &str, args: Value) -> 
     }
 }
 
-/// Formata MemoryRecords (provider remoto) pro agente ler.
-fn fmt_records(recs: &[crate::memory::MemoryRecord], title: &str) -> String {
+/// Formata MemoryRecords (provider remoto) — mesma disciplina T1 do Local.
+pub(crate) fn fmt_records(
+    recs: &[crate::memory::MemoryRecord],
+    title: &str,
+    opts: &MemoryFmtOpts,
+) -> String {
     if recs.is_empty() {
         return format!("Nada na memória pra '{title}'.");
     }
-    let mut s = format!("{} resultado(s) — {title}:\n", recs.len());
-    for m in recs {
-        s.push_str(&format!("\n#{} ({})\n{}\n", m.id, m.category, m.content));
+    let total = recs.len();
+    let page = recs
+        .iter()
+        .skip(opts.offset)
+        .take(opts.limit)
+        .collect::<Vec<_>>();
+    if page.is_empty() {
+        return format!(
+            "Nada na página offset={} (total_matched={total}) pra '{title}'.{}",
+            opts.offset,
+            memory_meta_footer(
+                if opts.raw { "raw" } else { "summary" },
+                opts.offset,
+                opts.limit,
+                0,
+                total,
+                false,
+            )
+        );
     }
+    let mode = if opts.raw { "raw" } else { "summary" };
+    let mut any_trunc = false;
+    let mut s = format!("{} resultado(s) — {title} [{mode}]:\n", page.len());
+    for m in &page {
+        let body = if opts.raw {
+            m.content.clone()
+        } else {
+            let (sum, trunc) = summarize_memory_value(&m.content, MEMORY_SUMMARY_CHARS);
+            any_trunc |= trunc;
+            sum
+        };
+        s.push_str(&format!("\n#{} ({})\n{}\n", m.id, m.category, body));
+    }
+    s.push_str(&memory_meta_footer(
+        mode,
+        opts.offset,
+        opts.limit,
+        page.len(),
+        total,
+        any_trunc,
+    ));
     s
 }
 
@@ -676,7 +985,10 @@ pub(crate) fn active_floor_name(state: &McpState) -> Option<String> {
 
 /// Sufixo de floor pra exibição: ` @<floor>` ou vazio.
 fn floor_suffix(floor: &Option<String>) -> String {
-    floor.as_deref().map(|f| format!(" @{f}")).unwrap_or_default()
+    floor
+        .as_deref()
+        .map(|f| format!(" @{f}"))
+        .unwrap_or_default()
 }
 
 // Tabela deliberadamente conservativa: termos genéricos demais ("web", "app", "dev", "db", "ops")
@@ -688,7 +1000,10 @@ const ROLE_SYNONYMS: &[(&str, &[&str])] = &[
     ("dba", &["dba", "database", "banco", "sql"]),
     ("qa", &["qa", "tester", "testes", "qualidade"]),
     ("devops", &["devops", "infra", "deploy", "sre"]),
-    ("security", &["security", "seguranca", "segurança", "appsec"]),
+    (
+        "security",
+        &["security", "seguranca", "segurança", "appsec"],
+    ),
     ("reviewer", &["reviewer", "review", "revisor"]),
     ("architect", &["architect", "arquiteto", "arquitetura"]),
     ("debugger", &["debugger", "debug", "depurador"]),
@@ -741,10 +1056,19 @@ fn duplicate_agent_refusal(state: &McpState, name: &str, role: Option<&str>) -> 
 
 /// Decisão PURA do guard de duplicado: separada de `McpState` (que carrega um
 /// `tauri::AppHandle` e por isso não é construível em teste).
-fn duplicate_refusal_from_roster(agents: &[crate::mcp::AgentInfo], name: &str, role: Option<&str>) -> Option<String> {
+fn duplicate_refusal_from_roster(
+    agents: &[crate::mcp::AgentInfo],
+    name: &str,
+    role: Option<&str>,
+) -> Option<String> {
     let livres: Vec<_> = agents
         .iter()
-        .filter(|a| matches!(a.state, crate::pty::AgentState::Idle | crate::pty::AgentState::Done))
+        .filter(|a| {
+            matches!(
+                a.state,
+                crate::pty::AgentState::Idle | crate::pty::AgentState::Done
+            )
+        })
         .cloned()
         .collect();
 
@@ -834,7 +1158,11 @@ fn over_agent_cap(state: &McpState) -> Option<String> {
 /// Resolve o `from` de uma chamada de orquestração: usa o label que o agente passou (o
 /// preâmbulo o instrui), normaliza o prefixo `@`, default `@orquestrador` se vazio.
 fn orq_from(args: &Value) -> String {
-    let raw = args.get("from").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let raw = args
+        .get("from")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     if raw.is_empty() {
         return "@orquestrador".to_string();
     }
@@ -905,7 +1233,11 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                         .agent_state(&entry.session_id)
                         .map(|s| format!("{s:?}").to_lowercase())
                         .unwrap_or_else(|| "unknown".into());
-                    format!("• {label} [{st}]{} — {}", floor_suffix(&entry.floor), entry.description)
+                    format!(
+                        "• {label} [{st}]{} — {}",
+                        floor_suffix(&entry.floor),
+                        entry.description
+                    )
                 })
                 .collect();
             for (label, _id, ready) in acp {
@@ -923,7 +1255,11 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                 Ok(id) => match state.pty_manager.read_screen(&id) {
                     Ok(screen) => {
                         let text = last_lines(&screen, lines);
-                        if text.is_empty() { "(tela vazia)".into() } else { text }
+                        if text.is_empty() {
+                            "(tela vazia)".into()
+                        } else {
+                            text
+                        }
                     }
                     Err(e) => format!("❌ {e}"),
                 },
@@ -953,7 +1289,10 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                 return r;
             }
             match resolve(state, &terminal) {
-                Ok(id) => match state.pty_manager.write(&id, format!("{command}\r").as_bytes()) {
+                Ok(id) => match state
+                    .pty_manager
+                    .write(&id, format!("{command}\r").as_bytes())
+                {
                     Ok(()) => "ok".into(),
                     Err(e) => format!("❌ {e}"),
                 },
@@ -974,11 +1313,22 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
         "terminal_wait_status" => {
             let terminal = arg_str(&args, "terminal");
             let target = arg_str(&args, "status").to_lowercase();
-            let timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(30000);
-            let id = match resolve(state, &terminal) { Ok(i) => i, Err(e) => return format!("❌ {e}") };
+            let timeout_ms = args
+                .get("timeout_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(30000);
+            let id = match resolve(state, &terminal) {
+                Ok(i) => i,
+                Err(e) => return format!("❌ {e}"),
+            };
 
             let matches = |s: &crate::pty::AgentState| format!("{s:?}").to_lowercase() == target;
-            if state.pty_manager.agent_state(&id).map(|s| matches(&s)).unwrap_or(false) {
+            if state
+                .pty_manager
+                .agent_state(&id)
+                .map(|s| matches(&s))
+                .unwrap_or(false)
+            {
                 return format!("reached {target}");
             }
             let mut rx = state.pty_manager.subscribe_state();
@@ -994,8 +1344,11 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             match tokio::time::timeout(Duration::from_millis(timeout_ms), wait).await {
                 Ok(()) => format!("reached {target}"),
                 Err(_) => {
-                    let cur = state.pty_manager.agent_state(&id)
-                        .map(|s| format!("{s:?}").to_lowercase()).unwrap_or_else(|| "unknown".into());
+                    let cur = state
+                        .pty_manager
+                        .agent_state(&id)
+                        .map(|s| format!("{s:?}").to_lowercase())
+                        .unwrap_or_else(|| "unknown".into());
                     format!("timeout após {timeout_ms}ms (estado atual: {cur})")
                 }
             }
@@ -1004,14 +1357,24 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             let terminal = arg_str(&args, "terminal");
             let pattern = arg_str(&args, "pattern");
             let use_regex = args.get("regex").and_then(|v| v.as_bool()).unwrap_or(false);
-            let timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(30000);
-            let id = match resolve(state, &terminal) { Ok(i) => i, Err(e) => return format!("❌ {e}") };
+            let timeout_ms = args
+                .get("timeout_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(30000);
+            let id = match resolve(state, &terminal) {
+                Ok(i) => i,
+                Err(e) => return format!("❌ {e}"),
+            };
             let mut rx = match state.pty_manager.subscribe_by_id(&id) {
-                Ok(r) => r, Err(e) => return format!("❌ {e}"),
+                Ok(r) => r,
+                Err(e) => return format!("❌ {e}"),
             };
             // Casa contra a tela renderizada (não o stream cru — TUIs redesenham).
             let check = || {
-                state.pty_manager.read_screen(&id).ok()
+                state
+                    .pty_manager
+                    .read_screen(&id)
+                    .ok()
                     .and_then(|s| output_matches(&s, &pattern, use_regex))
             };
             if let Some(line) = check() {
@@ -1021,7 +1384,9 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                 loop {
                     match rx.recv().await {
                         Ok(_) => {
-                            if let Some(line) = check() { return Some(line); }
+                            if let Some(line) = check() {
+                                return Some(line);
+                            }
                         }
                         Err(_) => return None,
                     }
@@ -1046,7 +1411,10 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             if let Some(msg) = duplicate_agent_refusal(state, &label, Some(&role)) {
                 return msg;
             }
-            let cwd = args.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let cwd = args
+                .get("cwd")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             let position = args.get("position").cloned();
             let id = uuid::Uuid::new_v4().to_string();
 
@@ -1064,17 +1432,32 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
                 }
             });
 
-            let _ = state.app.emit("canvas://spawn-request", json!({
-                "id": id, "command": command, "label": label,
-                "role": role, "cwd": cwd, "position": position
-            }));
+            let _ = state.app.emit(
+                "canvas://spawn-request",
+                json!({
+                    "id": id, "command": command, "label": label,
+                    "role": role, "cwd": cwd, "position": position
+                }),
+            );
 
-            let acked = tokio::time::timeout(Duration::from_secs(8), rx).await.is_ok();
+            let acked = tokio::time::timeout(Duration::from_secs(8), rx)
+                .await
+                .is_ok();
             state.app.unlisten(listener_id);
 
             let floor = active_floor_name(state);
-            let role_reg = if role.trim().is_empty() { None } else { Some(role.clone()) };
-            state.agent_registry.register(label.clone(), id.clone(), command.clone(), floor, role_reg);
+            let role_reg = if role.trim().is_empty() {
+                None
+            } else {
+                Some(role.clone())
+            };
+            state.agent_registry.register(
+                label.clone(),
+                id.clone(),
+                command.clone(),
+                floor,
+                role_reg,
+            );
 
             if acked {
                 format!("criado: {label} (id {id})")
@@ -1115,18 +1498,33 @@ pub async fn terminal_dispatch(state: &McpState, tool: &str, args: Value) -> Str
             });
 
             // Frontend: cria o floor (git worktree) + foca + spawna o terminal com este id.
-            let _ = state.app.emit("canvas://spawn-on-parallel", json!({
-                "id": id, "branch": branch, "command": command,
-                "label": label, "role": role, "git": git
-            }));
+            let _ = state.app.emit(
+                "canvas://spawn-on-parallel",
+                json!({
+                    "id": id, "branch": branch, "command": command,
+                    "label": label, "role": role, "git": git
+                }),
+            );
 
             // worktree add + spawn demora mais que um spawn simples → timeout maior.
-            let acked = tokio::time::timeout(Duration::from_secs(15), rx).await.is_ok();
+            let acked = tokio::time::timeout(Duration::from_secs(15), rx)
+                .await
+                .is_ok();
             state.app.unlisten(listener_id);
 
             // Registra com floor = branch (topologia cross-floor pro Orquestrador).
-            let role_reg = if role.trim().is_empty() { None } else { Some(role.clone()) };
-            state.agent_registry.register(label.clone(), id.clone(), command.clone(), Some(branch.clone()), role_reg);
+            let role_reg = if role.trim().is_empty() {
+                None
+            } else {
+                Some(role.clone())
+            };
+            state.agent_registry.register(
+                label.clone(),
+                id.clone(),
+                command.clone(),
+                Some(branch.clone()),
+                role_reg,
+            );
 
             // Injeta a tarefa depois que o agente sobe (deixa a TUI assentar).
             if acked && !task.is_empty() {
@@ -1149,11 +1547,18 @@ pub async fn workspace_dispatch(state: &McpState, tool: &str, args: Value) -> St
     match tool {
         "workspace_list" => {
             let mirror = state.floor_mirror.lock().clone();
-            let floors = mirror.get("floors").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let floors = mirror
+                .get("floors")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
             if floors.is_empty() {
                 return "Nenhum floor no espelho ainda.".into();
             }
-            let active = mirror.get("activeFloorId").and_then(|v| v.as_str()).unwrap_or("");
+            let active = mirror
+                .get("activeFloorId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             floors
                 .iter()
                 .map(|f| {
@@ -1168,18 +1573,24 @@ pub async fn workspace_dispatch(state: &McpState, tool: &str, args: Value) -> St
         }
         "workspace_create" => {
             let name = arg_str(&args, "name");
-            let _ = state.app.emit("canvas://floor-create", json!({ "name": name }));
+            let _ = state
+                .app
+                .emit("canvas://floor-create", json!({ "name": name }));
             format!("solicitado: criar floor '{name}'")
         }
         "workspace_focus" => {
             let target = arg_str(&args, "target");
-            let _ = state.app.emit("canvas://floor-focus", json!({ "target": target }));
+            let _ = state
+                .app
+                .emit("canvas://floor-focus", json!({ "target": target }));
             format!("solicitado: focar floor '{target}'")
         }
         "workspace_rename" => {
             let id = arg_str(&args, "id");
             let name = arg_str(&args, "name");
-            let _ = state.app.emit("canvas://floor-rename", json!({ "id": id, "name": name }));
+            let _ = state
+                .app
+                .emit("canvas://floor-rename", json!({ "id": id, "name": name }));
             format!("solicitado: renomear floor '{id}' → '{name}'")
         }
         "workspace_close" => {
@@ -1280,7 +1691,11 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                 delivered.join(", ")
             );
             if !failed.is_empty() {
-                s.push_str(&format!("\n⚠️ falhou em {}: {}", failed.len(), failed.join(", ")));
+                s.push_str(&format!(
+                    "\n⚠️ falhou em {}: {}",
+                    failed.len(),
+                    failed.join(", ")
+                ));
             }
             s
         }
@@ -1299,7 +1714,12 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                         crate::pty::AgentState::Done => "done",
                         crate::pty::AgentState::Dead => "dead",
                     };
-                    format!("- @{} [{}] floor: {}", a.label, st, a.floor.as_deref().unwrap_or("ativo"))
+                    format!(
+                        "- @{} [{}] floor: {}",
+                        a.label,
+                        st,
+                        a.floor.as_deref().unwrap_or("ativo")
+                    )
                 })
                 .collect();
             format!("Agentes no canvas:\n{}", lines.join("\n"))
@@ -1308,44 +1728,95 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
             let target = arg_str(&args, "target");
             let task = arg_str(&args, "task");
             let context = arg_str(&args, "context");
-            let priority = if arg_str(&args, "priority") == "async" { "async" } else { "blocking" };
+            let priority = if arg_str(&args, "priority") == "async" {
+                "async"
+            } else {
+                "blocking"
+            };
             if target.is_empty() || task.is_empty() {
                 return "❌ 'target' e 'task' são obrigatórios".into();
             }
-            let agents = agent_snapshot(state);
-            let resolved = crate::mcp::resolve_group(&target, &agents);
-            if resolved.is_empty() {
-                let available: Vec<String> = agents.iter()
-                    .map(|a| format!("@{} ({})", a.label, match a.state {
-                        crate::pty::AgentState::Idle => "idle",
-                        crate::pty::AgentState::Working => "working",
-                        crate::pty::AgentState::Blocked => "blocked",
-                        crate::pty::AgentState::Done => "done",
-                        crate::pty::AgentState::Dead => "dead",
-                    }))
-                    .collect();
-                return format!(
-                    "❌ Nenhum agente casou '{target}'. Disponíveis: {}",
-                    available.join(", ")
-                );
-            }
-            let labels: Vec<String> = resolved.iter()
-                .filter_map(|sid| agents.iter().find(|a| &a.session_id == sid).map(|a| a.label.clone()))
-                .collect();
-            let full_task = if !context.is_empty() {
-                format!("{task}\n\n[Contexto: {context}]")
+            let ctx = if context.is_empty() {
+                None
             } else {
-                task.clone()
+                Some(context.as_str())
             };
-            for sid in &resolved {
-                let _ = state.pty_manager.write(sid, full_task.as_bytes());
-                tokio::time::sleep(Duration::from_millis(200)).await;
-                let _ = state.pty_manager.write(sid, b"\r");
-            }
-            if priority == "async" {
-                format!("✅ despachado (async) pra {} agente(s): {}", labels.len(), labels.join(", "))
-            } else {
-                format!("✅ despachado (blocking) pra {} agente(s): {}. Resultado aparecerá na stream quando terminarem.", labels.len(), labels.join(", "))
+            match state.app.try_state::<crate::db::Db>() {
+                Some(db) => {
+                    crate::orchestrator::dispatch_task(state, &db, &target, &task, ctx, priority)
+                        .await
+                }
+                None => {
+                    // Fallback sem DB: wait local (mesmo settle do ask).
+                    let agents = agent_snapshot(state);
+                    let resolved = crate::mcp::resolve_group(&target, &agents);
+                    if resolved.is_empty() {
+                        return format!("❌ Nenhum agente casou '{target}'");
+                    }
+                    let full_task = if let Some(c) = ctx {
+                        format!("{task}\n\n[Contexto: {c}]")
+                    } else {
+                        task.clone()
+                    };
+                    let mut out = Vec::new();
+                    for sid in &resolved {
+                        let label = agents
+                            .iter()
+                            .find(|a| &a.session_id == sid)
+                            .map(|a| a.label.clone())
+                            .unwrap_or_else(|| sid.clone());
+                        if priority == "async" {
+                            let _ = state.pty_manager.write(sid, full_task.as_bytes());
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            let _ = state.pty_manager.write(sid, b"\r");
+                            out.push(format!("{label}: dispatched"));
+                        } else {
+                            // Reusa ask-wait path via dispatch_task-equivalent: write + settle
+                            let mut rx = state.pty_manager.subscribe_state();
+                            let _ = state.pty_manager.write(sid, full_task.as_bytes());
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            let _ = state.pty_manager.write(sid, b"\r");
+                            let target_sid = sid.clone();
+                            let settle = async {
+                                let mut saw_working = false;
+                                loop {
+                                    match rx.recv().await {
+                                        Ok((id, st)) if id == target_sid => match st {
+                                            crate::pty::AgentState::Working => saw_working = true,
+                                            crate::pty::AgentState::Done
+                                            | crate::pty::AgentState::Idle
+                                                if saw_working =>
+                                            {
+                                                return;
+                                            }
+                                            crate::pty::AgentState::Blocked if saw_working => {
+                                                return
+                                            }
+                                            crate::pty::AgentState::Dead => return,
+                                            _ => {}
+                                        },
+                                        Ok(_) => continue,
+                                        Err(_) => return,
+                                    }
+                                }
+                            };
+                            let _ = tokio::time::timeout(Duration::from_secs(300), settle).await;
+                            let screen = state.pty_manager.read_screen(sid).unwrap_or_default();
+                            out.push(format!(
+                                "{label}: {}",
+                                screen
+                                    .chars()
+                                    .rev()
+                                    .take(200)
+                                    .collect::<String>()
+                                    .chars()
+                                    .rev()
+                                    .collect::<String>()
+                            ));
+                        }
+                    }
+                    out.join("\n")
+                }
             }
         }
         "orchestrator_query" => {
@@ -1365,18 +1836,32 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 let _ = state.pty_manager.write(sid, b"\r");
             }
-            let label = resolved.iter()
-                .filter_map(|sid| agents.iter().find(|a| &a.session_id == sid).map(|a| a.label.clone()))
+            let label = resolved
+                .iter()
+                .filter_map(|sid| {
+                    agents
+                        .iter()
+                        .find(|a| &a.session_id == sid)
+                        .map(|a| a.label.clone())
+                })
                 .next()
                 .unwrap_or_default();
-            format!("Pergunta enviada pra @{}. A resposta aparecerá no terminal dele (e na stream).", label)
+            format!(
+                "Pergunta enviada pra @{}. A resposta aparecerá no terminal dele (e na stream).",
+                label
+            )
         }
         "orchestrator_handoff" => {
             let target = arg_str(&args, "target");
             let context = arg_str(&args, "context");
-            let artifacts = args.get("artifacts")
+            let artifacts = args
+                .get("artifacts")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect::<Vec<_>>()
+                })
                 .unwrap_or_default();
             if target.is_empty() || context.is_empty() {
                 return "❌ 'target' e 'context' são obrigatórios".into();
@@ -1388,25 +1873,47 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
             }
             let handoff_text = format!(
                 "[HANDOFF de outro agente]: {context}\n{}\nPor favor, continue o trabalho.",
-                if artifacts.is_empty() { String::new() } else { format!("Arquivos: {}", artifacts.join(", ")) }
+                if artifacts.is_empty() {
+                    String::new()
+                } else {
+                    format!("Arquivos: {}", artifacts.join(", "))
+                }
             );
             for sid in &resolved {
                 let _ = state.pty_manager.write(sid, handoff_text.as_bytes());
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 let _ = state.pty_manager.write(sid, b"\r");
             }
-            let label = resolved.iter()
-                .filter_map(|sid| agents.iter().find(|a| &a.session_id == sid).map(|a| a.label.clone()))
+            let label = resolved
+                .iter()
+                .filter_map(|sid| {
+                    agents
+                        .iter()
+                        .find(|a| &a.session_id == sid)
+                        .map(|a| a.label.clone())
+                })
                 .next()
                 .unwrap_or_default();
-            format!("✅ Handoff enviado pra @{} — contexto + {} artefato(s).", label, artifacts.len())
+            format!(
+                "✅ Handoff enviado pra @{} — contexto + {} artefato(s).",
+                label,
+                artifacts.len()
+            )
         }
         "orchestrator_spawn_agent" => {
             let name = arg_str(&args, "name");
             let cli = arg_str(&args, "cli");
             let floor = arg_str(&args, "floor");
-            let floor_label = if floor.is_empty() { "ativo".to_string() } else { floor.clone() };
-            let floor_emit = if floor.is_empty() { "active".to_string() } else { floor };
+            let floor_label = if floor.is_empty() {
+                "ativo".to_string()
+            } else {
+                floor.clone()
+            };
+            let floor_emit = if floor.is_empty() {
+                "active".to_string()
+            } else {
+                floor
+            };
             let role = arg_str(&args, "role");
             let system_prompt = arg_str(&args, "systemPrompt");
             if name.is_empty() || cli.is_empty() {
@@ -1416,14 +1923,27 @@ pub async fn orchestration_dispatch(state: &McpState, tool: &str, args: Value) -
                 return msg;
             }
             // Emite evento pro frontend criar o nó no canvas
-            let _ = state.app.emit("orchestrator://spawn-agent", json!({
-                "name": name,
-                "cli": cli,
-                "floor": floor_emit,
-                "role": role,
-                "systemPrompt": system_prompt,
-            }));
+            let _ = state.app.emit(
+                "orchestrator://spawn-agent",
+                json!({
+                    "name": name,
+                    "cli": cli,
+                    "floor": floor_emit,
+                    "role": role,
+                    "systemPrompt": system_prompt,
+                }),
+            );
             format!("✅ Solicitada criação do agente '{}' (CLI: {}, floor: {}). O nó aparecerá no canvas.", name, cli, floor_label)
+        }
+        "orchestration_doctor" => {
+            let cwd = arg_opt(&args, "cwd");
+            let report = crate::orchestration::doctor::run_doctor(
+                &state.app,
+                cwd.as_deref(),
+                &state.memory_registry,
+            )
+            .await;
+            serde_json::to_string_pretty(&report).unwrap_or_else(|e| format!("❌ {e}"))
         }
         other => format!("❌ tool de orquestração desconhecida: {other}"),
     }
@@ -1457,11 +1977,20 @@ pub fn review_tool_def() -> Value {
 /// Consolida os achados dos dois e aplica GO/NO-GO: 1+ CRITICAL OU 2+ WARNING = NO-GO.
 /// Ferramenta ausente / timeout = pulada (NEUTRAL, não bloqueia).
 pub async fn review_dispatch(state: &McpState, args: Value) -> String {
-    let cwd = args.get("cwd").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let cwd = args
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
     if cwd.is_empty() {
         return "Erro: passe `cwd` (a pasta absoluta do seu worktree) para review_current.".into();
     }
-    let base = args.get("base").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let base = args
+        .get("base")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     // ── Estágio 1 — pré-flight determinístico (working tree do cwd) ──────────────
     let preflight = run_preflight(&cwd).await;
@@ -1480,7 +2009,11 @@ pub async fn review_dispatch(state: &McpState, args: Value) -> String {
     let cwd_py = cwd.clone();
     let result = tokio::task::spawn_blocking(move || {
         let mut cmd = std::process::Command::new("python3");
-        cmd.arg(&script).arg("--cwd").arg(&cwd_py).arg("--config").arg(&cfg);
+        cmd.arg(&script)
+            .arg("--cwd")
+            .arg(&cwd_py)
+            .arg("--config")
+            .arg(&cfg);
         if !base.is_empty() {
             cmd.arg("--base").arg(&base);
         }
@@ -1504,11 +2037,15 @@ pub async fn review_dispatch(state: &McpState, args: Value) -> String {
                     stage2_nogo = verdict == "NO-GO";
                     stage2_crit = v.get("crit").and_then(|x| x.as_i64()).unwrap_or(0);
                     stage2_warn = v.get("warn").and_then(|x| x.as_i64()).unwrap_or(0);
-                    stage2_summary =
-                        v.get("summary").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    stage2_summary = v
+                        .get("summary")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if let Some(e) = v.get("llmError").and_then(|x| x.as_str()) {
-                        stage2_note =
-                            Some(format!("LLM indisponível: {e} — Estágio 2 rodou só o pré-flight interno"));
+                        stage2_note = Some(format!(
+                            "LLM indisponível: {e} — Estágio 2 rodou só o pré-flight interno"
+                        ));
                     }
                 }
                 Err(_) => {
@@ -1518,7 +2055,9 @@ pub async fn review_dispatch(state: &McpState, args: Value) -> String {
             }
         }
         Ok(Err(e)) => {
-            stage2_note = Some(format!("Estágio 2 indisponível (python3 local-review.py: {e}) — NEUTRAL"))
+            stage2_note = Some(format!(
+                "Estágio 2 indisponível (python3 local-review.py: {e}) — NEUTRAL"
+            ))
         }
         Err(e) => stage2_note = Some(format!("Estágio 2 falhou na execução: {e} — NEUTRAL")),
     }
@@ -1558,8 +2097,8 @@ struct PreflightReport {
 /// Desfecho de um binário externo do pré-flight.
 enum ToolRun {
     Ran(std::process::Output),
-    Missing,          // nenhum candidato existe no PATH (NEUTRAL)
-    Failed(String),   // timeout ou erro de execução (NEUTRAL)
+    Missing,        // nenhum candidato existe no PATH (NEUTRAL)
+    Failed(String), // timeout ou erro de execução (NEUTRAL)
 }
 
 /// code_chunks — fatia um arquivo de código por AST (função/classe/método) e devolve os
@@ -1691,7 +2230,10 @@ fn semgrep_findings_from_value(v: &Value) -> Vec<ReviewHistItem> {
                 .and_then(|s| s.get("line"))
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
-            let rule = r.get("check_id").and_then(|v| v.as_str()).unwrap_or("semgrep");
+            let rule = r
+                .get("check_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("semgrep");
             let extra = r.get("extra");
             let sev_raw = extra
                 .and_then(|e| e.get("severity"))
@@ -1711,10 +2253,221 @@ fn semgrep_findings_from_value(v: &Value) -> Vec<ReviewHistItem> {
                 file: format!("{path}:{line}"),
                 category: "security".into(),
                 severity: severity.into(),
-                title: format!("{} [{}]", truncate_chars(short, 140), truncate_chars(rule, 80)),
+                title: format!(
+                    "{} [{}]",
+                    truncate_chars(short, 140),
+                    truncate_chars(rule, 80)
+                ),
             }
         })
         .collect()
+}
+
+fn json_str_array(args: &Value, key: &str) -> Vec<String> {
+    args.get(key)
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Tools `capability_*` e `mission_*`.
+pub async fn mission_dispatch(state: &McpState, tool: &str, args: Value) -> String {
+    let Some(db) = state.app.try_state::<crate::db::Db>() else {
+        return "❌ DB indisponível (missão/capabilities precisam do SQLite)".into();
+    };
+
+    match tool {
+        "capability_list" => {
+            let caps = crate::mission::capabilities::list(&db);
+            serde_json::to_string_pretty(&caps).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "capability_search" => {
+            let query = arg_str(&args, "query");
+            if query.is_empty() {
+                return "❌ 'query' é obrigatório".into();
+            }
+            let sig = crate::mission::capabilities::search(&db, &query);
+            serde_json::to_string_pretty(&sig).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "capability_upsert" => {
+            let id = arg_str(&args, "id");
+            let description = arg_str(&args, "description");
+            if id.is_empty() || description.is_empty() {
+                return "❌ 'id' e 'description' são obrigatórios".into();
+            }
+            let cap = crate::mission::capabilities::Capability {
+                id,
+                description,
+                domains: json_str_array(&args, "domains"),
+                examples: json_str_array(&args, "examples"),
+                not_for: json_str_array(&args, "not_for"),
+                invoke_kind: {
+                    let k = arg_str(&args, "invoke_kind");
+                    if k.is_empty() {
+                        "role".into()
+                    } else {
+                        k
+                    }
+                },
+                invoke_ref: arg_str(&args, "invoke_ref"),
+            };
+            match crate::mission::capabilities::upsert(&db, &cap) {
+                Ok(()) => format!("✅ capability '{}' upserted", cap.id),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "mission_create" => {
+            let brief = arg_str(&args, "brief");
+            if brief.is_empty() {
+                return "❌ 'brief' é obrigatório".into();
+            }
+            let package_json = if let Some(obj) = args.get("package") {
+                obj.to_string()
+            } else {
+                let s = arg_str(&args, "package_json");
+                if s.is_empty() {
+                    return "❌ 'package' ou 'package_json' é obrigatório".into();
+                }
+                s
+            };
+            // Valida shape mínimo
+            if let Err(e) = crate::mission::runner::parse_package(&package_json) {
+                return format!("❌ {e}");
+            }
+            let cwd = args.get("cwd").and_then(|v| v.as_str());
+            let id = crate::mission::events::create_mission(&db, &brief, &package_json, cwd);
+            format!("✅ mission_id={id}")
+        }
+        "mission_run" => {
+            let mission_id = arg_str(&args, "mission_id");
+            if mission_id.is_empty() {
+                return "❌ 'mission_id' é obrigatório".into();
+            }
+            let report = crate::mission::runner::run_mission(state, &db, &mission_id).await;
+            serde_json::to_string_pretty(&report).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "mission_status" => {
+            let mission_id = arg_str(&args, "mission_id");
+            if mission_id.is_empty() {
+                return "❌ 'mission_id' é obrigatório".into();
+            }
+            let v = crate::mission::runner::status_json(&db, &mission_id);
+            serde_json::to_string_pretty(&v).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "mission_validate_chain" => {
+            let mission_id = arg_str(&args, "mission_id");
+            if mission_id.is_empty() {
+                return "❌ 'mission_id' é obrigatório".into();
+            }
+            let events = crate::mission::events::list_events(&db, &mission_id);
+            let node_ids = crate::mission::events::get_mission_package(&db, &mission_id)
+                .and_then(|(_, pj, _)| crate::mission::runner::parse_package(&pj).ok())
+                .map(|p| crate::mission::runner::package_node_ids(&p))
+                .unwrap_or_default();
+            let report = crate::mission::events::validate_chain(&events, &node_ids, false);
+            serde_json::to_string_pretty(&report).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "mission_verify" => {
+            let mission_id = arg_str(&args, "mission_id");
+            if mission_id.is_empty() {
+                return "❌ 'mission_id' é obrigatório".into();
+            }
+            let Some((_, package_json, cwd)) =
+                crate::mission::events::get_mission_package(&db, &mission_id)
+            else {
+                return format!("❌ missão '{mission_id}' não encontrada");
+            };
+            let pkg = match crate::mission::runner::parse_package(&package_json) {
+                Ok(p) => p,
+                Err(e) => return format!("❌ {e}"),
+            };
+            let work = cwd
+                .as_deref()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+                });
+            let report = crate::mission::verify::verify(&work, &pkg.acceptance);
+            serde_json::to_string_pretty(&report).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "mission_handoff_write" => {
+            let mission_id = arg_str(&args, "mission_id");
+            let from_agent = arg_str(&args, "from_agent");
+            let to_agent = arg_str(&args, "to_agent");
+            let next_action = arg_str(&args, "next_action");
+            if mission_id.is_empty() || from_agent.is_empty() || to_agent.is_empty() {
+                return "❌ mission_id, from_agent e to_agent são obrigatórios".into();
+            }
+            if next_action.is_empty() {
+                return "❌ next_action é obrigatório".into();
+            }
+            let h = crate::mission::handoff::MissionHandoff {
+                from_agent,
+                to_agent,
+                last_command: arg_str(&args, "last_command"),
+                decisions: json_str_array(&args, "decisions"),
+                files_modified: json_str_array(&args, "files_modified"),
+                blockers: json_str_array(&args, "blockers"),
+                next_action,
+                consumed: false,
+                timestamp: String::new(),
+                mission_id: mission_id.clone(),
+            };
+            match crate::mission::handoff::save(&db, &mission_id, h) {
+                Ok(key) => format!("✅ handoff gravado key={key}"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        "mission_handoff_read" => {
+            let key = arg_str(&args, "key");
+            if !key.is_empty() {
+                return match crate::mission::handoff::load(&db, &key) {
+                    Some(h) => {
+                        serde_json::to_string_pretty(&h).unwrap_or_else(|e| format!("❌ {e}"))
+                    }
+                    None => format!("❌ handoff '{key}' não encontrado"),
+                };
+            }
+            let mission_id = arg_str(&args, "mission_id");
+            if mission_id.is_empty() {
+                return "❌ 'mission_id' é obrigatório (ou passe 'key')".into();
+            }
+            let to = arg_str(&args, "to_agent");
+            let to_opt = if to.is_empty() {
+                None
+            } else {
+                Some(to.as_str())
+            };
+            let pending = crate::mission::handoff::load_pending(&db, &mission_id, to_opt);
+            let items: Vec<Value> = pending
+                .into_iter()
+                .map(|(k, h)| json!({ "key": k, "handoff": h }))
+                .collect();
+            serde_json::to_string_pretty(&items).unwrap_or_else(|e| format!("❌ {e}"))
+        }
+        "mission_handoff_consume" => {
+            let mut key = arg_str(&args, "key");
+            if key.is_empty() {
+                let mission_id = arg_str(&args, "mission_id");
+                let from = arg_str(&args, "from_agent");
+                let to = arg_str(&args, "to_agent");
+                if mission_id.is_empty() || from.is_empty() || to.is_empty() {
+                    return "❌ informe 'key' ou (mission_id + from_agent + to_agent)".into();
+                }
+                key = crate::mission::handoff::handoff_key(&mission_id, &from, &to);
+            }
+            match crate::mission::handoff::mark_consumed(&db, &key) {
+                Ok(true) => format!("✅ handoff consumido key={key}"),
+                Ok(false) => format!("❌ handoff '{key}' não encontrado"),
+                Err(e) => format!("❌ {e}"),
+            }
+        }
+        other => format!("❌ tool desconhecida: {other}"),
+    }
 }
 
 /// Parser puro (str) da saída `--json` do semgrep — wrapper testável do núcleo acima.
@@ -1736,11 +2489,20 @@ fn danger_regexes() -> &'static Vec<(regex::Regex, &'static str)> {
             p(r"\bexec\s*\(", "uso de exec("),
             p(r"\bnew\s+Function\s*\(", "new Function("),
             p(r"shell\s*=\s*True", "subprocess shell=True"),
-            p(r"\bpickle\.loads?\s*\(", "pickle.load (desserialização insegura)"),
+            p(
+                r"\bpickle\.loads?\s*\(",
+                "pickle.load (desserialização insegura)",
+            ),
             // hash fraco SÓ em contexto de chamada (conservador — evita FP em comentário/nome)
-            p(r#"(?i)createHash\(\s*['"](md5|sha1)"#, "hash fraco (MD5/SHA1)"),
+            p(
+                r#"(?i)createHash\(\s*['"](md5|sha1)"#,
+                "hash fraco (MD5/SHA1)",
+            ),
             p(r"(?i)hashlib\.(md5|sha1)\s*\(", "hash fraco (MD5/SHA1)"),
-            p(r#"(?i)getInstance\(\s*"(md5|sha-?1)""#, "hash fraco (MD5/SHA1)"),
+            p(
+                r#"(?i)getInstance\(\s*"(md5|sha-?1)""#,
+                "hash fraco (MD5/SHA1)",
+            ),
         ]
     })
 }
@@ -1760,10 +2522,8 @@ fn scan_line_dangers(line: &str) -> Vec<&'static str> {
     }
     // SQL concatenada: `.query(`/`.execute(` com interpolação (`${`, `" +`, `' +`).
     let sql_call = line.contains(".query(") || line.contains(".execute(");
-    let interp = line.contains("${")
-        || line.contains("\" +")
-        || line.contains("' +")
-        || line.contains("`+");
+    let interp =
+        line.contains("${") || line.contains("\" +") || line.contains("' +") || line.contains("`+");
     if sql_call && interp {
         hits.push("SQL concatenada (possível injeção)");
     }
@@ -1857,7 +2617,11 @@ fn grep_dangers(cwd: &str) -> Vec<ReviewHistItem> {
         if !is_scannable(path) {
             continue;
         }
-        if entry.metadata().map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true) {
+        if entry
+            .metadata()
+            .map(|m| m.len() > MAX_FILE_BYTES)
+            .unwrap_or(true)
+        {
             continue;
         }
         seen_files += 1;
@@ -1977,9 +2741,10 @@ async fn preflight_semgrep(cwd: &str, report: &mut PreflightReport) {
                     // sem JSON válido → provável falha de rede/download de regras → NEUTRAL
                     let err = String::from_utf8_lossy(&out.stderr);
                     let snip = err.trim().lines().last().unwrap_or("saída não-JSON");
-                    report
-                        .skipped
-                        .push(format!("semgrep: saída inconclusiva ({})", truncate_chars(snip, 100)));
+                    report.skipped.push(format!(
+                        "semgrep: saída inconclusiva ({})",
+                        truncate_chars(snip, 100)
+                    ));
                 }
             }
         }
@@ -1989,7 +2754,10 @@ async fn preflight_semgrep(cwd: &str, report: &mut PreflightReport) {
 /// Orquestra o Estágio 1: gitleaks + semgrep (subprocessos, timeout+kill_on_drop) +
 /// grep (sync IO-bound → spawn_blocking, pra não travar o executor async).
 async fn run_preflight(cwd: &str) -> PreflightReport {
-    let mut report = PreflightReport { findings: Vec::new(), skipped: Vec::new() };
+    let mut report = PreflightReport {
+        findings: Vec::new(),
+        skipped: Vec::new(),
+    };
     preflight_gitleaks(cwd, &mut report).await;
     preflight_semgrep(cwd, &mut report).await;
     let cwd_owned = cwd.to_string();
@@ -2009,7 +2777,11 @@ fn decide_go_nogo(
     stage2_warn: i64,
     stage2_nogo: bool,
 ) -> &'static str {
-    let crit = preflight.iter().filter(|f| f.severity == "CRITICAL").count() as i64 + stage2_crit;
+    let crit = preflight
+        .iter()
+        .filter(|f| f.severity == "CRITICAL")
+        .count() as i64
+        + stage2_crit;
     let warn = preflight.iter().filter(|f| f.severity == "WARNING").count() as i64 + stage2_warn;
     if stage2_nogo || crit >= 1 || warn >= 2 {
         "NO-GO"
@@ -2080,7 +2852,11 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
     let db = state.app.state::<crate::db::Db>();
     match tool {
         "kanban_list" => {
-            let Some(project) = args.get("project").and_then(|v| v.as_str()).filter(|p| !p.is_empty()) else {
+            let Some(project) = args
+                .get("project")
+                .and_then(|v| v.as_str())
+                .filter(|p| !p.is_empty())
+            else {
                 return "parâmetro 'project' é obrigatório".into();
             };
             match db.kanban_list(project) {
@@ -2098,21 +2874,42 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             }
         }
         "kanban_card_create" => {
-            let Some(project) = args.get("project").and_then(|v| v.as_str()).filter(|p| !p.is_empty()) else {
+            let Some(project) = args
+                .get("project")
+                .and_then(|v| v.as_str())
+                .filter(|p| !p.is_empty())
+            else {
                 return "parâmetro 'project' é obrigatório".into();
             };
-            let Some(title) = args.get("title").and_then(|v| v.as_str()).filter(|t| !t.is_empty()) else {
+            let Some(title) = args
+                .get("title")
+                .and_then(|v| v.as_str())
+                .filter(|t| !t.is_empty())
+            else {
                 return "parâmetro 'title' é obrigatório".into();
             };
-            let column = match args.get("column").and_then(|v| v.as_str()).filter(|c| !c.is_empty()) {
+            let column = match args
+                .get("column")
+                .and_then(|v| v.as_str())
+                .filter(|c| !c.is_empty())
+            {
                 Some(c) => c.to_string(),
                 None => crate::db::kanban_first_col(&db, project),
             };
             if !crate::db::kanban_valid_col(&db, project, &column) {
-                return format!("coluna inválida: use {}", crate::db::kanban_cols_hint(&db, project));
+                return format!(
+                    "coluna inválida: use {}",
+                    crate::db::kanban_cols_hint(&db, project)
+                );
             }
-            let body = args.get("body").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
-            let agent = args.get("agent").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+            let body = args
+                .get("body")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty());
+            let agent = args
+                .get("agent")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty());
             match db.kanban_create(project, &column, title, body, agent, None) {
                 Ok(id) => {
                     let _ = state.app.emit("kanban://changed", ());
@@ -2125,7 +2922,11 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             let Some(id) = args.get("id").and_then(|v| v.as_i64()).filter(|i| *i > 0) else {
                 return "parâmetro 'id' deve ser um número positivo".into();
             };
-            let Some(column) = args.get("column").and_then(|v| v.as_str()).filter(|c| !c.is_empty()) else {
+            let Some(column) = args
+                .get("column")
+                .and_then(|v| v.as_str())
+                .filter(|c| !c.is_empty())
+            else {
                 return "parâmetro 'column' é obrigatório".into();
             };
             let project = match db.kanban_card_project(id) {
@@ -2134,7 +2935,10 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
                 Err(e) => return format!("erro ao buscar card: {e:#}"),
             };
             if !crate::db::kanban_valid_col(&db, &project, column) {
-                return format!("coluna inválida: use {}", crate::db::kanban_cols_hint(&db, &project));
+                return format!(
+                    "coluna inválida: use {}",
+                    crate::db::kanban_cols_hint(&db, &project)
+                );
             }
             match db.kanban_move(id, column) {
                 Ok(()) => {
@@ -2148,7 +2952,11 @@ pub fn kanban_dispatch(state: &McpState, tool: &str, args: Value) -> String {
             let Some(id) = args.get("id").and_then(|v| v.as_i64()).filter(|i| *i > 0) else {
                 return "parâmetro 'id' deve ser um número positivo".into();
             };
-            let Some(note) = args.get("note").and_then(|v| v.as_str()).filter(|n| !n.is_empty()) else {
+            let Some(note) = args
+                .get("note")
+                .and_then(|v| v.as_str())
+                .filter(|n| !n.is_empty())
+            else {
                 return "parâmetro 'note' é obrigatório".into();
             };
             match db.kanban_note(id, note) {
@@ -2208,9 +3016,12 @@ pub fn agent_lifecycle_dispatch(state: &McpState, tool: &str, args: Value) -> St
         "agent_wake" => {
             // O front re-spawna: TerminalNode escuta canvas://agent-wake (via
             // orchestration-client) e chama reconnect() quando o sessionId bate.
-            let _ = state.app.emit("canvas://agent-wake", json!({
-                "sessionId": id, "label": terminal
-            }));
+            let _ = state.app.emit(
+                "canvas://agent-wake",
+                json!({
+                    "sessionId": id, "label": terminal
+                }),
+            );
             format!(
                 "pedido de wake enviado pra '{terminal}' — o nó re-spawna o processo com o \
                  mesmo command/args/env. Confirme com terminal_wait_status (idle/working)."
@@ -2237,9 +3048,19 @@ pub(crate) const EVICT_THRESHOLD_CHARS: usize = 20_000;
 pub(crate) fn evict_file_name(tool: &str, timestamp_ms: u128) -> String {
     let safe: String = tool
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    let safe = if safe.is_empty() { "tool".to_string() } else { safe };
+    let safe = if safe.is_empty() {
+        "tool".to_string()
+    } else {
+        safe
+    };
     format!("{timestamp_ms}-{safe}.txt")
 }
 
@@ -2306,14 +3127,20 @@ mod tests {
     #[test]
     fn output_substring_returns_line() {
         let buf = "linha um\nfoo bar baz\nfim";
-        assert_eq!(output_matches(buf, "bar", false).as_deref(), Some("foo bar baz"));
+        assert_eq!(
+            output_matches(buf, "bar", false).as_deref(),
+            Some("foo bar baz")
+        );
         assert_eq!(output_matches(buf, "ausente", false), None);
     }
 
     #[test]
     fn output_regex_returns_line() {
         let buf = "abc\nerror: 42\nxyz";
-        assert_eq!(output_matches(buf, r"error: \d+", true).as_deref(), Some("error: 42"));
+        assert_eq!(
+            output_matches(buf, r"error: \d+", true).as_deref(),
+            Some("error: 42")
+        );
         assert_eq!(output_matches(buf, r"^never$", true), None);
     }
 
@@ -2321,8 +3148,15 @@ mod tests {
 
     #[test]
     fn evict_stub_has_path_head_tail_and_instruction() {
-        let text = (1..=100).map(|i| format!("linha {i}")).collect::<Vec<_>>().join("\n");
-        let stub = evict_stub("terminal_read", "/data/tool-results/123-terminal_read.txt", &text);
+        let text = (1..=100)
+            .map(|i| format!("linha {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let stub = evict_stub(
+            "terminal_read",
+            "/data/tool-results/123-terminal_read.txt",
+            &text,
+        );
         // caminho do arquivo completo
         assert!(stub.contains("Arquivo completo: /data/tool-results/123-terminal_read.txt"));
         // primeiras 5 linhas numeradas (nº real da linha)
@@ -2332,7 +3166,10 @@ mod tests {
         // últimas 5 linhas numeradas
         assert!(stub.contains("    96\tlinha 96"));
         assert!(stub.contains("   100\tlinha 100"));
-        assert!(!stub.contains("\tlinha 95"), "cauda deve começar na antepenúltima janela (96)");
+        assert!(
+            !stub.contains("\tlinha 95"),
+            "cauda deve começar na antepenúltima janela (96)"
+        );
         // metadados + instrução de leitura paginada
         assert!(stub.contains("terminal_read"));
         assert!(stub.contains("100 linhas"));
@@ -2354,7 +3191,10 @@ mod tests {
     fn evict_file_name_sanitizes_tool() {
         // Tool dinâmica (label de agente) não pode injetar path no filename.
         assert_eq!(evict_file_name("terminal_read", 42), "42-terminal_read.txt");
-        assert_eq!(evict_file_name("../../etc/passwd", 42), "42-______etc_passwd.txt");
+        assert_eq!(
+            evict_file_name("../../etc/passwd", 42),
+            "42-______etc_passwd.txt"
+        );
         assert_eq!(evict_file_name("", 7), "7-tool.txt");
     }
 
@@ -2362,6 +3202,93 @@ mod tests {
     fn evict_threshold_is_about_20k_chars() {
         // Guard de regressão: ~5k tokens por proxy de chars (deepagents-style).
         assert_eq!(EVICT_THRESHOLD_CHARS, 20_000);
+    }
+
+    // ── T1 summarize > dump (memory_*) ──────────────────────────────────────
+
+    fn mem_row(id: i64, value: &str) -> crate::db::MemoryRow {
+        crate::db::MemoryRow {
+            id,
+            scope: None,
+            agent_id: None,
+            kind: "fact".into(),
+            mem_key: Some(format!("k{id}")),
+            value: value.into(),
+            tags: None,
+            created_at: "2026-07-25T00:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn summarize_memory_value_truncates_long_and_multiline() {
+        let (s, trunc) = summarize_memory_value("short ok", 240);
+        assert_eq!(s, "short ok");
+        assert!(!trunc);
+
+        let long = "x".repeat(300);
+        let (s2, trunc2) = summarize_memory_value(&long, 240);
+        assert!(trunc2);
+        assert!(s2.ends_with('…'));
+        assert!(s2.chars().count() <= 240);
+
+        let (s3, trunc3) = summarize_memory_value("linha1\nlinha2 bem longa", 240);
+        assert_eq!(s3, "linha1");
+        assert!(trunc3);
+    }
+
+    #[test]
+    fn memory_fmt_opts_reads_raw_full_offset_limit() {
+        let opts = memory_fmt_opts(&json!({ "offset": 5, "limit": 3, "raw": true }), 10);
+        assert_eq!(opts.offset, 5);
+        assert_eq!(opts.limit, 3);
+        assert!(opts.raw);
+
+        let full = memory_fmt_opts(&json!({ "full": true }), 20);
+        assert!(full.raw);
+        assert_eq!(full.limit, 20);
+    }
+
+    #[test]
+    fn fmt_memories_summary_paginates_and_emits_meta() {
+        let rows: Vec<_> = (1..=5)
+            .map(|i| mem_row(i, &format!("fato {i} {}", "y".repeat(300))))
+            .collect();
+        let out = fmt_memories(
+            &rows,
+            "memórias",
+            &MemoryFmtOpts {
+                offset: 0,
+                limit: 2,
+                raw: false,
+            },
+        );
+        assert!(out.contains("[summary]"), "modo summary no header");
+        assert!(out.contains("#1 (fact)"));
+        assert!(out.contains("#2 (fact)"));
+        assert!(!out.contains("#3 (fact)"), "página limita a 2");
+        assert!(out.contains("\"truncation\":true"));
+        assert!(out.contains("\"next_offset\":2"));
+        assert!(out.contains("\"mode\":\"summary\""));
+        // value longo não aparece inteiro no summary
+        assert!(!out.contains(&"y".repeat(300)));
+    }
+
+    #[test]
+    fn fmt_memories_raw_dumps_full_value() {
+        let rows = vec![mem_row(1, "linha1\nlinha2 completa")];
+        let out = fmt_memories(
+            &rows,
+            "recall 'x'",
+            &MemoryFmtOpts {
+                offset: 0,
+                limit: 10,
+                raw: true,
+            },
+        );
+        assert!(out.contains("[raw]"));
+        assert!(out.contains("linha1\nlinha2 completa"));
+        assert!(out.contains("\"mode\":\"raw\""));
+        assert!(out.contains("\"next_offset\":null") || out.contains("\"next_offset\": null"));
     }
 
     // ── Estágio 1 · pré-flight determinístico (parsers puros + decisão GO/NO-GO) ──
@@ -2385,7 +3312,10 @@ mod tests {
     fn decide_2_warnings_is_nogo() {
         // 2+ WARNING = NO-GO; 1 sozinho ainda é GO.
         assert_eq!(decide_go_nogo(&[item("WARNING")], 0, 0, false), "GO");
-        assert_eq!(decide_go_nogo(&[item("WARNING"), item("WARNING")], 0, 0, false), "NO-GO");
+        assert_eq!(
+            decide_go_nogo(&[item("WARNING"), item("WARNING")], 0, 0, false),
+            "NO-GO"
+        );
     }
 
     #[test]
@@ -2393,7 +3323,10 @@ mod tests {
         // 1 WARNING do pré-flight + 1 WARNING do Estágio 2 = 2 → NO-GO (contagens somam).
         assert_eq!(decide_go_nogo(&[item("WARNING")], 0, 1, false), "NO-GO");
         // Só INFO/style não bloqueia.
-        assert_eq!(decide_go_nogo(&[item("INFO"), item("INFO")], 0, 0, false), "GO");
+        assert_eq!(
+            decide_go_nogo(&[item("INFO"), item("INFO")], 0, 0, false),
+            "GO"
+        );
         // Nada em nenhum estágio → GO.
         assert_eq!(decide_go_nogo(&[], 0, 0, false), "GO");
     }
@@ -2414,7 +3347,9 @@ mod tests {
         ]"#;
         let got = parse_gitleaks(sample);
         assert_eq!(got.len(), 2);
-        assert!(got.iter().all(|f| f.severity == "CRITICAL" && f.category == "security"));
+        assert!(got
+            .iter()
+            .all(|f| f.severity == "CRITICAL" && f.category == "security"));
         assert_eq!(got[0].file, "src/cfg.rs:42");
         assert!(got[0].title.contains("aws-access-token"));
         // RuleID vazio → cai na Description.
@@ -2459,14 +3394,18 @@ mod tests {
     #[test]
     fn scan_line_dangers_flags_known_patterns() {
         assert!(scan_line_dangers("const r = eval(userInput);").contains(&"uso de eval("));
-        assert!(scan_line_dangers("out = subprocess.run(cmd, shell=True)").contains(&"subprocess shell=True"));
-        assert!(scan_line_dangers("data = pickle.loads(buf)").contains(&"pickle.load (desserialização insegura)"));
+        assert!(scan_line_dangers("out = subprocess.run(cmd, shell=True)")
+            .contains(&"subprocess shell=True"));
+        assert!(scan_line_dangers("data = pickle.loads(buf)")
+            .contains(&"pickle.load (desserialização insegura)"));
         assert!(scan_line_dangers("cfg = yaml.load(f)").contains(&"yaml.load sem Loader"));
         // yaml.load COM Loader → não flaga.
         assert!(scan_line_dangers("cfg = yaml.load(f, Loader=SafeLoader)").is_empty());
         // SQL concatenada.
-        assert!(scan_line_dangers("db.query(`SELECT * FROM u WHERE id=${id}`)")
-            .contains(&"SQL concatenada (possível injeção)"));
+        assert!(
+            scan_line_dangers("db.query(`SELECT * FROM u WHERE id=${id}`)")
+                .contains(&"SQL concatenada (possível injeção)")
+        );
         // Comparação de assinatura não-constante.
         assert!(scan_line_dangers("if (signature === expected) {")
             .contains(&"comparação de assinatura não-constante (===)"));
@@ -2521,10 +3460,16 @@ mod tests {
         let args = serde_json::json!({ "path": file.to_str().unwrap() });
         let out = super::code_chunks_dispatch(args);
         let v: serde_json::Value = serde_json::from_str(&out).expect("JSON válido");
-        let arr = v.get("chunks").and_then(|c| c.as_array()).expect("chunks[]");
+        let arr = v
+            .get("chunks")
+            .and_then(|c| c.as_array())
+            .expect("chunks[]");
         assert!(!arr.is_empty(), "sem chunks: {out}");
         let joined = out.as_str();
-        assert!(joined.contains("alpha") && joined.contains("beta"), "faltou símbolo: {out}");
+        assert!(
+            joined.contains("alpha") && joined.contains("beta"),
+            "faltou símbolo: {out}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2549,21 +3494,38 @@ mod tests {
         let roster = vec![ag("Backend", Some("backend"), crate::pty::AgentState::Idle)];
         let msg = duplicate_refusal_from_roster(&roster, "Backend", Some("backend"))
             .expect("deveria recusar porque há agente livre com mesmo nome");
-        assert!(msg.contains("mesmo nome"), "a recusa deveria citar conflito por mesmo nome");
+        assert!(
+            msg.contains("mesmo nome"),
+            "a recusa deveria citar conflito por mesmo nome"
+        );
     }
 
     #[test]
     fn papel_igual_com_nome_diferente_recusa() {
-        let roster = vec![ag("Frontend", Some("frontend"), crate::pty::AgentState::Idle)];
+        let roster = vec![ag(
+            "Frontend",
+            Some("frontend"),
+            crate::pty::AgentState::Idle,
+        )];
         let msg = duplicate_refusal_from_roster(&roster, "UI Dev", Some("frontend"))
             .expect("deveria recusar pelo papel mesmo com nome diferente (regressão do sinônimo)");
-        assert!(msg.contains("mesmo papel"), "a recusa deveria citar conflito por mesmo papel");
-        assert!(msg.contains("@Frontend"), "a mensagem deveria apontar o agente existente @Frontend");
+        assert!(
+            msg.contains("mesmo papel"),
+            "a recusa deveria citar conflito por mesmo papel"
+        );
+        assert!(
+            msg.contains("@Frontend"),
+            "a mensagem deveria apontar o agente existente @Frontend"
+        );
     }
 
     #[test]
     fn agente_working_nao_bloqueia() {
-        let roster = vec![ag("Backend", Some("backend"), crate::pty::AgentState::Working)];
+        let roster = vec![ag(
+            "Backend",
+            Some("backend"),
+            crate::pty::AgentState::Working,
+        )];
         assert!(
             duplicate_refusal_from_roster(&roster, "Backend", Some("backend")).is_none(),
             "agente ocupado (Working) não deve bloquear novo spawn"
@@ -2572,7 +3534,11 @@ mod tests {
 
     #[test]
     fn papel_diferente_passa() {
-        let roster = vec![ag("Frontend", Some("frontend"), crate::pty::AgentState::Idle)];
+        let roster = vec![ag(
+            "Frontend",
+            Some("frontend"),
+            crate::pty::AgentState::Idle,
+        )];
         assert!(
             duplicate_refusal_from_roster(&roster, "DBA", Some("dba")).is_none(),
             "papel diferente não deve ser considerado duplicado"
@@ -2588,11 +3554,17 @@ mod tests {
         let roster = vec![ag("Frontend", None, crate::pty::AgentState::Idle)];
         let mut msg = duplicate_refusal_from_roster(&roster, "UI Dev", Some("frontend"))
             .expect("o papel do agente existente deve ser inferido do label 'Frontend'");
-        assert!(msg.contains("mesmo papel"), "a recusa deveria ser por papel inferido");
+        assert!(
+            msg.contains("mesmo papel"),
+            "a recusa deveria ser por papel inferido"
+        );
 
         msg = duplicate_refusal_from_roster(&roster, "Frontend", None)
             .expect("deveria recusar pelo nome quando não há papel");
-        assert!(msg.contains("mesmo nome"), "nome exato tem prioridade sobre papel");
+        assert!(
+            msg.contains("mesmo nome"),
+            "nome exato tem prioridade sobre papel"
+        );
     }
 
     /// contraprova da inferência — nome que não casa com nenhum sinônimo conhecido
@@ -2615,11 +3587,20 @@ mod tests {
         ];
         let msg = duplicate_refusal_from_roster(&roster, "Frontend", None)
             .expect("deveria recusar porque Frontend está livre");
-        assert!(msg.contains("@DBA"), "a lista de livres deveria incluir @DBA");
+        assert!(
+            msg.contains("@DBA"),
+            "a lista de livres deveria incluir @DBA"
+        );
         // "DBA" não declarou papel, mas o próprio nome infere "dba" — a lista precisa deixar
         // explícito que ali houve palpite, não declaração.
-        assert!(msg.contains("(papel inferido do nome: dba)"), "a lista deveria marcar o papel de DBA como inferido");
-        assert!(!msg.contains("@Backend"), "agente Working não deve aparecer na lista de livres");
+        assert!(
+            msg.contains("(papel inferido do nome: dba)"),
+            "a lista deveria marcar o papel de DBA como inferido"
+        );
+        assert!(
+            !msg.contains("@Backend"),
+            "agente Working não deve aparecer na lista de livres"
+        );
     }
 
     #[test]
@@ -2633,12 +3614,18 @@ mod tests {
 
     #[test]
     fn papel_casa_ignorando_caixa_e_espaco() {
-        let roster = vec![ag("Frontend", Some("  FrontEnd "), crate::pty::AgentState::Idle)];
+        let roster = vec![ag(
+            "Frontend",
+            Some("  FrontEnd "),
+            crate::pty::AgentState::Idle,
+        )];
         let msg = duplicate_refusal_from_roster(&roster, "X", Some("frontend"))
             .expect("deveria casar papel ignorando caixa e espaços");
-        assert!(msg.contains("mesmo papel"), "a recusa deveria ser por mesmo papel");
+        assert!(
+            msg.contains("mesmo papel"),
+            "a recusa deveria ser por mesmo papel"
+        );
     }
-
 
     #[test]
     fn role_declarado_normaliza() {

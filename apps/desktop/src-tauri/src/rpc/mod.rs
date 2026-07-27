@@ -68,7 +68,9 @@ pub fn start(app: AppHandle) {
     };
     match metadata::write_metadata(&meta) {
         Ok(path) => log::info!("RPC: runtime.json gravado em {path:?}"),
-        Err(e) => log::error!("RPC: falha ao gravar runtime.json: {e} (socket no ar, mas CLI não descobre)"),
+        Err(e) => log::error!(
+            "RPC: falha ao gravar runtime.json: {e} (socket no ar, mas CLI não descobre)"
+        ),
     }
 }
 
@@ -94,12 +96,16 @@ pub fn start_mobile_relay(app: AppHandle) {
     let keypair = match keypair::load_or_create() {
         Ok(kp) => Arc::new(kp),
         Err(e) => {
-            log::error!("relay mobile: keypair E2EE indisponível ({e}) — relay desabilitado (app OK)");
+            log::error!(
+                "relay mobile: keypair E2EE indisponível ({e}) — relay desabilitado (app OK)"
+            );
             return;
         }
     };
     let Some(devices_path) = devices::DeviceRegistry::default_path() else {
-        log::error!("relay mobile: HOME indisponível p/ devices.json — relay desabilitado (app OK)");
+        log::error!(
+            "relay mobile: HOME indisponível p/ devices.json — relay desabilitado (app OK)"
+        );
         return;
     };
     let devices = Arc::new(devices::DeviceRegistry::open(devices_path));
@@ -186,7 +192,10 @@ pub fn mobile_revoke(app: AppHandle, device_id: String) -> Result<serde_json::Va
     let relay = app
         .try_state::<Arc<MobileRelay>>()
         .ok_or_else(|| "relay mobile não está ativo nesta sessão".to_string())?;
-    let removed = relay.devices.remove(&device_id).map_err(|e| format!("revogar: {e}"))?;
+    let removed = relay
+        .devices
+        .remove(&device_id)
+        .map_err(|e| format!("revogar: {e}"))?;
     Ok(serde_json::json!({ "removed": removed }))
 }
 
@@ -219,7 +228,11 @@ mod tests {
     fn build_registry_has_readonly_and_write_methods() {
         let reg = build_registry();
         // #8A read-only (3) + Fase 2 escrita (3) + mobile #9 (4) + ACP (4) = 14.
-        assert_eq!(reg.len(), 14, "3 read-only (#8A) + 3 escrita + 4 mobile (#9) + 4 ACP");
+        assert_eq!(
+            reg.len(),
+            14,
+            "3 read-only (#8A) + 3 escrita + 4 mobile (#9) + 4 ACP"
+        );
         // Read-only (#8A).
         assert!(reg.get("status").is_some());
         assert!(reg.get("agents.list").is_some());
@@ -246,7 +259,10 @@ mod tests {
         // mobile NÃO — é a fronteira de segurança da Fase 2 (mobile read-only).
         let reg = build_registry();
         for m in ["agent.spawn", "agent.send", "agent.kill"] {
-            assert!(reg.get(m).is_some(), "'{m}' deve existir no Registry (CLI/Runtime)");
+            assert!(
+                reg.get(m).is_some(),
+                "'{m}' deve existir no Registry (CLI/Runtime)"
+            );
             assert!(
                 !allowlist::is_allowed(m, devices::DeviceScope::Mobile),
                 "'{m}' NUNCA pode ser permitida p/ mobile"

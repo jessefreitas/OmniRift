@@ -14,6 +14,8 @@ export interface HermesSpawnConfig {
   model: string;
   key?: string;
   baseUrl?: string;
+  /** ID não secreto da Central de API; o backend resolve `credential.llm.<id>` no keychain. */
+  credentialId?: string;
 }
 
 /** Spawna o adapter ACP do provider (claude|codex|hermes) e inicia o handshake.

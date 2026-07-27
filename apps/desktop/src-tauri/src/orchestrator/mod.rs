@@ -13,9 +13,18 @@
 use crate::db::Db;
 use crate::mcp::server::McpState;
 use crate::mcp::AgentInfo;
-use std::time::{SystemTime, UNIX_EPOCH};
+use crate::pty::AgentState;
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+
+/// Default wall-clock cap for blocking dispatch (5 min).
+const BLOCKING_TIMEOUT_SECS: u64 = 300;
+
+/// True quando o despacho deve esperar o agente assentar (Idle/Done após Working).
+pub fn should_wait(priority: &str) -> bool {
+    priority != "async"
+}
 
 /// Uma entrada no log de orquestração (tabela orchestration_log).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,7 +101,7 @@ pub fn load_stream(db: &Db) -> Vec<OrchestratorLog> {
     db.with_conn(|conn| {
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, source, target, payload, status, stage, parent_id
-             FROM orchestration_log ORDER BY timestamp DESC LIMIT 200"
+             FROM orchestration_log ORDER BY timestamp DESC LIMIT 200",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(OrchestratorLog {
@@ -133,7 +142,8 @@ pub async fn dispatch_task(
     let resolved = crate::mcp::resolve_group(targets, &agents);
 
     if resolved.is_empty() {
-        let available: Vec<String> = agents.iter()
+        let available: Vec<String> = agents
+            .iter()
             .map(|a| format!("@{} ({})", a.label, agent_state_str(&a.state)))
             .collect();
         return format!(
@@ -152,55 +162,171 @@ pub async fn dispatch_task(
         task.to_string()
     };
 
-    let labels: Vec<String> = resolved.iter()
-        .filter_map(|sid| agents.iter().find(|a| &a.session_id == sid).map(|a| a.label.clone()))
+    let labels: Vec<String> = resolved
+        .iter()
+        .filter_map(|sid| {
+            agents
+                .iter()
+                .find(|a| &a.session_id == sid)
+                .map(|a| a.label.clone())
+        })
         .collect();
 
     // Log do despacho
-    log_entry(db, "conductor", &labels.join(", "), &full_task, "dispatched", 0, None);
+    log_entry(
+        db,
+        "conductor",
+        &labels.join(", "),
+        &full_task,
+        "dispatched",
+        0,
+        None,
+    );
 
-    if priority == "async" {
-        // Despacha sem esperar
+    if !should_wait(priority) {
         for sid in &resolved {
-            let _ = dispatch_to_session(state, sid, &full_task);
+            let _ = dispatch_to_session(state, sid, &full_task).await;
         }
-        return format!("{{\"status\": \"dispatched\", \"targets\": {}}}", labels.len());
+        return format!(
+            "{{\"status\": \"dispatched\", \"targets\": {}}}",
+            labels.len()
+        );
     }
 
-    // Blocking — despacha e registra; espera real (ACP condvar) é Fase 2.
-    // Por enquanto o comportamento é idêntico ao async: retorna imediatamente
-    // após o despacho. O resultado do agente chega via event stream (orchestrator://log).
+    // Blocking — despacha e ESPERA cada alvo assentar (Working→Done/Idle/Blocked/Dead).
     let mut results = Vec::new();
     for sid in &resolved {
-        let label = agents.iter()
+        let label = agents
+            .iter()
             .find(|a| &a.session_id == sid)
             .map(|a| a.label.clone())
-            .unwrap_or(sid.clone());
+            .unwrap_or_else(|| sid.clone());
 
-        let _ = dispatch_to_session(state, sid, &full_task);
-        results.push(format!("{}: dispatched", label));
+        log_entry(
+            db,
+            &label,
+            "conductor",
+            "tarefa recebida",
+            "working",
+            0,
+            None,
+        );
 
-        log_entry(db, &label, "conductor", "tarefa recebida", "working", 0, None);
+        let wait = wait_session_settle(state, sid, &full_task, BLOCKING_TIMEOUT_SECS).await;
+        let status = if wait.timed_out {
+            "timeout"
+        } else if matches!(wait.final_state, Some(AgentState::Dead)) {
+            "failed"
+        } else {
+            "completed"
+        };
+        log_entry(db, &label, "conductor", &wait.screen_tail, status, 0, None);
+        results.push(format!(
+            "{}: {} — {}",
+            label,
+            status,
+            truncate_tail(&wait.screen_tail, 300)
+        ));
     }
 
-    log_entry(db, "conductor", "user", &results.join("\n"), "done", 0, None);
-
+    log_entry(
+        db,
+        "conductor",
+        "user",
+        &results.join("\n"),
+        "done",
+        0,
+        None,
+    );
     results.join("\n")
 }
 
-/// Injeta texto numa sessão (via PTY — funciona pra todos os tipos de agente).
-/// ACP agents (Claude Code, Codex, Hermes) recebem o texto pelo stdin do PTY
-/// que o adapter está rodando. Não precisa de AcpManager diretamente — o PTY
-/// é o canal físico que tudo compartilha.
-fn dispatch_to_session(state: &McpState, session_id: &str, text: &str) -> Result<(), String> {
-    // Envia texto + \r numa única write — evitar std::thread::sleep em contexto async.
-    // TUIs modernas (Claude Code, Codex) aceitam texto\r colado; o sleep era heurístico.
-    let mut payload = text.as_bytes().to_vec();
-    payload.push(b'\r');
+struct SettleResult {
+    timed_out: bool,
+    final_state: Option<AgentState>,
+    screen_tail: String,
+}
+
+/// Injeta a tarefa e espera o PTY assentar (mesmo padrão de `orq_ask_and_wait`).
+async fn wait_session_settle(
+    state: &McpState,
+    session_id: &str,
+    text: &str,
+    timeout_secs: u64,
+) -> SettleResult {
+    let mut rx = state.pty_manager.subscribe_state();
+    if let Err(e) = dispatch_to_session(state, session_id, text).await {
+        return SettleResult {
+            timed_out: false,
+            final_state: state.pty_manager.agent_state(session_id),
+            screen_tail: format!("erro no write: {e}"),
+        };
+    }
+
+    let target = session_id.to_string();
+    let settle = async {
+        let mut saw_working = false;
+        let mut last = state.pty_manager.agent_state(&target);
+        loop {
+            match rx.recv().await {
+                Ok((id, st)) if id == target => {
+                    last = Some(st);
+                    match st {
+                        AgentState::Working => saw_working = true,
+                        AgentState::Done | AgentState::Idle if saw_working => return last,
+                        AgentState::Blocked if saw_working => return last,
+                        AgentState::Dead => return last,
+                        _ => {}
+                    }
+                }
+                Ok(_) => continue,
+                Err(_) => return last,
+            }
+        }
+    };
+
+    let (timed_out, final_state) =
+        match tokio::time::timeout(Duration::from_secs(timeout_secs), settle).await {
+            Ok(st) => (false, st),
+            Err(_) => (true, state.pty_manager.agent_state(session_id)),
+        };
+
+    let screen = state
+        .pty_manager
+        .read_screen(session_id)
+        .unwrap_or_default();
+    let lines: Vec<&str> = screen.lines().collect();
+    let start = lines.len().saturating_sub(40);
+    let screen_tail = lines[start..].join("\n");
+
+    SettleResult {
+        timed_out,
+        final_state,
+        screen_tail,
+    }
+}
+
+/// Injeta texto numa sessão (via PTY). Texto + pause + Enter separado —
+/// TUIs (Claude/Codex) às vezes engolem colagem `texto\r` sem submeter.
+async fn dispatch_to_session(state: &McpState, session_id: &str, text: &str) -> Result<(), String> {
     state
         .pty_manager
-        .write(session_id, &payload)
-        .map_err(|e| format!("PTY write falhou: {e}"))
+        .write(session_id, text.as_bytes())
+        .map_err(|e| format!("PTY write falhou: {e}"))?;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    state
+        .pty_manager
+        .write(session_id, b"\r")
+        .map_err(|e| format!("PTY enter falhou: {e}"))
+}
+
+fn truncate_tail(s: &str, max: usize) -> String {
+    let t = s.trim();
+    if t.len() <= max {
+        t.to_string()
+    } else {
+        format!("…{}", &t[t.len() - max..])
+    }
 }
 
 /// Snapshot dos agentes pro Conductor (mesma estrutura do mcp/tools.rs).
@@ -225,12 +351,24 @@ fn agent_snapshot(state: &McpState) -> Vec<AgentInfo> {
         .collect()
 }
 
-fn agent_state_str(state: &crate::pty::AgentState) -> &'static str {
+fn agent_state_str(state: &AgentState) -> &'static str {
     match state {
-        crate::pty::AgentState::Idle => "idle",
-        crate::pty::AgentState::Working => "working",
-        crate::pty::AgentState::Blocked => "blocked",
-        crate::pty::AgentState::Done => "done",
-        crate::pty::AgentState::Dead => "dead",
+        AgentState::Idle => "idle",
+        AgentState::Working => "working",
+        AgentState::Blocked => "blocked",
+        AgentState::Done => "done",
+        AgentState::Dead => "dead",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blocking_priority_waits() {
+        assert!(should_wait("blocking"));
+        assert!(should_wait(""));
+        assert!(!should_wait("async"));
     }
 }

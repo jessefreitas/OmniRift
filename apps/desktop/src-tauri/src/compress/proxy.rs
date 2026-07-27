@@ -31,7 +31,11 @@ const INSTANCES: [(&str, &str); 2] = [
 /// app (externalBin bundlado no release/dev), 2) ~/.cargo/bin (cargo install), 3) PATH.
 /// Compartilhado pelo auto-start do proxy e pela injeção do MCP em agentes.
 pub fn find_sidecar(stem: &str) -> Option<PathBuf> {
-    let name = if cfg!(windows) { format!("{stem}.exe") } else { stem.to_string() };
+    let name = if cfg!(windows) {
+        format!("{stem}.exe")
+    } else {
+        stem.to_string()
+    };
     // 1) Sidecar: o Tauri coloca o externalBin ao lado do executável do app.
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {

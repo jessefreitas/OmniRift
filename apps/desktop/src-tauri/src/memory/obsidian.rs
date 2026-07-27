@@ -66,7 +66,13 @@ impl ObsidianProvider {
 fn slug(s: &str) -> String {
     let cleaned: String = s
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect();
     cleaned.trim_matches('-').chars().take(40).collect()
 }
@@ -95,7 +101,10 @@ impl MemoryProvider for ObsidianProvider {
     async fn save(&self, m: NewMemory) -> anyhow::Result<String> {
         let base = self.base().ok_or_else(|| anyhow::anyhow!("sem endpoint"))?;
         let proj = m.project.as_deref().unwrap_or("global");
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
         let path = format!("OmniRift/{}/{}-{}.md", slug(proj), slug(&m.category), nanos);
         let body = format!(
             "---\ncategory: {}\nproject: {}\nsource: omnirift\n---\n\n{}\n",
@@ -131,7 +140,11 @@ impl MemoryProvider for ObsidianProvider {
         let arr = v.as_array().cloned().unwrap_or_default();
         let mut out = Vec::new();
         for item in arr.into_iter().take(q.limit.max(1)) {
-            let path = item.get("filename").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let path = item
+                .get("filename")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
             if path.is_empty() {
                 continue;
             }
@@ -147,14 +160,22 @@ impl MemoryProvider for ObsidianProvider {
                 })
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| path.clone());
-            out.push(MemoryRecord { id: path, content, category: "note".into(), project: q.project.clone() });
+            out.push(MemoryRecord {
+                id: path,
+                content,
+                category: "note".into(),
+                project: q.project.clone(),
+            });
         }
         Ok(out)
     }
 
     async fn get(&self, id: &str) -> anyhow::Result<Option<MemoryRecord>> {
         let base = self.base().ok_or_else(|| anyhow::anyhow!("sem endpoint"))?;
-        let resp = self.auth(self.http.get(format!("{base}/vault/{id}"))).send().await?;
+        let resp = self
+            .auth(self.http.get(format!("{base}/vault/{id}")))
+            .send()
+            .await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
         }
@@ -162,17 +183,28 @@ impl MemoryProvider for ObsidianProvider {
             anyhow::bail!("Obsidian GET /vault falhou: {}", resp.status());
         }
         let content = resp.text().await.unwrap_or_default();
-        Ok(Some(MemoryRecord { id: id.to_string(), content, category: "note".into(), project: None }))
+        Ok(Some(MemoryRecord {
+            id: id.to_string(),
+            content,
+            category: "note".into(),
+            project: None,
+        }))
     }
 
     async fn forget(&self, id: &str) -> anyhow::Result<bool> {
         let base = self.base().ok_or_else(|| anyhow::anyhow!("sem endpoint"))?;
-        let resp = self.auth(self.http.delete(format!("{base}/vault/{id}"))).send().await?;
+        let resp = self
+            .auth(self.http.delete(format!("{base}/vault/{id}")))
+            .send()
+            .await?;
         Ok(resp.status().is_success())
     }
 
     fn agent_wiring(&self) -> AgentWiring {
-        match (self.base(), self.cfg.token.as_deref().filter(|t| !t.is_empty())) {
+        match (
+            self.base(),
+            self.cfg.token.as_deref().filter(|t| !t.is_empty()),
+        ) {
             (Some(base), Some(token)) => AgentWiring {
                 mcp_servers: vec![(
                     "obsidian".to_string(),
@@ -219,7 +251,9 @@ mod tests {
         assert!(endpoint_is_loopback(Some("https://localhost:27124")));
         assert!(endpoint_is_loopback(Some("http://[::1]:27124")));
         // Remoto → TLS válido obrigatório (não aceita cert inválido).
-        assert!(!endpoint_is_loopback(Some("https://obsidian.example.com:27124")));
+        assert!(!endpoint_is_loopback(Some(
+            "https://obsidian.example.com:27124"
+        )));
         assert!(!endpoint_is_loopback(Some("https://10.0.0.5:27124")));
         assert!(!endpoint_is_loopback(None));
     }

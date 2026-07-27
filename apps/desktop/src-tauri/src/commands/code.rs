@@ -201,7 +201,9 @@ fn scan_project(dir: &Path, extra_roots: &[String]) -> Result<Vec<FileMetricsSum
             processed += 1;
             // Best-effort: lê + roda o engine (MESMO caminho do `code_metrics`).
             // Falha de leitura/parse → pula (não derruba o scan).
-            let Ok(content) = file_io::read(path) else { continue };
+            let Ok(content) = file_io::read(path) else {
+                continue;
+            };
             if let Ok(m) = metrics::compute(path, &content) {
                 out.push(FileMetricsSummary::from_metrics(&m));
             }
@@ -288,13 +290,23 @@ mod tests {
         let out = project(root);
 
         // Só os 2 de código fora de node_modules/gitignore.
-        assert_eq!(out.len(), 2, "esperava complex.rs + simple.ts; veio {out:?}");
+        assert_eq!(
+            out.len(),
+            2,
+            "esperava complex.rs + simple.ts; veio {out:?}"
+        );
         let langs: std::collections::HashSet<_> = out.iter().map(|s| s.language.clone()).collect();
         assert!(langs.contains("rust"));
         assert!(langs.contains("typescript"));
         // Nenhum gitignored / node_modules / .md.
-        assert!(out.iter().all(|s| !s.path.contains("ignored.rs")), "gitignored vazou");
-        assert!(out.iter().all(|s| !s.path.contains("node_modules")), "node_modules vazou");
+        assert!(
+            out.iter().all(|s| !s.path.contains("ignored.rs")),
+            "gitignored vazou"
+        );
+        assert!(
+            out.iter().all(|s| !s.path.contains("node_modules")),
+            "node_modules vazou"
+        );
         assert!(out.iter().all(|s| !s.path.ends_with(".md")), ".md vazou");
 
         // Consistência: o summary do .rs bate o `code_metrics` por-arquivo.
@@ -306,7 +318,10 @@ mod tests {
         assert_eq!(summary.loc, per_file.loc);
         assert_eq!(summary.fn_count, per_file.functions.len());
         // Severidade derivada da ciclomática máxima — mesma regra do engine.
-        assert_eq!(summary.severity, metrics::severity_for(summary.max_cyclomatic));
+        assert_eq!(
+            summary.severity,
+            metrics::severity_for(summary.max_cyclomatic)
+        );
         assert_eq!(summary.severity, "green");
     }
 
@@ -323,8 +338,14 @@ mod tests {
         std::fs::write(root.join("broken.rs"), "fn ( { ) } incompleto !!! @@@\n").unwrap();
 
         let out = project(root); // não deve panicar
-        assert!(out.iter().any(|s| s.path.ends_with("good.rs")), "good.rs sumiu");
-        assert!(out.iter().all(|s| !s.path.ends_with("bad.rs")), "bad.rs ilegível vazou");
+        assert!(
+            out.iter().any(|s| s.path.ends_with("good.rs")),
+            "good.rs sumiu"
+        );
+        assert!(
+            out.iter().all(|s| !s.path.ends_with("bad.rs")),
+            "bad.rs ilegível vazou"
+        );
     }
 
     /// Teto de PROJECT_FILE_CAP arquivos: dado cap+1, processa exatamente o cap.

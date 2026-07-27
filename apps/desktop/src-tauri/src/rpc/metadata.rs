@@ -89,9 +89,14 @@ fn hex_encode(bytes: &[u8]) -> String {
 /// o `set_permissions(0o600)` é Unix-only via `#[cfg]`.
 pub fn write_metadata(meta: &RuntimeMetadata) -> std::io::Result<PathBuf> {
     let path = metadata_path().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, "HOME indisponível p/ runtime.json")
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "HOME indisponível p/ runtime.json",
+        )
     })?;
-    let dir = path.parent().expect("runtime.json sempre tem pai (~/.omnirift)");
+    let dir = path
+        .parent()
+        .expect("runtime.json sempre tem pai (~/.omnirift)");
     std::fs::create_dir_all(dir)?;
     write_metadata_to(&path, meta)?;
     Ok(path)
@@ -132,8 +137,7 @@ fn set_owner_only(_path: &Path) -> std::io::Result<()> {
 /// Lê e desserializa o `runtime.json` (caminho explícito — usado pelo CLI/teste).
 pub fn read_metadata_from(path: &Path) -> std::io::Result<RuntimeMetadata> {
     let raw = std::fs::read_to_string(path)?;
-    serde_json::from_str(&raw)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    serde_json::from_str(&raw).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 /// Remove o `runtime.json` no shutdown (best-effort; ignora se já sumiu).
@@ -183,7 +187,10 @@ mod tests {
             version: "0.1.0".into(),
         };
         let wire = serde_json::to_string(&meta).unwrap();
-        assert!(wire.contains("socketPath"), "fio deve usar camelCase: {wire}");
+        assert!(
+            wire.contains("socketPath"),
+            "fio deve usar camelCase: {wire}"
+        );
         assert!(!wire.contains("socket_path"));
     }
 
@@ -220,6 +227,10 @@ mod tests {
         };
         write_metadata_to(&path, &meta).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "runtime.json deve ser 0600 (token é segredo)");
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "runtime.json deve ser 0600 (token é segredo)"
+        );
     }
 }

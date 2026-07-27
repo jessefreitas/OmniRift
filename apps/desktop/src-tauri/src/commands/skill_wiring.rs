@@ -23,20 +23,33 @@ pub enum SkillWiring {
 }
 
 fn cli_base(cli: &str) -> &str {
-    Path::new(cli).file_name().and_then(|s| s.to_str()).unwrap_or(cli)
+    Path::new(cli)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(cli)
 }
 
 /// Materializa o bundle para `cli` dentro de `base_dir` (= app_data_dir).
 /// `None` quando o bundle é vazio, o CLI é desconhecido, ou a materialização falha
 /// (degradação graciosa: o agente sobe sem skills, como hoje).
-pub fn materialize_wiring(cli: &str, skills: &[ResolvedSkill], base_dir: &Path) -> Option<SkillWiring> {
+pub fn materialize_wiring(
+    cli: &str,
+    skills: &[ResolvedSkill],
+    base_dir: &Path,
+) -> Option<SkillWiring> {
     if skills.is_empty() {
         return None;
     }
     match cli_base(cli) {
-        "claude" => materialize_plugin_dir(skills, base_dir).map(|dir| SkillWiring::PluginDir { dir }),
-        "codex" => materialize_codex_home(skills, base_dir).map(|home| SkillWiring::CodexHome { home }),
-        "opencode" | "agy" | "antigravity" => Some(SkillWiring::IndexPrompt { text: index_prompt(skills) }),
+        "claude" => {
+            materialize_plugin_dir(skills, base_dir).map(|dir| SkillWiring::PluginDir { dir })
+        }
+        "codex" => {
+            materialize_codex_home(skills, base_dir).map(|home| SkillWiring::CodexHome { home })
+        }
+        "opencode" | "agy" | "antigravity" => Some(SkillWiring::IndexPrompt {
+            text: index_prompt(skills),
+        }),
         _ => None,
     }
 }
@@ -58,13 +71,18 @@ fn bundle_key(skills: &[ResolvedSkill]) -> String {
 }
 
 fn materialize_plugin_dir(skills: &[ResolvedSkill], base: &Path) -> Option<String> {
-    let root = base.join("agent-skills").join("claude").join(bundle_key(skills));
+    let root = base
+        .join("agent-skills")
+        .join("claude")
+        .join(bundle_key(skills));
     // Já materializado e completo → reusa SEM apagar. Race-free: nunca destrói um dir
     // que o claude de outro agente (mesmo bundle) pode estar lendo via --plugin-dir.
     // Conteúdo é content-addressed por ID; mudar o set de IDs muda o dir. (Editar o
     // CORPO de uma skill in-place não é repropagado na Fase 1 — set de IDs é a chave.)
     if root.join(".claude-plugin/plugin.json").exists()
-        && std::fs::read_dir(root.join("skills")).map(|mut r| r.next().is_some()).unwrap_or(false)
+        && std::fs::read_dir(root.join("skills"))
+            .map(|mut r| r.next().is_some())
+            .unwrap_or(false)
     {
         return Some(root.to_string_lossy().to_string());
     }
@@ -78,16 +96,26 @@ fn materialize_plugin_dir(skills: &[ResolvedSkill], base: &Path) -> Option<Strin
         "description": "Bundle de skills curado pelo OmniRift para este agente.",
         "version": "1.0.0"
     });
-    std::fs::write(root.join(".claude-plugin/plugin.json"),
-        serde_json::to_string_pretty(&manifest).ok()?).ok()?;
+    std::fs::write(
+        root.join(".claude-plugin/plugin.json"),
+        serde_json::to_string_pretty(&manifest).ok()?,
+    )
+    .ok()?;
 
     let mut copied = 0usize;
     for s in skills {
-        if !s.dir.join("SKILL.md").exists() { continue; } // ID ausente → ignora (graceful)
+        if !s.dir.join("SKILL.md").exists() {
+            continue;
+        } // ID ausente → ignora (graceful)
         let dst = root.join("skills").join(&s.id);
-        if copy_dir_recursive(&s.dir, &dst).is_ok() { copied += 1; }
+        if copy_dir_recursive(&s.dir, &dst).is_ok() {
+            copied += 1;
+        }
     }
-    if copied == 0 { let _ = std::fs::remove_dir_all(&root); return None; }
+    if copied == 0 {
+        let _ = std::fs::remove_dir_all(&root);
+        return None;
+    }
     Some(root.to_string_lossy().to_string())
 }
 
@@ -109,7 +137,9 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 fn real_codex_home() -> Option<PathBuf> {
     if let Ok(h) = std::env::var("CODEX_HOME") {
-        if !h.is_empty() { return Some(PathBuf::from(h)); }
+        if !h.is_empty() {
+            return Some(PathBuf::from(h));
+        }
     }
     std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -133,36 +163,60 @@ fn materialize_codex_home(skills: &[ResolvedSkill], base: &Path) -> Option<Strin
     if let Some(real) = real_codex_home() {
         for f in ["config.toml", "auth.json"] {
             let src = real.join(f);
-            if src.exists() { let _ = symlink(&src, &home.join(f)); }
+            if src.exists() {
+                let _ = symlink(&src, &home.join(f));
+            }
         }
         let sys = real.join("skills/.system");
-        if sys.exists() { let _ = symlink(&sys, &home.join("skills/.system")); }
+        if sys.exists() {
+            let _ = symlink(&sys, &home.join("skills/.system"));
+        }
     }
 
     let mut copied = 0usize;
     for s in skills {
-        if !s.dir.join("SKILL.md").exists() { continue; }
+        if !s.dir.join("SKILL.md").exists() {
+            continue;
+        }
         let dst = home.join("skills").join(&s.id);
-        if copy_dir_recursive(&s.dir, &dst).is_ok() { copied += 1; }
+        if copy_dir_recursive(&s.dir, &dst).is_ok() {
+            copied += 1;
+        }
     }
-    if copied == 0 { let _ = std::fs::remove_dir_all(&home); return None; }
+    if copied == 0 {
+        let _ = std::fs::remove_dir_all(&home);
+        return None;
+    }
     Some(home.to_string_lossy().to_string())
 }
 
 #[cfg(unix)]
-fn symlink(src: &Path, dst: &Path) -> std::io::Result<()> { std::os::unix::fs::symlink(src, dst) }
+fn symlink(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(src, dst)
+}
 #[cfg(windows)]
 fn symlink(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if src.is_dir() { std::os::windows::fs::symlink_dir(src, dst) }
-    else { std::os::windows::fs::symlink_file(src, dst) }
+    if src.is_dir() {
+        std::os::windows::fs::symlink_dir(src, dst)
+    } else {
+        std::os::windows::fs::symlink_file(src, dst)
+    }
 }
 
 fn index_prompt(skills: &[ResolvedSkill]) -> String {
     // NOTE: expõe o caminho absoluto (home do usuário) de cada skill na 1ª mensagem —
     // intencional (o agente faz `cat` sob demanda). Se um dia houver export/gravação de
     // conversa, considerar caminho relativo/redação.
-    let lines: Vec<String> = skills.iter()
-        .map(|s| format!("- {} — {} — {}", s.name, s.description, s.dir.join("SKILL.md").display()))
+    let lines: Vec<String> = skills
+        .iter()
+        .map(|s| {
+            format!(
+                "- {} — {} — {}",
+                s.name,
+                s.description,
+                s.dir.join("SKILL.md").display()
+            )
+        })
         .collect();
     format!(
         "Skills disponíveis pra esta sessão (leia o corpo sob demanda com `cat <caminho>`):\n{}",
@@ -176,7 +230,7 @@ pub struct InstalledSkill {
     pub name: String,
     pub description: String,
     pub source: String, // "claude-global" | "codex-global" | "claude-plugin"
-    pub path: String,    // dir da skill
+    pub path: String,   // dir da skill
 }
 
 /// Lê só o frontmatter YAML simples (name:/description:) — nunca o corpo.
@@ -186,29 +240,55 @@ fn parse_frontmatter(skill_md: &Path) -> Option<(String, String)> {
     let mut desc = String::new();
     let mut in_fm = false;
     for (i, line) in txt.lines().enumerate() {
-        if i == 0 && line.trim() == "---" { in_fm = true; continue; }
-        if in_fm && line.trim() == "---" { break; }
-        if let Some(v) = line.strip_prefix("name:") { name = v.trim().to_string(); }
-        if let Some(v) = line.strip_prefix("description:") { desc = v.trim().to_string(); }
+        if i == 0 && line.trim() == "---" {
+            in_fm = true;
+            continue;
+        }
+        if in_fm && line.trim() == "---" {
+            break;
+        }
+        if let Some(v) = line.strip_prefix("name:") {
+            name = v.trim().to_string();
+        }
+        if let Some(v) = line.strip_prefix("description:") {
+            desc = v.trim().to_string();
+        }
     }
-    if name.is_empty() && desc.is_empty() { None } else { Some((name, desc)) }
+    if name.is_empty() && desc.is_empty() {
+        None
+    } else {
+        Some((name, desc))
+    }
 }
 
 fn scan_skills_root(root: &Path) -> Vec<InstalledSkill> {
     let mut out = vec![];
-    let Ok(rd) = std::fs::read_dir(root) else { return out };
+    let Ok(rd) = std::fs::read_dir(root) else {
+        return out;
+    };
     for e in rd.flatten() {
         let dir = e.path();
-        if !dir.is_dir() { continue; }
+        if !dir.is_dir() {
+            continue;
+        }
         let md = dir.join("SKILL.md");
-        if !md.exists() { continue; }
-        let id = dir.file_name().and_then(|s| s.to_str()).unwrap_or_default().to_string();
-        if id.starts_with('.') { continue; } // pula .system etc.
+        if !md.exists() {
+            continue;
+        }
+        let id = dir
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
+        if id.starts_with('.') {
+            continue;
+        } // pula .system etc.
         let (name, desc) = parse_frontmatter(&md).unwrap_or((id.clone(), String::new()));
         out.push(InstalledSkill {
             id: id.clone(),
             name: if name.is_empty() { id } else { name },
-            description: desc, source: String::new(),
+            description: desc,
+            source: String::new(),
             path: dir.to_string_lossy().to_string(),
         });
     }
@@ -220,9 +300,14 @@ pub fn list_installed_skills() -> Vec<InstalledSkill> {
     let mut all = vec![];
     if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         let home = PathBuf::from(home);
-        for (sub, source) in [(".claude/skills", "claude-global"), (".codex/skills", "codex-global")] {
+        for (sub, source) in [
+            (".claude/skills", "claude-global"),
+            (".codex/skills", "codex-global"),
+        ] {
             let mut v = scan_skills_root(&home.join(sub));
-            for s in &mut v { s.source = source.to_string(); }
+            for s in &mut v {
+                s.source = source.to_string();
+            }
             all.append(&mut v);
         }
         // plugins claude: <plugins>/marketplaces/*/plugins/*/skills/*
@@ -233,7 +318,9 @@ pub fn list_installed_skills() -> Vec<InstalledSkill> {
                 if let Ok(ps) = std::fs::read_dir(&plugs) {
                     for p in ps.flatten() {
                         let mut v = scan_skills_root(&p.path().join("skills"));
-                        for s in &mut v { s.source = "claude-plugin".to_string(); }
+                        for s in &mut v {
+                            s.source = "claude-plugin".to_string();
+                        }
                         all.append(&mut v);
                     }
                 }
@@ -266,10 +353,18 @@ fn resolve_skills(installed: &[InstalledSkill], keys: &[String]) -> Vec<Resolved
 }
 
 #[tauri::command]
-pub fn agent_skills_config(app: tauri::AppHandle, cli: String, skill_ids: Vec<String>) -> Option<SkillWiring> {
-    if skill_ids.is_empty() { return None; }
+pub fn agent_skills_config(
+    app: tauri::AppHandle,
+    cli: String,
+    skill_ids: Vec<String>,
+) -> Option<SkillWiring> {
+    if skill_ids.is_empty() {
+        return None;
+    }
     let resolved = resolve_skills(&list_installed_skills(), &skill_ids);
-    if resolved.is_empty() { return None; } // nenhum id/name casou → graceful (fail-open)
+    if resolved.is_empty() {
+        return None;
+    } // nenhum id/name casou → graceful (fail-open)
     let base = app.path().app_data_dir().ok()?;
     std::fs::create_dir_all(&base).ok()?;
     materialize_wiring(&cli, &resolved, &base)
@@ -287,27 +382,45 @@ mod tests {
     fn tempdir_unique(tag: &str) -> std::path::PathBuf {
         use std::sync::atomic::{AtomicU32, Ordering};
         static N: AtomicU32 = AtomicU32::new(0);
-        let p = std::env::temp_dir().join(format!("omnirift-test-{tag}-{}-{}",
-            std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
+        let p = std::env::temp_dir().join(format!(
+            "omnirift-test-{tag}-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
         std::fs::create_dir_all(&p).unwrap();
         p
     }
 
     fn sd(id: &str) -> ResolvedSkill {
-        ResolvedSkill { id: id.into(), name: id.into(), description: "d".into(),
-            dir: std::path::PathBuf::from(format!("/nonexistent/{id}")) }
+        ResolvedSkill {
+            id: id.into(),
+            name: id.into(),
+            description: "d".into(),
+            dir: std::path::PathBuf::from(format!("/nonexistent/{id}")),
+        }
     }
 
     fn inst(id: &str, name: &str) -> InstalledSkill {
-        InstalledSkill { id: id.into(), name: name.into(), description: "d".into(),
-            source: "test".into(), path: format!("/x/{id}") }
+        InstalledSkill {
+            id: id.into(),
+            name: name.into(),
+            description: "d".into(),
+            source: "test".into(),
+            path: format!("/x/{id}"),
+        }
     }
 
     #[test]
     fn resolve_matches_by_id_then_name() {
-        let installed = vec![inst("my-cool-skill", "My Cool Skill"), inst("alpha", "alpha")];
+        let installed = vec![
+            inst("my-cool-skill", "My Cool Skill"),
+            inst("alpha", "alpha"),
+        ];
         // casa por id (dir basename)
-        assert_eq!(resolve_skills(&installed, &["my-cool-skill".into()])[0].id, "my-cool-skill");
+        assert_eq!(
+            resolve_skills(&installed, &["my-cool-skill".into()])[0].id,
+            "my-cool-skill"
+        );
         // casa por name (RoleEditModal guarda o name não-slug) — era o bug do Phase-2
         let by_name = resolve_skills(&installed, &["My Cool Skill".into()]);
         assert_eq!(by_name.len(), 1, "name != dir deve resolver por name");
@@ -338,7 +451,10 @@ mod tests {
     #[test]
     fn unknown_cli_is_none() {
         let skills = vec![sd("a")];
-        assert!(materialize_wiring("totally-unknown", &skills, std::path::Path::new("/tmp/x")).is_none());
+        assert!(
+            materialize_wiring("totally-unknown", &skills, std::path::Path::new("/tmp/x"))
+                .is_none()
+        );
     }
 
     #[test]
@@ -347,18 +463,37 @@ mod tests {
         // skill de origem no disco
         let src = tmp.join("src-skill/my-skill");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(src.join("SKILL.md"), "---\nname: my-skill\ndescription: d\n---\nbody").unwrap();
-        let skills = vec![ResolvedSkill { id: "my-skill".into(), name: "my-skill".into(),
-            description: "d".into(), dir: src.clone() }];
+        std::fs::write(
+            src.join("SKILL.md"),
+            "---\nname: my-skill\ndescription: d\n---\nbody",
+        )
+        .unwrap();
+        let skills = vec![ResolvedSkill {
+            id: "my-skill".into(),
+            name: "my-skill".into(),
+            description: "d".into(),
+            dir: src.clone(),
+        }];
 
         let base = tmp.join("appdata");
         let w = materialize_wiring("claude", &skills, &base).unwrap();
-        let dir = match w { SkillWiring::PluginDir { dir } => dir, _ => panic!("esperava PluginDir") };
+        let dir = match w {
+            SkillWiring::PluginDir { dir } => dir,
+            _ => panic!("esperava PluginDir"),
+        };
         let p = std::path::Path::new(&dir);
         assert!(p.join(".claude-plugin/plugin.json").exists(), "manifest");
-        assert!(p.join("skills/my-skill/SKILL.md").exists(), "skill copiada (não symlink)");
+        assert!(
+            p.join("skills/my-skill/SKILL.md").exists(),
+            "skill copiada (não symlink)"
+        );
         // copiada de verdade (não symlink externo, que o claude ignoraria)
-        assert!(!std::fs::symlink_metadata(p.join("skills/my-skill/SKILL.md")).unwrap().file_type().is_symlink());
+        assert!(
+            !std::fs::symlink_metadata(p.join("skills/my-skill/SKILL.md"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         std::fs::remove_dir_all(&tmp).ok();
     }
 
@@ -375,12 +510,24 @@ mod tests {
 
         let src = tmp.join("src-skill/sk");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(src.join("SKILL.md"), "---\nname: sk\ndescription: d\n---\nx").unwrap();
-        let skills = vec![ResolvedSkill { id: "sk".into(), name: "sk".into(), description: "d".into(), dir: src }];
+        std::fs::write(
+            src.join("SKILL.md"),
+            "---\nname: sk\ndescription: d\n---\nx",
+        )
+        .unwrap();
+        let skills = vec![ResolvedSkill {
+            id: "sk".into(),
+            name: "sk".into(),
+            description: "d".into(),
+            dir: src,
+        }];
 
         let base = tmp.join("appdata");
         let w = materialize_wiring("codex", &skills, &base).unwrap();
-        let home = match w { SkillWiring::CodexHome { home } => home, _ => panic!("esperava CodexHome") };
+        let home = match w {
+            SkillWiring::CodexHome { home } => home,
+            _ => panic!("esperava CodexHome"),
+        };
         let p = std::path::Path::new(&home);
         assert!(p.join("skills/sk/SKILL.md").exists(), "skill curada");
         assert!(p.join("config.toml").exists(), "config linkado");
@@ -391,8 +538,12 @@ mod tests {
 
     #[test]
     fn opencode_gets_index_prompt() {
-        let skills = vec![ResolvedSkill { id: "x".into(), name: "Xeon".into(),
-            description: "faz X".into(), dir: std::path::PathBuf::from("/skills/x") }];
+        let skills = vec![ResolvedSkill {
+            id: "x".into(),
+            name: "Xeon".into(),
+            description: "faz X".into(),
+            dir: std::path::PathBuf::from("/skills/x"),
+        }];
         let w = materialize_wiring("opencode", &skills, std::path::Path::new("/tmp")).unwrap();
         match w {
             SkillWiring::IndexPrompt { text } => {
@@ -406,8 +557,12 @@ mod tests {
     fn claude_skips_missing_skill_dir_without_panic() {
         let tmp = tempdir_unique("missing");
         // só metadados, dir não existe → deve ser ignorada; bundle vira None (nenhuma válida)
-        let skills = vec![ResolvedSkill { id: "ghost".into(), name: "ghost".into(),
-            description: "d".into(), dir: tmp.join("nope") }];
+        let skills = vec![ResolvedSkill {
+            id: "ghost".into(),
+            name: "ghost".into(),
+            description: "d".into(),
+            dir: tmp.join("nope"),
+        }];
         assert!(materialize_wiring("claude", &skills, &tmp.join("appdata")).is_none());
         std::fs::remove_dir_all(&tmp).ok();
     }
@@ -419,21 +574,37 @@ mod tests {
         let tmp = tempdir_unique("reuse");
         let src = tmp.join("src/keep");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(src.join("SKILL.md"), "---\nname: keep\ndescription: d\n---\nx").unwrap();
-        let skills = vec![ResolvedSkill { id: "keep".into(), name: "keep".into(),
-            description: "d".into(), dir: src }];
+        std::fs::write(
+            src.join("SKILL.md"),
+            "---\nname: keep\ndescription: d\n---\nx",
+        )
+        .unwrap();
+        let skills = vec![ResolvedSkill {
+            id: "keep".into(),
+            name: "keep".into(),
+            description: "d".into(),
+            dir: src,
+        }];
         let base = tmp.join("appdata");
 
         let d1 = match materialize_wiring("claude", &skills, &base).unwrap() {
-            SkillWiring::PluginDir { dir } => dir, _ => panic!() };
+            SkillWiring::PluginDir { dir } => dir,
+            _ => panic!(),
+        };
         // marca-d'água: arquivo que NÃO seria recriado se houvesse wipe+rebuild
         std::fs::write(std::path::Path::new(&d1).join("skills/keep/.witness"), "1").unwrap();
 
         let d2 = match materialize_wiring("claude", &skills, &base).unwrap() {
-            SkillWiring::PluginDir { dir } => dir, _ => panic!() };
+            SkillWiring::PluginDir { dir } => dir,
+            _ => panic!(),
+        };
         assert_eq!(d1, d2, "mesmo bundle → mesmo dir");
-        assert!(std::path::Path::new(&d2).join("skills/keep/.witness").exists(),
-            "dir reusado, não apagado na 2ª chamada");
+        assert!(
+            std::path::Path::new(&d2)
+                .join("skills/keep/.witness")
+                .exists(),
+            "dir reusado, não apagado na 2ª chamada"
+        );
         std::fs::remove_dir_all(&tmp).ok();
     }
 
@@ -443,16 +614,28 @@ mod tests {
         let a = vec![sd("alpha"), sd("beta")];
         let b = vec![sd("beta"), sd("alpha")];
         let c = vec![sd("alpha"), sd("gamma")];
-        assert_eq!(bundle_key(&a), bundle_key(&b), "ordem dos IDs não pode mudar a chave");
-        assert_ne!(bundle_key(&a), bundle_key(&c), "set diferente → chave diferente");
+        assert_eq!(
+            bundle_key(&a),
+            bundle_key(&b),
+            "ordem dos IDs não pode mudar a chave"
+        );
+        assert_ne!(
+            bundle_key(&a),
+            bundle_key(&c),
+            "set diferente → chave diferente"
+        );
     }
 
     #[test]
     fn scans_skill_dir_metadata_only() {
         let tmp = tempdir_unique("scan");
-        let s = tmp.join("alpha"); std::fs::create_dir_all(&s).unwrap();
-        std::fs::write(s.join("SKILL.md"),
-            "---\nname: alpha\ndescription: faz alpha\n---\ncorpo enorme aqui").unwrap();
+        let s = tmp.join("alpha");
+        std::fs::create_dir_all(&s).unwrap();
+        std::fs::write(
+            s.join("SKILL.md"),
+            "---\nname: alpha\ndescription: faz alpha\n---\ncorpo enorme aqui",
+        )
+        .unwrap();
         let found = scan_skills_root(&tmp);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name, "alpha");

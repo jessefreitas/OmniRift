@@ -122,6 +122,11 @@ jobs:
         working-directory: apps/desktop
         run: npm run test:ime-dedup
 
+      # T2 higiene ACP (caps front + ownership espelhada nos helpers TS).
+      - name: acp hygiene (frontend)
+        working-directory: apps/desktop
+        run: npm run test:acp-hygiene
+
       # Fluidez do canvas: unit (limiares) + wiring (hooks vivos). Não mede jank
       # real do WebKitGTK — isso continua no smoke visual / benchmark manual.
       - name: Gate de fluidez do canvas (unit + wiring)

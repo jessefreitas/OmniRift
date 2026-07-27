@@ -187,8 +187,8 @@ pub fn extract_json(text: &str) -> Option<String> {
 /// Parseia a saída do agente num `AiReport`. Garante o `target` (sobrescreve com
 /// o caminho real, caso o agente erre). Erro = JSON ausente/inválido.
 pub fn parse_report(stdout: &str, target: &str) -> Result<AiReport, String> {
-    let json = extract_json(stdout)
-        .ok_or_else(|| "o agente não devolveu JSON parseável".to_string())?;
+    let json =
+        extract_json(stdout).ok_or_else(|| "o agente não devolveu JSON parseável".to_string())?;
     let mut report: AiReport =
         serde_json::from_str(&json).map_err(|e| format!("JSON do agente inválido: {e}"))?;
     report.target = target.to_string();
@@ -233,8 +233,8 @@ pub async fn run_headless_agent(cli: &str, prompt: &str, cwd: &str) -> Result<St
             "agente '{cli}' indisponível — instale o CLI (ou escolha outro)"
         ));
     }
-    let args = agent_args_for(cli, prompt)
-        .ok_or_else(|| format!("não sei invocar o agente '{cli}'"))?;
+    let args =
+        agent_args_for(cli, prompt).ok_or_else(|| format!("não sei invocar o agente '{cli}'"))?;
 
     // Timeout defensivo: um agente headless travado (stall de rede) não pode pendurar
     // o chamador pra sempre — crítico pro loop TURBO, cujo cancelamento só checa entre
@@ -295,7 +295,11 @@ pub async fn run_agent_report(prompt: &str, target: &str) -> Result<AiReport, St
 
 /// `which`/`where <binary>` — true se no PATH (espelha clis.rs).
 fn is_on_path(binary: &str) -> bool {
-    let finder = if cfg!(target_os = "windows") { "where" } else { "which" };
+    let finder = if cfg!(target_os = "windows") {
+        "where"
+    } else {
+        "which"
+    };
     std::process::Command::new(finder)
         .arg(binary)
         .no_window()
@@ -363,7 +367,12 @@ fn sha256_short(s: &str) -> String {
 /// `<dir>/<key>.json` e REMOVE o marcador `<dir>/<key>.running` (se houver). Cria o
 /// `dir` se preciso. NÃO spawna agente — só IO. `running` não é persistido no JSON
 /// (é derivado da existência do marcador na leitura).
-fn save_report(dir: &Path, key: &str, file: &str, report: &AiReport) -> Result<SavedReport, String> {
+fn save_report(
+    dir: &Path,
+    key: &str,
+    file: &str,
+    report: &AiReport,
+) -> Result<SavedReport, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("não criou {}: {e}", dir.display()))?;
 
     let saved = SavedReport {
@@ -392,8 +401,8 @@ fn load_report(dir: &Path, key: &str, file_hint: &str) -> Result<Option<SavedRep
     let running = dir.join(format!("{key}.running")).exists();
 
     if json_path.is_file() {
-        let raw = std::fs::read_to_string(&json_path)
-            .map_err(|e| format!("ler relatório {key}: {e}"))?;
+        let raw =
+            std::fs::read_to_string(&json_path).map_err(|e| format!("ler relatório {key}: {e}"))?;
         let mut saved: SavedReport =
             serde_json::from_str(&raw).map_err(|e| format!("relatório inválido {key}: {e}"))?;
         saved.running = running;
@@ -616,7 +625,10 @@ mod tests {
     fn build_prompt_degrades_without_metrics() {
         let p = build_prompt("/tmp/y.ts", "typescript", "const a = 1;", None);
         assert!(p.contains("/tmp/y.ts"));
-        assert!(!p.contains("Pior função"), "sem métricas → sem linha de função");
+        assert!(
+            !p.contains("Pior função"),
+            "sem métricas → sem linha de função"
+        );
         assert!(p.contains("\"summary\""), "ainda pede o esquema");
     }
 
@@ -715,7 +727,10 @@ mod tests {
         assert!(d.join("k2.running").exists());
 
         save_report(d, "k2", "f.rs", &sample_report("f.rs", "ok")).unwrap();
-        assert!(!d.join("k2.running").exists(), "marcador removido ao concluir");
+        assert!(
+            !d.join("k2.running").exists(),
+            "marcador removido ao concluir"
+        );
 
         let loaded = load_report(d, "k2", "f.rs").unwrap().unwrap();
         assert!(!loaded.running);
@@ -732,7 +747,10 @@ mod tests {
 
         let loaded = load_report(d, "k3", "f.rs").unwrap().unwrap();
         assert!(loaded.running, "marcador presente → running:true");
-        assert_eq!(loaded.report.summary, "ok", "ainda traz o resultado anterior");
+        assert_eq!(
+            loaded.report.summary, "ok",
+            "ainda traz o resultado anterior"
+        );
     }
 
     /// Só-marcador (sem json) → placeholder vazio com running:true (em andamento).
@@ -744,7 +762,10 @@ mod tests {
 
         let loaded = load_report(d, "k4", "novo.rs").unwrap().unwrap();
         assert!(loaded.running);
-        assert_eq!(loaded.file, "novo.rs", "file_hint vira o file do placeholder");
+        assert_eq!(
+            loaded.file, "novo.rs",
+            "file_hint vira o file do placeholder"
+        );
         assert!(loaded.report.findings.is_empty(), "placeholder vazio");
         assert!(loaded.report.summary.is_empty());
         assert_eq!(loaded.ts, "", "sem ts pois não concluiu");
@@ -790,7 +811,10 @@ mod tests {
         assert_eq!(list.len(), 2, "1 concluído + 1 em andamento");
         let running: Vec<_> = list.iter().filter(|r| r.running).collect();
         assert_eq!(running.len(), 1, "exatamente 1 em andamento");
-        assert!(running[0].report.findings.is_empty(), "órfão é placeholder vazio");
+        assert!(
+            running[0].report.findings.is_empty(),
+            "órfão é placeholder vazio"
+        );
     }
 
     /// list_reports em dir inexistente → vazio (não erro).
@@ -843,8 +867,14 @@ mod tests {
     /// agent_args_for monta os args certos por CLI (reusado pelo TURBO).
     #[test]
     fn agent_args_for_known_clis() {
-        assert_eq!(agent_args_for("claude", "oi"), Some(vec!["-p".into(), "oi".into()]));
-        assert_eq!(agent_args_for("codex", "oi"), Some(vec!["exec".into(), "oi".into()]));
+        assert_eq!(
+            agent_args_for("claude", "oi"),
+            Some(vec!["-p".into(), "oi".into()])
+        );
+        assert_eq!(
+            agent_args_for("codex", "oi"),
+            Some(vec!["exec".into(), "oi".into()])
+        );
         // CLI desconhecido (não vazio) → prompt posicional (degrade).
         assert_eq!(agent_args_for("gemini", "oi"), Some(vec!["oi".into()]));
         // Vazio → None.

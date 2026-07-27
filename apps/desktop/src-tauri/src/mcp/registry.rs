@@ -23,7 +23,7 @@ impl AgentRegistry {
         Self::default()
     }
 
-/// Registra um agente. Devolve o label EFETIVO (pode diferir do pedido).
+    /// Registra um agente. Devolve o label EFETIVO (pode diferir do pedido).
     ///
     /// Antes fazia `insert(label, ...)` direto: um segundo agente com o mesmo label
     /// SOBRESCREVIA o primeiro silenciosamente. Foi o que aconteceu quando o orquestrador
@@ -49,7 +49,12 @@ impl AgentRegistry {
         loop {
             match self.0.entry(effective.clone()) {
                 Entry::Vacant(v) => {
-                    v.insert(AgentEntry { session_id: session_id.clone(), description: description.clone(), floor: floor.clone(), role: role.clone() });
+                    v.insert(AgentEntry {
+                        session_id: session_id.clone(),
+                        description: description.clone(),
+                        floor: floor.clone(),
+                        role: role.clone(),
+                    });
                     break;
                 }
                 Entry::Occupied(mut o) if o.get().session_id == session_id => {
@@ -61,7 +66,12 @@ impl AgentRegistry {
                     // anti-duplicata POR PAPEL, que é justamente o que pega o sinônimo.
                     let role = role.clone().or_else(|| o.get().role.clone());
                     let floor = floor.clone().or_else(|| o.get().floor.clone());
-                    o.insert(AgentEntry { session_id: session_id.clone(), description: description.clone(), floor, role });
+                    o.insert(AgentEntry {
+                        session_id: session_id.clone(),
+                        description: description.clone(),
+                        floor,
+                        role,
+                    });
                     break;
                 }
                 Entry::Occupied(_) => {
@@ -73,7 +83,11 @@ impl AgentRegistry {
         if effective != label {
             log::warn!("MCP: label '{label}' já pertence a outra sessão → registrado como '{effective}' (o original NÃO foi sobrescrito)");
         }
-        log::info!("MCP: agente '{}' registrado ({})", effective, &session_id[..8.min(session_id.len())]);
+        log::info!(
+            "MCP: agente '{}' registrado ({})",
+            effective,
+            &session_id[..8.min(session_id.len())]
+        );
         effective
     }
 
@@ -98,7 +112,10 @@ impl AgentRegistry {
     }
 
     pub fn list(&self) -> Vec<(String, AgentEntry)> {
-        self.0.iter().map(|e| (e.key().clone(), e.value().clone())).collect()
+        self.0
+            .iter()
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .collect()
     }
 
     pub fn get_session_id(&self, label: &str) -> Option<SessionId> {
@@ -138,10 +155,22 @@ mod tests {
     fn label_duplicado_de_outra_sessao_sufixa_e_preserva_o_original() {
         let reg = AgentRegistry::default();
 
-        let a = reg.register("Backend".into(), "sess-original".into(), "API".into(), None, None);
+        let a = reg.register(
+            "Backend".into(),
+            "sess-original".into(),
+            "API".into(),
+            None,
+            None,
+        );
         assert_eq!(a, "Backend");
 
-        let b = reg.register("Backend".into(), "sess-clone".into(), "API".into(), None, None);
+        let b = reg.register(
+            "Backend".into(),
+            "sess-clone".into(),
+            "API".into(),
+            None,
+            None,
+        );
         assert_eq!(b, "Backend 2", "o clone NAO pode roubar o label");
 
         assert_eq!(reg.0.get("Backend").unwrap().session_id, "sess-original");
@@ -154,7 +183,13 @@ mod tests {
     fn mesma_sessao_reregistra_no_mesmo_label() {
         let reg = AgentRegistry::default();
         reg.register("QA".into(), "sess-1".into(), "testes".into(), None, None);
-        let again = reg.register("QA".into(), "sess-1".into(), "testes e2e".into(), Some("feat/x".into()), None);
+        let again = reg.register(
+            "QA".into(),
+            "sess-1".into(),
+            "testes e2e".into(),
+            Some("feat/x".into()),
+            None,
+        );
 
         assert_eq!(again, "QA");
         assert_eq!(reg.0.len(), 1, "nao pode duplicar a propria sessao");
@@ -182,20 +217,56 @@ mod tests {
     #[test]
     fn reregistro_sem_role_preserva_o_papel_declarado() {
         let reg = AgentRegistry::default();
-        reg.register("Frontend".into(), "s1".into(), "ui".into(), Some("feat/ui".into()), Some("frontend".into()));
-        let again = reg.register("Frontend".into(), "s1".into(), "ui atualizada".into(), None, None);
-        assert_eq!(again, "Frontend", "re-registro da mesma sessao mantem o label");
+        reg.register(
+            "Frontend".into(),
+            "s1".into(),
+            "ui".into(),
+            Some("feat/ui".into()),
+            Some("frontend".into()),
+        );
+        let again = reg.register(
+            "Frontend".into(),
+            "s1".into(),
+            "ui atualizada".into(),
+            None,
+            None,
+        );
+        assert_eq!(
+            again, "Frontend",
+            "re-registro da mesma sessao mantem o label"
+        );
         // ESCOPO OBRIGATÓRIO: `get()` devolve um Ref que segura o shard do DashMap em
         // leitura. Segurá-lo enquanto se chama `register()` (que pede escrita no MESMO
         // shard) TRAVA o teste — deadlock, não falha. Custou uma suíte pendurada por
         // minutos até eu perceber que "rodando há 60s" não era compilação lenta.
         {
             let e = reg.0.get("Frontend").unwrap();
-            assert_eq!(e.role.as_deref(), Some("frontend"), "o papel do spawn nao pode evaporar");
-            assert_eq!(e.floor.as_deref(), Some("feat/ui"), "o floor tambem e preservado");
-            assert_eq!(e.description, "ui atualizada", "o que FOI informado atualiza normalmente");
+            assert_eq!(
+                e.role.as_deref(),
+                Some("frontend"),
+                "o papel do spawn nao pode evaporar"
+            );
+            assert_eq!(
+                e.floor.as_deref(),
+                Some("feat/ui"),
+                "o floor tambem e preservado"
+            );
+            assert_eq!(
+                e.description, "ui atualizada",
+                "o que FOI informado atualiza normalmente"
+            );
         }
-        reg.register("Frontend".into(), "s1".into(), "x".into(), None, Some("backend".into()));
-        assert_eq!(reg.0.get("Frontend").unwrap().role.as_deref(), Some("backend"), "Some tem que sobrescrever; so None e que preserva");
+        reg.register(
+            "Frontend".into(),
+            "s1".into(),
+            "x".into(),
+            None,
+            Some("backend".into()),
+        );
+        assert_eq!(
+            reg.0.get("Frontend").unwrap().role.as_deref(),
+            Some("backend"),
+            "Some tem que sobrescrever; so None e que preserva"
+        );
     }
 }

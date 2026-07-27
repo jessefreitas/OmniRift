@@ -68,7 +68,7 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
   const expandToken = useRef(0);
 
   // ── Scan ──────────────────────────────────────────────────────────────────
-  async function runScan(root: string) {
+  const runScan = useCallback(async (root: string) => {
     const token = ++scanToken.current;
     setLoading(true);
     setError(null);
@@ -83,14 +83,13 @@ export function CodeMetricsPanel({ onClose }: { onClose: () => void }) {
     } finally {
       if (scanToken.current === token) setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     if (!currentCwd) return;
-    void runScan(currentCwd);
-    return () => { scanToken.current++; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentCwd]);
+    const id = window.setTimeout(() => { void runScan(currentCwd); }, 0);
+    return () => window.clearTimeout(id);
+  }, [currentCwd, runScan]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

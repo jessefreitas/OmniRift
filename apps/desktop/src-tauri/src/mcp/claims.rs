@@ -155,12 +155,7 @@ impl ClaimsRegistry {
 
     /// Para cada path consultado, devolve o Conflict se houver claim ativo de
     /// OUTRO agente. `requester`/`floor` identificam quem está perguntando.
-    pub fn check(
-        &self,
-        paths: &[String],
-        requester: &str,
-        floor: Option<&str>,
-    ) -> Vec<Conflict> {
+    pub fn check(&self, paths: &[String], requester: &str, floor: Option<&str>) -> Vec<Conflict> {
         let map = self.inner.lock().unwrap();
         let mut out = Vec::new();
         for p in paths {
@@ -283,9 +278,13 @@ mod tests {
     #[test]
     fn acquire_then_conflict_for_other_agent() {
         let r = ClaimsRegistry::new();
-        assert!(r.acquire("src/a.ts", "Backend", Some("feat/api".into())).is_ok());
+        assert!(r
+            .acquire("src/a.ts", "Backend", Some("feat/api".into()))
+            .is_ok());
         // Mesmo path, outro agente → conflito.
-        let err = r.acquire("./src/a.ts", "Frontend", Some("feat/ui".into())).unwrap_err();
+        let err = r
+            .acquire("./src/a.ts", "Frontend", Some("feat/ui".into()))
+            .unwrap_err();
         assert_eq!(err.path, "src/a.ts");
         assert_eq!(err.holder, "Backend");
         assert_eq!(err.requester, "Frontend");
@@ -296,7 +295,9 @@ mod tests {
         let r = ClaimsRegistry::new();
         assert!(r.acquire("src/a.ts", "Backend", None).is_ok());
         // Re-acquire do mesmo agente NÃO conflita.
-        assert!(r.acquire("src/a.ts", "Backend", Some("feat/api".into())).is_ok());
+        assert!(r
+            .acquire("src/a.ts", "Backend", Some("feat/api".into()))
+            .is_ok());
         assert_eq!(r.list().len(), 1);
         // E o floor foi atualizado no re-acquire.
         assert_eq!(r.list()[0].floor.as_deref(), Some("feat/api"));
@@ -328,7 +329,8 @@ mod tests {
     #[test]
     fn check_reports_conflicts_for_others_only() {
         let r = ClaimsRegistry::new();
-        r.acquire("src/a.ts", "Backend", Some("feat/api".into())).unwrap();
+        r.acquire("src/a.ts", "Backend", Some("feat/api".into()))
+            .unwrap();
         r.acquire("src/b.ts", "Frontend", None).unwrap();
         // Frontend checa a, b, c → só `a` (de Backend) conflita; `b` é dele; `c` livre.
         let conflicts = r.check(
@@ -384,8 +386,16 @@ mod tests {
     #[test]
     fn cross_spec_no_conflict_when_disjoint() {
         let specs = vec![
-            SpecPaths { label: "A".into(), floor: None, paths: vec!["src/a/**".into()] },
-            SpecPaths { label: "B".into(), floor: None, paths: vec!["src/b/**".into()] },
+            SpecPaths {
+                label: "A".into(),
+                floor: None,
+                paths: vec!["src/a/**".into()],
+            },
+            SpecPaths {
+                label: "B".into(),
+                floor: None,
+                paths: vec!["src/b/**".into()],
+            },
         ];
         assert!(cross_spec_conflicts(&specs).is_empty());
     }

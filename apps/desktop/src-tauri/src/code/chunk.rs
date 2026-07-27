@@ -214,10 +214,18 @@ impl Chunker for BoundaryChunker {
 
         // Coleta em ORDEM DE FONTE os nós-fronteira de topo. SPLIT: um chunk grande demais
         // cujo nó tem filhos-fronteira é quebrado recursivamente (impl/class → métodos).
-        fn collect(node: &tree_sitter::Node, source: &str, lang: ChunkLang, max_tokens: usize, out: &mut Vec<Chunk>) {
+        fn collect(
+            node: &tree_sitter::Node,
+            source: &str,
+            lang: ChunkLang,
+            max_tokens: usize,
+            out: &mut Vec<Chunk>,
+        ) {
             let boundary = lang.boundary_kinds();
             for i in 0..node.named_child_count() {
-                let Some(child) = node.named_child(i) else { continue };
+                let Some(child) = node.named_child(i) else {
+                    continue;
+                };
                 if boundary.contains(&child.kind()) {
                     let c = make_chunk(&child, source, lang);
                     if c.text.len() / 4 > max_tokens && child.named_child_count() > 0 {
@@ -232,7 +240,13 @@ impl Chunker for BoundaryChunker {
         }
 
         let mut collected = Vec::new();
-        collect(&tree.root_node(), source, lang, opts.max_tokens, &mut collected);
+        collect(
+            &tree.root_node(),
+            source,
+            lang,
+            opts.max_tokens,
+            &mut collected,
+        );
         if collected.is_empty() {
             return fallback_chunks(source);
         }
@@ -257,7 +271,11 @@ impl Chunker for BoundaryChunker {
             }
             merged.push(chunk);
         }
-        if merged.is_empty() { fallback_chunks(source) } else { merged }
+        if merged.is_empty() {
+            fallback_chunks(source)
+        } else {
+            merged
+        }
     }
 }
 
@@ -384,11 +402,24 @@ mod tests {
         let out = chunk_code(RUST_SRC, ChunkLang::Rust, &ChunkOpts::default());
         assert!(!out.is_empty());
         let names: Vec<_> = out.iter().filter_map(|c| c.symbol.as_deref()).collect();
-        assert!(names.iter().any(|n| n.contains("small_a")), "symbols: {:?}", names);
+        assert!(
+            names.iter().any(|n| n.contains("small_a")),
+            "symbols: {:?}",
+            names
+        );
         // invariante: o text de cada chunk casa a fatia de bytes do fonte
         for c in &out {
-            assert_eq!(&RUST_SRC[c.byte_range.0..c.byte_range.1], c.text, "byte_range != text em {:?}", c);
-            assert!(c.start_line >= 1 && c.end_line >= c.start_line, "linhas inválidas em {:?}", c);
+            assert_eq!(
+                &RUST_SRC[c.byte_range.0..c.byte_range.1],
+                c.text,
+                "byte_range != text em {:?}",
+                c
+            );
+            assert!(
+                c.start_line >= 1 && c.end_line >= c.start_line,
+                "linhas inválidas em {:?}",
+                c
+            );
         }
     }
 
@@ -397,12 +428,21 @@ mod tests {
         // impl gigante deve ser QUEBRADA nos seus métodos (não ficar 1 chunk só).
         // (No Rust, métodos são `function_item` dentro do `impl_item` — o SPLIT recursivo
         // os separa; o kind fica Function porque Rust não distingue method no node-type.)
-        let opts = ChunkOpts { target_tokens: 20, max_tokens: 30, min_tokens: 1 };
+        let opts = ChunkOpts {
+            target_tokens: 20,
+            max_tokens: 30,
+            min_tokens: 1,
+        };
         let out = chunk_code(RUST_SRC, ChunkLang::Rust, &opts);
-        let split = out.iter().filter(|c| {
-            matches!(c.symbol.as_deref(), Some("method_one") | Some("method_two"))
-        }).count();
-        assert!(split >= 2, "esperava a impl fatiada nos métodos, got {:?}", out);
+        let split = out
+            .iter()
+            .filter(|c| matches!(c.symbol.as_deref(), Some("method_one") | Some("method_two")))
+            .count();
+        assert!(
+            split >= 2,
+            "esperava a impl fatiada nos métodos, got {:?}",
+            out
+        );
     }
 
     #[test]
@@ -423,22 +463,28 @@ mod tests {
     #[test]
     fn each_language_chunks_a_function() {
         let cases: &[(ChunkLang, &str, &str)] = &[
-            (ChunkLang::Rust,       "fn alpha() {}\n", "alpha"),
+            (ChunkLang::Rust, "fn alpha() {}\n", "alpha"),
             (ChunkLang::TypeScript, "function alpha() {}\n", "alpha"),
-            (ChunkLang::Tsx,        "function alpha() { return null; }\n", "alpha"),
-            (ChunkLang::Python,     "def alpha():\n    pass\n", "alpha"),
-            (ChunkLang::Go,         "package p\nfunc alpha() {}\n", "alpha"),
-            (ChunkLang::Java,       "class C { void alpha() {} }\n", "alpha"),
-            (ChunkLang::C,          "int alpha() { return 0; }\n", "alpha"),
-            (ChunkLang::Cpp,        "int alpha() { return 0; }\n", "alpha"),
-            (ChunkLang::CSharp,     "class C { void alpha() {} }\n", "alpha"),
-            (ChunkLang::Ruby,       "def alpha\nend\n", "alpha"),
-            (ChunkLang::Php,        "<?php function alpha() {}\n", "alpha"),
+            (
+                ChunkLang::Tsx,
+                "function alpha() { return null; }\n",
+                "alpha",
+            ),
+            (ChunkLang::Python, "def alpha():\n    pass\n", "alpha"),
+            (ChunkLang::Go, "package p\nfunc alpha() {}\n", "alpha"),
+            (ChunkLang::Java, "class C { void alpha() {} }\n", "alpha"),
+            (ChunkLang::C, "int alpha() { return 0; }\n", "alpha"),
+            (ChunkLang::Cpp, "int alpha() { return 0; }\n", "alpha"),
+            (ChunkLang::CSharp, "class C { void alpha() {} }\n", "alpha"),
+            (ChunkLang::Ruby, "def alpha\nend\n", "alpha"),
+            (ChunkLang::Php, "<?php function alpha() {}\n", "alpha"),
         ];
         for (lang, src, want) in cases {
             let out = chunk_code(src, *lang, &ChunkOpts::default());
             assert!(!out.is_empty(), "{:?}: vazio", lang);
-            let has = out.iter().any(|c| c.symbol.as_deref() == Some(*want) || c.text.contains(want));
+            let has = out
+                .iter()
+                .any(|c| c.symbol.as_deref() == Some(*want) || c.text.contains(want));
             assert!(has, "{:?}: não achou símbolo `{}` em {:?}", lang, want, out);
         }
     }

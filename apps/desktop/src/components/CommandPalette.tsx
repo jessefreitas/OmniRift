@@ -12,6 +12,9 @@ import { Command } from "lucide-react";
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
+import { useExperienceMode, useReducedUi } from "@/lib/experience-mode";
+import { currentShell } from "@/lib/shell";
+import { isCommandVisible } from "@/lib/experience-mode-core";
 
 interface Cmd {
   id: string;
@@ -23,6 +26,8 @@ interface Cmd {
 
 export function CommandPalette() {
   const t = useT();
+  const reduced = useReducedUi();
+  const expMode = useExperienceMode();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
@@ -53,7 +58,7 @@ export function CommandPalette() {
     const s = useCanvasStore.getState();
     const act = (fn: () => void): (() => void) => () => { fn(); setOpen(false); };
     const create: Cmd[] = [
-      { id: "t", label: t("palette.newTerminal", "Novo Terminal (shell)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addTerminal({ command: "bash", role: "shell", label: "shell" })) },
+      { id: "t", label: t("palette.newTerminal", "Novo Terminal (shell)"), category: t("palette.catCreate", "Criar"), run: act(() => { const sh = currentShell(); s.addTerminal({ command: sh.command, args: sh.args, role: "shell", label: "shell" }); }) },
       { id: "note", label: t("palette.newNote", "Nova Nota"), category: t("palette.catCreate", "Criar"), run: act(() => s.addNote()) },
       { id: "group", label: t("palette.newGroup", "Novo Grupo (frame)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addGroup()) },
       { id: "ft", label: t("palette.fileTree", "Árvore de arquivos"), category: t("palette.catCreate", "Criar"), disabled: !s.currentCwd, run: act(() => { if (s.currentCwd) s.addFileTree({ rootPath: s.currentCwd }); }) },
@@ -84,6 +89,10 @@ export function CommandPalette() {
     const openTool = (tool: string) =>
       act(() => window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: tool })));
     const openCmds: Cmd[] = [
+      { id: "open-pipeline", label: t("pocket.setup", "Montar equipe de agentes"), category: t("palette.catOpen", "Abrir"), run: openTool("pipeline") },
+      { id: "open-providers", label: t("palette.openProviders", "Abrir: Providers de IA"), category: t("palette.catOpen", "Abrir"), run: openTool("llm-providers") },
+      { id: "open-kanban", label: t("palette.openKanban", "Abrir: Kanban"), category: t("palette.catOpen", "Abrir"), run: openTool("kanban") },
+      { id: "open-settings", label: t("palette.openSettings", "Abrir: Configurações"), category: t("palette.catOpen", "Abrir"), run: openTool("settings") },
       { id: "open-routines", label: t("palette.openRoutines", "Abrir: Routines"), category: t("palette.catOpen", "Abrir"), run: openTool("routines") },
       { id: "open-snapshots", label: t("palette.openSnapshots", "Abrir: Snapshots do canvas"), category: t("palette.catOpen", "Abrir"), run: openTool("snapshots") },
       { id: "open-hooks", label: t("palette.openHooks", "Abrir: Hooks do paralelo"), category: t("palette.catOpen", "Abrir"), run: openTool("hooks") },
@@ -94,11 +103,15 @@ export function CommandPalette() {
       { id: "open-review-ai", label: t("palette.openReviewAi", "Abrir: Code Review IA"), category: t("palette.catOpen", "Abrir"), run: openTool("review-ai") },
       { id: "open-git", label: t("palette.openGit", "Abrir: Repositórios Git"), category: t("palette.catOpen", "Abrir"), run: openTool("git") },
       { id: "open-health", label: t("palette.openHealth", "Abrir: Saúde do Projeto"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("project-health") },
+      { id: "open-orch-doctor", label: t("palette.openOrchDoctor", "Abrir: Doctor da orquestração"), category: t("palette.catOpen", "Abrir"), run: openTool("orchestration-doctor") },
       { id: "open-code-metrics", label: t("palette.openCodeMetrics", "Abrir: Complexidade do Projeto"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("code-metrics") },
       { id: "open-turbo", label: t("palette.openTurbo", "Abrir: TURBO mode (loop autônomo)"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("turbo") },
     ];
-    return [...create, ...floorCmds, ...openCmds];
-  }, [open, t]);
+    const all = [...create, ...floorCmds, ...openCmds];
+    if (!reduced) return all;
+
+    return all.filter((command) => isCommandVisible(expMode, command.id));
+  }, [reduced, expMode, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -106,8 +119,7 @@ export function CommandPalette() {
     return commands.filter((c) => c.label.toLowerCase().includes(q) || c.category.toLowerCase().includes(q));
   }, [commands, query]);
 
-  // Mantém a seleção dentro dos limites quando o filtro muda.
-  useEffect(() => { setSel((s) => Math.min(s, Math.max(0, filtered.length - 1))); }, [filtered.length]);
+  const safeSelection = Math.min(sel, Math.max(0, filtered.length - 1));
 
   if (!open) return null;
 
@@ -119,7 +131,7 @@ export function CommandPalette() {
   function onKey(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(s + 1, filtered.length - 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)); }
-    else if (e.key === "Enter") { e.preventDefault(); runAt(sel); }
+    else if (e.key === "Enter") { e.preventDefault(); runAt(safeSelection); }
   }
 
   return createPortal(
@@ -152,7 +164,7 @@ export function CommandPalette() {
                 onClick={() => runAt(i)}
                 className={cn(
                   "w-full flex items-center gap-2 px-3 py-1.5 text-left text-[13px]",
-                  i === sel ? "bg-surface2 text-text" : "text-textMuted",
+                  i === safeSelection ? "bg-surface2 text-text" : "text-textMuted",
                   c.disabled && "opacity-40 cursor-not-allowed",
                 )}
               >

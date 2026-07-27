@@ -92,7 +92,9 @@ fn resolve_in_root(root: &Path, p: &str) -> Result<(PathBuf, String), String> {
         .map(|r| r.to_path_buf())
         .unwrap_or_else(|_| {
             // Fallback: usa o relpath lexical contra o root não-canônico.
-            abs.strip_prefix(root).map(|r| r.to_path_buf()).unwrap_or(abs.clone())
+            abs.strip_prefix(root)
+                .map(|r| r.to_path_buf())
+                .unwrap_or(abs.clone())
         });
 
     let rel_str = rel.to_string_lossy().replace('\\', "/");
@@ -239,8 +241,8 @@ pub async fn health_backup_restore(root: String, id: String) -> Result<(), Strin
         return Err(format!("backup inexistente: {id}"));
     }
 
-    let raw = std::fs::read_to_string(&manifest_path)
-        .map_err(|e| format!("ler manifest {id}: {e}"))?;
+    let raw =
+        std::fs::read_to_string(&manifest_path).map_err(|e| format!("ler manifest {id}: {e}"))?;
     let manifest: Manifest =
         serde_json::from_str(&raw).map_err(|e| format!("manifest inválido {id}: {e}"))?;
 
@@ -402,9 +404,7 @@ mod tests {
         ] {
             let d = backups_root.join(id);
             fs::create_dir_all(&d).unwrap();
-            let m = format!(
-                r#"{{"id":"{id}","ts":"{ts}","files":["a.rs"]}}"#
-            );
+            let m = format!(r#"{{"id":"{id}","ts":"{ts}","files":["a.rs"]}}"#);
             fs::write(d.join("manifest.json"), m).unwrap();
         }
 
@@ -434,7 +434,10 @@ mod tests {
         ensure_gitignore(root).unwrap(); // 2ª vez = no-op
 
         let content = fs::read_to_string(root.join(".gitignore")).unwrap();
-        let count = content.lines().filter(|l| l.trim() == GITIGNORE_LINE).count();
+        let count = content
+            .lines()
+            .filter(|l| l.trim() == GITIGNORE_LINE)
+            .count();
         assert_eq!(count, 1, ".omnirift/ não deve duplicar");
     }
 

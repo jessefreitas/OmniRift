@@ -105,7 +105,9 @@ def test_flush_to_brain_sincroniza_e_marca_synced(monkeypatch, tmp_path):
     m = _mod(monkeypatch, tmp_path)
     import failbase
     fb = failbase.FailBase()
-    fb.add(symptom="erro pra sincronizar", command="y")
+    # v2: so licao VALIDADA drena para o cerebro (observado fica local).
+    fb.add(symptom="erro pra sincronizar", command="y", fix="corrigido",
+           source="human-feedback", fix_validated=True)
     assert m.flush_to_brain() == 1
     row = fb.db.execute("SELECT synced FROM failures WHERE symptom LIKE 'erro pra sincronizar%'").fetchone()
     assert row[0] == 1

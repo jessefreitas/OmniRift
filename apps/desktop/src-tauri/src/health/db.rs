@@ -477,7 +477,10 @@ fn first_quoted(s: &str) -> Option<String> {
 fn entity_name_after(content: &str, from: usize) -> Option<String> {
     let slice = &content[from..];
     if let Some(open) = slice.find('(') {
-        let close = slice[open..].find(')').map(|c| open + c).unwrap_or(slice.len());
+        let close = slice[open..]
+            .find(')')
+            .map(|c| open + c)
+            .unwrap_or(slice.len());
         if let Some(tn) = first_quoted(&slice[open..close]) {
             if !tn.is_empty() {
                 return Some(tn);
@@ -871,7 +874,10 @@ mod tests {
             names.contains(&"products"),
             "SQL migration deve entrar: {names:?}"
         );
-        assert!(names.contains(&"Order"), "Prisma model deve entrar: {names:?}");
+        assert!(
+            names.contains(&"Order"),
+            "Prisma model deve entrar: {names:?}"
+        );
         assert!(
             !names.contains(&"should_not_appear"),
             ".gitignore deve esconder a migration"
@@ -967,6 +973,9 @@ mod tests {
             dialect: Some("typeorm".into()),
         };
         let p = build_db_prompt(&scan);
-        assert!(p.contains("colunas não detalhadas"), "marca ORM sem colunas");
+        assert!(
+            p.contains("colunas não detalhadas"),
+            "marca ORM sem colunas"
+        );
     }
 }

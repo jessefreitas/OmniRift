@@ -110,8 +110,13 @@ impl MetricLang {
                 _ => 0,
             },
             Self::Python => match kind {
-                "if_statement" | "elif_clause" | "for_statement" | "while_statement"
-                | "except_clause" | "conditional_expression" | "case_clause"
+                "if_statement"
+                | "elif_clause"
+                | "for_statement"
+                | "while_statement"
+                | "except_clause"
+                | "conditional_expression"
+                | "case_clause"
                 | "assert_statement" => 1,
                 "boolean_operator" => 1, // `and`/`or` — um operador por nó
                 _ => 0,

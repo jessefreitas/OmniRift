@@ -8,7 +8,7 @@ import re
 import sqlite3
 import sys
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def failbase_home():
@@ -175,6 +175,17 @@ class FailBase:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_failures_signature_project "
             "ON failures(signature, project)"
         )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS card_shown ("
+            " id INTEGER PRIMARY KEY,"
+            " signature TEXT NOT NULL,"
+            " project TEXT NOT NULL DEFAULT '',"
+            " session_key TEXT NOT NULL DEFAULT '',"
+            " shown_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")")
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_card_shown_sig"
+            " ON card_shown(signature, shown_at DESC)")
         self.db.execute("PRAGMA user_version={}".format(SCHEMA_VERSION))
         self.db.commit()
 
@@ -268,6 +279,49 @@ class FailBase:
             " ORDER BY score DESC, last_seen_at DESC LIMIT ?", (project, limit)).fetchall()
         return [dict(r) for r in rows]
 
+    def record_cards_shown(self, signatures, project="", session_key=""):
+        if not signatures:
+            return 0
+        self.db.executemany(
+            "INSERT INTO card_shown (signature, project, session_key, shown_at)"
+            " VALUES (?, ?, ?, datetime('now'))",
+            [(sig, project, session_key) for sig in signatures])
+        self.db.commit()
+        return len(signatures)
+
+    def precision(self):
+        cur_total = self.db.execute(
+            "SELECT COUNT(*) AS total, COUNT(DISTINCT signature) AS distinct_sigs"
+            " FROM card_shown")
+        row_total = cur_total.fetchone()
+        total = row_total["total"] or 0
+        distinct = row_total["distinct_sigs"] or 0
+
+        recurred = 0
+        if total:
+            cur_rec = self.db.execute(
+                "SELECT COUNT(*) AS rec"
+                " FROM card_shown AS cs"
+                " JOIN failures AS f ON f.signature = cs.signature"
+                " AND (cs.project = '' OR f.project = cs.project)"
+                " WHERE EXISTS ("
+                "  SELECT 1 FROM failure_observations AS fo"
+                "  WHERE fo.failure_id = f.id"
+                "  AND fo.observed_at > cs.shown_at)")
+            recurred = cur_rec.fetchone()["rec"] or 0
+
+        rate = 0.0
+        if total:
+            rate = round(float(recurred) / float(total), 3)
+
+        return {
+            "cards_shown": total,
+            "distinct_signatures": distinct,
+            "recurred_after_shown": recurred,
+            "recurrence_rate": rate,
+            "caveat": "ausencia de recorrencia nao prova prevencao: pode ser ausencia de oportunidade"
+        }
+
     def stats(self):
         total = self.db.execute("SELECT COUNT(*) FROM failures").fetchone()[0]
         validated = self.db.execute(
@@ -357,6 +411,7 @@ def main(argv=None):
     ps.add_argument("--limit", type=int, default=5)
 
     sub.add_parser("stats")
+    sub.add_parser("precision")
     sub.add_parser("doctor")
     sub.add_parser("sanitize")
     sub.add_parser("export")
@@ -373,6 +428,8 @@ def main(argv=None):
         print(json.dumps(fb.search(args.query, args.limit), ensure_ascii=False))
     elif args.cmd == "stats":
         print(json.dumps(fb.stats(), ensure_ascii=False))
+    elif args.cmd == "precision":
+        print(json.dumps(fb.precision(), ensure_ascii=False))
     elif args.cmd == "doctor":
         print(json.dumps(fb.doctor(), ensure_ascii=False))
     elif args.cmd == "sanitize":

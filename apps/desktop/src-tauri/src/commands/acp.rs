@@ -25,7 +25,17 @@ pub async fn acp_spawn(
     crate::omnifs::preflight_cwd_guard(cwd.as_deref())?;
     // Clona o Arc pra não segurar o State através do await.
     let mgr = manager.inner().clone();
-    mgr.spawn(id, provider, cwd, resume_session_id, provider_config, disallowed_tools, app).await.map_err(|e| format!("{e:#}"))
+    mgr.spawn(
+        id,
+        provider,
+        cwd,
+        resume_session_id,
+        provider_config,
+        disallowed_tools,
+        app,
+    )
+    .await
+    .map_err(|e| format!("{e:#}"))
 }
 
 /// Lista os modelos de um provider OpenAI-compat (GET {base}/models). Usado pelo HermesWizard
@@ -81,7 +91,10 @@ pub async fn hermes_list_models(
         return Err(format!("status {}", resp.status()));
     }
 
-    let json: Value = resp.json().await.map_err(|e| format!("erro ao ler resposta JSON: {e}"))?;
+    let json: Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("erro ao ler resposta JSON: {e}"))?;
 
     let mut ids: Vec<String> = Vec::new();
     if let Some(data) = json.get("data").and_then(|v| v.as_array()) {
@@ -134,7 +147,9 @@ pub async fn acp_prompt(
 ) -> Result<(), String> {
     // Clona o Arc pra não segurar o State através do await.
     let mgr = manager.inner().clone();
-    mgr.prompt(&session_id, text).await.map_err(|e| format!("{e:#}"))
+    mgr.prompt(&session_id, text)
+        .await
+        .map_err(|e| format!("{e:#}"))
 }
 
 /// Responde a um pedido de permissão. `option_id = None` → cancela.
@@ -159,7 +174,9 @@ pub async fn acp_authenticate(
     manager: State<'_, Arc<AcpManager>>,
 ) -> Result<(), String> {
     let mgr = manager.inner().clone();
-    mgr.authenticate(&session_id, method_id).await.map_err(|e| format!("{e:#}"))
+    mgr.authenticate(&session_id, method_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
 }
 
 /// Cancela o turno e encerra o subprocesso. F2 backend-owned: este é o kill EXPLÍCITO
@@ -189,7 +206,11 @@ pub async fn acp_gc(
 /// terminal_list e o Orquestrador-terminal pode comandá-lo via terminal_send_text/run
 /// (roteado pra acp_prompt). O front chama quando o nó fica `ready`.
 #[tauri::command]
-pub fn acp_agent_register(label: String, session_id: SessionId, manager: State<'_, Arc<AcpManager>>) {
+pub fn acp_agent_register(
+    label: String,
+    session_id: SessionId,
+    manager: State<'_, Arc<AcpManager>>,
+) {
     manager.register_label(label, session_id);
 }
 
@@ -207,7 +228,9 @@ pub async fn acp_set_model(
     manager: State<'_, Arc<AcpManager>>,
 ) -> Result<(), String> {
     let mgr = manager.inner().clone();
-    mgr.set_model(&session_id, model_id).await.map_err(|e| format!("{e:#}"))
+    mgr.set_model(&session_id, model_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
 }
 
 /// Troca uma opção de config da sessão (ACP session/set_config_option). Usado pro MODELO do
@@ -220,5 +243,7 @@ pub async fn acp_set_config_option(
     manager: State<'_, Arc<AcpManager>>,
 ) -> Result<(), String> {
     let mgr = manager.inner().clone();
-    mgr.set_config_option(&session_id, config_id, value).await.map_err(|e| format!("{e:#}"))
+    mgr.set_config_option(&session_id, config_id, value)
+        .await
+        .map_err(|e| format!("{e:#}"))
 }

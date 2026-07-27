@@ -29,7 +29,10 @@ pub struct RpcError {
 
 impl RpcError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into() }
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
     }
 
     /// Params inválidos / faltando — espelha o `invalid_argument` do ref.
@@ -93,11 +96,21 @@ pub struct RpcResponse {
 
 impl RpcResponse {
     pub fn success(id: impl Into<String>, result: Value) -> Self {
-        Self { id: id.into(), ok: true, result: Some(result), error: None }
+        Self {
+            id: id.into(),
+            ok: true,
+            result: Some(result),
+            error: None,
+        }
     }
 
     pub fn failure(id: impl Into<String>, error: impl Into<String>) -> Self {
-        Self { id: id.into(), ok: false, result: None, error: Some(error.into()) }
+        Self {
+            id: id.into(),
+            ok: false,
+            result: None,
+            error: Some(error.into()),
+        }
     }
 }
 
@@ -170,8 +183,11 @@ pub fn dispatch(registry: &Registry, req: RpcRequest, ctx: &RpcContext) -> RpcRe
     match registry.get(&req.method) {
         None => RpcResponse::failure(
             req.id,
-            RpcError::new("method_not_found", format!("método desconhecido: '{}'", req.method))
-                .to_string(),
+            RpcError::new(
+                "method_not_found",
+                format!("método desconhecido: '{}'", req.method),
+            )
+            .to_string(),
         ),
         Some(handler) => match handler(req.params, ctx) {
             Ok(result) => RpcResponse::success(req.id, result),
@@ -238,7 +254,10 @@ mod tests {
     fn response_success_roundtrip_omits_error() {
         let resp = RpcResponse::success("9", json!({ "version": "0.1.0" }));
         let wire = serde_json::to_string(&resp).unwrap();
-        assert!(!wire.contains("error"), "sucesso não deve serializar 'error': {wire}");
+        assert!(
+            !wire.contains("error"),
+            "sucesso não deve serializar 'error': {wire}"
+        );
         let back: RpcResponse = serde_json::from_str(&wire).unwrap();
         assert_eq!(resp, back);
         assert!(back.ok);
@@ -248,7 +267,10 @@ mod tests {
     fn response_failure_roundtrip_omits_result() {
         let resp = RpcResponse::failure("9", "invalid_argument: faltou x");
         let wire = serde_json::to_string(&resp).unwrap();
-        assert!(!wire.contains("result"), "falha não deve serializar 'result': {wire}");
+        assert!(
+            !wire.contains("result"),
+            "falha não deve serializar 'result': {wire}"
+        );
         let back: RpcResponse = serde_json::from_str(&wire).unwrap();
         assert_eq!(resp, back);
         assert!(!back.ok);

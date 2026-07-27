@@ -1,6 +1,3 @@
-// Cliente SMTP mínimo sobre TCP do Cloudflare Workers (`cloudflare:sockets`).
-// Conecta no omnimail (porta 465, TLS implícito), faz AUTH LOGIN e envia 1 email.
-// Workers SÃO capazes de TCP — não precisa de relay/n8n.
 import { connect } from "cloudflare:sockets";
 
 export interface SmtpConfig {
@@ -8,81 +5,203 @@ export interface SmtpConfig {
   port: number;
   user: string;
   pass: string;
+  timeoutMs?: number;
 }
 
-const b64utf8 = (s: string) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+/**
+ * Analisa o buffer acumulado de resposta SMTP e devolve o código da última
+ * linha final COMPLETA (terminada em CRLF). Linhas de continuação (`^\d{3}-`)
+ * são ignoradas. Se não houver resposta final completa, devolve `null`.
+ */
+export function finalCode(buf: string): number | null {
+  // Cada linha SMTP deve terminar em \r\n.
+  const lines = buf.split("\r\n");
 
-/** Envia 1 email HTML. Lança em erro de protocolo (o chamador trata best-effort). */
+  // Se o buffer não termina em CRLF, o último pedaço é incompleto e deve ser descartado.
+  let i = lines.length - 1;
+  if (!buf.endsWith("\r\n")) {
+    i--;
+  }
+
+  for (; i >= 0; i--) {
+    const line = lines[i];
+    if (!line) continue;
+
+    const match = line.match(/^(\d{3})([ -])/);
+    if (!match) continue;
+
+    // `^\d{3} ` é uma linha final; `^\d{3}-` é continuação.
+    if (match[2] === " ") {
+      return parseInt(match[1], 10);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Lê UM chunk do reader com timeout. Se a conexão for fechada, lança erro.
+ * Se `value` vier undefined sem `done`, trata como array vazio.
+ */
+export async function readChunk(
+  reader: { read(): Promise<{ value?: Uint8Array; done: boolean }> },
+  timeoutMs: number
+): Promise<Uint8Array> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`SMTP: timeout de leitura (${timeoutMs}ms)`));
+    }, timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([reader.read(), timeout]);
+    if (result.done) {
+      throw new Error("SMTP: conexão fechada");
+    }
+    return result.value ?? new Uint8Array(0);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/** Codifica uma string UTF-8 em Base64, sem quebras de linha. */
+function base64utf8(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * Normaliza o HTML para quebras CRLF e aplica dot-stuffing.
+ * Linhas começando com "." viram "..". O resultado já inclui o terminador
+ * final `\r\n.\r\n`.
+ */
+function buildBody(html: string): string {
+  const normalized = html.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n");
+  const stuffed = lines.map((line) => (line.startsWith(".") ? `.${line}` : line));
+  return `${stuffed.join("\r\n")}\r\n.\r\n`;
+}
+
+/**
+ * Envia um e-mail HTML através de um servidor SMTP usando TLS implícito
+ * (porta 465) sobre `cloudflare:sockets`.
+ */
 export async function smtpSend(
   cfg: SmtpConfig,
   from: string,
   to: string,
   subject: string,
-  html: string,
+  html: string
 ): Promise<void> {
-  // Defesa em profundidade: CR/LF em from/to injetaria comandos/headers SMTP.
-  if (/[\r\n]/.test(from) || /[\r\n]/.test(to)) throw new Error("SMTP: endereço com CR/LF (injeção bloqueada)");
-  const socket = connect({ hostname: cfg.host, port: cfg.port }, { secureTransport: "on", allowHalfOpen: false });
-  const writer = socket.writable.getWriter();
-  const reader = socket.readable.getReader();
-  const enc = new TextEncoder();
-  const dec = new TextDecoder();
-  let buf = "";
+  // Defesa contra command/header injection nos endereços.
+  if (from.includes("\r") || from.includes("\n") || to.includes("\r") || to.includes("\n")) {
+    throw new Error("SMTP: endereço com CR/LF (injeção bloqueada)");
+  }
 
-  // Última linha de status "final" (código seguido de espaço, não de hífen).
-  const finalCode = (s: string): number | null => {
-    for (const line of s.split(/\r?\n/).filter(Boolean).reverse()) {
-      const m = line.match(/^(\d{3}) /);
-      if (m) return Number(m[1]);
-    }
-    return null;
-  };
-  const read = async (expect: number): Promise<void> => {
-    for (;;) {
-      const code = finalCode(buf);
-      if (code !== null) {
-        if (code !== expect) throw new Error(`SMTP esperava ${expect}, veio ${buf.trim().slice(0, 120)}`);
-        buf = "";
-        return;
-      }
-      const { value, done } = await reader.read();
-      if (done) throw new Error("SMTP: conexão fechada");
-      buf += dec.decode(value);
-    }
-  };
-  const cmd = async (line: string, expect: number): Promise<void> => {
-    await writer.write(enc.encode(line + "\r\n"));
-    await read(expect);
-  };
+  const effectiveTimeout = cfg.timeoutMs ?? 10000;
+  const decoder = new TextDecoder();
+
+  let writer: WritableStreamDefaultWriter<Uint8Array> | undefined;
+  let responseBuffer = "";
 
   try {
-    await read(220); // greeting
-    await cmd("EHLO omnirift-license-worker", 250);
-    await cmd("AUTH LOGIN", 334);
-    await cmd(b64utf8(cfg.user), 334);
-    await cmd(b64utf8(cfg.pass), 235);
-    await cmd(`MAIL FROM:<${from}>`, 250);
-    await cmd(`RCPT TO:<${to}>`, 250);
-    await cmd("DATA", 354);
+    // TLS implícito: secureTransport "on".
+    const socket = connect(
+      { hostname: cfg.host, port: cfg.port },
+      { secureTransport: "on", allowHalfOpen: false }
+    );
 
+    const reader = socket.readable.getReader();
+    writer = socket.writable.getWriter();
+
+    const encodeLine = (line: string): Uint8Array =>
+      new TextEncoder().encode(`${line}\r\n`);
+
+    async function expectCode(expected: number): Promise<void> {
+      while (true) {
+        const chunk = await readChunk(reader, effectiveTimeout);
+        responseBuffer += decoder.decode(chunk, { stream: true });
+
+        const code = finalCode(responseBuffer);
+        if (code === null) {
+          continue; // resposta ainda incompleta
+        }
+
+        if (code !== expected) {
+          throw new Error(
+            `SMTP esperava ${expected}, veio ${responseBuffer.slice(0, 120)}`
+          );
+        }
+
+        responseBuffer = "";
+        return;
+      }
+    }
+
+    async function sendLine(line: string): Promise<void> {
+      await writer!.write(encodeLine(line));
+    }
+
+    // 1) Saudação do servidor.
+    await expectCode(220);
+
+    // 2) EHLO.
+    await sendLine("EHLO omnirift-license-worker");
+    await expectCode(250);
+
+    // 3) Autenticação LOGIN.
+    await sendLine("AUTH LOGIN");
+    await expectCode(334);
+    await sendLine(base64utf8(cfg.user));
+    await expectCode(334);
+    await sendLine(base64utf8(cfg.pass));
+    await expectCode(235);
+
+    // 4) Envelope.
+    await sendLine(`MAIL FROM:<${from}>`);
+    await expectCode(250);
+    await sendLine(`RCPT TO:<${to}>`);
+    await expectCode(250);
+
+    // 5) DATA.
+    await sendLine("DATA");
+    await expectCode(354);
+
+    // Cabeçalhos na ordem exigida.
     const headers = [
       `From: ${from}`,
       `To: ${to}`,
-      `Subject: =?UTF-8?B?${b64utf8(subject)}?=`,
-      "MIME-Version: 1.0",
-      "Content-Type: text/html; charset=utf-8",
-      "Content-Transfer-Encoding: 8bit",
+      `Subject: =?UTF-8?B?${base64utf8(subject)}?=`,
+      `Date: ${new Date().toUTCString().replace("GMT", "+0000")}`,
+      `Message-ID: <${crypto.randomUUID()}@omnirift.local>`,
+      `MIME-Version: 1.0`,
+      `Content-Type: text/html; charset=utf-8`,
+      `Content-Transfer-Encoding: 8bit`,
     ].join("\r\n");
-    // Normaliza quebras + dot-stuffing (linha que começa com "." vira "..").
-    const body = html.replace(/\r?\n/g, "\r\n").replace(/^\./gm, "..");
-    await writer.write(enc.encode(headers + "\r\n\r\n" + body + "\r\n.\r\n"));
-    await read(250);
-    await cmd("QUIT", 221);
+
+    const message = `${headers}\r\n\r\n${buildBody(html)}`;
+    await writer!.write(new TextEncoder().encode(message));
+    await expectCode(250);
+
+    // 6) Encerramento.
+    await sendLine("QUIT");
+    await expectCode(221);
   } finally {
-    try {
-      await writer.close();
-    } catch {
-      /* ignore */
+    // Fecha o writer ignorando qualquer erro.
+    if (writer) {
+      try {
+        await writer.close();
+      } catch {
+        // propositalmente ignorado
+      }
     }
   }
 }

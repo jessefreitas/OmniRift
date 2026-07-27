@@ -39,7 +39,9 @@ fn home_dir() -> Option<String> {
 /// `~/.omnirift/llm_providers.json` — mesmo diretório canônico do `hosts.json`.
 fn providers_path() -> Result<PathBuf, String> {
     let home = home_dir().ok_or_else(|| "HOME indisponível".to_string())?;
-    Ok(Path::new(&home).join(".omnirift").join("llm_providers.json"))
+    Ok(Path::new(&home)
+        .join(".omnirift")
+        .join("llm_providers.json"))
 }
 
 fn read_at(path: &Path) -> Result<Vec<LlmProvider>, String> {
@@ -55,9 +57,11 @@ fn write_at(path: &Path, items: &[LlmProvider]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("falha criando ~/.omnirift: {e}"))?;
     }
-    let json = serde_json::to_string_pretty(items).map_err(|e| format!("falha serializando: {e}"))?;
+    let json =
+        serde_json::to_string_pretty(items).map_err(|e| format!("falha serializando: {e}"))?;
     let mut f = std::fs::File::create(path).map_err(|e| format!("falha criando arquivo: {e}"))?;
-    f.write_all(json.as_bytes()).map_err(|e| format!("falha gravando: {e}"))?;
+    f.write_all(json.as_bytes())
+        .map_err(|e| format!("falha gravando: {e}"))?;
     Ok(())
 }
 
@@ -99,7 +103,10 @@ pub fn providers_list() -> Result<Vec<LlmProvider>, String> {
 /// Salva/atualiza um provider (upsert por id). `apiKey` (opcional) vai pro keychain; None =
 /// mantém a chave existente. Retorna a entrada persistida (com `hasKey`).
 #[tauri::command]
-pub fn provider_save(mut entry: LlmProvider, api_key: Option<String>) -> Result<LlmProvider, String> {
+pub fn provider_save(
+    mut entry: LlmProvider,
+    api_key: Option<String>,
+) -> Result<LlmProvider, String> {
     if entry.kind.trim().is_empty() || entry.base_url.trim().is_empty() {
         return Err("kind e baseUrl são obrigatórios".into());
     }
@@ -110,7 +117,9 @@ pub fn provider_save(mut entry: LlmProvider, api_key: Option<String>) -> Result<
     // o mesmo kind+baseUrl, reusa o id dela (ATUALIZA em vez de duplicar). 1 chave por (kind,url).
     let existing_id = list
         .iter()
-        .find(|p| p.id == entry.id || (p.kind == entry.kind && p.base_url.trim() == entry.base_url.trim()))
+        .find(|p| {
+            p.id == entry.id || (p.kind == entry.kind && p.base_url.trim() == entry.base_url.trim())
+        })
         .map(|p| p.id.clone());
     if let Some(id) = existing_id {
         entry.id = id;
@@ -161,7 +170,12 @@ pub fn provider_resolve(id: String) -> Result<ResolvedProvider, String> {
         .find(|p| p.id == id)
         .ok_or_else(|| "provider não encontrado".to_string())?;
     let key = crate::memory::secret_store::get(&acct(&id)).unwrap_or_default();
-    Ok(ResolvedProvider { kind: p.kind, base_url: p.base_url, model: p.model, key })
+    Ok(ResolvedProvider {
+        kind: p.kind,
+        base_url: p.base_url,
+        model: p.model,
+        key,
+    })
 }
 
 /// Lista os modelos de um provider salvo — reusa o motor OpenAI-compat de `hermes_list_models`

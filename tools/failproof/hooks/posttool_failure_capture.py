@@ -13,35 +13,53 @@ for _p in (_HOME, _REPO):
         sys.path.insert(0, _p)
 import failbase
 
-_ERROR_MARKERS = re.compile(
-    r"traceback \(most recent call last\)|command not found|permission denied"
-    r"|fatal:|error:|failed|exit code [1-9]|panicked at|segmentation fault", re.IGNORECASE)
 _PAIR_WINDOW = 10          # quantas entradas do buffer olhar pra trás
 _PAIR_SECONDS = 15 * 60    # correlação velha não é correção do erro atual
 _OUTPUT_TAIL = 1500        # bytes do output guardados
 
 
-# Comandos "leitores": o output deles é texto arbitrário (logs, código) — conter
-# "error:"/"failed" NÃO indica falha do comando. Sem exit code, não classifica.
-_READER_CMDS = {"grep", "rg", "egrep", "fgrep", "cat", "tail", "head", "less",
-                "journalctl", "ag", "awk", "sed", "jq", "echo", "printf", "find"}
+_ENVIRONMENT_RE = re.compile(
+    r"index\.lock|Another git process|Host key verification failed|"
+    r"Permanently added|Author identity unknown|could not lock config file|"
+    r"Read-only file system|No space left on device",
+    re.IGNORECASE
+)
+
+_SUCCESS_RE = re.compile(
+    r"test result: ok|No syntax errors detected|"
+    r"\d+ passed[;,]?\s*0 failed|"
+    r"RC=0|0 failed|all tests passed|build succeeded",
+    re.IGNORECASE
+)
 
 
-def detect_failure(tool_response, command=""):
+def classify_capture(tool_response, command=""):
+    if isinstance(tool_response, dict):
+        text = json.dumps(tool_response, ensure_ascii=False)
+    else:
+        text = str(tool_response)
+
+    if _ENVIRONMENT_RE.search(text):
+        return "environment"
+
     if isinstance(tool_response, dict):
         for key in ("exit_code", "exitCode", "returnCode"):
             code = tool_response.get(key)
             if isinstance(code, int):
-                return code != 0
+                if code != 0:
+                    return "failure"
+                return "not_a_failure"
         if tool_response.get("is_error") is True:
-            return True
-        text = json.dumps(tool_response, ensure_ascii=False)
-    else:
-        text = str(tool_response)
-    head = (command.strip().split() or [""])[0].rsplit("/", 1)[-1]
-    if head in _READER_CMDS:
-        return False
-    return bool(_ERROR_MARKERS.search(text))
+            return "failure"
+
+    if _SUCCESS_RE.search(text):
+        return "not_a_failure"
+
+    return "not_a_failure"
+
+
+def detect_failure(tool_response, command=""):
+    return classify_capture(tool_response, command) == "failure"
 
 
 def _buffer_path(session_id):
@@ -90,17 +108,22 @@ def process(payload):
     session = payload.get("session_id", "unknown")
     project = os.path.basename(payload.get("cwd") or "")
     output = _response_text(response)[-_OUTPUT_TAIL:]
-    failed = detect_failure(response, command)
+    capture = classify_capture(response, command)
+    failed = capture == "failure"
     sig = failbase.normalize_signature(output, command)
     buf_path = _buffer_path(session)
     entries = _read_buffer(buf_path)
     context = None
     fb = failbase.FailBase()
 
-    if failed:
+    if capture == "environment":
+        fb.add(symptom=output, signature=sig, command=command, project=project,
+               error_class="environment")
+    elif failed:
         known = fb.lookup(sig, project)
         # Toda falha entra na base, mesmo antes de existir um fix.
-        fb.add(symptom=output, signature=sig, command=command, project=project)
+        fb.add(symptom=output, signature=sig, command=command, project=project,
+               error_class=capture)
         if known and known["fix"]:
             hits = known["hits"] + 1
             if known["fix_validated"]:

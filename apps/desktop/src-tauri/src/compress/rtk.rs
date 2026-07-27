@@ -66,7 +66,8 @@ impl Compressor for RtkProvider {
     fn decorate(&self, _cli: CliFamily, node_id: &str, deco: &mut SpawnDecoration) {
         // SÓ env (invariante). Marca a stats dir do node pra atribuição de métrica.
         // O shim de PATH (wrappers fail-open) é gerado na sub-fase de integração.
-        deco.env.push(("RTK_STATS_DIR".into(), format!("rtk-stats/{node_id}")));
+        deco.env
+            .push(("RTK_STATS_DIR".into(), format!("rtk-stats/{node_id}")));
     }
 }
 
@@ -79,7 +80,10 @@ mod tests {
     fn none_decorate_is_noop() {
         let mut deco = SpawnDecoration::default();
         NoneCompressor.decorate(CliFamily::Claude, "n1", &mut deco);
-        assert!(deco.env.is_empty(), "None NUNCA muta o spawn (zero regressão)");
+        assert!(
+            deco.env.is_empty(),
+            "None NUNCA muta o spawn (zero regressão)"
+        );
     }
 
     #[test]
@@ -87,13 +91,19 @@ mod tests {
         let mut deco = SpawnDecoration::default();
         RtkProvider.decorate(CliFamily::Claude, "node-42", &mut deco);
         // Só env é mutável no tipo; confirma que populou env (e nada de command/args existe aqui).
-        assert!(deco.env.iter().any(|(k, v)| k == "RTK_STATS_DIR" && v.contains("node-42")));
+        assert!(deco
+            .env
+            .iter()
+            .any(|(k, v)| k == "RTK_STATS_DIR" && v.contains("node-42")));
     }
 
     #[test]
     fn rtk_detect_has_install_hint() {
         let d = RtkProvider.detect();
-        assert!(d.install_hint.contains("rtk-ai/rtk"), "BYO: traz a dica de install (repo do RTK)");
+        assert!(
+            d.install_hint.contains("rtk-ai/rtk"),
+            "BYO: traz a dica de install (repo do RTK)"
+        );
         // Nesta máquina o rtk não está instalado → installed=false (degrada, não quebra).
     }
 }

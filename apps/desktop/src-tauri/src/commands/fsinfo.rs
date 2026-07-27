@@ -39,7 +39,10 @@ pub fn fs_cow_info(path: String) -> CowInfo {
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default();
-    CowInfo { reflink: fs_has_cow(&fs), fs }
+    CowInfo {
+        reflink: fs_has_cow(&fs),
+        fs,
+    }
 }
 
 #[derive(Serialize)]
@@ -65,7 +68,10 @@ pub fn reflink_clone(src: String, dst: String) -> Result<CloneResult, String> {
     if !status.success() {
         return Err(format!("cp retornou status {status}"));
     }
-    Ok(CloneResult { ok: true, dest: dst })
+    Ok(CloneResult {
+        ok: true,
+        dest: dst,
+    })
 }
 
 #[cfg(test)]

@@ -13,8 +13,8 @@ pub mod types;
 
 pub use headroom::HeadroomProvider;
 pub use omnicompress::OmnicompressProvider;
-pub use proxy::{find_sidecar, OmnicompressProxies};
 pub use provider::{Compressor, NoneCompressor};
+pub use proxy::{find_sidecar, OmnicompressProxies};
 pub use rtk::RtkProvider;
 pub use savings::fetch_savings;
 pub use types::{CliFamily, CompressorKind, DetectStatus, SavingsReport, SpawnDecoration};

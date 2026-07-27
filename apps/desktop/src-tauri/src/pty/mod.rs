@@ -7,7 +7,7 @@ pub mod session;
 pub mod text;
 
 pub use detector::{AgentState, AgentStatusEvent, StateDetector};
-pub use host::ExecutionHost;
 pub use emulator::{PtySnapshot, TermEmulator};
+pub use host::ExecutionHost;
 pub use manager::PtyManager;
 pub use session::{PtyExitEvent, PtyOutputEvent, PtySpawnConfig, SessionId};

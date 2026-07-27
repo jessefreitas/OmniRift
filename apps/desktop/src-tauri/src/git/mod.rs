@@ -34,7 +34,10 @@ fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
 
 /// Raiz do repo que contém `cwd` (erro se `cwd` não estiver num repo git).
 pub fn repo_root(cwd: &Path) -> Result<PathBuf> {
-    Ok(PathBuf::from(run_git(cwd, &["rev-parse", "--show-toplevel"])?))
+    Ok(PathBuf::from(run_git(
+        cwd,
+        &["rev-parse", "--show-toplevel"],
+    )?))
 }
 
 /// Branch atual (abbrev-ref HEAD) em `cwd`.
@@ -47,7 +50,13 @@ pub fn current_branch(cwd: &Path) -> Result<String> {
 pub fn sanitize_branch(branch: &str) -> String {
     branch
         .chars()
-        .map(|c| if c == '/' || c == '\\' || c == ':' { '-' } else { c })
+        .map(|c| {
+            if c == '/' || c == '\\' || c == ':' {
+                '-'
+            } else {
+                c
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string()
@@ -85,7 +94,11 @@ pub fn worktree_add(repo: &Path, branch: &str, base: Option<&str>) -> Result<Wor
         std::fs::create_dir_all(p).ok();
     }
     let path_str = path.to_string_lossy().to_string();
-    let branch_exists = run_git(repo, &["rev-parse", "--verify", &format!("refs/heads/{branch}")]).is_ok();
+    let branch_exists = run_git(
+        repo,
+        &["rev-parse", "--verify", &format!("refs/heads/{branch}")],
+    )
+    .is_ok();
     if branch_exists {
         run_git(repo, &["worktree", "add", &path_str, branch])?;
     } else {
@@ -100,7 +113,10 @@ pub fn worktree_add(repo: &Path, branch: &str, base: Option<&str>) -> Result<Wor
 
 /// Remove o worktree (e opcionalmente apaga a branch).
 pub fn worktree_remove(repo: &Path, worktree: &Path, branch: Option<&str>) -> Result<()> {
-    run_git(repo, &["worktree", "remove", "--force", &worktree.to_string_lossy()])?;
+    run_git(
+        repo,
+        &["worktree", "remove", "--force", &worktree.to_string_lossy()],
+    )?;
     if let Some(b) = branch {
         let _ = run_git(repo, &["branch", "-D", b]); // best-effort
     }
@@ -115,7 +131,13 @@ pub fn land(repo: &Path, branch: &str, into: &str, worktree: &Path) -> Result<St
     }
     let summary = run_git(
         repo,
-        &["merge", "--no-ff", "-m", &format!("Land {branch} into {into}"), branch],
+        &[
+            "merge",
+            "--no-ff",
+            "-m",
+            &format!("Land {branch} into {into}"),
+            branch,
+        ],
     )?;
     worktree_remove(repo, worktree, Some(branch))?;
     Ok(summary)

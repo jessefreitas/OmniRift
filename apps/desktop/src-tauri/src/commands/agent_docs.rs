@@ -41,7 +41,11 @@ fn parse_agent_md(content: &str, fallback_name: &str) -> DiscoveredRole {
             }
         }
     }
-    DiscoveredRole { name, description, prompt: body.trim().to_string() }
+    DiscoveredRole {
+        name,
+        description,
+        prompt: body.trim().to_string(),
+    }
 }
 
 /// Descobre roles já definidos no projeto: lê `<dir>/.claude/agents/*.md`
@@ -73,7 +77,10 @@ fn slugify(s: &str) -> String {
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '-' })
         .collect();
-    raw.split('-').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("-")
+    raw.split('-')
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 /// Escreve um SUBAGENTE nativo do Claude Code em `<dir>/.claude/agents/<slug>.md`
@@ -111,7 +118,11 @@ pub fn subagent_write(
     let path = agents_dir.join(format!("{slug}.md"));
     // YAML-safe: aspas duplas + escapa aspas/quebras internas (o parser strip-a as aspas).
     let esc = |s: &str| s.replace('"', "'").replace(['\n', '\r'], " ");
-    let mut fm = format!("---\nname: \"{}\"\ndescription: \"{}\"\n", esc(&name), esc(&description));
+    let mut fm = format!(
+        "---\nname: \"{}\"\ndescription: \"{}\"\n",
+        esc(&name),
+        esc(&description)
+    );
     if let Some(t) = tools.filter(|s| !s.trim().is_empty()) {
         fm.push_str(&format!("tools: {}\n", t.trim()));
     }

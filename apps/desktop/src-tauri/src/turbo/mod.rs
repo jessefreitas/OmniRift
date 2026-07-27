@@ -207,7 +207,8 @@ pub fn load_run(dir: &Path, id: &str) -> Result<Option<TurboRun>, String> {
         return Ok(None);
     }
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("ler run {id}: {e}"))?;
-    let run: TurboRun = serde_json::from_str(&raw).map_err(|e| format!("run inválido {id}: {e}"))?;
+    let run: TurboRun =
+        serde_json::from_str(&raw).map_err(|e| format!("run inválido {id}: {e}"))?;
     Ok(Some(run))
 }
 
@@ -267,21 +268,41 @@ mod tests {
     fn next_action_exit_zero_runs_verifier() {
         // Condição passou → verifier, INDEPENDENTE da contagem de iterações.
         assert_eq!(next_action(Some(0), 1, 6), Action::RunVerifier);
-        assert_eq!(next_action(Some(0), 6, 6), Action::RunVerifier, "exit 0 vence o teto");
+        assert_eq!(
+            next_action(Some(0), 6, 6),
+            Action::RunVerifier,
+            "exit 0 vence o teto"
+        );
         assert_eq!(next_action(Some(0), 0, 0), Action::RunVerifier);
     }
 
     #[test]
     fn next_action_failure_under_cap_reiterates() {
         assert_eq!(next_action(Some(1), 1, 6), Action::Reiterate);
-        assert_eq!(next_action(Some(2), 5, 6), Action::Reiterate, "iter<max → re-itera");
-        assert_eq!(next_action(None, 3, 6), Action::Reiterate, "sem exit code = falha");
+        assert_eq!(
+            next_action(Some(2), 5, 6),
+            Action::Reiterate,
+            "iter<max → re-itera"
+        );
+        assert_eq!(
+            next_action(None, 3, 6),
+            Action::Reiterate,
+            "sem exit code = falha"
+        );
     }
 
     #[test]
     fn next_action_failure_at_cap_stops() {
-        assert_eq!(next_action(Some(1), 6, 6), Action::StopCap, "iter==max → para");
-        assert_eq!(next_action(Some(1), 7, 6), Action::StopCap, "iter>max → para");
+        assert_eq!(
+            next_action(Some(1), 6, 6),
+            Action::StopCap,
+            "iter==max → para"
+        );
+        assert_eq!(
+            next_action(Some(1), 7, 6),
+            Action::StopCap,
+            "iter>max → para"
+        );
         assert_eq!(next_action(None, 6, 6), Action::StopCap);
     }
 
@@ -427,7 +448,15 @@ mod tests {
 
     #[test]
     fn run_new_starts_running_no_verdict() {
-        let r = TurboRun::new("z".into(), "g".into(), "true".into(), "claude".into(), "codex".into(), 6, 0);
+        let r = TurboRun::new(
+            "z".into(),
+            "g".into(),
+            "true".into(),
+            "claude".into(),
+            "codex".into(),
+            6,
+            0,
+        );
         assert_eq!(r.status, "running");
         assert!(r.verdict.is_none());
         assert!(r.iterations.is_empty());

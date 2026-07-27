@@ -78,7 +78,8 @@ async fn dial_loop(
             max_frame_size: Some(MAX_WS_MESSAGE_BYTES),
             ..Default::default()
         };
-        match tokio_tungstenite::connect_async_with_config(url.as_str(), Some(config), false).await {
+        match tokio_tungstenite::connect_async_with_config(url.as_str(), Some(config), false).await
+        {
             Ok((ws, _)) => {
                 let (sink, source) = ws.split();
                 let r = super::ws::serve_session(

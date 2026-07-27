@@ -163,6 +163,7 @@ app.post("/signup", async (c) => {
       `<p>Pra manter o acesso após o trial, cadastre o cartão: <a href="${checkout.link}">${checkout.link}</a> ` +
       `(esse link expira em ${minutes} min).</p>` +
       `<p>Baixe o app: https://github.com/${env.GITHUB_REPO}/releases/latest</p>`,
+    { licenseId: id },
   );
 
   return c.json({ licenseKey: id, checkoutLink: checkout.link, checkoutExpiresInMin: minutes, trialEndsAt: trialEnds });

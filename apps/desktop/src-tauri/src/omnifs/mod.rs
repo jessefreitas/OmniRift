@@ -198,7 +198,9 @@ pub fn mount_responsive(mount: &Path, timeout: Duration) -> bool {
 /// Chamado no `snapshot_now` (cobre snapshot manual E auto-checkpoint por turno):
 /// escrever num FUSE sem espaço congela o mount inteiro. Sem config = sem guard.
 pub fn disk_guard() -> Result<(), String> {
-    let Some(cfg) = read_config() else { return Ok(()) };
+    let Some(cfg) = read_config() else {
+        return Ok(());
+    };
     if let Some(free) = free_space_bytes(Path::new(&cfg.store)) {
         if free < DISK_CRITICAL_BYTES {
             return Err(format!(
@@ -228,7 +230,10 @@ fn parse_tool_text(line: &str) -> Result<String, String> {
     let v: Value =
         serde_json::from_str(line).map_err(|e| format!("resposta inválida do omnifs: {e}"))?;
     if let Some(err) = v.get("error") {
-        let msg = err.get("message").and_then(Value::as_str).unwrap_or("erro desconhecido");
+        let msg = err
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("erro desconhecido");
         return Err(format!("omnifs: {msg}"));
     }
     v.pointer("/result/content/0/text")
@@ -320,7 +325,11 @@ pub struct OmniFsConfig {
 }
 
 fn config_path() -> Option<PathBuf> {
-    Some(Path::new(&home_dir()?).join(".omnirift").join("omnifs.json"))
+    Some(
+        Path::new(&home_dir()?)
+            .join(".omnirift")
+            .join("omnifs.json"),
+    )
 }
 
 pub fn read_config() -> Option<OmniFsConfig> {
@@ -378,7 +387,10 @@ pub struct DaemonStatus {
 
 /// Tamanho de um arquivo em bytes (None se não existe / erro).
 fn file_size(p: &Path) -> Option<u64> {
-    std::fs::metadata(p).ok().filter(|m| m.is_file()).map(|m| m.len())
+    std::fs::metadata(p)
+        .ok()
+        .filter(|m| m.is_file())
+        .map(|m| m.len())
 }
 
 /// du recursivo LIMITADO: soma os arquivos até `max_entries`; estourou o cap →
@@ -443,8 +455,12 @@ pub fn daemon_status() -> DaemonStatus {
         None => sock,
     };
     let sock_up = socket_alive(&sock);
-    let store_free_bytes = cfg.as_ref().and_then(|c| free_space_bytes(Path::new(&c.store)));
-    let low_disk = store_free_bytes.map(|b| b < DISK_LOW_BYTES).unwrap_or(false);
+    let store_free_bytes = cfg
+        .as_ref()
+        .and_then(|c| free_space_bytes(Path::new(&c.store)));
+    let low_disk = store_free_bytes
+        .map(|b| b < DISK_LOW_BYTES)
+        .unwrap_or(false);
     // Verdade em camadas: dir ausente = Missing (recriar); dir presente SEM entrada
     // FUSE na tabela do kernel = NÃO MONTADA (recriar religa — antes isto passava
     // por "responsivo" e o drive virava pasta comum sem versionamento); FUSE
@@ -557,7 +573,11 @@ pub fn ensure_daemon(store: &Path, mount: &Path, sock: &Path) -> Result<(), Stri
         .map(|h| Path::new(&h).join(".omnirift").join("omnifs-daemon.log"))
         .and_then(|p| {
             std::fs::create_dir_all(p.parent()?).ok()?;
-            std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+                .ok()
         })
         .map(Stdio::from)
         .unwrap_or_else(Stdio::null);
@@ -648,7 +668,11 @@ pub struct SnapshotLedgerEntry {
 }
 
 fn ledger_path() -> Option<PathBuf> {
-    Some(Path::new(&home_dir()?).join(".omnirift").join("omnifs-snapshots.json"))
+    Some(
+        Path::new(&home_dir()?)
+            .join(".omnirift")
+            .join("omnifs-snapshots.json"),
+    )
 }
 
 pub fn read_ledger() -> Vec<SnapshotLedgerEntry> {
@@ -667,7 +691,11 @@ fn record_snapshot(hash: &str, message: &str) {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    all.push(SnapshotLedgerEntry { hash: hash.to_string(), message: message.to_string(), at });
+    all.push(SnapshotLedgerEntry {
+        hash: hash.to_string(),
+        message: message.to_string(),
+        at,
+    });
     if all.len() > 500 {
         let drop_n = all.len() - 500;
         all.drain(..drop_n);
@@ -709,7 +737,10 @@ fn parse_log_text(text: &str) -> Vec<(String, String)> {
 }
 
 /// Casa cada linha do log com o ledger por PREFIXO do hash (o log só tem 12 chars).
-fn attach_full_hashes(rows: Vec<(String, String)>, ledger: &[SnapshotLedgerEntry]) -> Vec<LogEntry> {
+fn attach_full_hashes(
+    rows: Vec<(String, String)>,
+    ledger: &[SnapshotLedgerEntry],
+) -> Vec<LogEntry> {
     rows.into_iter()
         .map(|(short, message)| {
             let hit = ledger.iter().rev().find(|e| e.hash.starts_with(&short));
@@ -811,7 +842,11 @@ fn unmount_lazy(store: &Path, mount: &Path) {
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = Command::new("umount").arg("-f").arg(mount).no_window().status();
+        let _ = Command::new("umount")
+            .arg("-f")
+            .arg(mount)
+            .no_window()
+            .status();
     }
 }
 
@@ -821,8 +856,8 @@ fn unmount_lazy(store: &Path, mount: &Path) {
 /// "Reconectar" na UI) e sugerido no aviso do guard pré-spawn.
 #[cfg(unix)]
 pub fn recover_stale_mount() -> Result<DaemonStatus, String> {
-    let cfg = read_config()
-        .ok_or_else(|| "OmniFS não provisionado — nada a reconectar".to_string())?;
+    let cfg =
+        read_config().ok_or_else(|| "OmniFS não provisionado — nada a reconectar".to_string())?;
     let mount = PathBuf::from(&cfg.mount);
     let store = PathBuf::from(&cfg.store);
     let sock = socket_path();
@@ -873,7 +908,9 @@ fn cwd_inside_mount(cwd: &str, mount: &str) -> bool {
 /// cwd bate no prefixo do mount.
 pub fn preflight_cwd_guard(cwd: Option<&str>) -> Result<(), String> {
     let Some(cwd) = cwd else { return Ok(()) };
-    let Some(cfg) = read_config() else { return Ok(()) };
+    let Some(cfg) = read_config() else {
+        return Ok(());
+    };
     if !cwd_inside_mount(cwd, &cfg.mount) {
         return Ok(());
     }
@@ -911,7 +948,9 @@ pub fn is_managed_cwd(cwd: &str) -> bool {
     if cwd.trim().is_empty() {
         return false;
     }
-    let Some(cfg) = read_config() else { return false };
+    let Some(cfg) = read_config() else {
+        return false;
+    };
     cwd_inside_mount(cwd, &cfg.mount) && socket_alive(&pasta_sock(Path::new(&cfg.store)))
 }
 
@@ -978,7 +1017,11 @@ mod tests {
         let p = socket_path_from(None, None, Some("/home/x".into()));
         assert_eq!(p, PathBuf::from("/home/x/.omnirift/omnifs.sock"));
         // Override vazio = ignorado (env setada mas em branco não conta).
-        let p2 = socket_path_from(Some("  ".into()), Some(String::new()), Some("/home/x".into()));
+        let p2 = socket_path_from(
+            Some("  ".into()),
+            Some(String::new()),
+            Some("/home/x".into()),
+        );
         assert_eq!(p2, PathBuf::from("/home/x/.omnirift/omnifs.sock"));
     }
 
@@ -1023,17 +1066,27 @@ mod tests {
         let text = "859f3c2a1b2c  fix: auth pronto\nab12cd34ef56  primeira versão\n\n";
         let rows = parse_log_text(text);
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0], ("859f3c2a1b2c".to_string(), "fix: auth pronto".to_string()));
+        assert_eq!(
+            rows[0],
+            ("859f3c2a1b2c".to_string(), "fix: auth pronto".to_string())
+        );
         assert_eq!(rows[1].0, "ab12cd34ef56");
         // Linha sem separador (defensivo) vira short sem mensagem.
-        assert_eq!(parse_log_text("soemhash")[0], ("soemhash".to_string(), String::new()));
+        assert_eq!(
+            parse_log_text("soemhash")[0],
+            ("soemhash".to_string(), String::new())
+        );
         assert!(parse_log_text("").is_empty());
     }
 
     #[test]
     fn attach_full_hashes_casa_por_prefixo() {
         let full_a = format!("{}{}", "859f3c2a1b2c", "0".repeat(52));
-        let ledger = vec![SnapshotLedgerEntry { hash: full_a.clone(), message: "m".into(), at: 42 }];
+        let ledger = vec![SnapshotLedgerEntry {
+            hash: full_a.clone(),
+            message: "m".into(),
+            at: 42,
+        }];
         let rows = vec![
             ("859f3c2a1b2c".to_string(), "com ledger".to_string()),
             ("ffffffffffff".to_string(), "sem ledger".to_string()),
@@ -1094,7 +1147,10 @@ mod tests {
             PathBuf::from("/app/data/tool-results")
         );
         // Config presente mas mount em branco → fallback (não monta path vazio).
-        let sem_mount = OmniFsConfig { store: "/s".into(), mount: "  ".into() };
+        let sem_mount = OmniFsConfig {
+            store: "/s".into(),
+            mount: "  ".into(),
+        };
         assert_eq!(
             evict_dir_decision(Some(&sem_mount), true, app_data),
             PathBuf::from("/app/data/tool-results")
@@ -1108,7 +1164,10 @@ mod tests {
         // read_dir num dir real volta em ms → responsive dentro do timeout.
         assert!(mount_responsive(dir.path(), Duration::from_secs(2)));
         // Path inexistente → read_dir erra na hora → NÃO responsive (não trava o timeout).
-        assert!(!mount_responsive(&dir.path().join("nao-existe"), Duration::from_secs(2)));
+        assert!(!mount_responsive(
+            &dir.path().join("nao-existe"),
+            Duration::from_secs(2)
+        ));
     }
 
     #[cfg(unix)]
@@ -1130,11 +1189,23 @@ mod tests {
 
     #[test]
     fn cwd_inside_mount_e_por_componente() {
-        assert!(cwd_inside_mount("/home/x/OmniRift/Projetos/app", "/home/x/OmniRift/Projetos"));
-        assert!(cwd_inside_mount("/home/x/OmniRift/Projetos", "/home/x/OmniRift/Projetos"));
+        assert!(cwd_inside_mount(
+            "/home/x/OmniRift/Projetos/app",
+            "/home/x/OmniRift/Projetos"
+        ));
+        assert!(cwd_inside_mount(
+            "/home/x/OmniRift/Projetos",
+            "/home/x/OmniRift/Projetos"
+        ));
         // Prefixo de STRING não conta — só componente inteiro.
-        assert!(!cwd_inside_mount("/home/x/OmniRift/Projetos2", "/home/x/OmniRift/Projetos"));
-        assert!(!cwd_inside_mount("/home/x/outra", "/home/x/OmniRift/Projetos"));
+        assert!(!cwd_inside_mount(
+            "/home/x/OmniRift/Projetos2",
+            "/home/x/OmniRift/Projetos"
+        ));
+        assert!(!cwd_inside_mount(
+            "/home/x/outra",
+            "/home/x/OmniRift/Projetos"
+        ));
         assert!(!cwd_inside_mount("/home/x/qualquer", ""));
     }
 

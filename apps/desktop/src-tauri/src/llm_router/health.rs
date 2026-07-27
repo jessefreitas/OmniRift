@@ -17,7 +17,10 @@ pub struct KeyHealth {
 
 impl KeyHealth {
     pub fn new(cooldown_ms: u64) -> Self {
-        Self { states: HashMap::new(), cooldown_ms }
+        Self {
+            states: HashMap::new(),
+            cooldown_ms,
+        }
     }
 
     /// A chave pode ser usada agora? (nunca vista = sim; cooling expirado = sim).
@@ -30,7 +33,12 @@ impl KeyHealth {
 
     /// 429/quota: põe a chave em cooldown até `now_ms + cooldown_ms`.
     pub fn record_rate_limited(&mut self, key_ref: &str, now_ms: u64) {
-        self.states.insert(key_ref.to_string(), State::Cooling { until_ms: now_ms + self.cooldown_ms });
+        self.states.insert(
+            key_ref.to_string(),
+            State::Cooling {
+                until_ms: now_ms + self.cooldown_ms,
+            },
+        );
     }
 
     /// Sucesso: a chave volta a saudável.
@@ -53,10 +61,10 @@ mod tests {
     fn rate_limited_key_is_unavailable_until_cooldown_expires() {
         let mut h = KeyHealth::new(60_000);
         h.record_rate_limited("k", 1_000);
-        assert!(!h.is_available("k", 1_000));       // no instante
-        assert!(!h.is_available("k", 60_999));      // antes de esfriar
-        assert!(h.is_available("k", 61_000));       // exatamente no fim do cooldown
-        assert!(h.is_available("k", 999_999));      // muito depois
+        assert!(!h.is_available("k", 1_000)); // no instante
+        assert!(!h.is_available("k", 60_999)); // antes de esfriar
+        assert!(h.is_available("k", 61_000)); // exatamente no fim do cooldown
+        assert!(h.is_available("k", 999_999)); // muito depois
     }
 
     #[test]

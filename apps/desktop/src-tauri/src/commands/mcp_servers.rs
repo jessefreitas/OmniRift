@@ -50,7 +50,11 @@ pub fn mcp_servers_list(db: State<'_, Db>) -> Result<Vec<McpServerEntry>, String
             let spec = deobfuscate(&r.spec_enc)
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or(serde_json::Value::Null);
-            McpServerEntry { name: r.name, enabled: r.enabled, spec }
+            McpServerEntry {
+                name: r.name,
+                enabled: r.enabled,
+                spec,
+            }
         })
         .collect();
     Ok(out)
@@ -71,7 +75,8 @@ pub fn mcp_server_upsert(
         return Err("spec inválido (esperado objeto JSON)".into());
     }
     let enc = obfuscate(&spec.to_string());
-    db.mcp_upsert(&name, &enc, enabled).map_err(|e| e.to_string())
+    db.mcp_upsert(&name, &enc, enabled)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -80,8 +85,13 @@ pub fn mcp_server_remove(db: State<'_, Db>, name: String) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub fn mcp_server_set_enabled(db: State<'_, Db>, name: String, enabled: bool) -> Result<(), String> {
-    db.mcp_set_enabled(&name, enabled).map_err(|e| e.to_string())
+pub fn mcp_server_set_enabled(
+    db: State<'_, Db>,
+    name: String,
+    enabled: bool,
+) -> Result<(), String> {
+    db.mcp_set_enabled(&name, enabled)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(unix)]
@@ -96,10 +106,16 @@ fn home_dir() -> Option<String> {
 /// Lê o campo `mcpServers` de um arquivo de config do Claude. Arquivo ausente ou
 /// JSON inválido = lista vazia (fail-soft — import nunca quebra por config alheia).
 fn load_claude_mcp_servers(path: &std::path::Path) -> Vec<(String, serde_json::Value)> {
-    let Ok(content) = std::fs::read_to_string(path) else { return Vec::new() };
-    let Ok(root) = serde_json::from_str::<serde_json::Value>(&content) else { return Vec::new() };
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return Vec::new();
+    };
     match root.get("mcpServers") {
-        Some(serde_json::Value::Object(m)) => m.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        Some(serde_json::Value::Object(m)) => {
+            m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        }
         _ => Vec::new(),
     }
 }
@@ -111,26 +127,44 @@ fn load_claude_mcp_servers(path: &std::path::Path) -> Vec<(String, serde_json::V
 /// silêncio. Idempotente: nunca sobrescreve entrada existente nem mexe em enabled;
 /// nomes do perfil builtin são reservados. Retorna quantos foram importados.
 #[tauri::command]
-pub fn mcp_servers_import_global(db: State<'_, Db>) -> Result<u32, String> {
+pub async fn mcp_servers_import_global(db: State<'_, Db>) -> Result<u32, String> {
     use std::collections::HashSet;
     let Some(home) = home_dir() else { return Ok(0) };
 
-    let mut existing: HashSet<String> = match db.mcp_list() {
+    let home2 = home.clone();
+    let existing_names: Vec<String> = match db.mcp_list() {
         Ok(rows) => rows.into_iter().map(|r| r.name).collect(),
-        Err(_) => HashSet::new(),
+        Err(_) => Vec::new(),
     };
-    for reserved in ["serena", "context7", "playwright", "omnicompress", "omnifs", "omnirift-agents"] {
+
+    // Parse dos JSON globais fora da thread de IPC (arquivo pode ser grande).
+    let parsed = tauri::async_runtime::spawn_blocking(move || {
+        let claude_json = std::path::PathBuf::from(&home2).join(".claude.json");
+        let settings_json = std::path::PathBuf::from(&home2)
+            .join(".claude")
+            .join("settings.json");
+        load_claude_mcp_servers(&claude_json)
+            .into_iter()
+            .chain(load_claude_mcp_servers(&settings_json))
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| format!("mcp import join: {e}"))?;
+
+    let mut existing: HashSet<String> = existing_names.into_iter().collect();
+    for reserved in [
+        "serena",
+        "context7",
+        "playwright",
+        "omnicompress",
+        "omnifs",
+        "omnirift-agents",
+    ] {
         existing.insert(reserved.to_string());
     }
 
-    let claude_json = std::path::PathBuf::from(&home).join(".claude.json");
-    let settings_json = std::path::PathBuf::from(&home).join(".claude").join("settings.json");
-
     let mut imported: u32 = 0;
-    for (name, spec) in load_claude_mcp_servers(&claude_json)
-        .into_iter()
-        .chain(load_claude_mcp_servers(&settings_json))
-    {
+    for (name, spec) in parsed {
         if existing.contains(&name) || !spec.is_object() {
             continue;
         }
@@ -149,8 +183,8 @@ pub fn merge_enabled_into(db: &Db, servers: &mut serde_json::Map<String, serde_j
             if !r.enabled {
                 continue;
             }
-            if let Some(spec) =
-                deobfuscate(&r.spec_enc).and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            if let Some(spec) = deobfuscate(&r.spec_enc)
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
             {
                 if spec.is_object() {
                     servers.insert(r.name, spec);
@@ -177,7 +211,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // config válida com 2 servers
         let ok = dir.join("ok.json");
-        std::fs::write(&ok, r#"{"mcpServers":{"a":{"command":"npx"},"b":{"type":"http","url":"http://x"}}}"#).unwrap();
+        std::fs::write(
+            &ok,
+            r#"{"mcpServers":{"a":{"command":"npx"},"b":{"type":"http","url":"http://x"}}}"#,
+        )
+        .unwrap();
         let got = load_claude_mcp_servers(&ok);
         assert_eq!(got.len(), 2);
         assert!(got.iter().any(|(n, s)| n == "a" && s["command"] == "npx"));

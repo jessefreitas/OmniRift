@@ -13,6 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { AgentRole } from "@/types/pty";
 import { ROLE_CLIS, type AgentRoleDef, type RoleCli } from "@/lib/agent-roles";
 import { workerClaudeArgs } from "@/lib/agent-contract";
+import { withFirstValueGreeting } from "@/lib/first-value";
 import { agentMcpConfig, agentSettingsConfig } from "@/lib/mcp-client";
 import { loadGlobalSkills } from "@/lib/global-skills";
 import { type SkillWiring } from "@/lib/agent-skills";
@@ -115,17 +116,25 @@ export async function buildRoleSpawn(
       ? ((await agentMcpConfig(role.mcpServers, role.needsBrowser).catch(() => null)) ?? mcpFallback)
       : ((await agentMcpConfig().catch(() => null)) ?? mcpFallback);
 
+  // M1 first-value: greeting na 1ª mensagem. Handoff (M2) exige missionId — o runner
+  // cita+consome no dispatch do sucessor; spawn genérico sem missão não faz lookup.
+  const fv = {
+    label: role.name,
+    role: role.name,
+    kind: "worker" as const,
+  };
+
   // Wrapper (ex.: claudefast / claude-ollama) que JÁ injeta system-prompt: não anexar
   // --append-system-prompt; persona (+ index de skills) vai como 1ª mensagem.
   if (role.selfSystemPrompt) {
-    const firstMessage = indexText ? `${role.prompt}\n\n${indexText}` : role.prompt;
+    const body = indexText ? `${role.prompt}\n\n${indexText}` : role.prompt;
     return {
       command,
       args: prefixArgs.length || pluginArgs.length ? [...prefixArgs, ...pluginArgs] : undefined,
       role: cli.role,
       env,
       compressor,
-      firstMessage,
+      firstMessage: withFirstValueGreeting(body, fv),
     };
   }
 
@@ -140,18 +149,19 @@ export async function buildRoleSpawn(
       role: cli.role,
       env,
       compressor,
+      firstMessage: withFirstValueGreeting(undefined, fv),
     };
   }
 
   // CLI sem flag de system-prompt (codex/opencode/antigravity): persona (+ indexText das
   // skills) vai como 1ª mensagem quando o terminal fica ready.
-  const firstMessage = indexText ? `${role.prompt}\n\n${indexText}` : role.prompt;
+  const body = indexText ? `${role.prompt}\n\n${indexText}` : role.prompt;
   return {
     command,
     args: prefixArgs.length ? prefixArgs : undefined,
     role: cli.role,
     env,
     compressor,
-    firstMessage,
+    firstMessage: withFirstValueGreeting(body, fv),
   };
 }

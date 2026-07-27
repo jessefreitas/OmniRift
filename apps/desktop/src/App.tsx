@@ -19,10 +19,14 @@ import { acpGc } from "@/lib/acp-client";
 import { initPtyGlobalSink } from "@/lib/pty-global-sink";
 import { useCanvasStore } from "@/store/canvas-store";
 import { startMainThreadWatchdog } from "@/lib/debug-log";
+import { markBootUiReady, whenBootUiReady } from "@/lib/boot-ui-ready";
 import { mcpServersImportGlobal } from "@/lib/mcp-servers-client";
 import { notify } from "@/lib/notify";
 import { useT } from "@/lib/i18n";
 import { useOrchestrationWatchdog } from "@/hooks/useOrchestrationWatchdog";
+import { useReducedUi } from "@/lib/experience-mode";
+import { WelcomeSlides } from "@/components/WelcomeSlides";
+import { WELCOME_SEEN_KEY, shouldShowWelcome } from "@/lib/welcome-state";
 
 export default function App() {
   // Watchdog da orquestração: cobra o líder quando o time trava esperando as
@@ -30,13 +34,27 @@ export default function App() {
   useOrchestrationWatchdog();
 
   const tr = useT();
+  const reduced = useReducedUi();
 
   // Intro FRIDAY (flag boot-intro): cobre a tela na abertura até o usuário entrar.
   // introDone sobe no onDone → some pra sempre nesta sessão (não re-monta em re-render).
-  const bootIntroOn = useFlag("boot-intro");
+  const bootIntroOn = useFlag("boot-intro") && !reduced;
   const [introDone, setIntroDone] = useState(false);
   // Alterna a cada boot: numa vez a armadura JARVIS, na outra o HUD procedural.
   const [useArmor] = useState(() => Math.random() < 0.5);
+
+  // Boas-vindas: SÓ na primeira abertura de uma instalação nova. Lido uma vez no mount
+  // (não a cada render) pra a tela não voltar quando o usuário troca de modo depois.
+  const [welcomeOpen, setWelcomeOpen] = useState(() => shouldShowWelcome(window.localStorage));
+  const closeWelcome = () => {
+    try { window.localStorage.setItem(WELCOME_SEEN_KEY, "1"); } catch { /* storage off: reaparece no próximo boot, não quebra */ }
+    setWelcomeOpen(false);
+  };
+
+  // Libera scans adiados (usage_scan etc.) só depois do intro — ou já no mount se off.
+  useEffect(() => {
+    if (!bootIntroOn || introDone) markBootUiReady();
+  }, [bootIntroOn, introDone]);
 
   // Watchdog de main thread: grava no debug.log quando a UI congela (o "não responde /
   // forçar saída" do WebKitGTK). O contexto vai junto pra correlacionar o travamento com a
@@ -55,20 +73,23 @@ export default function App() {
   }, []);
 
   // Aviso pós strict-mcp: os agentes NÃO herdam mais os mcpServers do ~/.claude.json.
-  // No boot, importa os globais como DESLIGADOS (idempotente — nunca liga nem
-  // sobrescreve) e avisa UMA vez: nas execuções seguintes importa 0 → sem toast.
+  // Depois do boot-intro (não disputa IPC com db_load no cold start).
   useEffect(() => {
-    mcpServersImportGlobal()
-      .then((n) => {
-        if (n > 0) {
+    let cancelled = false;
+    void whenBootUiReady().then(() => {
+      if (cancelled) return;
+      mcpServersImportGlobal()
+        .then((n) => {
+          if (cancelled || n <= 0) return;
           void notify(
             tr("mcpServers.globalImportNotice1", "Os agentes não herdam mais os MCPs globais do Claude. ")
               + n
               + tr("mcpServers.globalImportNotice2", " server(s) foram adicionados DESLIGADOS em Ferramentas → MCP Servers — ligue só o que quiser."),
           );
-        }
-      })
-      .catch(() => {}); // best-effort — aviso nunca trava o boot
+        })
+        .catch(() => {});
+    });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -190,18 +211,32 @@ export default function App() {
     };
   }, []);
 
+  const uiReady = !bootIntroOn || introDone;
+
   return (
     <div className="flex h-screen w-screen bg-bg">
-      <Sidebar />
-      <main className="flex-1 flex flex-col min-w-0">
-        <ProjectTabs />
-        <div className="flex-1 relative">
-          <Canvas />
-        </div>
-      </main>
-      <ResourceChip />
-      <FluencyChip />
-      <ResourcePanel />
+      {/* Canvas/Sidebar só após o intro: no cold start o WebGL do armor + scans
+          disputavam o event loop com a resposta IPC do db_load. Persistência
+          continua nos effects acima. */}
+      {uiReady && (
+        <>
+          <Sidebar />
+          <main className="flex-1 flex flex-col min-w-0">
+            <ProjectTabs />
+            <div className="flex-1 relative">
+              <Canvas />
+            </div>
+          </main>
+          {!reduced && (
+            <>
+              <ResourceChip />
+              <FluencyChip />
+              <ResourcePanel />
+            </>
+          )}
+        </>
+      )}
+      {uiReady && welcomeOpen && <WelcomeSlides onDone={closeWelcome} />}
       {bootIntroOn && !introDone && (useArmor
         ? <BootIntroArmor onDone={() => setIntroDone(true)} />
         : <BootIntro onDone={() => setIntroDone(true)} />)}

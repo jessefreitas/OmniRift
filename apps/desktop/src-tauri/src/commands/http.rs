@@ -60,7 +60,10 @@ async fn guard_ssrf(url: &str) -> Result<(), String> {
         .to_string();
     let port = parsed.port_or_known_default().unwrap_or(443);
     // Tira colchetes de literal IPv6 ([::1] → ::1).
-    let host_clean = host.trim_start_matches('[').trim_end_matches(']').to_string();
+    let host_clean = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_string();
 
     // IP literal: checa direto, sem DNS.
     if let Ok(ip) = host_clean.parse::<IpAddr>() {
@@ -75,7 +78,9 @@ async fn guard_ssrf(url: &str) -> Result<(), String> {
     let host_for_err = host_clean.clone();
     let ips = tokio::task::spawn_blocking(move || {
         use std::net::ToSocketAddrs;
-        target.to_socket_addrs().map(|it| it.map(|sa| sa.ip()).collect::<Vec<_>>())
+        target
+            .to_socket_addrs()
+            .map(|it| it.map(|sa| sa.ip()).collect::<Vec<_>>())
     })
     .await
     .map_err(|e| format!("falha ao resolver host: {e}"))?
@@ -86,7 +91,9 @@ async fn guard_ssrf(url: &str) -> Result<(), String> {
     }
     for ip in ips {
         if is_blocked_ip(ip) {
-            return Err(format!("destino bloqueado (rede interna): {host_clean} → {ip}"));
+            return Err(format!(
+                "destino bloqueado (rede interna): {host_clean} → {ip}"
+            ));
         }
     }
     Ok(())
@@ -117,14 +124,20 @@ pub async fn http_request(
         }
     }
     let start = std::time::Instant::now();
-    let resp = req.send().await.map_err(|e| format!("falha na requisição: {e}"))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("falha na requisição: {e}"))?;
     let status = resp.status();
     let resp_headers: Vec<(String, String)> = resp
         .headers()
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
-    let text = resp.text().await.map_err(|e| format!("falha ao ler corpo: {e}"))?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("falha ao ler corpo: {e}"))?;
     Ok(HttpResponse {
         status: status.as_u16(),
         status_text: status.canonical_reason().unwrap_or("").to_string(),
@@ -141,13 +154,13 @@ mod tests {
     #[test]
     fn blocks_internal_ipv4_ranges() {
         for ip in [
-            "127.0.0.1",        // loopback
-            "10.0.0.5",         // RFC1918
-            "172.16.0.1",       // RFC1918
-            "192.168.1.1",      // RFC1918
-            "169.254.169.254",  // link-local / metadata cloud
-            "0.0.0.0",          // unspecified
-            "100.64.0.1",       // CGNAT
+            "127.0.0.1",       // loopback
+            "10.0.0.5",        // RFC1918
+            "172.16.0.1",      // RFC1918
+            "192.168.1.1",     // RFC1918
+            "169.254.169.254", // link-local / metadata cloud
+            "0.0.0.0",         // unspecified
+            "100.64.0.1",      // CGNAT
         ] {
             assert!(is_blocked_ip(ip.parse().unwrap()), "deveria bloquear {ip}");
         }
@@ -156,13 +169,23 @@ mod tests {
     #[test]
     fn allows_public_ipv4() {
         for ip in ["8.8.8.8", "1.1.1.1", "93.184.216.34"] {
-            assert!(!is_blocked_ip(ip.parse().unwrap()), "não deveria bloquear {ip}");
+            assert!(
+                !is_blocked_ip(ip.parse().unwrap()),
+                "não deveria bloquear {ip}"
+            );
         }
     }
 
     #[test]
     fn blocks_internal_ipv6_and_mapped() {
-        for ip in ["::1", "::", "fc00::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1"] {
+        for ip in [
+            "::1",
+            "::",
+            "fc00::1",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+        ] {
             assert!(is_blocked_ip(ip.parse().unwrap()), "deveria bloquear {ip}");
         }
         assert!(!is_blocked_ip("2606:4700:4700::1111".parse().unwrap()));

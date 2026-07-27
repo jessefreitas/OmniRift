@@ -86,10 +86,9 @@ pub fn validate_target(target: &str) -> Result<(), String> {
     }
     // `[`/`]` permitidos p/ IPv6 (`user@[2001:db8::1]:2222`) — vão pro argv do `ssh`
     // literais (sem shell local), não são vetor de injeção. [GLM-audit — IPv6]
-    if let Some(bad) = target
-        .chars()
-        .find(|c| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '@' | ':' | '-' | '[' | ']')))
-    {
+    if let Some(bad) = target.chars().find(|c| {
+        !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '@' | ':' | '-' | '[' | ']'))
+    }) {
         return Err(format!(
             "sshTarget contém caractere inválido {bad:?} — só [A-Za-z0-9._@:[]-] são permitidos (anti-injeção)"
         ));
@@ -253,7 +252,7 @@ mod tests {
         assert!(id.starts_with("ssh:"), "id: {id}");
         assert!(id.contains("%40"), "@ encoded: {id}"); // @ = 0x40
         assert!(id.contains("%3A"), ": encoded: {id}"); // : = 0x3A
-        // round-trip recupera o target exato.
+                                                        // round-trip recupera o target exato.
         assert_eq!(ExecutionHost::parse(&id), h);
         if let ExecutionHost::Ssh(t) = ExecutionHost::parse(&id) {
             assert_eq!(t, target);
@@ -394,10 +393,13 @@ mod tests {
 
     #[test]
     fn remote_command_line_quotes_each_token() {
-        let line = build_remote_command_line("claude", &[
-            "--append-system-prompt".to_string(),
-            "you are an agent".to_string(),
-        ]);
+        let line = build_remote_command_line(
+            "claude",
+            &[
+                "--append-system-prompt".to_string(),
+                "you are an agent".to_string(),
+            ],
+        );
         // prog e cada arg shell-quotados, separados por espaço.
         assert_eq!(line, "'claude' '--append-system-prompt' 'you are an agent'");
     }

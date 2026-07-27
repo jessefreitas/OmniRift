@@ -69,10 +69,14 @@ pub fn read_file(path: String) -> Result<String, String> {
     if is_sensitive_path(&path) {
         return Err(format!("acesso bloqueado a caminho sensível: '{path}'"));
     }
-    let meta = std::fs::metadata(&path).map_err(|e| format!("não consegui acessar '{path}': {e}"))?;
+    let meta =
+        std::fs::metadata(&path).map_err(|e| format!("não consegui acessar '{path}': {e}"))?;
     const MAX: u64 = 5 * 1024 * 1024;
     if meta.len() > MAX {
-        return Err(format!("arquivo grande demais ({} KB; máx 5120 KB)", meta.len() / 1024));
+        return Err(format!(
+            "arquivo grande demais ({} KB; máx 5120 KB)",
+            meta.len() / 1024
+        ));
     }
     std::fs::read_to_string(&path).map_err(|e| format!("não consegui ler '{path}': {e}"))
 }
@@ -85,7 +89,10 @@ pub fn write_file(path: String, content: String) -> Result<(), String> {
     }
     const MAX: usize = 5 * 1024 * 1024;
     if content.len() > MAX {
-        return Err(format!("conteúdo grande demais ({} KB; máx 5120 KB)", content.len() / 1024));
+        return Err(format!(
+            "conteúdo grande demais ({} KB; máx 5120 KB)",
+            content.len() / 1024
+        ));
     }
     std::fs::write(&path, content).map_err(|e| format!("não consegui salvar '{path}': {e}"))
 }
@@ -132,7 +139,7 @@ mod tests {
         assert!(!is_sensitive_path("/home/u/proj/README.md"));
         assert!(!is_sensitive_path("/home/u/proj/src/main.rs"));
         assert!(!is_sensitive_path("/home/u/proj/.env")); // .env é deliberadamente permitido
-        // Regra de nome: `id_rsa.pub` (chave pública) FORA de .ssh/ não casa `id_rsa`.
+                                                          // Regra de nome: `id_rsa.pub` (chave pública) FORA de .ssh/ não casa `id_rsa`.
         assert!(!is_sensitive_path("/home/u/proj/keys/id_rsa.pub"));
     }
 }

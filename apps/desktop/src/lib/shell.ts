@@ -136,3 +136,23 @@ export function currentShellRunThenStay(line: string): ShellSpec {
   const { shell, custom } = loadShellPref();
   return shellRunThenStay(line, shell, currentPlatform(), custom);
 }
+
+// Monta a linha de instalação da CLI já com a mensagem de encerramento e o código de saída.
+// A sintaxe muda por plataforma: POSIX captura o código com `$?`, mas no Windows o
+// PowerShell guarda o código do último executável em `$LASTEXITCODE`. A mensagem vem de
+// i18n e pode conter aspas duplas, então escapamos elas para o shell destino — senão a
+// string do comando quebra no meio.
+export function installCommandLine(cmd: string, doneMessage: string, platform: Platform): string {
+  if (platform === "windows") {
+    const safe = doneMessage.replace(/"/g, '`"');
+    return `${cmd}; $rc = $LASTEXITCODE; Write-Host ""; Write-Host "--- ${safe} (código $rc) ---"`;
+  }
+
+  const safe = doneMessage.replace(/"/g, '\\"');
+  return `${cmd}; rc=$?; echo; echo "--- ${safe} (código $rc) ---"`;
+}
+
+// Atalho que usa a plataforma atual, no mesmo padrão dos outros `current*` do módulo.
+export function currentInstallLine(cmd: string, doneMessage: string): string {
+  return installCommandLine(cmd, doneMessage, currentPlatform());
+}

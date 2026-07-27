@@ -17,6 +17,7 @@ import {
 } from "@/lib/custom-compressors";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useT } from "@/lib/i18n";
+import { currentInstallLine, currentShellRunThenStay } from "@/lib/shell";
 
 export function CompressorsModal({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -46,12 +47,12 @@ export function CompressorsModal({ onClose }: { onClose: () => void }) {
     const action = update
       ? t("compressors.updateLabel", "atualizar")
       : t("compressors.installLabel", "instalar");
+    const instalar = currentShellRunThenStay(
+      currentInstallLine(cmd, `${verb} ${label} — ${t("compressors.installDoneHint", "feche este terminal e clique em ↻")}`),
+    );
     addTerminal({
-      command: "bash",
-      args: [
-        "-lc",
-        `${cmd}; rc=$?; echo; echo "--- ${verb} ${label} (${t("compressors.exitCode", "código")} $rc) — ${t("compressors.installDoneHint", "feche este terminal e clique em ↻")} ---"`,
-      ],
+      command: instalar.command,
+      args: instalar.args,
       role: "shell",
       label: `${action} ${label}`,
     });

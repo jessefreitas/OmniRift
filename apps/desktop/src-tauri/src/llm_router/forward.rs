@@ -52,10 +52,20 @@ pub async fn forward_once(
         crate::llm_router::Protocol::Anthropic => req
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01"),
-        crate::llm_router::Protocol::Openai => req.header("authorization", format!("Bearer {api_key}")),
+        crate::llm_router::Protocol::Openai => {
+            req.header("authorization", format!("Bearer {api_key}"))
+        }
     };
-    let resp = req.body(body).send().await.map_err(|e| format!("forward falhou: {e}"))?;
-    Ok(ForwardResponse { status: resp.status().as_u16(), headers: resp.headers().clone(), resp })
+    let resp = req
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| format!("forward falhou: {e}"))?;
+    Ok(ForwardResponse {
+        status: resp.status().as_u16(),
+        headers: resp.headers().clone(),
+        resp,
+    })
 }
 
 #[cfg(test)]

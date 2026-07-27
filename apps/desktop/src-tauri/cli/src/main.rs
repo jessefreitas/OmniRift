@@ -85,7 +85,8 @@ fn run(args: &[String]) -> Result<String, Exit> {
     let plan = handlers::build_call(spec.name, &parsed).map_err(|e| Exit::Usage(e.to_string()))?;
 
     // Agora sim: descobre o app + chama o socket. Erros aqui são de runtime.
-    let result = client::call(plan.method, plan.params).map_err(|e| Exit::Runtime(e.to_string()))?;
+    let result =
+        client::call(plan.method, plan.params).map_err(|e| Exit::Runtime(e.to_string()))?;
 
     Ok(handlers::format_result(spec.name, &result, parsed.json))
 }

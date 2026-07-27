@@ -48,6 +48,7 @@ import {
   Save,
   Server,
   Smartphone,
+  Stethoscope,
   Trash2,
   Sparkles,
   SquareKanban,
@@ -61,7 +62,7 @@ import {
 import { nanoid } from "nanoid";
 
 import { useCanvasStore } from "@/store/canvas-store";
-import { currentShell, currentShellRunThenStay } from "@/lib/shell";
+import { currentInstallLine, currentShell, currentShellRunThenStay } from "@/lib/shell";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { folderCanvasSave, folderCanvasLoad } from "@/lib/folder-canvas-client";
 import { snapshotCreate } from "@/lib/snapshot-client";
@@ -76,6 +77,8 @@ import { buildRoleSpawn } from "@/lib/agent-spawn";
 import { loadGlobalSkills } from "@/lib/global-skills";
 import { type SkillWiring } from "@/lib/agent-skills";
 import { ORCHESTRATOR_CONTRACT, DENY_DESTRUCTIVE, workerClaudeArgs } from "@/lib/agent-contract";
+import { buildFirstValueGreeting, withFirstValueGreeting } from "@/lib/first-value";
+import { injectWhenPtyReady } from "@/lib/inject-when-pty-ready";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { EditableLabel } from "@/components/EditableLabel";
 import { UpdaterButton } from "@/components/UpdaterButton";
@@ -83,6 +86,7 @@ import { TrajectoryEvalModal } from "@/components/TrajectoryEvalModal";
 import { SubagentEditModal } from "@/components/SubagentEditModal";
 import { PromptModal } from "@/components/PromptModal";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
+import { whenBootUiReady } from "@/lib/boot-ui-ready";
 import { omnifsStatus, type OmniFsStatus } from "@/lib/omnifs-client";
 import { useLicenseStore } from "@/store/license-store";
 import { openFeedback } from "@/lib/feedback";
@@ -147,6 +151,9 @@ const SkillsCenterModal = lazy(() => import("@/components/SkillsCenterModal").th
 const KanbanPanel = lazy(() => import("@/components/KanbanPanel").then((m) => ({ default: m.KanbanPanel })));
 const SnippetsPanel = lazy(() => import("@/components/SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })));
 const ProjectHealthPanel = lazy(() => import("@/components/health/ProjectHealthPanel").then((m) => ({ default: m.ProjectHealthPanel })));
+const OrchestrationDoctorPanel = lazy(() =>
+  import("@/components/OrchestrationDoctorPanel").then((m) => ({ default: m.OrchestrationDoctorPanel })),
+);
 const TurboPanel = lazy(() => import("@/components/turbo/TurboPanel").then((m) => ({ default: m.TurboPanel })));
 const CodeMetricsPanel = lazy(() => import("@/components/CodeMetricsPanel").then((m) => ({ default: m.CodeMetricsPanel })));
 import { ToolsSection } from "@/components/sidebar/ToolsSection";
@@ -169,6 +176,8 @@ import { useT } from "@/lib/i18n";
 import { notify, confirmDialog } from "@/lib/notify";
 import { useReorderable } from "@/hooks/useReorderable";
 import type { AgentRole } from "@/types/pty";
+import { useExperienceMode, useExperienceModeStore, useReducedUi } from "@/lib/experience-mode";
+import { agentPresetIdsFor, toolIdsFor } from "@/lib/experience-mode-core";
 
 // Ferramentas da sidebar (ids = os mesmos do handler "omnirift:open-tool" + Command
 // palette). Ordem reordenável por drag-and-drop; ações no map runTool() abaixo.
@@ -204,6 +213,7 @@ const TOOL_DEFS: { id: string; icon: typeof Bot; label: string; desc: string }[]
   { id: "routines", icon: Repeat, label: "Routines", desc: "Tarefas agendadas e recorrentes nos paralelos" },
   { id: "snapshots", icon: Archive, label: "Snapshots do canvas", desc: "Versões salvas do canvas (auto-save + manual)" },
   { id: "turbo", icon: Zap, label: "TURBO mode", desc: "Loop autônomo: goal + condição verificável → implementer↻condição→verifier (GO/NO-GO), sem auto-commit" },
+  { id: "orchestration-doctor", icon: Stethoscope, label: "Doctor da orquestração", desc: "Diagnóstico: por que o agente não ativou? PATH, MCP, memória, worktree, hooks" },
   { id: "usage", icon: Coins, label: "Uso de Tokens", desc: "Quanto de token os agentes gastaram — total geral, por projeto e por modelo/LLM" },
 ];
 const TOOL_IDS = TOOL_DEFS.map((t) => t.id);
@@ -219,6 +229,7 @@ const TOOL_CATS: { id: string; emoji: string; label: string }[] = [
 /** id da ferramenta → categoria. Sem entrada = cai em "system" (nunca some do menu). */
 const TOOL_CAT: Record<string, string> = {
   pipeline: "orchestrate", turbo: "orchestrate", kanban: "orchestrate", routines: "orchestrate", bench: "orchestrate",
+  "orchestration-doctor": "orchestrate",
   clis: "agents", skills: "agents", mcpservers: "agents", compressors: "agents", memory: "agents", connections: "agents",
   "llm-providers": "ai", companion: "ai", "review-ai": "ai", omniswitch: "ai",
   git: "files", omnifs: "files", "code-metrics": "files", snapshots: "files", history: "files", snippets: "files", reminders: "files", hooks: "files",
@@ -422,6 +433,8 @@ export function Sidebar() {
   const addTerminal = useCanvasStore((s) => s.addTerminal);
   const addAgent = useCanvasStore((s) => s.addAgent);
   const tr = useT();
+  const reduced = useReducedUi();
+  const expMode = useExperienceMode();
   const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
   const setCurrentCwd = useCanvasStore((s) => s.setCurrentCwd);
@@ -567,6 +580,7 @@ export function Sidebar() {
   const [policyEditor, setPolicyEditor] = useState<{ scope?: string; label?: string } | null>(null);
   const [showReviewAi, setShowReviewAi] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
+  const [showOrchDoctor, setShowOrchDoctor] = useState(false);
   const [showCodeMetrics, setShowCodeMetrics] = useState(false);
   const [showTurbo, setShowTurbo] = useState(false);
   const [turboSeed, setTurboSeed] = useState<string | undefined>(undefined);
@@ -582,29 +596,39 @@ export function Sidebar() {
   // quando o painel de uso abre/fecha (pode ter rodado review/companion no meio).
   const [todayCost, setTodayCost] = useState<number | null>(null);
   useEffect(() => {
+    if (reduced) return;
     let live = true;
-    const run = () =>
-      usageScan(0)
-        .then((r) => { if (live) setTodayCost(r.total.costUsd); })
-        .catch(() => {});
-    // Deferido pra ocioso: a varredura do disco não disputa com o primeiro paint.
-    // typeof guard porque o WebKitGTK pode não ter requestIdleCallback em runtime.
-    const id =
-      typeof window.requestIdleCallback === "function"
-        ? window.requestIdleCallback(run, { timeout: 2000 })
-        : window.setTimeout(run, 800);
+    let idleId: number | undefined;
+    let cancelled = false;
+    // Espera o boot-intro: usage_scan frio varre ~GBs em ~/.claude; async+spawn_blocking
+    // não bloqueia IPC, mas ainda adiamos até a UI principal estar livre.
+    void whenBootUiReady().then(() => {
+      if (cancelled || !live) return;
+      const run = () =>
+        usageScan(0)
+          .then((r) => { if (live) setTodayCost(r.total.costUsd); })
+          .catch(() => {});
+      idleId =
+        typeof window.requestIdleCallback === "function"
+          ? window.requestIdleCallback(run, { timeout: 2000 })
+          : window.setTimeout(run, 800);
+    });
     return () => {
       live = false;
-      if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(id);
-      else clearTimeout(id);
+      cancelled = true;
+      if (idleId !== undefined) {
+        if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idleId);
+        else clearTimeout(idleId);
+      }
     };
-  }, [showUsage]);
+  }, [reduced, showUsage]);
 
   // Chip OmniFS do rodapé — poll BARATO (omnifs_status a cada 30s), estado local
   // (sem zustand). Dep [showOmniFs]: fechar o modal re-consulta na hora (provisão/
   // religada de daemon mudam o estado sem esperar o próximo tick).
   const [omnifsChip, setOmnifsChip] = useState<OmniFsStatus | null>(null);
   useEffect(() => {
+    if (reduced) return;
     let live = true;
     const poll = () =>
       omnifsStatus()
@@ -613,14 +637,18 @@ export function Sidebar() {
     poll();
     const id = window.setInterval(poll, 30_000);
     return () => { live = false; clearInterval(id); };
-  }, [showOmniFs]);
+  }, [reduced, showOmniFs]);
 
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
   // v2: nova ordem-base alfabética (reset do drag antigo do usuário).
   const tools = useReorderable("omnirift-tools-order-v5", TOOL_IDS);
   // Seções da sidebar reordenáveis (CSS order + popover). v2: Projeto/Workspace no topo.
   const secReorder = useReorderable("omnirift-sections-order-v2", SECTION_IDS);
-  const secStyle = (id: string) => ({ order: secReorder.order.indexOf(id) });
+  const secStyle = (id: string) => {
+    if (!reduced) return { order: secReorder.order.indexOf(id) };
+    const reducedOrder = ["project", "agents", "floors", "tools"];
+    return { order: reducedOrder.indexOf(id) };
+  };
   const runTool: Record<string, () => void> = {
     companion: () => setShowCompanion(true),
     conductor: () => setConstructorMode(!constructorMode),
@@ -653,6 +681,7 @@ export function Sidebar() {
     snapshots: () => setShowSnapshots(true),
     hooks: () => setShowHooks(true),
     turbo: () => setShowTurbo(true),
+    "orchestration-doctor": () => setShowOrchDoctor(true),
   };
 
   // Abre os modais de ferramenta via Command palette (CustomEvent "omnirift:open-tool").
@@ -683,6 +712,7 @@ export function Sidebar() {
         case "settings": setShowSettings(true); break;
         case "review-ai": setShowReviewAi(true); break;
         case "project-health": setShowHealth(true); break;
+        case "orchestration-doctor": setShowOrchDoctor(true); break;
         case "code-metrics": setShowCodeMetrics(true); break;
         case "turbo": setShowTurbo(true); break;
         case "appearance": setShowAppearance(true); break;
@@ -695,7 +725,7 @@ export function Sidebar() {
     };
     window.addEventListener("omnirift:open-tool", h);
     return () => window.removeEventListener("omnirift:open-tool", h);
-  }, []);
+  }, [constructorMode, setConstructorMode]);
 
   // "Enviar pro TURBO" de um agente (CustomEvent "omnirift:turbo-seed" {goal}): abre o
   // painel TURBO já com o objetivo pré-preenchido (ex.: seleção do terminal do agente).
@@ -756,7 +786,7 @@ export function Sidebar() {
     };
     window.addEventListener("omnirift:health-spawn-agent", h);
     return () => window.removeEventListener("omnirift:health-spawn-agent", h);
-  }, [roles, mcpConfigPath, settingsFor]);
+  }, [roles, mcpConfigPath, settingsFor, addTerminal]);
 
   // "Capturar elemento" do Portal (Design Mode grab, ref teardown §3.5): o
   // PortalNode extrai um GrabPayload em markdown e dispara `omnirift:portal-grab`
@@ -787,7 +817,7 @@ export function Sidebar() {
     };
     window.addEventListener("omnirift:portal-grab", h);
     return () => window.removeEventListener("omnirift:portal-grab", h);
-  }, [roles, mcpConfigPath, settingsFor]);
+  }, [roles, mcpConfigPath, settingsFor, addTerminal]);
 
   // Esconde/mostra a barra inteira (persiste).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -827,7 +857,8 @@ export function Sidebar() {
   const toggleSection = (key: string) =>
     setClosedSections((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       try { localStorage.setItem("omnirift-sidebar-closed", JSON.stringify([...next])); } catch { /* ignore */ }
       return next;
     });
@@ -894,7 +925,10 @@ export function Sidebar() {
     if (!currentCwd) { setSpecs([]); return; }
     specListFiles(currentCwd, specRoots).then(setSpecs).catch(() => setSpecs([]));
   }, [currentCwd, specRoots]);
-  useEffect(() => { loadSpecs(); }, [loadSpecs]);
+  useEffect(() => {
+    const id = window.setTimeout(loadSpecs, 0);
+    return () => window.clearTimeout(id);
+  }, [loadSpecs]);
   useEffect(() => {
     try { localStorage.setItem("omnirift-spec-roots", JSON.stringify(specRoots)); } catch { /* ignore */ }
   }, [specRoots]);
@@ -974,14 +1008,22 @@ export function Sidebar() {
 
   // Status de CLAUDE.md/AGENTS.md do projeto ativo (pro sync de roles).
   useEffect(() => {
-    if (!currentCwd) { setDocsStatus(null); return; }
-    agentDocsStatus(currentCwd).then(setDocsStatus).catch(() => setDocsStatus(null));
+    if (!currentCwd) return;
+    let active = true;
+    agentDocsStatus(currentCwd)
+      .then((status) => { if (active) setDocsStatus(status); })
+      .catch(() => { if (active) setDocsStatus(null); });
+    return () => { active = false; };
   }, [currentCwd]);
 
   // CoW/git-native dos floors (badge informativo).
   useEffect(() => {
-    if (!currentCwd) { setCow(null); return; }
-    fsCowInfo(currentCwd).then(setCow).catch(() => setCow(null));
+    if (!currentCwd) return;
+    let active = true;
+    fsCowInfo(currentCwd)
+      .then((info) => { if (active) setCow(info); })
+      .catch(() => { if (active) setCow(null); });
+    return () => { active = false; };
   }, [currentCwd]);
 
   // Re-registra agentes automaticamente após restart (aguarda PTYs spawnarem).
@@ -1133,8 +1175,11 @@ export function Sidebar() {
   useEffect(() => {
     if (!requestMcpMark) return;
     const { sid, label } = requestMcpMark;
-    if (!mcpAgents.has(sid)) toggleMcpAgent(sid, label);
-    clearRequestMcpMark();
+    const id = window.setTimeout(() => {
+      if (!mcpAgents.has(sid)) toggleMcpAgent(sid, label);
+      clearRequestMcpMark();
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [requestMcpMark, mcpAgents, toggleMcpAgent, clearRequestMcpMark]);
 
   const copyMcpCmd = useCallback(async () => {
@@ -1195,6 +1240,10 @@ export function Sidebar() {
     }));
     return [...PRESETS, ...extras, ...custom];
   })();
+  const presetIds = agentPresetIdsFor(expMode);
+  const visibleAgentList = presetIds
+    ? agentList.filter((preset) => presetIds.has(preset.id))
+    : agentList;
 
   function saveNewCli() {
     const label = newCli.label.trim();
@@ -1372,6 +1421,32 @@ export function Sidebar() {
    *  DEV_CONTRACT do worker). Claude = flag nativa; sem flag = 1ª mensagem quando pronto. */
   async function spawnOrchestrator(cliId: string) {
     const cli = ROLE_CLIS.find((c) => c.id === cliId) ?? ROLE_CLIS[0];
+    const floorName =
+      useCanvasStore.getState().parallels.find((p) => p.id === useCanvasStore.getState().activeParallelId)
+        ?.name ?? undefined;
+    const orchGreeting = buildFirstValueGreeting({
+      label: "Orquestrador",
+      role: "orquestrador",
+      kind: "orchestrator",
+      floor: floorName,
+    });
+    // M1: injeta greeting quando o PTY fica ready (evita orch mudo com system-prompt nos args).
+    const injectOrchGreeting = (sid: string, body?: string) => {
+      const text = body ? withFirstValueGreeting(body, {
+        label: "Orquestrador",
+        role: "orquestrador",
+        kind: "orchestrator",
+        floor: floorName,
+      }) : orchGreeting;
+      injectWhenPtyReady(text, {
+        getStatus: () => useCanvasStore.getState().terminalStatuses[sid],
+        subscribe: (cb) => useCanvasStore.subscribe(cb),
+        write: (t) => {
+          invoke("pty_write", { sessionId: sid, data: t }).catch(console.warn);
+          setTimeout(() => invoke("pty_write", { sessionId: sid, data: "\r" }).catch(console.warn), 200);
+        },
+      });
+    };
     if (cli.role === "claude-code") {
       const settingsConfigPath = await settingsFor("Orquestrador");
       // Fresco a cada spawn — ver comentário em argsWithMcp sobre o cache stale.
@@ -1384,27 +1459,20 @@ export function Sidebar() {
         ...(freshMcpPath ? ["--mcp-config", freshMcpPath, "--strict-mcp-config"] : []),
         ...(settingsConfigPath ? ["--settings", settingsConfigPath] : []),
       ];
-      addTerminal({ command: cli.command, args, role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
+      const node = addTerminal({ command: cli.command, args, role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
+      if (node) injectOrchGreeting(node.session_id);
       return;
     }
     if (cli.systemPromptFlag) {
-      addTerminal({ command: cli.command, args: [cli.systemPromptFlag, ORCHESTRATOR_CONTRACT], role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
+      const node = addTerminal({ command: cli.command, args: [cli.systemPromptFlag, ORCHESTRATOR_CONTRACT], role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
+      if (node) injectOrchGreeting(node.session_id);
       return;
     }
-    // CLI sem flag (codex/gemini/opencode/antigravity): persona como 1ª mensagem
+    // CLI sem flag (codex/gemini/opencode/antigravity): contrato + greeting como 1ª mensagem
     // quando o terminal fica pronto (robusto a tempo de boot/seleção de modelo).
     const node = addTerminal({ command: cli.command, role: cli.role, label: "Orquestrador", compressor: loadDefaultCompressor() });
     if (!node) return; // bloqueado pelo limite community de agentes
-    const sid = node.session_id;
-    let ready = false, done = false;
-    const send = () => {
-      invoke("pty_write", { sessionId: sid, data: ORCHESTRATOR_CONTRACT }).catch(console.warn);
-      setTimeout(() => invoke("pty_write", { sessionId: sid, data: "\r" }).catch(console.warn), 200);
-    };
-    const finish = () => { if (done) return; done = true; unsub(); clearTimeout(g); clearTimeout(k); setTimeout(send, 150); };
-    const unsub = useCanvasStore.subscribe((s) => { const st = s.terminalStatuses[sid]; if (ready && (st === "idle" || st === "done")) finish(); });
-    const g = setTimeout(() => { ready = true; const st = useCanvasStore.getState().terminalStatuses[sid]; if (st === "idle" || st === "done") finish(); }, 1500);
-    const k = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
+    injectOrchGreeting(node.session_id, ORCHESTRATOR_CONTRACT);
   }
 
   // Cria um agente no CLI do role com a persona + wiring de skills nativa.
@@ -1446,23 +1514,11 @@ export function Sidebar() {
       }, delay);
     };
     const injectWhenReady = (sid: string, text: string) => {
-      if (!text.trim()) return;
-      let ready = false, done = false;
-      const finish = () => {
-        if (done) return;
-        done = true; unsub(); clearTimeout(graceT); clearTimeout(killT);
-        sendLine(sid, text, 150);
-      };
-      const unsub = useCanvasStore.subscribe((s) => {
-        const st = s.terminalStatuses[sid];
-        if (ready && (st === "idle" || st === "done")) finish();
+      injectWhenPtyReady(text, {
+        getStatus: () => useCanvasStore.getState().terminalStatuses[sid],
+        subscribe: (cb) => useCanvasStore.subscribe(cb),
+        write: (t) => sendLine(sid, t, 0),
       });
-      const graceT = setTimeout(() => {
-        ready = true;
-        const st = useCanvasStore.getState().terminalStatuses[sid];
-        if (st === "idle" || st === "done") finish();
-      }, 1500);
-      const killT = setTimeout(() => { if (!done) { done = true; unsub(); } }, 120000);
     };
     const shellQuote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
 
@@ -1499,15 +1555,26 @@ export function Sidebar() {
       autoRegisterMcp(node.session_id, r.name, r.prompt);
       const startup = (r.startupCmd ?? "").trim();
       const persona = (indexText ? `${r.prompt}\n\n${indexText}` : r.prompt).trim();
+      const fvPersona = withFirstValueGreeting(persona || undefined, {
+        label: r.name,
+        role: r.name,
+        kind: "worker",
+      });
       if (persona && /\bclaude\b/i.test(startup) && !r.selfSystemPrompt) {
         // MESMO perfil MCP do ramo claude-code nativo. Sem o --mcp-config, um role que roda
         // `claude` via shell/proxy (glm-5.2/claude-ollama) nasce SEM o server omnirift-agents
         // → sem terminal_list/terminal_run → o Orquestrador não enxerga a equipe do canvas.
         const mcpArgs = roleMcpPath ? ` --mcp-config ${shellQuote(roleMcpPath)} --strict-mcp-config` : "";
         sendLine(node.session_id, `${startup} --append-system-prompt ${shellQuote(persona)}${mcpArgs}`, 400);
+        // System-prompt no startup → greeting separado como 1ª mensagem (M1).
+        injectWhenReady(node.session_id, withFirstValueGreeting(undefined, {
+          label: r.name,
+          role: r.name,
+          kind: "worker",
+        }));
       } else {
         sendLine(node.session_id, startup, 400);
-        if (startup && persona) injectWhenReady(node.session_id, persona);
+        if (startup && persona) injectWhenReady(node.session_id, fvPersona);
       }
       return;
     }
@@ -1825,12 +1892,17 @@ export function Sidebar() {
     } catch {
       /* checagem falhou → segue pro install (comportamento antigo, sem regressão) */
     }
+    // Shell do SO + linha na sintaxe dele: `bash -lc` com `rc=$?` não existe no Windows,
+    // e instalar CLI pelo app simplesmente não funcionava lá.
+    const instalar = currentShellRunThenStay(
+      currentInstallLine(
+        preset.installCmd,
+        tr("sidebar.installDoneEcho2", "instalação concluída — feche este terminal"),
+      ),
+    );
     addTerminal({
-      command: "bash",
-      args: [
-        "-lc",
-        `${preset.installCmd}; rc=$?; echo; echo "--- ${tr("sidebar.installDoneEcho", "instalação concluída (código $rc) — feche este terminal")} ---"`,
-      ],
+      command: instalar.command,
+      args: instalar.args,
       role: "shell",
       label: `${tr("common.install", "Instalar").toLowerCase()} ${tr("preset." + preset.id, preset.label)}`,
     });
@@ -1923,7 +1995,7 @@ export function Sidebar() {
         "relative flex flex-col shrink-0 border-r border-border bg-surface1",
         "text-text",
       )}
-      style={{ width: sidebarWidth }}
+      style={{ width: reduced ? Math.min(sidebarWidth, 280) : sidebarWidth }}
     >
       <header className="px-4 py-3 border-b border-border">
         <div className="flex items-start justify-between">
@@ -1931,17 +2003,28 @@ export function Sidebar() {
             <h1 className="text-sm font-medium flex items-center gap-2">
               <span className="inline-block w-2 h-2 rounded-full bg-brand" />
               OmniRift
+              {reduced && (
+                <span className="rounded-full border border-brand/30 bg-brand/10 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-brand">
+                  Pocket
+                </span>
+              )}
             </h1>
-            <p className="text-[11px] text-textMuted mt-0.5">{tr("sidebar.tagline", "Canvas infinito")} · OmniForge</p>
+            <p className="text-[11px] text-textMuted mt-0.5">
+              {reduced
+                ? tr("pocket.tagline", "Seu time de IA, sem complicação")
+                : `${tr("sidebar.tagline", "Canvas infinito")} · OmniForge`}
+            </p>
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
-            <button
-              onClick={() => setShowSectionOrder((v) => !v)}
-              title={tr("sidebar.organizeSections", "Organizar as seções da barra (arraste)")}
-              className={cn("p-1 rounded hover:bg-surface2 transition-colors", showSectionOrder ? "text-brand" : "text-textMuted hover:text-brand")}
-            >
-              <GripVertical size={15} />
-            </button>
+            {!reduced && (
+              <button
+                onClick={() => setShowSectionOrder((v) => !v)}
+                title={tr("sidebar.organizeSections", "Organizar as seções da barra (arraste)")}
+                className={cn("p-1 rounded hover:bg-surface2 transition-colors", showSectionOrder ? "text-brand" : "text-textMuted hover:text-brand")}
+              >
+                <GripVertical size={15} />
+              </button>
+            )}
             <button
               onClick={toggleSidebar}
               title={tr("sidebar.hideSidebar", "Esconder barra lateral")}
@@ -1953,7 +2036,7 @@ export function Sidebar() {
         </div>
       </header>
 
-      {showSectionOrder && (
+      {!reduced && showSectionOrder && (
         <div className="px-2 py-2 border-b border-border bg-surface2/40">
           <p className="px-1 text-[10px] uppercase tracking-wider text-textMuted mb-1">{tr("sidebar.organizeSectionsDrag", "Organizar seções · arraste")}</p>
           {secReorder.order.map((sid) => {
@@ -1980,18 +2063,20 @@ export function Sidebar() {
           flutuando sobre a última seção (SPECS). Sidebar não rola no eixo X. */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col min-h-0">
       {/* Floors */}
-      <div className="px-2 py-2.5 border-b border-border" style={secStyle("floors")}>
+      {expMode !== "light" && <div className="px-2 py-2.5 border-b border-border" style={secStyle("floors")}>
         <div className="flex items-center justify-between px-2 mb-1.5">
           <div className="flex items-center gap-1.5">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-textMuted/90">{tr("section.parallels")}</p>
-            <Tooltip
-              label={`${tr("sidebar.parallelsGitTip", "Paralelos = branches git (worktree): objetos compartilhados (~zero disco), git-native, cross-platform.")}${cow ? ` FS ${cow.fs}${cow.reflink ? ` · ${tr("sidebar.cowInstant", "CoW/instantâneo ⚡")}` : ""}` : ""}`}
-              side="bottom"
-            >
-              <span className="flex items-center gap-0.5 text-[9px] text-brand/70 bg-brand/10 px-1 rounded">
-                <GitBranch size={8} /> git-native{cow?.reflink ? " ⚡" : ""}
-              </span>
-            </Tooltip>
+            {!reduced && (
+              <Tooltip
+                label={`${tr("sidebar.parallelsGitTip", "Paralelos = branches git (worktree): objetos compartilhados (~zero disco), git-native, cross-platform.")}${cow ? ` FS ${cow.fs}${cow.reflink ? ` · ${tr("sidebar.cowInstant", "CoW/instantâneo ⚡")}` : ""}` : ""}`}
+                side="bottom"
+              >
+                <span className="flex items-center gap-0.5 text-[9px] text-brand/70 bg-brand/10 px-1 rounded">
+                  <GitBranch size={8} /> git-native{cow?.reflink ? " ⚡" : ""}
+                </span>
+              </Tooltip>
+            )}
             {parallels.filter(isReadyToLand).length > 0 && (
               <Tooltip
                 label={tr("sidebar.floorsReadyToLand", "{n} floor(s) com agente pronto pra Land").replace("{n}", String(parallels.filter(isReadyToLand).length))}
@@ -2003,7 +2088,7 @@ export function Sidebar() {
               </Tooltip>
             )}
           </div>
-          <div className="flex items-center gap-0.5">
+          {!reduced && <div className="flex items-center gap-0.5">
             <Tooltip label={tr("sidebar.newParallelBranch", "Novo paralelo como branch git (worktree isolado)")} side="bottom">
               <button
                 onClick={createGitFloor}
@@ -2020,7 +2105,7 @@ export function Sidebar() {
                 <Plus size={12} />
               </button>
             </Tooltip>
-          </div>
+          </div>}
         </div>
         <div className="space-y-1">
           {parallels.map((f, i) => {
@@ -2144,11 +2229,11 @@ export function Sidebar() {
             );
           })}
         </div>
-      </div>
+      </div>}
 
       {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
       <ToolsSection
-        toolDefs={TOOL_DEFS}
+        toolDefs={(() => { const ids = toolIdsFor(expMode); return ids ? TOOL_DEFS.filter((tool) => ids.has(tool.id)) : TOOL_DEFS; })()}
         cats={TOOL_CATS}
         toolCat={TOOL_CAT}
         tools={tools}
@@ -2158,8 +2243,37 @@ export function Sidebar() {
         secStyle={secStyle}
       />
 
+      {/* Sair do modo simples — o caminho de VOLTA. Sem isto o cliente que abre no
+          light não tem como descobrir que o resto do app existe: some da sidebar, some
+          da paleta e some da toolbar ao mesmo tempo. */}
+      {reduced && (
+        <div className="px-2 py-2.5 border-b border-border">
+          <button
+            onClick={() => {
+              const ok = window.confirm(
+                tr(
+                  "light.seeAllConfirm",
+                  "Isto liga tudo: andares, quadro de tarefas, rotinas, mapa do código, memória e o resto das ferramentas. Dá pra voltar ao modo simples nas Configurações.",
+                ),
+              );
+              if (ok) useExperienceModeStore.getState().setMode("full");
+            }}
+            className="flex w-full items-center gap-2 rounded-lg border border-brand/30 bg-brand/10 px-3 py-2 text-left text-brand transition-colors hover:bg-brand/15"
+          >
+            <Sparkles size={15} className="shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-medium">{tr("light.seeAll", "Ver tudo")}</span>
+              <span className="block truncate text-[10px] text-textMuted">
+                {tr("light.seeAllHint", "Abrir as funcionalidades avançadas")}
+              </span>
+            </span>
+            <ChevronRight size={13} />
+          </button>
+        </div>
+      )}
+
       {/* Workspace */}
-      <div className="px-2 py-2.5 border-b border-border space-y-1" style={secStyle("workspace")}>
+      {!reduced && <div className="px-2 py-2.5 border-b border-border space-y-1" style={secStyle("workspace")}>
         <p className="px-2 text-[11px] font-semibold uppercase tracking-wider text-textMuted/90 mb-1.5">
           {tr("section.workspace")}
         </p>
@@ -2196,7 +2310,7 @@ export function Sidebar() {
             {tr("common.open", "Abrir")}
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Seletor de pasta do projeto */}
       <div className="px-2 py-2.5 border-b border-border" style={secStyle("project")}>
@@ -2257,9 +2371,9 @@ export function Sidebar() {
             ))}
           </div>
         )}
-        {currentCwd && <EditorOpenButton path={currentCwd} />}
+        {currentCwd && !reduced && <EditorOpenButton path={currentCwd} />}
         {/* Sync CLAUDE.md ↔ AGENTS.md (regras de projeto pros agentes) */}
-        {currentCwd && docsStatus && (docsStatus.claude || docsStatus.agents) && (
+        {currentCwd && !reduced && docsStatus && (docsStatus.claude || docsStatus.agents) && (
           <div className="px-2 mt-1 flex items-center gap-1.5 text-[9px]">
             <span className={cn(docsStatus.claude ? "text-textMuted" : "text-textMuted opacity-30 line-through")}>
               CLAUDE.md
@@ -2293,8 +2407,8 @@ export function Sidebar() {
         className="px-2 py-3 space-y-1 shrink-0"
       >
         <div className="px-2 mb-1.5 sticky -top-3 z-10 bg-surface1 pt-3 pb-1 flex items-center justify-between">
-          {sectionTitle("agents", tr("section.agents"))}
-          {isOpen("agents") && (
+          {sectionTitle("agents", reduced ? tr("pocket.quickAgents", "Agentes rápidos") : tr("section.agents"))}
+          {isOpen("agents") && !reduced && (
             <Tooltip label={tr("sidebar.addCustomCli", "Adicionar um CLI personalizado")} side="bottom">
               <button
                 onClick={() => setAddingCli((a) => !a)}
@@ -2306,7 +2420,7 @@ export function Sidebar() {
           )}
         </div>
 
-        {isOpen("agents") && addingCli && (
+        {isOpen("agents") && !reduced && addingCli && (
           <div className="mx-2 mb-1 p-2 rounded-md border border-border bg-surface2 space-y-1.5">
             <div className="text-[10px] uppercase tracking-wide text-textMuted px-0.5">{tr("sidebar.customCli", "CLI personalizado")}</div>
             <input
@@ -2348,7 +2462,7 @@ export function Sidebar() {
         {/* Host de execução (ref §3.1): onde o próximo agente roda. Aparece só quando
             há host SSH configurado em ~/.omnirift/hosts.json — local-only não vê nada
             novo. Default "local" = máquina atual (comportamento idêntico). */}
-        {isOpen("agents") && sshHosts.length > 0 && (
+        {isOpen("agents") && !reduced && sshHosts.length > 0 && (
           <div className="px-2 py-1.5 flex items-center gap-2">
             <span className="text-[10px] text-textMuted shrink-0">
               {tr("sidebar.executionHost", "Executar em")}
@@ -2367,8 +2481,24 @@ export function Sidebar() {
           </div>
         )}
 
+        {isOpen("agents") && expMode === "pocket" && (
+          <button
+            onClick={() => setShowPipeline(true)}
+            className="mx-2 mb-1.5 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-brand/30 bg-brand/10 px-3 py-2 text-left text-brand transition-colors hover:bg-brand/15"
+          >
+            <Network size={15} className="shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-medium">{tr("pocket.setup", "Montar minha equipe")}</span>
+              <span className="block truncate text-[10px] text-textMuted">
+                {tr("pocket.setupHint", "Escolha função, provider e modelo de cada agente")}
+              </span>
+            </span>
+            <ChevronRight size={13} />
+          </button>
+        )}
+
         {isOpen("agents") &&
-          agentList.map((preset) => {
+          visibleAgentList.map((preset) => {
           const Icon = preset.icon;
           const isOrch = preset.id === "orquestrador";
           const orchLabel = ROLE_CLIS.find((c) => c.id === orchCli)?.label ?? "Claude Code";
@@ -2452,7 +2582,7 @@ export function Sidebar() {
       </section>
 
       {/* Roles — personas de agente (--append-system-prompt) */}
-      <RolesSection
+      {!reduced && <RolesSection
         roles={roles}
         currentCwd={currentCwd}
         isOpen={isOpen}
@@ -2465,10 +2595,10 @@ export function Sidebar() {
         cloneRole={cloneRole}
         addRole={addRole}
         secStyle={secStyle}
-      />
+      />}
 
       {/* MCP Agents */}
-      <McpAgentsSection
+      {!reduced && <McpAgentsSection
         terminals={terminals}
         isOpen={isOpen}
         sectionTitle={sectionTitle}
@@ -2488,10 +2618,10 @@ export function Sidebar() {
         injectMcpToTerminal={injectMcpToTerminal}
         sendTeamBriefing={sendTeamBriefing}
         secStyle={secStyle}
-      />
+      />}
 
       {/* Specs — ciclo de vida + dispatch (Fase C) */}
-      <SpecsSection
+      {!reduced && <SpecsSection
         currentCwd={currentCwd}
         isOpen={isOpen}
         sectionTitle={sectionTitle}
@@ -2504,11 +2634,11 @@ export function Sidebar() {
         setShowDeadSpecs={setShowDeadSpecs}
         renderSpecRow={renderSpecRow}
         secStyle={secStyle}
-      />
+      />}
       </div>
 
       <footer className="px-4 py-3 border-t border-border text-[10px] text-textMuted">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1">
+        {!reduced && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1">
           {todayCost !== null && (
             <button
               onClick={() => setShowUsage(true)}
@@ -2545,38 +2675,48 @@ export function Sidebar() {
               <span>OmniFS</span>
             </button>
           )}
+        </div>}
+        <div className="opacity-70 mt-0.5">
+          <AppVersion /> · {expMode === "pocket" ? "Pocket" : expMode === "light" ? tr("light.badge", "Modo simples") : tr("sidebar.localBuild", "build local")}
         </div>
-        <div className="opacity-70 mt-0.5"><AppVersion /> · {tr("sidebar.localBuild", "build local")}</div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <UpdaterButton />
           <span className="opacity-40">·</span>
-          <button onClick={() => useLicenseStore.getState().openLicense()} className="text-textMuted hover:text-brand">
-            {tr("sidebar.license", "Licença")}
+          <button onClick={() => setShowSettings(true)} className="text-textMuted hover:text-brand">
+            {tr("tool.settings", "Configurações")}
           </button>
-          <span className="opacity-40">·</span>
-          <button onClick={() => useLicenseStore.getState().openBeta()} className="text-textMuted hover:text-brand">
-            {tr("sidebar.beta", "Seja beta")}
-          </button>
-          <span className="opacity-40">·</span>
           <button onClick={() => void openFeedback()} className="text-textMuted hover:text-brand">
+            <span className="mr-2 opacity-40">·</span>
             {tr("sidebar.feedback", "Feedback")}
           </button>
-          <span className="opacity-40">·</span>
-          <button onClick={() => void openExternal(BETA_WHATSAPP_GROUP)} className="text-textMuted hover:text-brand" title="Grupo de beta testers no WhatsApp">
-            {tr("sidebar.betaGroup", "Grupo WhatsApp")}
-          </button>
-          <span className="opacity-40">·</span>
-          <button
-            onClick={() => setShowDiag(true)}
-            className="text-textMuted hover:text-brand"
-            title="Reportar problema / enviar logs pra equipe (sem credenciais)"
-          >
-            {tr("sidebar.sendDiag", "Enviar diagnóstico")}
-          </button>
-          <span className="opacity-40">·</span>
-          {/* Caminho OFFLINE do suporte: grava, gera o arquivo e abre a pasta pro
-              cliente anexar onde quiser (funciona atrás de firewall, e ele VÊ o que manda). */}
-          <DiagRecorder />
+          {!reduced && (
+            <>
+              <span className="opacity-40">·</span>
+              <button onClick={() => useLicenseStore.getState().openLicense()} className="text-textMuted hover:text-brand">
+                {tr("sidebar.license", "Licença")}
+              </button>
+              <span className="opacity-40">·</span>
+              <button onClick={() => useLicenseStore.getState().openBeta()} className="text-textMuted hover:text-brand">
+                {tr("sidebar.beta", "Seja beta")}
+              </button>
+              <span className="opacity-40">·</span>
+              <button onClick={() => void openExternal(BETA_WHATSAPP_GROUP)} className="text-textMuted hover:text-brand" title="Grupo de beta testers no WhatsApp">
+                {tr("sidebar.betaGroup", "Grupo WhatsApp")}
+              </button>
+              <span className="opacity-40">·</span>
+              <button
+                onClick={() => setShowDiag(true)}
+                className="text-textMuted hover:text-brand"
+                title="Reportar problema / enviar logs pra equipe (sem credenciais)"
+              >
+                {tr("sidebar.sendDiag", "Enviar diagnóstico")}
+              </button>
+              <span className="opacity-40">·</span>
+              {/* Caminho OFFLINE do suporte: grava, gera o arquivo e abre a pasta pro
+                  cliente anexar onde quiser (funciona atrás de firewall, e ele VÊ o que manda). */}
+              <DiagRecorder />
+            </>
+          )}
         </div>
       </footer>
 
@@ -2717,6 +2857,7 @@ export function Sidebar() {
       {policyEditor && <ReviewPolicyModal scope={policyEditor.scope} scopeLabel={policyEditor.label} cwd={currentCwd} onClose={() => setPolicyEditor(null)} />}
       {showReviewAi && <ReviewSettingsModal cwd={currentCwd} onClose={() => setShowReviewAi(false)} />}
       {showHealth && <ProjectHealthPanel onClose={() => setShowHealth(false)} />}
+      {showOrchDoctor && <OrchestrationDoctorPanel onClose={() => setShowOrchDoctor(false)} />}
       {showCodeMetrics && <CodeMetricsPanel onClose={() => setShowCodeMetrics(false)} />}
       {showTurbo && <TurboPanel seedGoal={turboSeed} onClose={() => { setShowTurbo(false); setTurboSeed(undefined); }} />}
       {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}

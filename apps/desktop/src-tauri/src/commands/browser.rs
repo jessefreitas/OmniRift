@@ -15,8 +15,16 @@ fn b64(data: &[u8]) -> String {
         let b = [c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0)];
         out.push(T[(b[0] >> 2) as usize] as char);
         out.push(T[(((b[0] & 3) << 4) | (b[1] >> 4)) as usize] as char);
-        out.push(if c.len() > 1 { T[(((b[1] & 15) << 2) | (b[2] >> 6)) as usize] as char } else { '=' });
-        out.push(if c.len() > 2 { T[(b[2] & 63) as usize] as char } else { '=' });
+        out.push(if c.len() > 1 {
+            T[(((b[1] & 15) << 2) | (b[2] >> 6)) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[(b[2] & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -28,7 +36,10 @@ pub async fn browser_shot(url: String) -> Result<String, String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("URL deve começar com http:// ou https://".into());
     }
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let tmp = std::env::temp_dir().join(format!("omnirift-shot-{nanos}.png"));
     let tmp_s = tmp.to_string_lossy().to_string();
     let url2 = url.clone();
@@ -53,7 +64,10 @@ pub async fn browser_shot(url: String) -> Result<String, String> {
     if !out.status.success() {
         let _ = std::fs::remove_file(&tmp);
         let err = String::from_utf8_lossy(&out.stderr);
-        return Err(format!("screenshot falhou: {}", err.lines().last().unwrap_or("erro").trim()));
+        return Err(format!(
+            "screenshot falhou: {}",
+            err.lines().last().unwrap_or("erro").trim()
+        ));
     }
     let bytes = std::fs::read(&tmp).map_err(|e| format!("ler png: {e}"))?;
     let _ = std::fs::remove_file(&tmp);

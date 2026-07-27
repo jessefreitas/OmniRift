@@ -47,8 +47,8 @@ const GRAPH_JSON_NAME: &str = "graph.json";
 // leitura. Contrato da engine externa (como o `fuse` no OmniFS) — a MARCA é OmniGraph.
 const ENGINE_OUT_DIR: &str = "graphify-out"; // engine externa (binário 'graphify' de terceiro) — a MARCA é OmniGraph
 const ENGINE_DOT_DIR: &str = ".graphify"; // engine externa (binário 'graphify' de terceiro) — a MARCA é OmniGraph
-// Onde o OmniRift GUARDA a saída (marca OmniGraph): movemos o `graphify-out/` da engine pra cá
-// logo após gerar, e apagamos os dirs de terceiro — o PROJETO do usuário nunca mostra "graphify".
+                                          // Onde o OmniRift GUARDA a saída (marca OmniGraph): movemos o `graphify-out/` da engine pra cá
+                                          // logo após gerar, e apagamos os dirs de terceiro — o PROJETO do usuário nunca mostra "graphify".
 const OMNIGRAPH_DIR: &str = ".omnirift/omnigraph";
 
 /// Teto do graph.json que topamos ler pro WebView (F2, importer do canvas). O grafo de
@@ -109,7 +109,9 @@ fn candidate_report_paths(cwd: &Path) -> Vec<PathBuf> {
 
 /// 1º report existente entre os candidatos (None = nenhum gerado ainda).
 fn find_existing_report(cwd: &Path) -> Option<PathBuf> {
-    candidate_report_paths(cwd).into_iter().find(|p| p.is_file())
+    candidate_report_paths(cwd)
+        .into_iter()
+        .find(|p| p.is_file())
 }
 
 /// Caminhos onde o graph.json cru pode estar (default da engine no diretório de saída),
@@ -152,10 +154,16 @@ pub async fn omnigraph_report(cwd: String) -> Result<Option<String>, String> {
         return Ok(None);
     }
     let Some(launcher) = resolve_launcher() else {
-        crate::commands::debug_log::note("omnigraph", "engine INDISPONÍVEL (graphify/uvx não achados no PATH nem sidecar)");
+        crate::commands::debug_log::note(
+            "omnigraph",
+            "engine INDISPONÍVEL (graphify/uvx não achados no PATH nem sidecar)",
+        );
         return Ok(None);
     };
-    crate::commands::debug_log::note("omnigraph", &format!("report: cwd={cwd} engine={}", launcher.cmd().0));
+    crate::commands::debug_log::note(
+        "omnigraph",
+        &format!("report: cwd={cwd} engine={}", launcher.cmd().0),
+    );
     let cwd_path = PathBuf::from(&cwd);
 
     // 1) Report já no disco → destila e devolve (não paga o build de novo).
@@ -190,7 +198,10 @@ pub async fn omnigraph_report_full(cwd: String) -> Result<Option<String>, String
     let cwd_path = PathBuf::from(&cwd);
     // Report já no disco → devolve inteiro (não paga o build).
     if let Some(rep) = find_existing_report(&cwd_path) {
-        crate::commands::debug_log::note("omnigraph", &format!("report_full: lendo {}", rep.display()));
+        crate::commands::debug_log::note(
+            "omnigraph",
+            &format!("report_full: lendo {}", rep.display()),
+        );
         return Ok(Some(read_report(&rep)?));
     }
     // Sem report → builda e lê o gerado.
@@ -221,10 +232,16 @@ pub fn omnigraph_graph_json(cwd: String) -> Result<Option<String>, String> {
     }
     let cwd_path = PathBuf::from(&cwd);
     let Some(path) = find_existing_graph_json(&cwd_path) else {
-        crate::commands::debug_log::note("omnigraph", &format!("graph_json: NENHUM graph.json nos candidate paths (cwd={cwd})"));
+        crate::commands::debug_log::note(
+            "omnigraph",
+            &format!("graph_json: NENHUM graph.json nos candidate paths (cwd={cwd})"),
+        );
         return Ok(None);
     };
-    crate::commands::debug_log::note("omnigraph", &format!("graph_json: lendo {}", path.display()));
+    crate::commands::debug_log::note(
+        "omnigraph",
+        &format!("graph_json: lendo {}", path.display()),
+    );
     let size = std::fs::metadata(&path)
         .map_err(|e| format!("stat {}: {e}", path.display()))?
         .len();
@@ -296,21 +313,35 @@ async fn run_build(launcher: &OmniGraphLauncher, cwd: &Path) -> Result<(), Strin
         &format!(
             "exit={} stderr={}",
             out.status,
-            String::from_utf8_lossy(&out.stderr).trim().chars().take(300).collect::<String>()
+            String::from_utf8_lossy(&out.stderr)
+                .trim()
+                .chars()
+                .take(300)
+                .collect::<String>()
         ),
     );
     if out.status.success() {
         reparent_engine_output(cwd); // graphify-out/ → .omnirift/omnigraph/ (marca OmniGraph)
         let found = find_existing_graph_json(cwd).is_some();
-        crate::commands::debug_log::note("omnigraph", &format!("graph.json presente após build: {found}"));
+        crate::commands::debug_log::note(
+            "omnigraph",
+            &format!("graph.json presente após build: {found}"),
+        );
         return Ok(());
     }
     // Falhou: o stderr costuma explicar (sem código, pacote quebrado…). Resume pro toast.
     let stderr = String::from_utf8_lossy(&out.stderr);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let src = if stderr.trim().is_empty() { stdout } else { stderr };
+    let src = if stderr.trim().is_empty() {
+        stdout
+    } else {
+        stderr
+    };
     let brief: String = src.trim().chars().take(500).collect();
-    Err(format!("a engine (update) falhou ({}): {brief}", out.status))
+    Err(format!(
+        "a engine (update) falhou ({}): {brief}",
+        out.status
+    ))
 }
 
 /// Marca OmniGraph: a engine grava em `graphify-out/` (nome de terceiro) na RAIZ do projeto do
@@ -553,10 +584,18 @@ fn god_node_ids<'a>(nodes: &'a [GraphNode], degrees: &HashMap<&str, usize>) -> H
     if nodes.is_empty() {
         return HashSet::new();
     }
-    let k = std::cmp::max(1, ((nodes.len() as f64) * GOD_NODE_TOP_FRACTION).ceil() as usize);
+    let k = std::cmp::max(
+        1,
+        ((nodes.len() as f64) * GOD_NODE_TOP_FRACTION).ceil() as usize,
+    );
     let mut ranked: Vec<(&str, usize)> = nodes
         .iter()
-        .map(|n| (n.id.as_str(), degrees.get(n.id.as_str()).copied().unwrap_or(0)))
+        .map(|n| {
+            (
+                n.id.as_str(),
+                degrees.get(n.id.as_str()).copied().unwrap_or(0),
+            )
+        })
         .filter(|&(_, d)| d >= GOD_NODE_MIN_DEGREE)
         .collect();
     // Grau desc; empate por id asc → determinístico (mesmo top-k sempre).
@@ -642,7 +681,11 @@ fn compute_impact(graph: &GraphJson, changed_files: &[String]) -> GraphImpact {
             confidence: "AMBIGUOUS".to_string(),
         })
         .collect();
-    ambiguous.sort_by(|a, b| a.source.cmp(&b.source).then_with(|| a.target.cmp(&b.target)));
+    ambiguous.sort_by(|a, b| {
+        a.source
+            .cmp(&b.source)
+            .then_with(|| a.target.cmp(&b.target))
+    });
     ambiguous.dedup_by(|a, b| a.source == b.source && a.target == b.target);
 
     GraphImpact {
@@ -954,7 +997,10 @@ struct EdgeInfo {
 
 /// Mapa par-de-ids canônico → EdgeInfo de um grafo (última aresta do par vence — grafo de código
 /// não costuma ter multiarestas com confidences distintas no mesmo par).
-fn edge_info_map(g: &GraphJson, labels: &HashMap<&str, &str>) -> HashMap<(String, String), EdgeInfo> {
+fn edge_info_map(
+    g: &GraphJson,
+    labels: &HashMap<&str, &str>,
+) -> HashMap<(String, String), EdgeInfo> {
     let mut m = HashMap::new();
     for e in &g.edges {
         let key = edge_key(&e.source, &e.target);
@@ -994,7 +1040,11 @@ fn to_diff_edge(info: &EdgeInfo) -> GraphDiffEdge {
 }
 
 fn sort_dedup_edges(mut v: Vec<GraphDiffEdge>) -> Vec<GraphDiffEdge> {
-    v.sort_by(|a, b| a.source.cmp(&b.source).then_with(|| a.target.cmp(&b.target)));
+    v.sort_by(|a, b| {
+        a.source
+            .cmp(&b.source)
+            .then_with(|| a.target.cmp(&b.target))
+    });
     v.dedup();
     v
 }
@@ -1112,7 +1162,10 @@ fn prune_snapshots(dir: &Path, cap: usize) {
 /// Err (o auto-snapshot ignora; o comando manual reporta). NÃO builda — só copia o que já existe.
 fn snapshot_graph_file(cwd: &str, cwd_path: &Path) -> Result<PathBuf, String> {
     let Some(src) = find_existing_graph_json(cwd_path) else {
-        return Err("nenhum graph.json pra snapshotar — rode o OmniGraph (Arquiteto ancorado) primeiro".into());
+        return Err(
+            "nenhum graph.json pra snapshotar — rode o OmniGraph (Arquiteto ancorado) primeiro"
+                .into(),
+        );
     };
     // Não copiar (nem manter ×20) um grafo gigante — mesmo teto do gate/importer.
     if let Ok(meta) = std::fs::metadata(&src) {
@@ -1148,8 +1201,7 @@ fn load_graph(p: &Path) -> Result<GraphJson, String> {
 fn ensure_under(dir: &Path, p: &Path) -> Result<PathBuf, String> {
     let cp = std::fs::canonicalize(p)
         .map_err(|e| format!("snapshot inacessível {}: {e}", p.display()))?;
-    let cd =
-        std::fs::canonicalize(dir).map_err(|e| format!("histórico inacessível: {e}"))?;
+    let cd = std::fs::canonicalize(dir).map_err(|e| format!("histórico inacessível: {e}"))?;
     if !cp.starts_with(&cd) {
         return Err("snapshot fora do histórico deste projeto".into());
     }
@@ -1317,8 +1369,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("m.rs");
         std::fs::write(&file, FIXTURE_RS).unwrap();
-        let body =
-            graph_node_body(file.to_string_lossy().into_owned(), "alpha".into()).unwrap();
+        let body = graph_node_body(file.to_string_lossy().into_owned(), "alpha".into()).unwrap();
         assert_eq!(body.symbol, "alpha");
         assert!(body.text.contains("alpha"));
     }
@@ -1380,7 +1431,10 @@ mod tests {
         assert!(out.contains("## God Nodes"), "god nodes: {out}");
         assert!(out.contains("## Community Hubs"), "hubs: {out}");
         assert!(out.contains("## Communities"), "communities: {out}");
-        assert!(out.contains("## Surprising Connections"), "surprising: {out}");
+        assert!(
+            out.contains("## Surprising Connections"),
+            "surprising: {out}"
+        );
         assert!(out.contains("## Suggested Questions"), "suggested: {out}");
         assert!(out.contains("## Summary"), "summary: {out}");
         // Confidence das arestas (EXTRACTED/…) sobrevive (vem no Summary + Surprising).
@@ -1491,7 +1545,10 @@ mod tests {
         let out = dir.path().join(ENGINE_OUT_DIR);
         std::fs::create_dir_all(&out).unwrap();
         std::fs::write(out.join(REPORT_NAME), b"# rep").unwrap();
-        assert_eq!(find_existing_report(dir.path()), Some(out.join(REPORT_NAME)));
+        assert_eq!(
+            find_existing_report(dir.path()),
+            Some(out.join(REPORT_NAME))
+        );
         // Report na raiz do cwd tem precedência (1º candidato).
         std::fs::write(dir.path().join(REPORT_NAME), b"# raiz").unwrap();
         assert_eq!(
@@ -1502,7 +1559,12 @@ mod tests {
 
     // ── F3.1 — gate estrutural ────────────────────────────────────────────────────────
 
-    fn gnode(id: &str, label: &str, source_file: Option<&str>, community: Option<i64>) -> GraphNode {
+    fn gnode(
+        id: &str,
+        label: &str,
+        source_file: Option<&str>,
+        community: Option<i64>,
+    ) -> GraphNode {
         GraphNode {
             id: id.into(),
             label: Some(label.into()),
@@ -1541,7 +1603,10 @@ mod tests {
     #[test]
     fn god_nodes_explicit_marks_win() {
         let nodes = vec![
-            GraphNode { god: Some(true), ..gnode("a", "a", None, None) },
+            GraphNode {
+                god: Some(true),
+                ..gnode("a", "a", None, None)
+            },
             gnode("b", "b", None, None),
         ];
         let g = god_node_ids(&nodes, &HashMap::new());
@@ -1638,8 +1703,11 @@ mod tests {
         assert!(!imp.available);
         // cwd sem graph.json → também available:false (gate passa).
         let dir = tempfile::tempdir().unwrap();
-        let imp = omnigraph_impact(dir.path().to_string_lossy().into_owned(), vec!["a.py".into()])
-            .unwrap();
+        let imp = omnigraph_impact(
+            dir.path().to_string_lossy().into_owned(),
+            vec!["a.py".into()],
+        )
+        .unwrap();
         assert!(!imp.available);
     }
 
@@ -1666,7 +1734,10 @@ mod tests {
     #[test]
     fn emergent_god_nodes_first_run_is_silent() {
         // 1º rebuild: sem baseline anterior → nunca alerta (evita spam de "N hubs novos").
-        let current = vec![("a".into(), "A".into(), 5usize), ("b".into(), "B".into(), 3)];
+        let current = vec![
+            ("a".into(), "A".into(), 5usize),
+            ("b".into(), "B".into(), 3),
+        ];
         assert!(emergent_god_nodes(&current, None).is_empty());
     }
 
@@ -1682,8 +1753,20 @@ mod tests {
         let prev = vec!["a".to_string()];
         let out = emergent_god_nodes(&current, Some(&prev));
         assert_eq!(out.len(), 2);
-        assert_eq!(out[0], GodNodeAlert { label: "C".into(), degree: 7 });
-        assert_eq!(out[1], GodNodeAlert { label: "B".into(), degree: 4 });
+        assert_eq!(
+            out[0],
+            GodNodeAlert {
+                label: "C".into(),
+                degree: 7
+            }
+        );
+        assert_eq!(
+            out[1],
+            GodNodeAlert {
+                label: "B".into(),
+                degree: 4
+            }
+        );
     }
 
     #[test]
@@ -1718,7 +1801,10 @@ mod tests {
     // ── F5 — diff temporal + snapshots ───────────────────────────────────────────────────
 
     fn diff_edge(s: &str, t: &str) -> GraphDiffEdge {
-        GraphDiffEdge { source: s.into(), target: t.into() }
+        GraphDiffEdge {
+            source: s.into(),
+            target: t.into(),
+        }
     }
 
     #[test]
@@ -1834,8 +1920,14 @@ mod tests {
             ],
         };
         let d = compute_diff(&a, &b);
-        assert!(d.new_god_nodes.contains(&"h2".to_string()), "h2 devia emergir: {d:?}");
-        assert!(!d.new_god_nodes.contains(&"hub".to_string()), "hub já era hub em A");
+        assert!(
+            d.new_god_nodes.contains(&"h2".to_string()),
+            "h2 devia emergir: {d:?}"
+        );
+        assert!(
+            !d.new_god_nodes.contains(&"hub".to_string()),
+            "hub já era hub em A"
+        );
     }
 
     #[test]
@@ -1853,7 +1945,9 @@ mod tests {
 
     #[test]
     fn snapshot_history_dir_is_stable_and_scoped() {
-        let Some(p1) = omnigraph_history_dir("/repo/alpha") else { return };
+        let Some(p1) = omnigraph_history_dir("/repo/alpha") else {
+            return;
+        };
         assert_eq!(Some(&p1), omnigraph_history_dir("/repo/alpha").as_ref());
         assert_ne!(Some(p1.clone()), omnigraph_history_dir("/repo/beta"));
         assert!(p1.to_string_lossy().contains("omnigraph-history"));
@@ -1879,7 +1973,10 @@ mod tests {
             std::fs::write(dir.path().join(format!("{i}.json")), b"{}").unwrap();
         }
         prune_snapshots(dir.path(), 3); // mantém 3, 4, 5
-        let ts: Vec<u64> = list_snapshot_files(dir.path()).iter().map(|(t, _)| *t).collect();
+        let ts: Vec<u64> = list_snapshot_files(dir.path())
+            .iter()
+            .map(|(t, _)| *t)
+            .collect();
         assert_eq!(ts, vec![3, 4, 5]);
     }
 

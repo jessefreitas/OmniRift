@@ -49,7 +49,10 @@ pub fn keypair_path() -> Option<PathBuf> {
 /// a 2ª chamada lê a mesma do disco. Erro só se HOME ausente ou IO falhar de fato.
 pub fn load_or_create() -> std::io::Result<E2eeKeypair> {
     let path = keypair_path().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, "HOME indisponível p/ e2ee-keypair.json")
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "HOME indisponível p/ e2ee-keypair.json",
+        )
     })?;
     load_or_create_at(&path)
 }
@@ -66,7 +69,9 @@ pub fn load_or_create_at(path: &Path) -> std::io::Result<E2eeKeypair> {
         if let Some(kp) = parse_stored(&raw) {
             return Ok(kp);
         }
-        log::warn!("E2EE keypair corrompida em {path:?} — regenerando (devices precisarão re-parear)");
+        log::warn!(
+            "E2EE keypair corrompida em {path:?} — regenerando (devices precisarão re-parear)"
+        );
     }
     let kp = generate();
     write_keypair_to(path, &kp)?;
@@ -143,7 +148,11 @@ fn open_owner_only(path: &Path) -> std::io::Result<std::fs::File> {
 #[cfg(not(unix))]
 fn open_owner_only(path: &Path) -> std::io::Result<std::fs::File> {
     // Windows: a ACL do perfil do usuário já restringe; sem chmod (igual metadata.rs).
-    std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(path)
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
 }
 
 #[cfg(test)]
@@ -156,8 +165,16 @@ mod tests {
         let path = dir.path().join("e2ee-keypair.json");
         let a = load_or_create_at(&path).unwrap();
         let b = load_or_create_at(&path).unwrap();
-        assert_eq!(a.public.as_bytes(), b.public.as_bytes(), "pública estável entre cargas");
-        assert_eq!(a.secret.to_bytes(), b.secret.to_bytes(), "privada estável entre cargas");
+        assert_eq!(
+            a.public.as_bytes(),
+            b.public.as_bytes(),
+            "pública estável entre cargas"
+        );
+        assert_eq!(
+            a.secret.to_bytes(),
+            b.secret.to_bytes(),
+            "privada estável entre cargas"
+        );
     }
 
     #[test]
@@ -177,7 +194,11 @@ mod tests {
         let path = dir.path().join("e2ee-keypair.json");
         load_or_create_at(&path).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "e2ee-keypair.json deve ser 0600 (privada é segredo)");
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "e2ee-keypair.json deve ser 0600 (privada é segredo)"
+        );
     }
 
     #[test]
@@ -188,7 +209,11 @@ mod tests {
         let kp = load_or_create_at(&path).unwrap();
         assert_eq!(kp.public.as_bytes().len(), 32);
         let again = load_or_create_at(&path).unwrap();
-        assert_eq!(kp.public.as_bytes(), again.public.as_bytes(), "regenerada e estável");
+        assert_eq!(
+            kp.public.as_bytes(),
+            again.public.as_bytes(),
+            "regenerada e estável"
+        );
     }
 
     #[test]

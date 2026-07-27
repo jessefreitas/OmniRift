@@ -91,3 +91,6 @@ logs_clientes/
 # Log temporário dos gates (scripts/gate.sh e redirects manuais) — na RAIZ
 # também, não só em tools/. Entrou no repo em 2026-07-19 por um `git add -A`.
 .gate.log
+
+# Estado local do wrangler (miniflare/D1 de teste) — nunca versionar.
+services/license-worker/.wrangler/
