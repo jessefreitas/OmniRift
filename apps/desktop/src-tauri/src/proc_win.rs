@@ -130,6 +130,7 @@ pub(crate) fn resolve_windows_program(command: &str) -> Option<ResolvedProgram> 
 /// `cmd`/`cmd.exe`, retorna `true` quando o basename não terminar em `.exe`.
 ///
 /// Disponível em ambos os sistemas operacionais para ser testada no CI.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn needs_cmd_wrapper(command: &str) -> bool {
     let base = command
         .rsplit_once(&['\\', '/'])
@@ -153,6 +154,7 @@ pub fn needs_cmd_wrapper(command: &str) -> bool {
 ///   quoting é o `std` (que trata batch com as regras do cmd desde 1.77.2).
 /// - não resolvido → `cmd.exe /d /c <programa> <args…>` com os tokens SEPARADOS.
 ///   Nunca uma linha única pré-quotada: essa é a forma que o cmd corrompe.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn plan_windows_spawn(
     program: &str,
     args: &[String],
