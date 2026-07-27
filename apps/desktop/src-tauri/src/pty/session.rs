@@ -59,87 +59,6 @@ fn default_rows() -> u16 {
     24
 }
 
-/// Decide se um `command` precisa ser executado via `cmd.exe /c` no Windows.
-///
-/// CLIs de node (claude/opencode/codex/gemini/agy) são instalados pelo npm como
-/// um SCRIPT extensionless (shebang Unix-style, ignorado no Windows) + um shim
-/// `<nome>.cmd` em `%AppData%\Roaming\npm\`. O `CreateProcessW` (usado pelo
-/// portable-pty no Windows) só executa imagens PE (`.exe`); ele NÃO sabe rodar
-/// um script nem resolve um `.cmd` direto via PATHEXT → falha com
-/// `os error 193 — %1 não é um aplicativo Win32 válido`.
-///
-/// Solução: rodar via `cmd.exe /c`, que resolve o `.cmd`/script através do PATHEXT.
-///
-/// Fn PURA (sem I/O) → testável diretamente no Windows. A MESMA regra é espelhada
-/// por `wrapper_decision_portable` nos testes, que compila nos dois SOs e cobre
-/// a lógica também no Linux do CI.
-/// Critério: precisa de `cmd /c` quando o command NÃO termina em `.exe` (case
-/// insensitive) E não é já o próprio `cmd.exe`/`cmd`. Programas `.exe`
-/// (incluindo um shell role já resolvido como `bash.exe`/`powershell.exe`)
-/// spawnam direto.
-#[cfg(windows)]
-fn needs_cmd_wrapper(command: &str) -> bool {
-    let lower = command.to_lowercase();
-    // basename sem diretório (PATH pode trazer separadores `\` ou `/`).
-    let base = lower
-        .rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(&lower);
-    if base == "cmd" || base == "cmd.exe" {
-        return false; // já é o cmd → não embrulha de novo
-    }
-    !lower.ends_with(".exe")
-}
-
-/// Quota um único token segundo o algoritmo padrão de argv do Windows
-/// (CommandLineToArgvW / MSVCRT) — o MESMO que o portable-pty usa internamente
-/// em `append_quoted`. Necessário porque, no caminho `cmd.exe /c "<linha>"`,
-/// nós montamos a linha de comando interna manualmente (token a token) em vez
-/// de deixar o portable-pty quotar cada `.arg()` — ver `build_command` para o
-/// porquê (o `cmd.exe` re-parseia a tail e quebraria args com aspas/quebras).
-#[cfg(windows)]
-fn win_argv_quote(arg: &str) -> String {
-    // Sem caracteres que exijam quoting → devolve cru (idêntico ao portable-pty).
-    if !arg.is_empty()
-        && !arg
-            .chars()
-            .any(|c| c == ' ' || c == '\t' || c == '\n' || c == '\x0b' || c == '"')
-    {
-        return arg.to_string();
-    }
-    let mut out = String::from("\"");
-    let chars: Vec<char> = arg.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        let mut backslashes = 0;
-        while i < chars.len() && chars[i] == '\\' {
-            i += 1;
-            backslashes += 1;
-        }
-        if i == chars.len() {
-            // Escapa todas as `\` finais pra elas não escaparem a `"` de fechamento.
-            for _ in 0..backslashes * 2 {
-                out.push('\\');
-            }
-            break;
-        } else if chars[i] == '"' {
-            // `\`s + a `"`: dobra as `\` e escapa a `"`.
-            for _ in 0..backslashes * 2 + 1 {
-                out.push('\\');
-            }
-            out.push('"');
-        } else {
-            for _ in 0..backslashes {
-                out.push('\\');
-            }
-            out.push(chars[i]);
-        }
-        i += 1;
-    }
-    out.push('"');
-    out
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct PtyOutputEvent {
     pub session_id: SessionId,
@@ -697,29 +616,38 @@ pub(crate) fn login_shell_path() -> Option<&'static str> {
 /// - **Unix** (`#[cfg(not(windows))]`): comportamento original intocado —
 ///   `CommandBuilder::new(command)` + um `.arg()` por argumento.
 ///
-/// - **Windows** (`#[cfg(windows)]`): se `needs_cmd_wrapper(command)` (CLI de
-///   node/script, não-`.exe`), embrulha em `cmd.exe /s /c "<linha interna>"`.
-///   `.exe` já resolvidos spawnam direto (igual ao Unix).
+/// - **Windows** (`#[cfg(windows)]`): `resolve_program_portable` acha o binário
+///   pelo PATH+PATHEXT. Se é `.exe`, spawna DIRETO (igual ao Unix) — sem
+///   `cmd.exe`, sem quoting extra. Se é shim `.cmd` do npm, grava um
+///   wrapper `.cmd` em disco e lança com `cmd.exe /d /c <wrapper>`. Antes se
+///   montava UMA linha já quotada dentro de `cmd.exe /s /c "<linha>"` passada
+///   como um único `.arg()` — quebrava: o portable-pty aplica quoting
+///   argv/MSVCRT no arg e escapa toda `"` como `\"`; o cmd não trata `\` como
+///   escape, então o programa virava literalmente `\"claude\"` e o processo
+///   saía com código 1.
 ///
 /// Função extraída justamente pra ser testável sem spawnar nada (os testes
 /// inspecionam o argv/cwd resultante, não executam o processo).
-/// O teto real do cmd.exe é 8191 para a linha INTEIRA, já contando `cmd.exe /s /c` e as
-/// aspas. 7000 deixa folga pros outros argumentos e pro próprio wrapper — errar pra baixo
-/// só custa gravar um arquivo a mais; errar pra cima volta a truncar em silêncio.
+/// O teto real do cmd.exe é 8191 para a linha INTEIRA — agora a linha que vive
+/// dentro do `.cmd` wrapper, já contando `cmd.exe /d /c` e as aspas. 7000 deixa
+/// folga pros outros argumentos e pro próprio wrapper — errar pra baixo só
+/// custa gravar um arquivo a mais; errar pra cima volta a truncar em silêncio.
 const CMD_LINE_SAFE_LIMIT: usize = 7000;
 
 /// Troca `--append-system-prompt <texto-gigante>` por `--append-system-prompt-file`
-/// `<caminho>` quando a linha inline não sobreviveria ao `cmd.exe /s /c`.
+/// `<caminho>` quando a linha dentro do `.cmd` wrapper não sobreviveria ao
+/// `cmd.exe /d /c`.
 ///
 /// Dois gatilhos, ambos específicos do cmd.exe (esta fn só roda com `dir=Some` no
 /// Windows — no Linux `build_command` passa `None` e o inline testado fica intocado):
 ///   1. TAMANHO: a linha montada passaria do teto de 8191 do cmd → truncada em silêncio;
-///   2. QUEBRA DE LINHA: um `\n`/`\r` CRU na tail do `cmd /s /c` ENCERRA o comando ali —
-///      o resto do prompt vira "comando" seguinte. O agente sobe sem o prompt (ou com
-///      lixo) e cai com código 1. Era o caso do claude/codex de dev no cliente Windows:
-///      ~4210 chars (ABAIXO do teto de tamanho) mas 28 quebras de linha — passava do
-///      gate de tamanho e quebrava mesmo assim. O `--append-system-prompt-file` põe o
-///      prompt num arquivo, então a linha do cmd nunca mais contém a quebra.
+///   2. QUEBRA DE LINHA: um `\n`/`\r` CRU na tail da linha do `.cmd` wrapper ENCERRA o
+///      comando ali — o resto do prompt vira "comando" seguinte. O agente sobe sem o
+///      prompt (ou com lixo) e cai com código 1. Era o caso do claude/codex de dev no
+///      cliente Windows: ~4210 chars (ABAIXO do teto de tamanho) mas 28 quebras de
+///      linha — passava do gate de tamanho e quebrava mesmo assim. O
+///      `--append-system-prompt-file` põe o prompt num arquivo, então a linha do
+///      wrapper nunca mais contém a quebra.
 ///
 /// Só age quando PRECISA — prompt curto e de uma linha segue inline (comportamento
 /// testado no Linux). Devolve os args inalterados se não achar a flag, se nada disparar,
@@ -741,7 +669,7 @@ fn spill_system_prompt_to_file(
     // Um \n cru na tail do `cmd /c` corta o comando; \r sozinho também é tratado como
     // fim de linha pelo cmd, então cobrimos os dois. Checamos por referência ANTES de
     // clonar — prompt curto de uma linha não paga alocação nenhuma.
-    // `+3` por arg ≈ o separador + as aspas que cada token ganha na linha do `cmd /s /c`;
+    // `+3` por arg ≈ o separador + as aspas que cada token ganha na linha do `.cmd` wrapper;
     // é uma cota grosseira e conservadora (o teto real do cmd é 8191 e o limite é 7000).
     let prompt_ref = &args[idx + 1];
     let total_len: usize = args.iter().map(|a| a.len() + 3).sum();
@@ -867,7 +795,9 @@ fn build_command(
         None => args,
     };
 
-    let mut cmd = build_program(&program, &args);
+    // `spill_dir` serve DUAS coisas no Windows: o derrame do system prompt (acima) e o
+    // `.cmd` wrapper que o `build_program` grava quando o alvo é um shim `.cmd`.
+    let mut cmd = build_program(&program, &args, spill_dir, session_id);
 
     // O `cwd` LOCAL só se aplica ao processo local. Em SSH, o cwd já foi embutido no
     // comando remoto acima (cd && exec) — o `ssh` local roda do cwd que o app tiver.
@@ -892,17 +822,7 @@ fn build_command(
     // Montado num único `cmd.env` (setar PATH duas vezes sobrescreveria a 1ª). Antes do
     // `cfg.env` pra o caller ainda poder sobrescrever PATH se quiser.
     {
-        let mut parts: Vec<String> = Vec::new();
-        if let Some(tb) = crate::commands::clis::tools_bin() {
-            parts.push(tb.to_string_lossy().to_string());
-        }
-        if let Some(lp) = login_shell_path() {
-            parts.push(lp.to_string());
-        }
-        let process_path = std::env::var("PATH").unwrap_or_default();
-        if !process_path.is_empty() {
-            parts.push(process_path);
-        }
+        let parts = effective_path_parts();
         if !parts.is_empty() {
             // Separador de PATH é do SO: `:` no Unix, `;` no Windows. Usar `:` no
             // Windows não dá erro — dá algo PIOR: o Windows quebra a string por `;`,
@@ -950,8 +870,39 @@ fn fail_safe_program(err: &str) -> (String, Vec<String>) {
     }
 }
 
+/// Extrai os pedaços do PATH que o processo filho vai herdar, em ordem de prioridade
+/// (prepend vence). Esta função foi extraída porque o Windows precisa resolver o
+/// binário contra ESTE PATH e não contra o do processo do app — o `claude` costuma
+/// morar no tools/bin, e resolver contra o PATH errado devolveria "não encontrado"
+/// pra um binário que existe.
+fn effective_path_parts() -> Vec<String> {
+    let mut parts = Vec::new();
+
+    if let Some(tools_bin) = crate::commands::clis::tools_bin() {
+        parts.push(tools_bin.to_string_lossy().to_string());
+    }
+
+    if let Some(shell_path) = login_shell_path() {
+        parts.push(shell_path.to_string());
+    }
+
+    let sys_path = std::env::var("PATH").unwrap_or_default();
+    if !sys_path.is_empty() {
+        parts.push(sys_path);
+    }
+
+    parts
+}
+
+/// Os dois últimos params só existem pro Windows (onde o agente pode precisar de um
+/// `.cmd` wrapper gravado em disco); no Unix o spawn é direto e eles são ignorados.
 #[cfg(not(windows))]
-fn build_program(command: &str, args: &[String]) -> CommandBuilder {
+fn build_program(
+    command: &str,
+    args: &[String],
+    _wrapper_dir: Option<&std::path::Path>,
+    _session_id: &str,
+) -> CommandBuilder {
     // Wrapper de shell (FUNÇÃO/alias no .zshrc/.bashrc — ex.: `claudefast`, `claude-ollama`)
     // NÃO é binário no PATH → exec direto do portable-pty falha. Se `command` não resolve
     // como binário, roda via `$SHELL -lic "<linha>"` (não hardcode bash): no macOS o user
@@ -1071,71 +1022,259 @@ fn win_cmd_quote_portable(arg: &str) -> String {
     out
 }
 
-/// Quoting para a linha que vai DEPOIS do `cmd.exe /s /c`.
+/// Como o programa foi resolvido no Windows — decide se dá pra spawnar direto ou se
+/// o `cmd.exe` precisa entrar no meio.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) enum ResolvedProgram {
+    /// Imagem PE (`.exe`/`.com`) — o `CreateProcessW` executa direto, sem cmd.exe.
+    Exe(String),
+    /// Script (`.cmd`/`.bat`, o shim que o npm instala pro claude/codex/gemini) —
+    /// só o cmd.exe sabe rodar.
+    Script(String),
+}
+
+/// Resolve `command` pelo PATH + PATHEXT, do jeito que o próprio Windows resolveria.
 ///
-/// Identico ao `win_argv_quote`, exceto que SEMPRE envolve o token em aspas,
-/// mesmo quando ele nao tem espaco. Dentro de aspas o cmd nao trata
-/// `& | < > ^` como operador; fora, trata. Um caminho com `&` — pasta "A&B" —
-/// partia o comando em dois.
+/// Existe porque o `CreateProcessW` (usado pelo portable-pty) NÃO aplica PATHEXT: ele
+/// só carrega imagens PE. Resolvendo aqui, o caso comum (`claude.exe`, `bash.exe`)
+/// spawna DIRETO — sem cmd.exe no meio, e portanto sem nenhum problema de quoting de
+/// cmd. Só o shim `.cmd` precisa do wrapper.
 ///
-/// LIMITE CONHECIDO: `%VAR%` ainda EXPANDE dentro de aspas no cmd; nao ha
-/// escape confiavel para `%` fora de arquivo .bat, entao um argumento com
-/// `%NOME%` de variavel existente sera substituido.
+/// PURA (o `exists` é injetado) justamente pra rodar no Linux do CI — o `build_program`
+/// do Windows nunca foi coberto por teste, e foi assim que a v0.1.141 shipou quebrada.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn resolve_program_portable(
+    command: &str,
+    path_dirs: &[String],
+    pathext: &[String],
+    exists: &dyn Fn(&str) -> bool,
+) -> Option<ResolvedProgram> {
+    // `.exe`/`.com` são PE (spawn direto); o resto do PATHEXT (`.cmd`, `.bat`, …) é
+    // script e obriga o cmd.exe. Case-insensitive porque o PATHEXT vem em MAIÚSCULAS
+    // e o arquivo no disco costuma estar em minúsculas.
+    let classify = |p: &str| {
+        let lower = p.to_lowercase();
+        if lower.ends_with(".exe") || lower.ends_with(".com") {
+            ResolvedProgram::Exe(p.to_string())
+        } else {
+            ResolvedProgram::Script(p.to_string())
+        }
+    };
+
+    let command_lower = command.to_lowercase();
+    let ja_tem_ext = pathext
+        .iter()
+        .any(|ext| command_lower.ends_with(&ext.to_lowercase()));
+
+    // Path explícito (o usuário apontou o binário): não varre o PATH, só resolve a
+    // extensão. Um arquivo SEM extensão do PATHEXT devolve None de propósito — o
+    // Windows não executa script extensionless nem direto nem via cmd, e fingir que
+    // resolveu só empurraria a falha pro spawn.
+    if command.contains('\\') || command.contains('/') {
+        if ja_tem_ext && exists(command) {
+            return Some(classify(command));
+        }
+        for ext in pathext {
+            let candidato = format!("{command}{ext}");
+            if exists(&candidato) {
+                return Some(classify(&candidato));
+            }
+        }
+        return None;
+    }
+
+    // Ordem que o Windows usa: diretório por fora, extensão por dentro — o 1º dir do
+    // PATH vence mesmo que um dir posterior tenha uma extensão "melhor".
+    for dir in path_dirs {
+        if dir.is_empty() {
+            continue;
+        }
+        let dir = dir.trim_end_matches(['\\', '/']);
+        if ja_tem_ext {
+            let candidato = format!("{dir}\\{command}");
+            if exists(&candidato) {
+                return Some(classify(&candidato));
+            }
+        }
+        for ext in pathext {
+            let candidato = format!("{dir}\\{command}{ext}");
+            if exists(&candidato) {
+                return Some(classify(&candidato));
+            }
+        }
+    }
+    None
+}
+
+/// Resolução real (com I/O). Usa o MESMO PATH que o filho vai herdar — não o do
+/// processo do app: o `claude` costuma morar no `~/.omnirift/tools/bin` que o
+/// `build_command` prepende, e resolver contra o PATH errado devolveria None pra um
+/// binário que existe.
 #[cfg(windows)]
-fn win_cmd_quote(arg: &str) -> String {
-    win_cmd_quote_portable(arg)
+fn resolve_windows_program(command: &str) -> Option<ResolvedProgram> {
+    let dirs: Vec<String> = effective_path_parts()
+        .iter()
+        .flat_map(|p| p.split(PATH_SEP))
+        .map(|s| s.trim().to_string())
+        .collect();
+
+    let pathext_env =
+        std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+    let pathext: Vec<String> = pathext_env
+        .split(PATH_SEP)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            if s.starts_with('.') {
+                s.to_string()
+            } else {
+                format!(".{s}")
+            }
+        })
+        .collect();
+
+    resolve_program_portable(command, &dirs, &pathext, &|p: &str| {
+        std::path::Path::new(p).is_file()
+    })
+}
+
+/// Conteúdo do `.cmd` wrapper: a linha do agente com aspas NORMAIS.
+///
+/// É a única forma de entregar aspas ao cmd.exe. Tentar passar a linha como um
+/// `.arg()` não funciona: o portable-pty aplica o quoting argv/MSVCRT e escapa toda
+/// `"` como `\"`; o cmd não conhece `\` como escape e o programa vira literalmente
+/// `\"claude\"` (`'\"claude\"' não é reconhecido…`, exit 1 — a regressão da v0.1.141).
+/// Dentro de um arquivo `.cmd` nada disso acontece: o cmd lê a linha verbatim.
+///
+/// `%` vira `%%` porque num `.bat` o cmd expande `%VAR%` — é o que fecha o "LIMITE
+/// CONHECIDO" que o quoting inline não tinha como resolver.
+///
+/// `\r`/`\n` viram espaço porque um `.bat` NÃO tem escape de quebra de linha: um `\n`
+/// cru encerra a linha ali e o resto dos args vira "comando" seguinte — o agente subiria
+/// pela metade, em silêncio. O `--append-system-prompt` gigante já é desviado antes por
+/// `spill_system_prompt_to_file`; isto é a rede pra QUALQUER outro arg multi-linha.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn build_cmd_wrapper_script_portable(command: &str, args: &[String]) -> String {
+    let sanea = |t: &str| t.replace('%', "%%").replace(['\r', '\n'], " ");
+    let mut linha = win_cmd_quote_portable(&sanea(command));
+    for arg in args {
+        linha.push(' ');
+        linha.push_str(&win_cmd_quote_portable(&sanea(arg)));
+    }
+    // CRLF: `.bat` com LF puro tem casos de parse errático no cmd. `@echo off` pra a
+    // linha do agente não aparecer no PTY antes do TUI subir.
+    format!("@echo off\r\n{linha}\r\n")
+}
+
+/// Sanitiza o id da sessão pra virar nome de arquivo. Os ids são nanoid interno, mas
+/// interpolar id cru num path deixaria um `/`/`\`/`..` desviar a gravação.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn sanitize_session_id(session_id: &str) -> String {
+    session_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 #[cfg(windows)]
-fn build_program(command: &str, args: &[String]) -> CommandBuilder {
-    if !needs_cmd_wrapper(command) {
-        // Já é um `.exe` (ou o próprio cmd) → spawna direto, sem embrulho.
-        let mut cmd = CommandBuilder::new(command);
+fn build_program(
+    command: &str,
+    args: &[String],
+    wrapper_dir: Option<&std::path::Path>,
+    session_id: &str,
+) -> CommandBuilder {
+    fn direto(program: &str, args: &[String]) -> CommandBuilder {
+        let mut cmd = CommandBuilder::new(program);
         for arg in args {
             cmd.arg(arg);
         }
-        return cmd;
+        cmd
     }
 
-    // QUOTING — decisão (documentada no comentário do módulo):
-    //
-    // `cmd.exe /c` re-parseia a "tail" do comando com as regras PRÓPRIAS do cmd
-    // (não as do CommandLineToArgvW). Se passássemos `cmd /c` + um `.arg()` por
-    // argumento e deixássemos o portable-pty quotar cada um, o `cmd` re-quebraria
-    // a linha e corromperia args complexos — exatamente o caso do
-    // `--append-system-prompt "<texto enorme com aspas/quebras de linha>"`:
-    // o `cmd` interpretaria `&`, `|`, `^`, `"`, quebras, etc.
-    //
-    // Abordagem robusta escolhida: montar UMA string única já quotada (programa +
-    // cada arg via `win_argv_quote`, o mesmo algoritmo argv do Windows que o
-    // portable-pty usa) e passar como `cmd.exe /s /c "<linha>"`.
-    //   - `/s` + aspas externas = contrato DOCUMENTADO do cmd: ele tira EXATAMENTE
-    //     a 1ª e a última aspas e roda o miolo verbatim (sem a heurística default
-    //     de "só remove aspas em certas condições"). Isso preserva o conteúdo
-    //     interno (incluindo aspas e quebras dos args) intacto.
-    //   - Cada token interno vai por `win_argv_quote`, então quando o cmd repassa
-    //     a linha ao programa real, o argv chega idêntico ao que o caminho Unix
-    //     entregaria.
-    //
-    // O `comspec` (programa de fato) e o literal `"<linha>"` são passados via
-    // `.arg()` — aí SIM deixamos o portable-pty fazer o quoting argv pro
-    // CreateProcessW, que é correto pro próprio `cmd.exe` (o cmd só re-parseia o
-    // que vem DEPOIS do `/c`, e esse pedaço é uma única string já blindada).
+    match resolve_windows_program(command) {
+        // Caso comum e melhor: sem cmd.exe no meio. Aqui o quoting argv do portable-pty
+        // é o CORRETO — quem re-parseia a linha é o próprio CRT do programa alvo.
+        Some(ResolvedProgram::Exe(p)) => direto(&p, args),
+        Some(ResolvedProgram::Script(p)) => {
+            build_program_via_wrapper(&p, args, wrapper_dir, session_id)
+        }
+        None => {
+            // Não resolveu (PATH do app difere, binário ausente, …). Se PARECE .exe ou é
+            // o próprio cmd, spawna direto como antes — deixa o erro vir do SO. Senão
+            // tenta o wrapper com o nome cru: lá dentro quem resolve o PATHEXT é o cmd.
+            let lower = command.to_lowercase();
+            let base = lower
+                .rsplit(['\\', '/'])
+                .next()
+                .unwrap_or(&lower)
+                .to_string();
+            if lower.ends_with(".exe") || base == "cmd" || base == "cmd.exe" {
+                direto(command, args)
+            } else {
+                build_program_via_wrapper(command, args, wrapper_dir, session_id)
+            }
+        }
+    }
+}
+
+/// Grava o `.cmd` wrapper e devolve `cmd.exe /d /c <wrapper>`.
+///
+/// O caminho do wrapper vai como arg ÚNICO e não contém aspas, então o portable-pty
+/// no máximo o envolve em aspas — nunca gera `\"`. Sem `/s`: com um único token entre
+/// aspas o cmd já remove o par corretamente, e `/s` só faria sentido pra linha inline
+/// que este fix eliminou. `/d` pula o AutoRun do registro, que injetaria a saída de um
+/// comando de terceiro no PTY do agente.
+#[cfg(windows)]
+fn build_program_via_wrapper(
+    command: &str,
+    args: &[String],
+    wrapper_dir: Option<&std::path::Path>,
+    session_id: &str,
+) -> CommandBuilder {
     let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string());
 
-    // `win_cmd_quote` (não `win_argv_quote`): esta linha é re-parseada pelo CMD, e fora de
-    // aspas ele lê & | < > como operador. Token cru com `&` — pasta "A&B" — partia o
-    // comando em dois e executava a segunda metade.
-    let mut inner = win_cmd_quote(command);
-    for arg in args {
-        inner.push(' ');
-        inner.push_str(&win_cmd_quote(arg));
+    if let Some(dir) = wrapper_dir {
+        let path = dir.join(format!("agent-cmd-{}.cmd", sanitize_session_id(session_id)));
+        let gravou = std::fs::create_dir_all(dir)
+            .and_then(|_| std::fs::write(&path, build_cmd_wrapper_script_portable(command, args)));
+        match gravou {
+            Ok(()) => {
+                // Nunca logar o conteúdo: a linha carrega persona/prompt inteiros.
+                log::info!(
+                    "PTY: wrapper cmd gravado em {} ({} args)",
+                    path.display(),
+                    args.len()
+                );
+                let mut cmd = CommandBuilder::new(&comspec);
+                cmd.arg("/d");
+                cmd.arg("/c");
+                cmd.arg(path.display().to_string());
+                return cmd;
+            }
+            Err(e) => log::warn!(
+                "PTY: falha ao gravar wrapper cmd em {}: {e} — caindo no argv separado",
+                path.display()
+            ),
+        }
     }
 
+    // Fallback (sem dir ou disco recusou): tokens separados, deixando o portable-pty
+    // quotar cada um. Imperfeito — um `&` em token SEM espaço chega cru e o cmd o lê
+    // como operador — mas o agente sobe, que é melhor que não subir.
     let mut cmd = CommandBuilder::new(&comspec);
-    cmd.arg("/s");
+    cmd.arg("/d");
     cmd.arg("/c");
-    cmd.arg(&inner);
+    cmd.arg(command);
+    for arg in args {
+        cmd.arg(arg);
+    }
     cmd
 }
 
@@ -1203,140 +1342,270 @@ mod tests {
         assert!(!screen.contains("AAA"));
     }
 
-    // ---- Testes da lógica de construção de comando (Windows-only) ----
-    //
-    // Rodam no Windows; no Linux (CI atual) ficam fora de escopo via cfg, mas a
-    // lógica que eles cobrem (`needs_cmd_wrapper`, `win_argv_quote`,
-    // `build_command`) é exercitada manualmente abaixo por uma fn pura
-    // espelhada que compila nos dois SOs, garantindo cobertura no Linux também.
-
-    #[cfg(windows)]
-    mod windows_build {
+    mod tests_windows_launch {
         use crate::pty::session::{
-            build_command, needs_cmd_wrapper, win_argv_quote, PtySpawnConfig,
+            build_cmd_wrapper_script_portable, resolve_program_portable, ResolvedProgram,
         };
-        use std::ffi::OsString;
 
-        fn cfg(command: &str, args: &[&str]) -> PtySpawnConfig {
-            PtySpawnConfig {
-                command: command.to_string(),
-                args: args.iter().map(|s| s.to_string()).collect(),
-                cwd: None,
-                env: vec![],
-                cols: 80,
-                rows: 24,
-                execution_host: None,
+        fn fs<'a>(existentes: &'a [&'a str]) -> impl Fn(&str) -> bool + 'a {
+            move |path| existentes.iter().any(|e| e.eq_ignore_ascii_case(path))
+        }
+
+        fn simulate_append_quoted(arg: &str) -> String {
+            if !arg.is_empty()
+                && !arg.contains(' ')
+                && !arg.contains('\t')
+                && !arg.contains('\n')
+                && !arg.contains('\x0b')
+                && !arg.contains('"')
+            {
+                return arg.to_string();
             }
+
+            let mut result = String::from("\"");
+            let bytes = arg.as_bytes();
+            let mut i = 0;
+            while i < bytes.len() {
+                if bytes[i] == b'\\' {
+                    let mut n = 0;
+                    while i < bytes.len() && bytes[i] == b'\\' {
+                        n += 1;
+                        i += 1;
+                    }
+                    if i == bytes.len() {
+                        result.push_str(&"\\".repeat(n * 2));
+                    } else if bytes[i] == b'"' {
+                        result.push_str(&"\\".repeat(n * 2 + 1));
+                        result.push('"');
+                        i += 1;
+                    } else {
+                        result.push_str(&"\\".repeat(n));
+                    }
+                } else if bytes[i] == b'"' {
+                    result.push_str("\\\"");
+                    i += 1;
+                } else {
+                    result.push(bytes[i] as char);
+                    i += 1;
+                }
+            }
+            result.push('"');
+            result
         }
 
-        fn argv_strings(cmd: &portable_pty::CommandBuilder) -> Vec<String> {
-            cmd.get_argv()
-                .iter()
-                .map(|o: &OsString| o.to_string_lossy().to_string())
-                .collect()
+        fn simulate_createprocess_cmdline(argv: &[String]) -> String {
+            argv.iter()
+                .map(|a| simulate_append_quoted(a))
+                .collect::<Vec<_>>()
+                .join(" ")
         }
 
         #[test]
-        fn node_cli_wraps_in_cmd_c() {
-            // opencode + ["x"] → programa = cmd.exe e inclui "/c","opencode","x"
-            let cmd = build_command(&cfg("opencode", &["x"]), None, "t");
-            let argv = argv_strings(&cmd);
-            // argv[0] é o comspec (cmd.exe ou caminho completo dele)
-            assert!(
-                argv[0].to_lowercase().ends_with("cmd.exe"),
-                "programa deveria ser cmd.exe, foi {:?}",
-                argv[0]
+        fn regressao_v0141_wrapper_nao_chega_escapado_ao_cmd() {
+            // Trava a falha onde o caminho do wrapper chegava escapado para o cmd.exe, quebrando a execução.
+            let argv = vec![
+                "cmd.exe".to_string(),
+                "/d".to_string(),
+                "/c".to_string(),
+                r"C:\Users\Foo Bar\AppData\Roaming\com.omniforge.omnirift\agent-cmd-abc.cmd"
+                    .to_string(),
+            ];
+            let cmdline = simulate_createprocess_cmdline(&argv);
+            assert!(!cmdline.contains(r#"\""#));
+            assert!(cmdline.contains(
+                r#""C:\Users\Foo Bar\AppData\Roaming\com.omniforge.omnirift\agent-cmd-abc.cmd""#
+            ));
+        }
+
+        #[test]
+        fn simulador_reproduz_o_bug_antigo() {
+            // Garante que o simulador de cmdline não é complacente e reproduz o bug antigo de escape.
+            let argv = vec![
+                "cmd.exe".to_string(),
+                "/s".to_string(),
+                "/c".to_string(),
+                r#""claude" "--model""#.to_string(),
+            ];
+            let cmdline = simulate_createprocess_cmdline(&argv);
+            assert!(cmdline.contains(r#"\"claude\""#));
+        }
+
+        #[test]
+        fn resolve_program_exe_no_path() {
+            // Trava a falha de não achar um executável .exe válido no PATH.
+            let fs = fs(&[r"C:\Bin\foo.exe"]);
+            let path_dirs = vec![r"C:\Bin".to_string()];
+            let pathext = vec![".EXE".to_string()];
+            let prog = resolve_program_portable("foo", &path_dirs, &pathext, &fs);
+            assert_eq!(
+                prog,
+                Some(ResolvedProgram::Exe(r"C:\Bin\foo.EXE".to_string()))
             );
-            assert!(argv.iter().any(|a| a == "/c"), "deve conter /c em {argv:?}");
-            // a linha interna é um único arg já quotado contendo o command e o arg
-            let inner = argv.last().unwrap();
-            assert!(inner.contains("opencode"), "inner: {inner}");
-            assert!(inner.contains('x'), "inner: {inner}");
         }
 
         #[test]
-        fn exe_command_spawns_direct_no_cmd() {
-            // foo.exe → NÃO usa cmd; programa = foo.exe, arg preservado
-            let cmd = build_command(&cfg("foo.exe", &["bar"]), None, "t");
-            let argv = argv_strings(&cmd);
-            assert_eq!(argv[0].to_lowercase(), "foo.exe");
-            assert!(
-                !argv.iter().any(|a| a == "/c"),
-                "não deve embrulhar: {argv:?}"
+        fn resolve_program_shim_cmd() {
+            // Trava o bug real onde o claude.cmd (npm shim) não era resolvido como Script.
+            let fs = fs(&[r"C:\Bin\claude.cmd"]);
+            let path_dirs = vec![r"C:\Bin".to_string()];
+            let pathext = vec![".CMD".to_string(), ".EXE".to_string()];
+            let prog = resolve_program_portable("claude", &path_dirs, &pathext, &fs);
+            assert_eq!(
+                prog,
+                Some(ResolvedProgram::Script(r"C:\Bin\claude.CMD".to_string()))
             );
-            assert_eq!(argv[1], "bar");
         }
 
         #[test]
-        fn needs_wrapper_decision() {
-            assert!(needs_cmd_wrapper("claude"));
-            assert!(needs_cmd_wrapper("opencode"));
-            assert!(needs_cmd_wrapper("codex"));
-            assert!(needs_cmd_wrapper(r"C:\Users\me\AppData\Roaming\npm\claude"));
-            assert!(!needs_cmd_wrapper("bash.exe"));
-            assert!(!needs_cmd_wrapper("foo.EXE")); // case-insensitive
-            assert!(!needs_cmd_wrapper("cmd.exe"));
-            assert!(!needs_cmd_wrapper("cmd")); // não re-embrulha o próprio cmd
-        }
-
-        #[test]
-        fn append_system_prompt_arg_survives_quoting() {
-            // O arg crítico: --append-system-prompt com aspas E quebra de linha.
-            let prompt = "You are an agent.\nSay \"hi\".";
-            let cmd = build_command(&cfg("claude", &["--append-system-prompt", prompt]));
-            let argv = argv_strings(&cmd);
-            let inner = argv.last().unwrap();
-            // a flag aparece literal e o conteúdo (com a quebra) está embutido
-            assert!(inner.contains("--append-system-prompt"), "inner: {inner}");
-            assert!(inner.contains("You are an agent."), "inner: {inner}");
-            assert!(
-                inner.contains('\n'),
-                "quebra de linha preservada: {inner:?}"
+        fn resolve_program_precedencia_extensao() {
+            // Trava a falha de priorizar uma extensão de script sobre um executável no mesmo diretório.
+            let fs = fs(&[r"C:\Bin\foo.exe", r"C:\Bin\foo.cmd"]);
+            let path_dirs = vec![r"C:\Bin".to_string()];
+            let pathext = vec![".EXE".to_string(), ".CMD".to_string()];
+            let prog = resolve_program_portable("foo", &path_dirs, &pathext, &fs);
+            assert_eq!(
+                prog,
+                Some(ResolvedProgram::Exe(r"C:\Bin\foo.EXE".to_string()))
             );
-            // aspas internas escapadas no formato argv do Windows (\")
-            assert!(inner.contains("\\\""), "aspas escapadas: {inner:?}");
         }
 
         #[test]
-        fn argv_quote_matches_windows_rules() {
-            assert_eq!(win_argv_quote("simple"), "simple");
-            assert_eq!(win_argv_quote("with space"), "\"with space\"");
-            assert_eq!(win_argv_quote("a\"b"), "\"a\\\"b\"");
-            // backslashes antes de aspas são dobrados
-            assert_eq!(win_argv_quote(r#"a\"b"#), r#""a\\\"b""#);
+        fn resolve_program_precedencia_diretorio() {
+            // Trava a falha de usar o segundo diretório do PATH quando o primeiro já contém o binário.
+            let fs = fs(&[r"C:\Dir1\bar.exe", r"C:\Dir2\bar.exe"]);
+            let path_dirs = vec![r"C:\Dir1".to_string(), r"C:\Dir2".to_string()];
+            let pathext = vec![".EXE".to_string()];
+            let prog = resolve_program_portable("bar", &path_dirs, &pathext, &fs);
+            assert_eq!(
+                prog,
+                Some(ResolvedProgram::Exe(r"C:\Dir1\bar.EXE".to_string()))
+            );
         }
-    }
 
-    // Espelho PURO da decisão cmd-vs-direto, compilável e testável nos DOIS SOs.
-    // Mantém a mesma regra de `needs_cmd_wrapper` (que é cfg(windows)); assim a
-    // lógica fica coberta também no Linux do CI.
-    fn wrapper_decision_portable(command: &str) -> bool {
-        let lower = command.to_lowercase();
-        let base = lower
-            .rsplit(|c| c == '\\' || c == '/')
-            .next()
-            .unwrap_or(&lower);
-        if base == "cmd" || base == "cmd.exe" {
-            return false;
+        #[test]
+        fn resolve_program_path_explicito_sem_ext() {
+            // Trava a falha de não resolver um caminho explícito sem extensão mas com arquivo .cmd correspondente.
+            let fs = fs(&[r"C:\ferramentas\claude.cmd"]);
+            let path_dirs = vec![];
+            let pathext = vec![".CMD".to_string()];
+            let prog =
+                resolve_program_portable(r"C:\ferramentas\claude", &path_dirs, &pathext, &fs);
+            assert_eq!(
+                prog,
+                Some(ResolvedProgram::Script(
+                    r"C:\ferramentas\claude.CMD".to_string()
+                ))
+            );
         }
-        !lower.ends_with(".exe")
-    }
 
-    #[test]
-    fn wrapper_decision_logic_portable() {
-        // Estes asserts rodam no Linux (CI atual) — garantem que a regra está
-        // correta independente do alvo. No Windows, `needs_cmd_wrapper` usa a
-        // MESMA regra (verificada no módulo windows_build acima).
-        assert!(wrapper_decision_portable("opencode"));
-        assert!(wrapper_decision_portable("claude"));
-        assert!(wrapper_decision_portable("codex"));
-        assert!(wrapper_decision_portable(
-            r"C:\Users\me\AppData\Roaming\npm\opencode"
-        ));
-        assert!(!wrapper_decision_portable("foo.exe"));
-        assert!(!wrapper_decision_portable("BASH.EXE"));
-        assert!(!wrapper_decision_portable("cmd"));
-        assert!(!wrapper_decision_portable("cmd.exe"));
+        #[test]
+        fn resolve_program_sem_ext_do_pathext() {
+            // Trava a falha de resolver um arquivo que existe mas não possui extensão válida no PATHEXT.
+            let fs = fs(&[r"C:\Bin\baz.txt"]);
+            let path_dirs = vec![r"C:\Bin".to_string()];
+            let pathext = vec![".EXE".to_string(), ".CMD".to_string()];
+            let prog = resolve_program_portable("baz", &path_dirs, &pathext, &fs);
+            assert_eq!(prog, None);
+        }
+
+        #[test]
+        fn resolve_program_inexistente() {
+            // Trava a falha de retornar Some para um comando que não existe no filesystem.
+            let fs = fs(&[]);
+            let path_dirs = vec![r"C:\Bin".to_string()];
+            let pathext = vec![".EXE".to_string()];
+            let prog = resolve_program_portable("inexistente", &path_dirs, &pathext, &fs);
+            assert_eq!(prog, None);
+        }
+
+        #[test]
+        fn resolve_program_pathext_maiusculo_arquivo_minusculo() {
+            // Trava a falha de case-sensitivity do Windows ao cruzar PATHEXT em maiúsculas com arquivos em minúsculas.
+            let fs = fs(&[r"C:\Bin\baz.exe"]);
+            let path_dirs = vec![r"C:\Bin".to_string()];
+            let pathext = vec![".EXE".to_string()];
+            let prog = resolve_program_portable("baz", &path_dirs, &pathext, &fs);
+            assert_eq!(
+                prog,
+                Some(ResolvedProgram::Exe(r"C:\Bin\baz.EXE".to_string()))
+            );
+        }
+
+        #[test]
+        fn resolve_program_path_vazio_pulado() {
+            // Trava a falha de montar um caminho inválido começando com \ quando uma entrada do PATH está vazia.
+            let fs = fs(&[r"\foo.exe", r"C:\Bin\foo.exe"]);
+            let path_dirs = vec![String::new(), r"C:\Bin".to_string()];
+            let pathext = vec![".EXE".to_string()];
+            let prog = resolve_program_portable("foo", &path_dirs, &pathext, &fs);
+            assert_eq!(
+                prog,
+                Some(ResolvedProgram::Exe(r"C:\Bin\foo.EXE".to_string()))
+            );
+        }
+
+        #[test]
+        fn wrapper_script_inicio_e_fim() {
+            // Trava a falha de gerar um wrapper sem o cabeçalho @echo off ou sem a quebra de linha final.
+            let script = build_cmd_wrapper_script_portable("cmd", &[]);
+            assert!(script.starts_with("@echo off\r\n"));
+            assert!(script.ends_with("\r\n"));
+        }
+
+        #[test]
+        fn wrapper_script_tokens_simples_sem_escape() {
+            // Trava a falha de escapar desnecessariamente aspas em tokens simples no wrapper.
+            let script = build_cmd_wrapper_script_portable("claude", &["--model".to_string()]);
+            assert!(!script.contains(r#"\""#));
+        }
+
+        #[test]
+        fn wrapper_script_escapa_porcentagem() {
+            // Trava a falha de não duplicar o caractere % no wrapper, o que faria o cmd interpretar variáveis vazias.
+            let script = build_cmd_wrapper_script_portable("cmd", &["%USERPROFILE%".to_string()]);
+            assert!(script.contains("%%USERPROFILE%%"));
+        }
+
+        #[test]
+        fn wrapper_script_caminho_com_e_comercial() {
+            // Trava a falha de não quotingar caminhos com &, quebraria a execução do cmd ao encontrar o operador.
+            let script = build_cmd_wrapper_script_portable(r"C:\Projetos\A&B\app", &[]);
+            assert!(script.contains(r#""C:\Projetos\A&B\app""#));
+        }
+
+        #[test]
+        fn wrapper_script_quebra_de_linha_em_token_nao_parte_o_arquivo() {
+            // Trava a falha real em que um \n dentro de um argumento fazia o .cmd
+            // terminar a linha ali e executar apenas metade do comando do agente.
+            let script = build_cmd_wrapper_script_portable(
+                "claude",
+                &["-p".to_string(), "linha1\nlinha2".to_string()],
+            );
+
+            assert_eq!(
+                script.lines().count(),
+                2,
+                "o wrapper deve ter apenas @echo off e uma única linha de comando; script={script:?}"
+            );
+            assert!(
+                script.contains("linha1 linha2"),
+                "a quebra de linha do token deve ser convertida em espaço; script={script:?}"
+            );
+        }
+
+        #[test]
+        fn wrapper_script_prompt_com_aspas_e_newline() {
+            // Trava a falha de não escapar aspas internas no prompt, gerando uma cmdline inválida para o cmd.
+            let prompt = "Hello \"world\"\nNext line";
+            let script = build_cmd_wrapper_script_portable(
+                "claude",
+                &["-p".to_string(), prompt.to_string()],
+            );
+            let line = script.lines().nth(1).unwrap();
+            assert!(line.contains(r#"\"world\""#));
+            assert!(!line.starts_with(r#""\""#));
+            assert!(line.contains(r#""claude""#));
+        }
     }
 
     // ---- SSH execution host: build_command monta o ssh-wrap (portável) ----
@@ -1429,6 +1698,8 @@ mod tests {
         let argv = argv_of(&super::build_program(
             "sh",
             &["-c".into(), "echo hi".into()],
+            None,
+            "t",
         ));
         assert_eq!(argv[0], "sh", "binário direto: {argv:?}");
         assert_eq!(argv[1], "-c");
@@ -1443,6 +1714,8 @@ mod tests {
         let argv = argv_of(&super::build_program(
             "__omniswitch_no_such_wrapper__",
             &["a b".into()],
+            None,
+            "t",
         ));
         let shell = super::user_login_shell();
         assert_eq!(argv[0], shell, "argv: {argv:?}");
@@ -1594,7 +1867,7 @@ mod tests {
         }
 
         /// Regressão do cliente Windows: prompt CURTO (abaixo do teto de tamanho) mas com
-        /// quebra de linha tem que virar arquivo — um `\n` cru na tail do `cmd /s /c`
+        /// quebra de linha tem que virar arquivo — um `\n` cru na linha do `.cmd` wrapper
         /// encerra o comando e o agente (claude/codex de dev) sobe sem prompt e cai.
         /// Antes do fix este caso passava inline e quebrava só no Windows.
         #[test]
