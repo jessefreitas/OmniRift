@@ -139,7 +139,20 @@ jobs:
       # Sem `npm ci`/sidecars: o build-script exige os binarios de sidecar e aqui
       # o alvo e a LOGICA (lib), nao o bundle. `--lib` evita compilar o binario
       # Tauri e mantem o job em minutos.
+      #
+      # O RUSTFLAGS existe por um bug do Tauri, nao por escolha nossa: o tauri-build
+      # embute o manifest do Windows APENAS no binario principal, entao o executavel
+      # de teste sobe sem a dependencia do Common Controls e morre antes do primeiro
+      # teste com STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139).
+      # Ref: https://github.com/tauri-apps/tauri/issues/13419
+      # Fica no JOB e nao no .cargo/config.toml de proposito: assim nao ha risco de
+      # alterar o link do binario de release, que ja embute o manifest sozinho.
       - name: Testes Rust (lib) no Windows
+        env:
+          RUSTFLAGS: >-
+            -C link-args=/MANIFESTDEPENDENCY:"type='win32'
+            name='Microsoft.Windows.Common-Controls' version='6.0.0.0'
+            processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
         run: cargo test --lib --manifest-path apps/desktop/src-tauri/Cargo.toml
 
       # Formatacao tambem no Windows: o gate de qualidade roda so no Linux e a
