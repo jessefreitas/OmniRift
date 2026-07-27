@@ -62,7 +62,7 @@ import {
 import { nanoid } from "nanoid";
 
 import { useCanvasStore } from "@/store/canvas-store";
-import { currentShell, currentShellRunThenStay } from "@/lib/shell";
+import { currentInstallLine, currentShell, currentShellRunThenStay } from "@/lib/shell";
 import { saveWorkspace, loadWorkspaceFromDisk } from "@/lib/workspace-client";
 import { folderCanvasSave, folderCanvasLoad } from "@/lib/folder-canvas-client";
 import { snapshotCreate } from "@/lib/snapshot-client";
@@ -1892,12 +1892,17 @@ export function Sidebar() {
     } catch {
       /* checagem falhou → segue pro install (comportamento antigo, sem regressão) */
     }
+    // Shell do SO + linha na sintaxe dele: `bash -lc` com `rc=$?` não existe no Windows,
+    // e instalar CLI pelo app simplesmente não funcionava lá.
+    const instalar = currentShellRunThenStay(
+      currentInstallLine(
+        preset.installCmd,
+        tr("sidebar.installDoneEcho2", "instalação concluída — feche este terminal"),
+      ),
+    );
     addTerminal({
-      command: "bash",
-      args: [
-        "-lc",
-        `${preset.installCmd}; rc=$?; echo; echo "--- ${tr("sidebar.installDoneEcho", "instalação concluída (código $rc) — feche este terminal")} ---"`,
-      ],
+      command: instalar.command,
+      args: instalar.args,
       role: "shell",
       label: `${tr("common.install", "Instalar").toLowerCase()} ${tr("preset." + preset.id, preset.label)}`,
     });

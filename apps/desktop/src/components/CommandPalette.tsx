@@ -13,6 +13,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import { useExperienceMode, useReducedUi } from "@/lib/experience-mode";
+import { currentShell } from "@/lib/shell";
 import { isCommandVisible } from "@/lib/experience-mode-core";
 
 interface Cmd {
@@ -57,7 +58,7 @@ export function CommandPalette() {
     const s = useCanvasStore.getState();
     const act = (fn: () => void): (() => void) => () => { fn(); setOpen(false); };
     const create: Cmd[] = [
-      { id: "t", label: t("palette.newTerminal", "Novo Terminal (shell)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addTerminal({ command: "bash", role: "shell", label: "shell" })) },
+      { id: "t", label: t("palette.newTerminal", "Novo Terminal (shell)"), category: t("palette.catCreate", "Criar"), run: act(() => { const sh = currentShell(); s.addTerminal({ command: sh.command, args: sh.args, role: "shell", label: "shell" }); }) },
       { id: "note", label: t("palette.newNote", "Nova Nota"), category: t("palette.catCreate", "Criar"), run: act(() => s.addNote()) },
       { id: "group", label: t("palette.newGroup", "Novo Grupo (frame)"), category: t("palette.catCreate", "Criar"), run: act(() => s.addGroup()) },
       { id: "ft", label: t("palette.fileTree", "Árvore de arquivos"), category: t("palette.catCreate", "Criar"), disabled: !s.currentCwd, run: act(() => { if (s.currentCwd) s.addFileTree({ rootPath: s.currentCwd }); }) },

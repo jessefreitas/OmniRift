@@ -5,7 +5,7 @@ import { writeFileSync, rmSync } from "node:fs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
-const suites = ["experience-mode-core.test.ts", "welcome-state.test.ts"];
+const suites = ["experience-mode-core.test.ts", "welcome-state.test.ts", "shell.test.ts", "shell-wiring.test.ts"];
 
 // Um bundle POR suíte, importado em série: concatenar os dois num arquivo só colide os
 // identificadores que o esbuild gera (`assert` já declarado) e o Node recusa o módulo.

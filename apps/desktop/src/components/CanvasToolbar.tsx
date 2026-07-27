@@ -12,6 +12,7 @@ import { Tooltip } from "@/components/Tooltip";
 import { WorkflowTemplatesMenu } from "@/components/WorkflowTemplatesMenu";
 import { useT } from "@/lib/i18n";
 import { useExperienceMode, useReducedUi } from "@/lib/experience-mode";
+import { currentShell } from "@/lib/shell";
 
 function ToolBtn({
   label,
@@ -78,7 +79,7 @@ export function CanvasToolbar() {
         <ToolBtn
           label={t("toolbar.terminal", "Terminal (shell)")}
           icon={TerminalSquare}
-          onClick={() => addTerminal({ command: "bash", role: "shell", label: "shell" })}
+          onClick={() => { const sh = currentShell(); addTerminal({ command: sh.command, args: sh.args, role: "shell", label: "shell" }); }}
         />
         <ToolBtn
           label={t("toolbar.agent", "Agente (ACP — estruturado)")}
@@ -101,7 +102,7 @@ export function CanvasToolbar() {
       <ToolBtn
         label={t("toolbar.terminal", "Terminal (shell)")}
         icon={TerminalSquare}
-        onClick={() => addTerminal({ command: "bash", role: "shell", label: "shell" })}
+        onClick={() => { const sh = currentShell(); addTerminal({ command: sh.command, args: sh.args, role: "shell", label: "shell" }); }}
       />
       <ToolBtn
         label={t("toolbar.agent", "Agente (ACP — estruturado)")}

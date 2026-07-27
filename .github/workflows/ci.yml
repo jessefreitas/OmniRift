@@ -110,3 +110,39 @@ jobs:
       # Vem por último: não pode mascarar uma falha de build ou de smoke.
       - name: Gate de qualidade (não piorar)
         run: bash scripts/quality-baseline.sh
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Windows: o buraco que deixou a v0.1.141 e a v0.1.146 shiparem quebradas.
+  #
+  # Até aqui NENHUM job compilava o alvo Windows. Todo o código `#[cfg(windows)]`
+  # — resolução de PATHEXT, wrapper .cmd, quoting do cmd.exe — nunca era sequer
+  # COMPILADO no CI, quanto mais testado: os testes viviam sob `#[cfg(windows)]`
+  # e o runner era ubuntu. Foi assim que um `build_command` chamado com 2 de 3
+  # argumentos ficou meses no repo sem ninguém notar, e que o agente Windows
+  # morreu no spawn por 5 versões seguidas.
+  #
+  # Este job roda a suíte no Windows de verdade. É onde o teste de integração do
+  # PTY (spawn de um `.cmd` real) prova o fix no ambiente que importa.
+  windows:
+    name: Testes no Windows
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      # Sem `npm ci`/sidecars: o build-script exige os binarios de sidecar e aqui
+      # o alvo e a LOGICA (lib), nao o bundle. `--lib` evita compilar o binario
+      # Tauri e mantem o job em minutos.
+      - name: Testes Rust (lib) no Windows
+        run: cargo test --lib --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      # Formatacao tambem no Windows: o gate de qualidade roda so no Linux e a
+      # divergencia de contagem entre os dois ambientes ja custou um PR travado.
+      - name: Formatacao
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all --check

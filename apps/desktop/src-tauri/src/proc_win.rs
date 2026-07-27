@@ -346,3 +346,123 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[cfg(windows)]
+mod integracao_windows {
+    use super::*;
+
+    // Guarda e restaura o PATH do processo para não sujar o ambiente de testes paralelos
+    struct PathGuard {
+        original: Option<String>,
+    }
+
+    impl PathGuard {
+        fn new(extra_path: &str) -> Self {
+            let original = std::env::var("PATH").ok();
+            let mut new_path = String::from(extra_path);
+            if let Some(ref orig) = original {
+                new_path.push(';');
+                new_path.push_str(orig);
+            }
+            std::env::set_var("PATH", &new_path);
+            PathGuard { original }
+        }
+    }
+
+    impl Drop for PathGuard {
+        fn drop(&mut self) {
+            if let Some(orig) = self.original.take() {
+                std::env::set_var("PATH", orig);
+            } else {
+                std::env::remove_var("PATH");
+            }
+        }
+    }
+
+    // Trava a falha real: o agente morre no spawn porque o cmd.exe recebe o nome quotado como um só argumento e não resolve o PATHEXT
+    #[test]
+    fn wrap_for_windows_resolve_e_executa_cmd_de_verdade() {
+        let pid = std::process::id();
+        let probe_name = format!("omnirift_probe_{}", pid);
+        let dir = std::env::temp_dir().join(format!("omnirift_test_{}", pid));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let cmd_path = dir.join(format!("{}.cmd", probe_name));
+        let content = "@echo off\r\necho PROBE_OK %1\r\n";
+        std::fs::write(&cmd_path, content).unwrap();
+
+        let _guard = PathGuard::new(dir.to_str().unwrap());
+
+        let args = vec!["arg com espaço".to_string()];
+        let (program, argv) = wrap_for_windows(&probe_name, &args);
+
+        assert!(
+            program.ends_with(".cmd"),
+            "O programa deve ser resolvido para .cmd pelo PATHEXT. Se falhar, o bug do spawn voltou."
+        );
+
+        for arg in &argv {
+            assert!(
+                !arg.contains("\\\""),
+                "Nenhum argumento deve conter aspas escapadas. Se falhar, o bug do spawn voltou."
+            );
+        }
+
+        let output = std::process::Command::new(&program)
+            .args(&argv)
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "A execução do .cmd falhou. Se falhar, o bug do spawn voltou."
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("PROBE_OK"),
+            "O stdout não contém PROBE_OK. Se falhar, o bug do spawn voltou."
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Trava a falha real: o argumento com aspas e espaço era corrompido para \"oi\" ou quebrado em pedaços no caminho de spawn do Windows
+    #[test]
+    fn argumento_com_aspas_chega_intato_ao_programa() {
+        let pid = std::process::id();
+        let probe_name = format!("omnirift_probe_{}", pid);
+        let dir = std::env::temp_dir().join(format!("omnirift_test_arg_{}", pid));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let cmd_path = dir.join(format!("{}.cmd", probe_name));
+        // O cmd usa %~1 que remove as aspas externas recebidas pelo programa, revelando o conteúdo puro
+        let content = "@echo off\r\necho ARG=[%~1]\r\n";
+        std::fs::write(&cmd_path, content).unwrap();
+
+        let _guard = PathGuard::new(dir.to_str().unwrap());
+
+        // Argumento com aspas e espaço, exatamente o dado que se corrompia
+        let args = vec![r#"diz "oi" agora"#.to_string()];
+        let (program, argv) = wrap_for_windows(&probe_name, &args);
+
+        let output = std::process::Command::new(&program)
+            .args(&argv)
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "A execução do .cmd falhou. Se falhar, o bug do spawn voltou."
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("oi"),
+            "O argumento com aspas não chegou intacto ao programa. Se falhar, o bug do spawn voltou."
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
