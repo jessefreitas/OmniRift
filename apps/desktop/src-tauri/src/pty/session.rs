@@ -875,7 +875,7 @@ fn fail_safe_program(err: &str) -> (String, Vec<String>) {
 /// binário contra ESTE PATH e não contra o do processo do app — o `claude` costuma
 /// morar no tools/bin, e resolver contra o PATH errado devolveria "não encontrado"
 /// pra um binário que existe.
-fn effective_path_parts() -> Vec<String> {
+pub(crate) fn effective_path_parts() -> Vec<String> {
     let mut parts = Vec::new();
 
     if let Some(tools_bin) = crate::commands::clis::tools_bin() {
@@ -1022,123 +1022,6 @@ fn win_cmd_quote_portable(arg: &str) -> String {
     out
 }
 
-/// Como o programa foi resolvido no Windows — decide se dá pra spawnar direto ou se
-/// o `cmd.exe` precisa entrar no meio.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) enum ResolvedProgram {
-    /// Imagem PE (`.exe`/`.com`) — o `CreateProcessW` executa direto, sem cmd.exe.
-    Exe(String),
-    /// Script (`.cmd`/`.bat`, o shim que o npm instala pro claude/codex/gemini) —
-    /// só o cmd.exe sabe rodar.
-    Script(String),
-}
-
-/// Resolve `command` pelo PATH + PATHEXT, do jeito que o próprio Windows resolveria.
-///
-/// Existe porque o `CreateProcessW` (usado pelo portable-pty) NÃO aplica PATHEXT: ele
-/// só carrega imagens PE. Resolvendo aqui, o caso comum (`claude.exe`, `bash.exe`)
-/// spawna DIRETO — sem cmd.exe no meio, e portanto sem nenhum problema de quoting de
-/// cmd. Só o shim `.cmd` precisa do wrapper.
-///
-/// PURA (o `exists` é injetado) justamente pra rodar no Linux do CI — o `build_program`
-/// do Windows nunca foi coberto por teste, e foi assim que a v0.1.141 shipou quebrada.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn resolve_program_portable(
-    command: &str,
-    path_dirs: &[String],
-    pathext: &[String],
-    exists: &dyn Fn(&str) -> bool,
-) -> Option<ResolvedProgram> {
-    // `.exe`/`.com` são PE (spawn direto); o resto do PATHEXT (`.cmd`, `.bat`, …) é
-    // script e obriga o cmd.exe. Case-insensitive porque o PATHEXT vem em MAIÚSCULAS
-    // e o arquivo no disco costuma estar em minúsculas.
-    let classify = |p: &str| {
-        let lower = p.to_lowercase();
-        if lower.ends_with(".exe") || lower.ends_with(".com") {
-            ResolvedProgram::Exe(p.to_string())
-        } else {
-            ResolvedProgram::Script(p.to_string())
-        }
-    };
-
-    let command_lower = command.to_lowercase();
-    let ja_tem_ext = pathext
-        .iter()
-        .any(|ext| command_lower.ends_with(&ext.to_lowercase()));
-
-    // Path explícito (o usuário apontou o binário): não varre o PATH, só resolve a
-    // extensão. Um arquivo SEM extensão do PATHEXT devolve None de propósito — o
-    // Windows não executa script extensionless nem direto nem via cmd, e fingir que
-    // resolveu só empurraria a falha pro spawn.
-    if command.contains('\\') || command.contains('/') {
-        if ja_tem_ext && exists(command) {
-            return Some(classify(command));
-        }
-        for ext in pathext {
-            let candidato = format!("{command}{ext}");
-            if exists(&candidato) {
-                return Some(classify(&candidato));
-            }
-        }
-        return None;
-    }
-
-    // Ordem que o Windows usa: diretório por fora, extensão por dentro — o 1º dir do
-    // PATH vence mesmo que um dir posterior tenha uma extensão "melhor".
-    for dir in path_dirs {
-        if dir.is_empty() {
-            continue;
-        }
-        let dir = dir.trim_end_matches(['\\', '/']);
-        if ja_tem_ext {
-            let candidato = format!("{dir}\\{command}");
-            if exists(&candidato) {
-                return Some(classify(&candidato));
-            }
-        }
-        for ext in pathext {
-            let candidato = format!("{dir}\\{command}{ext}");
-            if exists(&candidato) {
-                return Some(classify(&candidato));
-            }
-        }
-    }
-    None
-}
-
-/// Resolução real (com I/O). Usa o MESMO PATH que o filho vai herdar — não o do
-/// processo do app: o `claude` costuma morar no `~/.omnirift/tools/bin` que o
-/// `build_command` prepende, e resolver contra o PATH errado devolveria None pra um
-/// binário que existe.
-#[cfg(windows)]
-fn resolve_windows_program(command: &str) -> Option<ResolvedProgram> {
-    let dirs: Vec<String> = effective_path_parts()
-        .iter()
-        .flat_map(|p| p.split(PATH_SEP))
-        .map(|s| s.trim().to_string())
-        .collect();
-
-    let pathext_env =
-        std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
-    let pathext: Vec<String> = pathext_env
-        .split(PATH_SEP)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| {
-            if s.starts_with('.') {
-                s.to_string()
-            } else {
-                format!(".{s}")
-            }
-        })
-        .collect();
-
-    resolve_program_portable(command, &dirs, &pathext, &|p: &str| {
-        std::path::Path::new(p).is_file()
-    })
-}
-
 /// Conteúdo do `.cmd` wrapper: a linha do agente com aspas NORMAIS.
 ///
 /// É a única forma de entregar aspas ao cmd.exe. Tentar passar a linha como um
@@ -1198,11 +1081,11 @@ fn build_program(
         cmd
     }
 
-    match resolve_windows_program(command) {
+    match crate::proc_win::resolve_windows_program(command) {
         // Caso comum e melhor: sem cmd.exe no meio. Aqui o quoting argv do portable-pty
         // é o CORRETO — quem re-parseia a linha é o próprio CRT do programa alvo.
-        Some(ResolvedProgram::Exe(p)) => direto(&p, args),
-        Some(ResolvedProgram::Script(p)) => {
+        Some(crate::proc_win::ResolvedProgram::Exe(p)) => direto(&p, args),
+        Some(crate::proc_win::ResolvedProgram::Script(p)) => {
             build_program_via_wrapper(&p, args, wrapper_dir, session_id)
         }
         None => {
@@ -1343,9 +1226,8 @@ mod tests {
     }
 
     mod tests_windows_launch {
-        use crate::pty::session::{
-            build_cmd_wrapper_script_portable, resolve_program_portable, ResolvedProgram,
-        };
+        use crate::proc_win::{resolve_program_portable, ResolvedProgram};
+        use crate::pty::session::build_cmd_wrapper_script_portable;
 
         fn fs<'a>(existentes: &'a [&'a str]) -> impl Fn(&str) -> bool + 'a {
             move |path| existentes.iter().any(|e| e.eq_ignore_ascii_case(path))
