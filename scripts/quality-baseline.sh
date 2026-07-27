@@ -159,8 +159,13 @@ if [[ "$PIOROU" -ne 0 ]]; then
     arquivo="$DETAIL_DIR/$metrica.txt"
     [[ -s "$arquivo" ]] || continue
     echo
-    echo "--- $metrica: $(wc -l < "$arquivo" | tr -d ' ') achado(s), primeiros 40 ---"
-    head -40 "$arquivo"
+    echo "--- $metrica: $(wc -l < "$arquivo" | tr -d ' ') achado(s), por arquivo ---"
+    # Agregado por arquivo e em caminho RELATIVO: o absoluto difere entre o runner
+    # (/home/runner/work/...) e a máquina do dev, e era isso que impedia comparar a
+    # lista do CI com a local pra achar a divergência.
+    sed "s#$ROOT/##g; s#/home/runner/work/OmniRift/OmniRift/##g" "$arquivo" \
+      | sed 's/^Diff in //; s/:[0-9]*:$//; s/:[0-9]*: .*$//' \
+      | sort | uniq -c | sort -rn | head -60
   done
   exit 1
 fi
