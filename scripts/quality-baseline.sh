@@ -15,6 +15,11 @@ set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BASELINE_FILE="$ROOT/scripts/quality-baseline.txt"
+# Onde as listas de achados ficam. O gate dizia so "+5" e o numero do CI nao batia com o
+# da maquina do dev — sem a LISTA, ninguem consegue corrigir o que o CI viu.
+DETAIL_DIR="${TMPDIR:-/tmp}/omnirift-quality-$$"
+mkdir -p "$DETAIL_DIR"
+trap 'rm -rf "$DETAIL_DIR"' EXIT
 
 MODE="${1:-check}"
 
@@ -64,8 +69,16 @@ function count_clippy() {
   # metrica nenhuma, porque da confianca falsa (foi assim que o gitleaks passou semanas
   # "aprovando" sem escanear).
   touch "$ROOT/apps/desktop/src-tauri/src/lib.rs" 2>/dev/null || true
-  output=$(cd "$ROOT/apps/desktop/src-tauri" && cargo clippy --lib --no-deps --message-format short 2>&1) || true
-  echo "$output" | grep -E ': (warning|error):' | wc -l | tr -d ' '
+  local rc=0
+  output=$(cd "$ROOT/apps/desktop/src-tauri" && cargo clippy --lib --no-deps --message-format short 2>&1) || rc=$?
+  echo "$output" | grep -E ': (warning|error):' > "$DETAIL_DIR/clippy.txt" || true
+  # Medicao que falha e vira "0" da confianca falsa — o proprio motivo do touch acima.
+  # Se o cargo saiu com erro E nao ha nenhum achado, isso e FALHA, nao perfeicao.
+  if [[ $rc -ne 0 && ! -s "$DETAIL_DIR/clippy.txt" ]]; then
+    echo "FALHOU"
+    return
+  fi
+  wc -l < "$DETAIL_DIR/clippy.txt" | tr -d ' '
 }
 
 function count_fmt() {
@@ -75,7 +88,8 @@ function count_fmt() {
   fi
   local output
   output=$(cd "$ROOT/apps/desktop/src-tauri" && cargo fmt --check 2>&1) || true
-  echo "$output" | grep -c '^Diff in '
+  echo "$output" | grep '^Diff in ' > "$DETAIL_DIR/fmt.txt" || true
+  wc -l < "$DETAIL_DIR/fmt.txt" | tr -d ' '
 }
 
 if [[ "$MODE" == "--update" ]]; then
@@ -115,6 +129,14 @@ function linha() {
     return
   fi
 
+  # Medicao quebrada nao pode passar por "0 achados": e o mesmo engano do gitleaks que
+  # "aprovou" por semanas sem escanear.
+  if [[ "$atual" == "FALHOU" ]]; then
+    printf "%-10s %10s %10s %s\n" "$nome" "$base" "-" "MEDICAO FALHOU (a ferramenta nao rodou — nao e zero achado)"
+    PIOROU=1
+    return
+  fi
+
   if [[ "$atual" -eq "$base" ]]; then
     printf "%-10s %10d %10d %s\n" "$nome" "$base" "$atual" "OK"
   elif [[ "$atual" -lt "$base" ]]; then
@@ -131,6 +153,15 @@ linha "clippy" "${BASELINE[clippy]}" "$CLIPPY_ATUAL"
 linha "fmt"    "${BASELINE[fmt]}"    "$FMT_ATUAL"
 
 if [[ "$PIOROU" -ne 0 ]]; then
+  # Imprime O QUE piorou. Sem isto o CI reporta um delta que o dev nao reproduz na
+  # propria maquina e o gate vira um muro cego.
+  for metrica in fmt clippy; do
+    arquivo="$DETAIL_DIR/$metrica.txt"
+    [[ -s "$arquivo" ]] || continue
+    echo
+    echo "--- $metrica: $(wc -l < "$arquivo" | tr -d ' ') achado(s), primeiros 40 ---"
+    head -40 "$arquivo"
+  done
   exit 1
 fi
 exit 0
