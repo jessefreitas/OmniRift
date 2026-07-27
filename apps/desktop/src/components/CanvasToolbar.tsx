@@ -11,7 +11,7 @@ import { useCanvasStore } from "@/store/canvas-store";
 import { Tooltip } from "@/components/Tooltip";
 import { WorkflowTemplatesMenu } from "@/components/WorkflowTemplatesMenu";
 import { useT } from "@/lib/i18n";
-import { usePocketMode } from "@/lib/experience-mode";
+import { useExperienceMode, useReducedUi } from "@/lib/experience-mode";
 
 function ToolBtn({
   label,
@@ -39,7 +39,8 @@ function ToolBtn({
 
 export function CanvasToolbar() {
   const t = useT();
-  const pocket = usePocketMode();
+  const reduced = useReducedUi();
+  const expMode = useExperienceMode();
   const addTerminal = useCanvasStore((s) => s.addTerminal);
   const addNote = useCanvasStore((s) => s.addNote);
   const addGroup = useCanvasStore((s) => s.addGroup);
@@ -63,15 +64,17 @@ export function CanvasToolbar() {
     if (typeof sel === "string") addCodeNode({ filePath: sel });
   }
 
-  if (pocket) {
+  if (reduced) {
     return (
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-0.5 px-1.5 py-1 rounded-xl bg-surface2/90 backdrop-blur border border-brand/30 shadow-lg">
-        <ToolBtn
-          label={t("pocket.setup", "Montar equipe de agentes")}
-          icon={Network}
-          onClick={() => window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "pipeline" }))}
-        />
-        <span className="mx-0.5 h-4 w-px bg-border" />
+        {expMode === "pocket" && <>
+          <ToolBtn
+            label={t("pocket.setup", "Montar equipe de agentes")}
+            icon={Network}
+            onClick={() => window.dispatchEvent(new CustomEvent("omnirift:open-tool", { detail: "pipeline" }))}
+          />
+          <span className="mx-0.5 h-4 w-px bg-border" />
+        </>}
         <ToolBtn
           label={t("toolbar.terminal", "Terminal (shell)")}
           icon={TerminalSquare}

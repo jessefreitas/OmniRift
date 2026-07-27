@@ -3,6 +3,7 @@ import { create } from "zustand";
 import {
   EXPERIENCE_MODE_STORAGE_KEY,
   initializeExperienceMode,
+  isReducedMode,
   resolveExperienceMode,
   type ExperienceMode,
 } from "@/lib/experience-mode-core";
@@ -32,6 +33,14 @@ export const useExperienceModeStore = create<ExperienceModeState>((set) => ({
   },
 }));
 
-export function usePocketMode(): boolean {
-  return useExperienceModeStore((state) => state.mode === "pocket");
+export function useExperienceMode(): ExperienceMode {
+  return useExperienceModeStore((state) => state.mode);
+}
+
+/// A UI esconde as mesmas áreas no "pocket" e no "light" — o que muda entre os dois é
+/// só QUAIS ferramentas/comandos sobram (ver `toolIdsFor`/`isCommandVisible`). Por isso
+/// os componentes perguntam "estou reduzido?" e não "sou pocket?": quando entrou o
+/// light, nenhum dos ~30 pontos de gating precisou saber que existe um modo novo.
+export function useReducedUi(): boolean {
+  return useExperienceModeStore((state) => isReducedMode(state.mode));
 }

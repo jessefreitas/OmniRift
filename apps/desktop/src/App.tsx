@@ -24,7 +24,9 @@ import { mcpServersImportGlobal } from "@/lib/mcp-servers-client";
 import { notify } from "@/lib/notify";
 import { useT } from "@/lib/i18n";
 import { useOrchestrationWatchdog } from "@/hooks/useOrchestrationWatchdog";
-import { usePocketMode } from "@/lib/experience-mode";
+import { useReducedUi } from "@/lib/experience-mode";
+import { WelcomeSlides } from "@/components/WelcomeSlides";
+import { WELCOME_SEEN_KEY, shouldShowWelcome } from "@/lib/welcome-state";
 
 export default function App() {
   // Watchdog da orquestração: cobra o líder quando o time trava esperando as
@@ -32,14 +34,22 @@ export default function App() {
   useOrchestrationWatchdog();
 
   const tr = useT();
-  const pocket = usePocketMode();
+  const reduced = useReducedUi();
 
   // Intro FRIDAY (flag boot-intro): cobre a tela na abertura até o usuário entrar.
   // introDone sobe no onDone → some pra sempre nesta sessão (não re-monta em re-render).
-  const bootIntroOn = useFlag("boot-intro") && !pocket;
+  const bootIntroOn = useFlag("boot-intro") && !reduced;
   const [introDone, setIntroDone] = useState(false);
   // Alterna a cada boot: numa vez a armadura JARVIS, na outra o HUD procedural.
   const [useArmor] = useState(() => Math.random() < 0.5);
+
+  // Boas-vindas: SÓ na primeira abertura de uma instalação nova. Lido uma vez no mount
+  // (não a cada render) pra a tela não voltar quando o usuário troca de modo depois.
+  const [welcomeOpen, setWelcomeOpen] = useState(() => shouldShowWelcome(window.localStorage));
+  const closeWelcome = () => {
+    try { window.localStorage.setItem(WELCOME_SEEN_KEY, "1"); } catch { /* storage off: reaparece no próximo boot, não quebra */ }
+    setWelcomeOpen(false);
+  };
 
   // Libera scans adiados (usage_scan etc.) só depois do intro — ou já no mount se off.
   useEffect(() => {
@@ -217,7 +227,7 @@ export default function App() {
               <Canvas />
             </div>
           </main>
-          {!pocket && (
+          {!reduced && (
             <>
               <ResourceChip />
               <FluencyChip />
@@ -226,6 +236,7 @@ export default function App() {
           )}
         </>
       )}
+      {uiReady && welcomeOpen && <WelcomeSlides onDone={closeWelcome} />}
       {bootIntroOn && !introDone && (useArmor
         ? <BootIntroArmor onDone={() => setIntroDone(true)} />
         : <BootIntro onDone={() => setIntroDone(true)} />)}

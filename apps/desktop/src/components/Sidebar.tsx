@@ -176,8 +176,8 @@ import { useT } from "@/lib/i18n";
 import { notify, confirmDialog } from "@/lib/notify";
 import { useReorderable } from "@/hooks/useReorderable";
 import type { AgentRole } from "@/types/pty";
-import { usePocketMode } from "@/lib/experience-mode";
-import { POCKET_AGENT_PRESET_IDS, POCKET_TOOL_IDS } from "@/lib/experience-mode-core";
+import { useExperienceMode, useExperienceModeStore, useReducedUi } from "@/lib/experience-mode";
+import { agentPresetIdsFor, toolIdsFor } from "@/lib/experience-mode-core";
 
 // Ferramentas da sidebar (ids = os mesmos do handler "omnirift:open-tool" + Command
 // palette). Ordem reordenável por drag-and-drop; ações no map runTool() abaixo.
@@ -433,7 +433,8 @@ export function Sidebar() {
   const addTerminal = useCanvasStore((s) => s.addTerminal);
   const addAgent = useCanvasStore((s) => s.addAgent);
   const tr = useT();
-  const pocket = usePocketMode();
+  const reduced = useReducedUi();
+  const expMode = useExperienceMode();
   const addPreviewNode = useCanvasStore((s) => s.addPreviewNode);
   const currentCwd = useCanvasStore((s) => s.currentCwd);
   const setCurrentCwd = useCanvasStore((s) => s.setCurrentCwd);
@@ -595,7 +596,7 @@ export function Sidebar() {
   // quando o painel de uso abre/fecha (pode ter rodado review/companion no meio).
   const [todayCost, setTodayCost] = useState<number | null>(null);
   useEffect(() => {
-    if (pocket) return;
+    if (reduced) return;
     let live = true;
     let idleId: number | undefined;
     let cancelled = false;
@@ -620,14 +621,14 @@ export function Sidebar() {
         else clearTimeout(idleId);
       }
     };
-  }, [pocket, showUsage]);
+  }, [reduced, showUsage]);
 
   // Chip OmniFS do rodapé — poll BARATO (omnifs_status a cada 30s), estado local
   // (sem zustand). Dep [showOmniFs]: fechar o modal re-consulta na hora (provisão/
   // religada de daemon mudam o estado sem esperar o próximo tick).
   const [omnifsChip, setOmnifsChip] = useState<OmniFsStatus | null>(null);
   useEffect(() => {
-    if (pocket) return;
+    if (reduced) return;
     let live = true;
     const poll = () =>
       omnifsStatus()
@@ -636,7 +637,7 @@ export function Sidebar() {
     poll();
     const id = window.setInterval(poll, 30_000);
     return () => { live = false; clearInterval(id); };
-  }, [pocket, showOmniFs]);
+  }, [reduced, showOmniFs]);
 
   // Ferramentas reordenáveis por drag-and-drop (ordem persistida).
   // v2: nova ordem-base alfabética (reset do drag antigo do usuário).
@@ -644,9 +645,9 @@ export function Sidebar() {
   // Seções da sidebar reordenáveis (CSS order + popover). v2: Projeto/Workspace no topo.
   const secReorder = useReorderable("omnirift-sections-order-v2", SECTION_IDS);
   const secStyle = (id: string) => {
-    if (!pocket) return { order: secReorder.order.indexOf(id) };
-    const pocketOrder = ["project", "agents", "floors", "tools"];
-    return { order: pocketOrder.indexOf(id) };
+    if (!reduced) return { order: secReorder.order.indexOf(id) };
+    const reducedOrder = ["project", "agents", "floors", "tools"];
+    return { order: reducedOrder.indexOf(id) };
   };
   const runTool: Record<string, () => void> = {
     companion: () => setShowCompanion(true),
@@ -1239,8 +1240,9 @@ export function Sidebar() {
     }));
     return [...PRESETS, ...extras, ...custom];
   })();
-  const visibleAgentList = pocket
-    ? agentList.filter((preset) => POCKET_AGENT_PRESET_IDS.has(preset.id))
+  const presetIds = agentPresetIdsFor(expMode);
+  const visibleAgentList = presetIds
+    ? agentList.filter((preset) => presetIds.has(preset.id))
     : agentList;
 
   function saveNewCli() {
@@ -1988,7 +1990,7 @@ export function Sidebar() {
         "relative flex flex-col shrink-0 border-r border-border bg-surface1",
         "text-text",
       )}
-      style={{ width: pocket ? Math.min(sidebarWidth, 280) : sidebarWidth }}
+      style={{ width: reduced ? Math.min(sidebarWidth, 280) : sidebarWidth }}
     >
       <header className="px-4 py-3 border-b border-border">
         <div className="flex items-start justify-between">
@@ -1996,20 +1998,20 @@ export function Sidebar() {
             <h1 className="text-sm font-medium flex items-center gap-2">
               <span className="inline-block w-2 h-2 rounded-full bg-brand" />
               OmniRift
-              {pocket && (
+              {reduced && (
                 <span className="rounded-full border border-brand/30 bg-brand/10 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-brand">
                   Pocket
                 </span>
               )}
             </h1>
             <p className="text-[11px] text-textMuted mt-0.5">
-              {pocket
+              {reduced
                 ? tr("pocket.tagline", "Seu time de IA, sem complicação")
                 : `${tr("sidebar.tagline", "Canvas infinito")} · OmniForge`}
             </p>
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
-            {!pocket && (
+            {!reduced && (
               <button
                 onClick={() => setShowSectionOrder((v) => !v)}
                 title={tr("sidebar.organizeSections", "Organizar as seções da barra (arraste)")}
@@ -2029,7 +2031,7 @@ export function Sidebar() {
         </div>
       </header>
 
-      {!pocket && showSectionOrder && (
+      {!reduced && showSectionOrder && (
         <div className="px-2 py-2 border-b border-border bg-surface2/40">
           <p className="px-1 text-[10px] uppercase tracking-wider text-textMuted mb-1">{tr("sidebar.organizeSectionsDrag", "Organizar seções · arraste")}</p>
           {secReorder.order.map((sid) => {
@@ -2056,11 +2058,11 @@ export function Sidebar() {
           flutuando sobre a última seção (SPECS). Sidebar não rola no eixo X. */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col min-h-0">
       {/* Floors */}
-      <div className="px-2 py-2.5 border-b border-border" style={secStyle("floors")}>
+      {expMode !== "light" && <div className="px-2 py-2.5 border-b border-border" style={secStyle("floors")}>
         <div className="flex items-center justify-between px-2 mb-1.5">
           <div className="flex items-center gap-1.5">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-textMuted/90">{tr("section.parallels")}</p>
-            {!pocket && (
+            {!reduced && (
               <Tooltip
                 label={`${tr("sidebar.parallelsGitTip", "Paralelos = branches git (worktree): objetos compartilhados (~zero disco), git-native, cross-platform.")}${cow ? ` FS ${cow.fs}${cow.reflink ? ` · ${tr("sidebar.cowInstant", "CoW/instantâneo ⚡")}` : ""}` : ""}`}
                 side="bottom"
@@ -2081,7 +2083,7 @@ export function Sidebar() {
               </Tooltip>
             )}
           </div>
-          {!pocket && <div className="flex items-center gap-0.5">
+          {!reduced && <div className="flex items-center gap-0.5">
             <Tooltip label={tr("sidebar.newParallelBranch", "Novo paralelo como branch git (worktree isolado)")} side="bottom">
               <button
                 onClick={createGitFloor}
@@ -2222,11 +2224,11 @@ export function Sidebar() {
             );
           })}
         </div>
-      </div>
+      </div>}
 
       {/* Ferramentas — acesso visível (antes era um menu ⋯ escondido) */}
       <ToolsSection
-        toolDefs={pocket ? TOOL_DEFS.filter((tool) => POCKET_TOOL_IDS.has(tool.id)) : TOOL_DEFS}
+        toolDefs={(() => { const ids = toolIdsFor(expMode); return ids ? TOOL_DEFS.filter((tool) => ids.has(tool.id)) : TOOL_DEFS; })()}
         cats={TOOL_CATS}
         toolCat={TOOL_CAT}
         tools={tools}
@@ -2236,8 +2238,37 @@ export function Sidebar() {
         secStyle={secStyle}
       />
 
+      {/* Sair do modo simples — o caminho de VOLTA. Sem isto o cliente que abre no
+          light não tem como descobrir que o resto do app existe: some da sidebar, some
+          da paleta e some da toolbar ao mesmo tempo. */}
+      {reduced && (
+        <div className="px-2 py-2.5 border-b border-border">
+          <button
+            onClick={() => {
+              const ok = window.confirm(
+                tr(
+                  "light.seeAllConfirm",
+                  "Isto liga tudo: andares, quadro de tarefas, rotinas, mapa do código, memória e o resto das ferramentas. Dá pra voltar ao modo simples nas Configurações.",
+                ),
+              );
+              if (ok) useExperienceModeStore.getState().setMode("full");
+            }}
+            className="flex w-full items-center gap-2 rounded-lg border border-brand/30 bg-brand/10 px-3 py-2 text-left text-brand transition-colors hover:bg-brand/15"
+          >
+            <Sparkles size={15} className="shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-medium">{tr("light.seeAll", "Ver tudo")}</span>
+              <span className="block truncate text-[10px] text-textMuted">
+                {tr("light.seeAllHint", "Abrir as funcionalidades avançadas")}
+              </span>
+            </span>
+            <ChevronRight size={13} />
+          </button>
+        </div>
+      )}
+
       {/* Workspace */}
-      {!pocket && <div className="px-2 py-2.5 border-b border-border space-y-1" style={secStyle("workspace")}>
+      {!reduced && <div className="px-2 py-2.5 border-b border-border space-y-1" style={secStyle("workspace")}>
         <p className="px-2 text-[11px] font-semibold uppercase tracking-wider text-textMuted/90 mb-1.5">
           {tr("section.workspace")}
         </p>
@@ -2335,9 +2366,9 @@ export function Sidebar() {
             ))}
           </div>
         )}
-        {currentCwd && !pocket && <EditorOpenButton path={currentCwd} />}
+        {currentCwd && !reduced && <EditorOpenButton path={currentCwd} />}
         {/* Sync CLAUDE.md ↔ AGENTS.md (regras de projeto pros agentes) */}
-        {currentCwd && !pocket && docsStatus && (docsStatus.claude || docsStatus.agents) && (
+        {currentCwd && !reduced && docsStatus && (docsStatus.claude || docsStatus.agents) && (
           <div className="px-2 mt-1 flex items-center gap-1.5 text-[9px]">
             <span className={cn(docsStatus.claude ? "text-textMuted" : "text-textMuted opacity-30 line-through")}>
               CLAUDE.md
@@ -2371,8 +2402,8 @@ export function Sidebar() {
         className="px-2 py-3 space-y-1 shrink-0"
       >
         <div className="px-2 mb-1.5 sticky -top-3 z-10 bg-surface1 pt-3 pb-1 flex items-center justify-between">
-          {sectionTitle("agents", pocket ? tr("pocket.quickAgents", "Agentes rápidos") : tr("section.agents"))}
-          {isOpen("agents") && !pocket && (
+          {sectionTitle("agents", reduced ? tr("pocket.quickAgents", "Agentes rápidos") : tr("section.agents"))}
+          {isOpen("agents") && !reduced && (
             <Tooltip label={tr("sidebar.addCustomCli", "Adicionar um CLI personalizado")} side="bottom">
               <button
                 onClick={() => setAddingCli((a) => !a)}
@@ -2384,7 +2415,7 @@ export function Sidebar() {
           )}
         </div>
 
-        {isOpen("agents") && !pocket && addingCli && (
+        {isOpen("agents") && !reduced && addingCli && (
           <div className="mx-2 mb-1 p-2 rounded-md border border-border bg-surface2 space-y-1.5">
             <div className="text-[10px] uppercase tracking-wide text-textMuted px-0.5">{tr("sidebar.customCli", "CLI personalizado")}</div>
             <input
@@ -2426,7 +2457,7 @@ export function Sidebar() {
         {/* Host de execução (ref §3.1): onde o próximo agente roda. Aparece só quando
             há host SSH configurado em ~/.omnirift/hosts.json — local-only não vê nada
             novo. Default "local" = máquina atual (comportamento idêntico). */}
-        {isOpen("agents") && !pocket && sshHosts.length > 0 && (
+        {isOpen("agents") && !reduced && sshHosts.length > 0 && (
           <div className="px-2 py-1.5 flex items-center gap-2">
             <span className="text-[10px] text-textMuted shrink-0">
               {tr("sidebar.executionHost", "Executar em")}
@@ -2445,7 +2476,7 @@ export function Sidebar() {
           </div>
         )}
 
-        {isOpen("agents") && pocket && (
+        {isOpen("agents") && expMode === "pocket" && (
           <button
             onClick={() => setShowPipeline(true)}
             className="mx-2 mb-1.5 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-brand/30 bg-brand/10 px-3 py-2 text-left text-brand transition-colors hover:bg-brand/15"
@@ -2546,7 +2577,7 @@ export function Sidebar() {
       </section>
 
       {/* Roles — personas de agente (--append-system-prompt) */}
-      {!pocket && <RolesSection
+      {!reduced && <RolesSection
         roles={roles}
         currentCwd={currentCwd}
         isOpen={isOpen}
@@ -2562,7 +2593,7 @@ export function Sidebar() {
       />}
 
       {/* MCP Agents */}
-      {!pocket && <McpAgentsSection
+      {!reduced && <McpAgentsSection
         terminals={terminals}
         isOpen={isOpen}
         sectionTitle={sectionTitle}
@@ -2585,7 +2616,7 @@ export function Sidebar() {
       />}
 
       {/* Specs — ciclo de vida + dispatch (Fase C) */}
-      {!pocket && <SpecsSection
+      {!reduced && <SpecsSection
         currentCwd={currentCwd}
         isOpen={isOpen}
         sectionTitle={sectionTitle}
@@ -2602,7 +2633,7 @@ export function Sidebar() {
       </div>
 
       <footer className="px-4 py-3 border-t border-border text-[10px] text-textMuted">
-        {!pocket && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1">
+        {!reduced && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1">
           {todayCost !== null && (
             <button
               onClick={() => setShowUsage(true)}
@@ -2641,7 +2672,7 @@ export function Sidebar() {
           )}
         </div>}
         <div className="opacity-70 mt-0.5">
-          <AppVersion /> · {pocket ? "Pocket" : tr("sidebar.localBuild", "build local")}
+          <AppVersion /> · {expMode === "pocket" ? "Pocket" : expMode === "light" ? tr("light.badge", "Modo simples") : tr("sidebar.localBuild", "build local")}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <UpdaterButton />
@@ -2653,7 +2684,7 @@ export function Sidebar() {
             <span className="mr-2 opacity-40">·</span>
             {tr("sidebar.feedback", "Feedback")}
           </button>
-          {!pocket && (
+          {!reduced && (
             <>
               <span className="opacity-40">·</span>
               <button onClick={() => useLicenseStore.getState().openLicense()} className="text-textMuted hover:text-brand">

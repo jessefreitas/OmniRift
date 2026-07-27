@@ -12,8 +12,8 @@ import { Command } from "lucide-react";
 import { useCanvasStore } from "@/store/canvas-store";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
-import { usePocketMode } from "@/lib/experience-mode";
-import { isPocketCommandId } from "@/lib/experience-mode-core";
+import { useExperienceMode, useReducedUi } from "@/lib/experience-mode";
+import { isCommandVisible } from "@/lib/experience-mode-core";
 
 interface Cmd {
   id: string;
@@ -25,7 +25,8 @@ interface Cmd {
 
 export function CommandPalette() {
   const t = useT();
-  const pocket = usePocketMode();
+  const reduced = useReducedUi();
+  const expMode = useExperienceMode();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
@@ -106,10 +107,10 @@ export function CommandPalette() {
       { id: "open-turbo", label: t("palette.openTurbo", "Abrir: TURBO mode (loop autônomo)"), category: t("palette.catOpen", "Abrir"), disabled: !s.currentCwd, run: openTool("turbo") },
     ];
     const all = [...create, ...floorCmds, ...openCmds];
-    if (!pocket) return all;
+    if (!reduced) return all;
 
-    return all.filter((command) => isPocketCommandId(command.id));
-  }, [pocket, t]);
+    return all.filter((command) => isCommandVisible(expMode, command.id));
+  }, [reduced, expMode, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
