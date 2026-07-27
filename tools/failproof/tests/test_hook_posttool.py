@@ -23,7 +23,9 @@ def test_detect_failure(monkeypatch, tmp_path):
     m = _mod(monkeypatch, tmp_path)
     assert m.detect_failure({"stdout": "boom", "exit_code": 1}) is True
     assert m.detect_failure({"stdout": "ok", "exit_code": 0}) is False
-    assert m.detect_failure({"stdout": "Traceback (most recent call last):\n..."}) is True
+    # Contrato v2 (Capture Gate): sem exit_code/is_error NAO classifica como falha.
+    # A heuristica por texto gerava 13,5% de falso positivo (teste verde virando erro).
+    assert m.detect_failure({"stdout": "Traceback (most recent call last):\n..."}) is False
     assert m.detect_failure({"stdout": "all good"}) is False
 
 
@@ -32,7 +34,7 @@ def test_detect_failure_reader_cmd_sem_exit_code_nao_e_falha(monkeypatch, tmp_pa
     m = _mod(monkeypatch, tmp_path)
     resp = {"stdout": "app.log: 2 error: timeout\n5 failed logins"}  # sem exit_code
     assert m.detect_failure(resp, "grep -i error app.log") is False
-    assert m.detect_failure(resp, "python build.py") is True  # comando não-leitor: heurística vale
+    assert m.detect_failure(resp, "python build.py") is False  # v2: sem exit_code, nunca e falha
 
 
 def test_detect_failure_exit_code_camelcase_e_is_error(monkeypatch, tmp_path):
