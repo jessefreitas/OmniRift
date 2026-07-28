@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Manifesto aplicado APENAS aos executáveis de teste (ver build.rs).
+
+  O tauri-build embute o manifesto só no binário principal do app. O executável que o
+  `cargo test` produz sai sem ele e morre antes do primeiro teste com
+  STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139), porque resolve o Common Controls contra a
+  versão 5 do sistema em vez da 6 que as dependências esperam.
+  Ref: https://github.com/tauri-apps/tauri/issues/13419
+
+  Sem isto, NENHUM teste do caminho Windows roda no CI — foi assim que o spawn do agente
+  ficou quebrado por cinco versões sem ninguém perceber.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*"
+      />
+    </dependentAssembly>
+  </dependency>
+</assembly>
