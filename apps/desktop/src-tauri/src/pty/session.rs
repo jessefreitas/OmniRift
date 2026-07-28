@@ -1226,8 +1226,8 @@ mod tests {
     }
 
     mod tests_windows_launch {
-        use crate::proc_win::{resolve_program_portable, ResolvedProgram};
         use crate::pty::session::build_cmd_wrapper_script_portable;
+        use win_spawn::{resolve_program_portable, ResolvedProgram};
 
         fn fs<'a>(existentes: &'a [&'a str]) -> impl Fn(&str) -> bool + 'a {
             move |path| existentes.iter().any(|e| e.eq_ignore_ascii_case(path))

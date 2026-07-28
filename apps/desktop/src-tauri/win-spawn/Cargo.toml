@@ -1,0 +1,9 @@
+[package]
+name = "win-spawn"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "win_spawn"
+path = "src/lib.rs"

@@ -3,7 +3,7 @@
 # compartilhar a resolução de deps. O CLI vive em `cli/` (NÃO depende do tauri); fica
 # sob src-tauri porque o Cargo exige membros hierarquicamente abaixo da raiz.
 [workspace]
-members = ["cli"]
+members = ["cli", "win-spawn"]
 # A CLI (omnirift) é membro mas NÃO entra nos comandos default (test/xwin check sem -p) —
 # ela é Linux-only (UnixStream; named-pipe Windows = fase 2), então fica fora do
 # `cargo xwin check` Windows da CI (que roda no manifesto raiz). Testa-se via `-p omnirift-cli`.
@@ -27,6 +27,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6.1", features = [] }
 
 [dependencies]
+# Resolução de spawn do Windows (PATHEXT, shim .cmd). Crate à parte de propósito:
+# sem Tauri, o binário de teste roda no Windows do CI — o do app não roda
+# (tauri-apps/tauri#13419).
+win-spawn = { path = "win-spawn" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 # Parser TOML — usado pelo import de agente Codex (.toml → Role). Edição leve.

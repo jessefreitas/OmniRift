@@ -3948,6 +3948,7 @@ dependencies = [
  "tree-sitter-typescript",
  "uuid",
  "vt100",
+ "win-spawn",
  "winreg 0.52.0",
 ]
 
@@ -7592,6 +7593,10 @@ dependencies = [
  "wasite",
  "web-sys",
 ]
+
+[[package]]
+name = "win-spawn"
+version = "0.0.0"
 
 [[package]]
 name = "winapi"

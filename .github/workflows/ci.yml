@@ -147,18 +147,21 @@ jobs:
       # Ref: https://github.com/tauri-apps/tauri/issues/13419
       # Fica no JOB e nao no .cargo/config.toml de proposito: assim nao ha risco de
       # alterar o link do binario de release, que ja embute o manifest sozinho.
-      # BLOQUEANTE: compila o alvo Windows, incluindo codigo e testes sob
+      # BLOQUEANTE e o que de fato EXECUTA no Windows: o crate `win-spawn` nao linka
+      # Tauri, entao seu binario de teste sobe normalmente. E aqui que rodam o teste
+      # que cria um .cmd no disco, resolve por PATHEXT e exige que um argumento com
+      # aspas chegue intacto ao programa.
+      - name: Testes de spawn no Windows (win-spawn)
+        run: cargo test -p win-spawn --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      # BLOQUEANTE: compila o alvo Windows do crate principal, incluindo o codigo sob
       # #[cfg(windows)]. E o gate que faltava - um `build_command` chamado com 2 de 3
       # argumentos vivia no repo porque nada disso era compilado no CI.
-      - name: Compila a suite no Windows
+      # NAO da pra EXECUTAR esta suite no Windows: o binario de teste linka o Tauri, que
+      # embute o manifesto so no binario do app, e ele morre com STATUS_ENTRYPOINT_NOT_FOUND
+      # (tauri-apps/tauri#13419). Por isso a logica de spawn foi extraida pro win-spawn.
+      - name: Compila a suite do app no Windows
         run: cargo test --lib --no-run --manifest-path apps/desktop/src-tauri/Cargo.toml
-
-      # BLOQUEANTE: executa a suite no Windows de verdade, incluindo o teste que cria
-      # um .cmd no disco, resolve por PATHEXT e confere que argumento com aspas chega
-      # intacto. O manifesto que destrava isto vem do build.rs via rustc-link-arg-tests
-      # (so os binarios de teste; o link do release nao e tocado).
-      - name: Testes Rust (lib) no Windows
-        run: cargo test --lib --manifest-path apps/desktop/src-tauri/Cargo.toml
 
       # Formatacao tambem no Windows: o gate de qualidade roda so no Linux e a
       # divergencia de contagem entre os dois ambientes ja custou um PR travado.
