@@ -359,39 +359,11 @@ mod tests {
 mod integracao_windows {
     use super::*;
 
-    // Guarda e restaura o PATH do processo para não sujar o ambiente de testes paralelos
-    struct PathGuard {
-        original: Option<String>,
-    }
-
-    impl PathGuard {
-        fn new(extra_path: &str) -> Self {
-            let original = std::env::var("PATH").ok();
-            let mut new_path = String::from(extra_path);
-            if let Some(ref orig) = original {
-                new_path.push(';');
-                new_path.push_str(orig);
-            }
-            std::env::set_var("PATH", &new_path);
-            PathGuard { original }
-        }
-    }
-
-    impl Drop for PathGuard {
-        fn drop(&mut self) {
-            if let Some(orig) = self.original.take() {
-                std::env::set_var("PATH", orig);
-            } else {
-                std::env::remove_var("PATH");
-            }
-        }
-    }
-
     // Trava a falha real: o agente morre no spawn porque o cmd.exe recebe o nome quotado como um só argumento e não resolve o PATHEXT
     #[test]
     fn wrap_for_windows_resolve_e_executa_cmd_de_verdade() {
         let pid = std::process::id();
-        let probe_name = format!("omnirift_probe_{}", pid);
+        let probe_name = format!("omnirift_probe_exec_{}", pid);
         let dir = std::env::temp_dir().join(format!("omnirift_test_{}", pid));
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -399,14 +371,9 @@ mod integracao_windows {
         let content = "@echo off\r\necho PROBE_OK %1\r\n";
         std::fs::write(&cmd_path, content).unwrap();
 
-        let _guard = PathGuard::new(dir.to_str().unwrap());
-
-        let path_dirs: Vec<String> = std::env::var("PATH")
-            .unwrap_or_default()
-            .split(';')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+        // Sem mexer no PATH do processo: `wrap_for_windows` RECEBE os diretorios, e o
+        // PATH global e estado compartilhado entre os testes que rodam em paralelo.
+        let path_dirs: Vec<String> = vec![dir.to_string_lossy().to_string()];
 
         let args = vec!["arg com espaço".to_string()];
         let (program, argv) = wrap_for_windows(&probe_name, &args, &path_dirs);
@@ -446,7 +413,7 @@ mod integracao_windows {
     #[test]
     fn argumento_com_aspas_chega_intato_ao_programa() {
         let pid = std::process::id();
-        let probe_name = format!("omnirift_probe_{}", pid);
+        let probe_name = format!("omnirift_probe_arg_{}", pid);
         let dir = std::env::temp_dir().join(format!("omnirift_test_arg_{}", pid));
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -455,14 +422,9 @@ mod integracao_windows {
         let content = "@echo off\r\necho ARG=[%~1]\r\n";
         std::fs::write(&cmd_path, content).unwrap();
 
-        let _guard = PathGuard::new(dir.to_str().unwrap());
-
-        let path_dirs: Vec<String> = std::env::var("PATH")
-            .unwrap_or_default()
-            .split(';')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+        // Sem mexer no PATH do processo: `wrap_for_windows` RECEBE os diretorios, e o
+        // PATH global e estado compartilhado entre os testes que rodam em paralelo.
+        let path_dirs: Vec<String> = vec![dir.to_string_lossy().to_string()];
 
         // Argumento com aspas e espaço, exatamente o dado que se corrompia
         let args = vec![r#"diz "oi" agora"#.to_string()];
