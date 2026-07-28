@@ -378,9 +378,12 @@ mod integracao_windows {
         let args = vec!["arg com espaço".to_string()];
         let (program, argv) = wrap_for_windows(&probe_name, &args, &path_dirs);
 
+        // Case-insensitive: o candidato sai com a extensao EXATAMENTE como vem no PATHEXT,
+        // que no Windows e `.CMD` em maiusculas. Comparar com ".cmd" cru reprovava um
+        // caminho perfeitamente resolvido.
         assert!(
-            program.ends_with(".cmd"),
-            "O programa deve ser resolvido para .cmd pelo PATHEXT. Se falhar, o bug do spawn voltou."
+            program.to_lowercase().ends_with(".cmd"),
+            "O programa deve ser resolvido para .cmd pelo PATHEXT (veio: {program}). Se falhar, o bug do spawn voltou."
         );
 
         for arg in &argv {
