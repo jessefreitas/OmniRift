@@ -65,8 +65,10 @@ fn add_test_manifest() {
     let path = path.strip_prefix(r"\\?\").unwrap_or(&path);
 
     println!("cargo:rerun-if-changed={path}");
-    println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
-    println!("cargo:rustc-link-arg-tests=/MANIFESTINPUT:{path}");
+    // `cargo::` (dois-pontos duplos): desde o Rust 1.77 as instrucoes nao-legadas
+    // exigem essa forma; com `cargo:` o Cargo responde "invalid instruction".
+    println!("cargo::rustc-link-arg-tests=/MANIFEST:EMBED");
+    println!("cargo::rustc-link-arg-tests=/MANIFESTINPUT:{path}");
 }
 
 #[cfg(not(windows))]
