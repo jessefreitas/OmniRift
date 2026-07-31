@@ -715,13 +715,20 @@ Instale Node/npm ou garanta que `npx` esteja no PATH do app."
             while let Ok(Some(line)) = lines.next_line().await {
                 // `acp://raw` NÃO entra no event_log (debug puro, duplicaria os updates) —
                 // a spec F1 loga só os eventos de sessão (ready/update/permission/…).
-                app.emit_typed(
-                    "acp://raw",
-                    RawEvent {
-                        session_id: sid.clone(),
-                        line: line.clone(),
-                    },
-                );
+                //
+                // E só é EMITIDO no modo debug: nenhum consumidor do frontend escuta este
+                // evento, então fora do debug era uma serialização + IPC por LINHA do
+                // protocolo, por sessão ACP viva, entregue a ninguém. Com vários agentes
+                // conversando isso concorre com o que o usuário está de fato vendo.
+                if crate::commands::debug_mode::is_enabled() {
+                    app.emit_typed(
+                        "acp://raw",
+                        RawEvent {
+                            session_id: sid.clone(),
+                            line: line.clone(),
+                        },
+                    );
+                }
                 let msg: Value = match serde_json::from_str(&line) {
                     Ok(v) => v,
                     Err(_) => continue, // linha não-JSON (ruído) → ignora

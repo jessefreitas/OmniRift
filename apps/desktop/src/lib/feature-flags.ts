@@ -15,7 +15,12 @@
 // então esquecer de consumir NÃO quebra nada.
 
 import { create } from "zustand";
-import { isSandboxFlagKey, syncSandboxFlag } from "@/lib/sandbox-flag-sync";
+import {
+  isMirroredFlagKey,
+  isSandboxFlagKey,
+  syncMirroredFlag,
+  syncSandboxFlag,
+} from "@/lib/sandbox-flag-sync";
 
 export type FlagStage = "stable" | "beta" | "experimental";
 
@@ -274,6 +279,7 @@ export const useFeatureFlagStore = create<FlagState>((set) => ({
       const next = { ...s.overrides, [key]: val };
       persist(next);
       if (isSandboxFlagKey(key)) void syncSandboxFlag(val);
+      if (isMirroredFlagKey(key)) void syncMirroredFlag(key, val);
       return { overrides: next };
     }),
   resetFlag: (key) =>
@@ -283,6 +289,7 @@ export const useFeatureFlagStore = create<FlagState>((set) => ({
       delete next[key];
       persist(next);
       if (isSandboxFlagKey(key)) void syncSandboxFlag(effectiveDefault(key));
+      if (isMirroredFlagKey(key)) void syncMirroredFlag(key, effectiveDefault(key));
       return { overrides: next };
     }),
   resetAll: () =>

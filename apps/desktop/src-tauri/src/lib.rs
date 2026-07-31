@@ -133,7 +133,7 @@ use commands::role_import::{role_import_file, role_template, role_template_save}
 use commands::routines::{
     routines_delete, routines_list, routines_record_run, routines_runs, routines_upsert,
 };
-use commands::sandbox::{sandbox_set_enabled, sandbox_status};
+use commands::sandbox::{flag_mirror_get, flag_mirror_set, sandbox_set_enabled, sandbox_status};
 use commands::scheduler::{scheduler_install, scheduler_list, scheduler_uninstall};
 use commands::serena::serena_ensure_project;
 use commands::skill_wiring::{agent_skills_config, list_installed_skills};
@@ -364,9 +364,16 @@ pub fn run() {
             let sw_state = crate::llm_router::server::load_state(sw_token);
             app.manage(sw_state.clone());
             app.manage(crate::commands::constructor_chat::ConstructorChat::default());
-            tauri::async_runtime::spawn(async move {
-                crate::llm_router::server::boot(sw_state).await;
-            });
+            // Flag off = servidor não sobe. Antes o roteador bindava a porta de loopback
+            // no boot independentemente da flag `omniswitch`, que existe justamente
+            // porque ele ainda está incompleto.
+            if crate::rpc::gate::flag_ativa("omniswitch") {
+                tauri::async_runtime::spawn(async move {
+                    crate::llm_router::server::boot(sw_state).await;
+                });
+            } else {
+                log::info!("OmniSwitch: flag desligada — roteador não iniciado");
+            }
 
             // Pre-warm dos caches uvx/npx dos MCP dos agentes (serena/playwright):
             // cold-start estoura o timeout de startup MCP → "✗ failed" na 1ª vez.
@@ -611,6 +618,8 @@ pub fn run() {
             debug_mode_get,
             debug_mode_set,
             sandbox_set_enabled,
+            flag_mirror_set,
+            flag_mirror_get,
             sandbox_status,
             diagnostics_export,
             reveal_path,

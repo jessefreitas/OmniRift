@@ -16,6 +16,7 @@
 //! Entrada única do wiring: [`start`] (chamada do `setup()` do Tauri).
 
 pub mod core;
+pub mod gate;
 pub mod metadata;
 pub mod methods;
 pub mod socket;
@@ -112,15 +113,31 @@ pub fn start_mobile_relay(app: AppHandle) {
     let relay = Arc::new(MobileRelay::new(Arc::clone(&devices)));
     app.manage(Arc::clone(&relay));
 
+    // Sem NENHUM celular pareado não há a quem servir — e abrir 0.0.0.0:6768 em todas as
+    // interfaces pra ninguém é superfície de rede de graça. `mobile-relay-lan` força o
+    // bind pra quem quer parear a partir do celular com o app já aberto.
+    let pareados = devices.list().len();
+    if !gate::deve_subir_relay_lan(pareados, gate::flag_ativa("mobile-relay-lan")) {
+        log::info!(
+            "relay mobile: nenhum device pareado e flag mobile-relay-lan off — servidor LAN NÃO iniciado"
+        );
+        return;
+    }
+
     let registry = Arc::new(build_registry());
     // Dialers de relay (fora da LAN/4G): 1 por device pareado, discam o CF Worker e rodam o
     // MESMO loop E2EE do LAN. Clona o que compartilham; o spawn_server consome o resto.
-    relay_client::spawn_relay_dialers(
-        app.clone(),
-        Arc::clone(&registry),
-        Arc::clone(&devices),
-        Arc::clone(&keypair),
-    );
+    // Dialers 4G discam um Worker externo. A flag `remote-4g-relay` diz "em construção,
+    // mantenha desligado" — e até agora não desligava nada: bastava ter um device pareado
+    // pra o app começar a discar sozinho no boot.
+    if gate::deve_discar_relay_4g(pareados, gate::flag_ativa("remote-4g-relay")) {
+        relay_client::spawn_relay_dialers(
+            app.clone(),
+            Arc::clone(&registry),
+            Arc::clone(&devices),
+            Arc::clone(&keypair),
+        );
+    }
     ws::spawn_server(app, registry, devices, keypair, relay);
 }
 

@@ -38,3 +38,19 @@ pub fn sandbox_status() -> SandboxStatus {
         bwrap_available: crate::sandbox::bwrap_available(),
     }
 }
+
+/// Espelha uma feature flag da UI no disco, pra o BACKEND poder consultá-la no boot —
+/// antes de o frontend existir. É como `remote-4g-relay`/`omniswitch` deixam de subir
+/// serviço de rede com a flag desligada.
+///
+/// Só aceita nome kebab-case ascii (o gate valida); erro vira string pro front.
+#[tauri::command]
+pub fn flag_mirror_set(name: String, enabled: bool) -> Result<(), String> {
+    crate::rpc::gate::set_flag(&name, enabled).map_err(|e| e.to_string())
+}
+
+/// Estado efetivo do espelho (arquivo OU env) — pro painel mostrar a verdade do backend.
+#[tauri::command]
+pub fn flag_mirror_get(name: String) -> bool {
+    crate::rpc::gate::flag_ativa(&name)
+}
