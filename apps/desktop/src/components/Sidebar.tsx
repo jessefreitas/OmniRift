@@ -1938,7 +1938,7 @@ export function Sidebar() {
   async function handleSave() {
     const ws = getWorkspaceSnapshot();
     const name = nameRef.current?.value.trim() || ws.name;
-    await saveWorkspace({ ...ws, name });
+    await saveWorkspace({ ...ws, name }, currentCwd);
   }
 
   async function handleLoad() {
@@ -1956,7 +1956,7 @@ export function Sidebar() {
   // os floors+agentes do projeto e limpa a pasta.
   async function saveAndCloseFolder() {
     const ws = getWorkspaceSnapshot();
-    await saveWorkspace({ ...ws, name: nameRef.current?.value.trim() || ws.name }).catch(() => {});
+    await saveWorkspace({ ...ws, name: nameRef.current?.value.trim() || ws.name }, currentCwd).catch(() => {});
     closeFolder();
     setClosingFolder(false);
   }
@@ -2279,6 +2279,7 @@ export function Sidebar() {
         </p>
         <input
           ref={nameRef}
+          key={workspaceName}
           defaultValue={workspaceName}
           placeholder={tr("sidebar.workspaceNamePh", "nome do workspace")}
           className={cn(

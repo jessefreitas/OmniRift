@@ -131,6 +131,106 @@ impl AgentRegistry {
     }
 }
 
+/// Resultado da resolução tolerante de um label de agente.
+///
+/// O MCP expõe labels amigáveis (ex: "DevOps - Codex"), mas o Orquestrador
+/// costuma consultar por sinônimos curtos (ex: "Codex"). Em vez de falhar
+/// com "não encontrado" e induzir o agente a spawnar outro, resolvemos
+/// fuzzy — e quando a dúvida não é resolvível sozinha, devolvemos os
+/// candidatos para que o chamador escolha.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LabelMatch {
+    /// Um único agente casou; o String é o label CANONICO (como está registrado).
+    Found(String),
+    /// Vários candidatos casaram — quem chamou precisa escolher. Labels canônicos, ordenados.
+    Ambiguous(Vec<String>),
+    /// Nada casou. Traz os labels registrados (ordenados) para a mensagem de erro sugerir.
+    NotFound(Vec<String>),
+}
+
+impl AgentRegistry {
+    /// Resolve uma consulta de label em até 4 passos, da mais restrita à mais tolerante.
+    ///
+    /// A ordem importa: exato vence sempre; normalização vence substring; substring
+    /// só decide se houver exatamente um candidato. Se houver mais de um, a resposta
+    /// é `Ambiguous` com TODOS os candidatos, para que o chamador peça o label exato
+    /// em vez de adivinhar e possivelmente spawnar um duplicado.
+    pub fn resolve_label(&self, query: &str) -> LabelMatch {
+        let query_trimmed = query.trim();
+        let query_lower = query_trimmed.to_lowercase();
+
+        // Coleta todos os labels canônicos e já ordena — DashMap itera em ordem
+        // de hash, então fixamos ordem alfabética para determinismo nos testes
+        // e nas mensagens de erro.
+        let mut labels: Vec<String> = self.0.iter().map(|e| e.key().clone()).collect();
+        labels.sort();
+
+        // 1) Igualdade EXATA com o label registrado.
+        for label in &labels {
+            if label == query {
+                return LabelMatch::Found(label.clone());
+            }
+        }
+
+        // 2) Igualdade ignorando maiúsculas/minúsculas e espaços nas pontas.
+        for label in &labels {
+            if label.trim().to_lowercase() == query_lower {
+                return LabelMatch::Found(label.clone());
+            }
+        }
+
+        // 3) Substring case-insensitive: o query aparece dentro do label.
+        let mut candidates: Vec<String> = labels
+            .iter()
+            .filter(|label| label.to_lowercase().contains(&query_lower))
+            .cloned()
+            .collect();
+
+        match candidates.len() {
+            0 => {
+                // 4) Nada casou. Devolve a lista completa para enriquecer o erro.
+                LabelMatch::NotFound(labels)
+            }
+            1 => LabelMatch::Found(candidates.pop().unwrap()),
+            _ => {
+                // Mais de um candidato: não arriscamos chutar. Ordena e pede ao
+                // chamador que use o label exato.
+                candidates.sort();
+                LabelMatch::Ambiguous(candidates)
+            }
+        }
+    }
+}
+
+/// Mensagem pronta pro erro do MCP, em pt-BR, listando os candidatos.
+///
+/// `Found` não é erro, então devolve string vazia. `Ambiguous` e `NotFound`
+/// dão ao Orquestrador a informação que faltava para decidir, evitando que ele
+/// conclua erroneamente que precisa spawnar outro agente.
+pub fn erro_de_label(query: &str, m: &LabelMatch) -> String {
+    match m {
+        LabelMatch::Found(_) => String::new(),
+        LabelMatch::Ambiguous(candidates) => format!(
+            "O nome '{}' é ambíguo. Candidatos: {}. Por favor, informe o label exato.",
+            query,
+            candidates.join(", ")
+        ),
+        LabelMatch::NotFound(labels) => {
+            if labels.is_empty() {
+                // Pegadinha que confundiu o orquestrador: a seção da sidebar é opt-in.
+                // Sem nenhum nó marcado, o registry fica vazio e nenhuma tool MCP existe.
+                "Nenhum agente está registrado. Para disponibilizar um agente, marque o nó na seção 'MCP AGENTS' da barra lateral (é opt-in).".into()
+            } else {
+                format!(
+                    "Agente '{}' não encontrado. Labels registrados: {}. Use list_agents ou informe o label exato.",
+                    query,
+                    labels.join(", ")
+                )
+            }
+        }
+    }
+}
+
 /// Converte label de agente em nome de tool MCP válido.
 /// "Agente 01" → "agente_01" | "Frontend (React)" → "frontend_react"
 pub fn to_tool_name(label: &str) -> String {
@@ -267,6 +367,140 @@ mod tests {
             reg.0.get("Frontend").unwrap().role.as_deref(),
             Some("backend"),
             "Some tem que sobrescrever; so None e que preserva"
+        );
+    }
+
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn resolve_exato_vence_substring_e_nao_eh_ambiguo() {
+            // Falha real: se houvesse "Codex" e "Codex Helper", uma busca por
+            // "Codex" poderia cair em substring e virar ambígua. Exato deve vencer.
+            let r = AgentRegistry::new();
+            r.register("Codex".into(), "s1".into(), "".into(), None, None);
+            r.register("Codex Helper".into(), "s2".into(), "".into(), None, None);
+
+            match r.resolve_label("Codex") {
+                LabelMatch::Found(label) => assert_eq!(label, "Codex"),
+                other => panic!("esperado Found('Codex'), obtido {:?}", other),
+            }
+        }
+
+        #[test]
+        fn resolve_caso_real_devops_codex_por_codex_eh_found() {
+            // Reproduz exatamente o relato: agente registrado como "DevOps - Codex",
+            // orquestrador consultou "Codex". Deve achar por substring única e evitar
+            // que o orquestrador spawnasse outro agente.
+            let r = AgentRegistry::new();
+            r.register("DevOps - Codex".into(), "s1".into(), "".into(), None, None);
+
+            match r.resolve_label("Codex") {
+                LabelMatch::Found(label) => assert_eq!(label, "DevOps - Codex"),
+                other => panic!("esperado Found('DevOps - Codex'), obtido {:?}", other),
+            }
+        }
+
+        #[test]
+        fn resolve_dois_labels_contendo_codex_eh_ambiguous() {
+            // Falha real: múltiplos candidatos forçam o chamador a escolher, em vez
+            // de o MCP decidir errado e endereçar o agente errado.
+            let r = AgentRegistry::new();
+            r.register("DevOps - Codex".into(), "s1".into(), "".into(), None, None);
+            r.register("Codex Helper".into(), "s2".into(), "".into(), None, None);
+
+            match r.resolve_label("Codex") {
+                LabelMatch::Ambiguous(cands) => {
+                    assert_eq!(cands, vec!["Codex Helper", "DevOps - Codex"]);
+                }
+                other => panic!("esperado Ambiguous, obtido {:?}", other),
+            }
+        }
+
+        #[test]
+        fn resolve_case_insensitive_e_trim() {
+            // Sidebar pode registrar com espaços; o orquestrador pode mandar caixa
+            // diferente. A normalização deve encontrar sem exigir match perfeito.
+            let r = AgentRegistry::new();
+            r.register("DevOps - Codex".into(), "s1".into(), "".into(), None, None);
+
+            match r.resolve_label("  devops - codex  ") {
+                LabelMatch::Found(label) => assert_eq!(label, "DevOps - Codex"),
+                other => panic!("esperado Found via trim+lower, obtido {:?}", other),
+            }
+        }
+
+        #[test]
+        fn resolve_notfound_lista_todos_ordenados() {
+            // Quando não acha nada, a mensagem de erro deve listar todos os labels
+            // ordenados, dando ao orquestrador a chance de usar o nome certo.
+            let r = AgentRegistry::new();
+            r.register("Zeta".into(), "s1".into(), "".into(), None, None);
+            r.register("Alpha".into(), "s2".into(), "".into(), None, None);
+
+            match r.resolve_label("Inexistente") {
+                LabelMatch::NotFound(labels) => assert_eq!(labels, vec!["Alpha", "Zeta"]),
+                other => panic!("esperado NotFound, obtido {:?}", other),
+            }
+        }
+
+        #[test]
+        fn resolve_vazio_notfound_sem_labels_e_msg_cita_mcp_agents() {
+            // Falha real do orquestrador: registry vazio porque a seção MCP AGENTS
+            // da sidebar é opt-in. A mensagem deve explicitar isso.
+            let r = AgentRegistry::new();
+            let m = r.resolve_label("Codex");
+
+            match &m {
+                LabelMatch::NotFound(labels) => assert!(labels.is_empty()),
+                other => panic!("esperado NotFound vazio, obtido {:?}", other),
+            }
+
+            let msg = erro_de_label("Codex", &m);
+            assert!(msg.contains("MCP AGENTS"));
+            assert!(msg.contains("opt-in"));
+        }
+
+        #[test]
+        fn erro_ambiguous_pergunta_pelo_exato() {
+            let r = AgentRegistry::new();
+            r.register("DevOps - Codex".into(), "s1".into(), "".into(), None, None);
+            r.register("Codex Helper".into(), "s2".into(), "".into(), None, None);
+
+            let m = r.resolve_label("Codex");
+            let msg = erro_de_label("Codex", &m);
+            assert!(msg.contains("ambíguo"));
+            assert!(msg.contains("DevOps - Codex"));
+            assert!(msg.contains("Codex Helper"));
+        }
+
+        #[test]
+        fn erro_found_e_vazio() {
+            let r = AgentRegistry::new();
+            r.register("Codex".into(), "s1".into(), "".into(), None, None);
+
+            let m = r.resolve_label("Codex");
+            assert_eq!(erro_de_label("Codex", &m), "");
+        }
+    }
+
+    /// Trava o defeito que já aconteceu duas vezes neste repo: o fix existe, tem teste
+    /// verde, e NINGUÉM o chama. Se `resolve_label` sumir dos consumidores, o label
+    /// aproximado volta a dar "não encontrado" e o orquestrador volta a spawnar duplicado.
+    #[test]
+    fn resolve_label_esta_fiado_nos_consumidores() {
+        let tools = include_str!("tools.rs");
+        let server = include_str!("server.rs");
+        // `agent_registry.` no meio importa: existe um `mgr.resolve_label` homônimo no
+        // AcpManager, e procurar só por "resolve_label" casava com ELE — o teste passava
+        // com a fiação desfeita. Descoberto quebrando a fiação de propósito.
+        assert!(
+            tools.contains("agent_registry.resolve_label"),
+            "mcp/tools.rs parou de usar resolve_label — send_text/run voltaram a exigir label exato"
+        );
+        assert!(
+            server.contains("agent_registry.resolve_label"),
+            "mcp/server.rs parou de usar resolve_label — do_send_task voltou a exigir label exato"
         );
     }
 }

@@ -46,10 +46,18 @@ use tokio::sync::oneshot;
 
 /// Resolve o handle (label do registry) → session_id.
 fn resolve(state: &McpState, terminal: &str) -> Result<String, String> {
-    state
-        .agent_registry
-        .get_session_id(terminal)
-        .ok_or_else(|| format!("terminal '{terminal}' não encontrado (use terminal_list)"))
+    // Resolução TOLERANTE: um orquestrador pediu "Codex" enquanto o registro era
+    // "DevOps - Codex", levou um "não encontrado" seco e concluiu que precisava
+    // spawnar outro agente. Agora casa por aproximação e, quando não dá pra decidir,
+    // o erro DIZ os candidatos em vez de mandar o agente adivinhar.
+    use crate::mcp::registry::{erro_de_label, LabelMatch};
+    match state.agent_registry.resolve_label(terminal) {
+        LabelMatch::Found(canonico) => state
+            .agent_registry
+            .get_session_id(&canonico)
+            .ok_or_else(|| format!("terminal '{canonico}' sumiu do registro durante a chamada")),
+        outro => Err(erro_de_label(terminal, &outro)),
+    }
 }
 
 /// Se `terminal` é um OmniAgent (ACP) registrado, roteia o texto como um PROMPT (turno)

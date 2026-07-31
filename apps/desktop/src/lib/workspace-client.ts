@@ -2,10 +2,23 @@ import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { AnyWorkspaceFile, WorkspaceFileV3 } from "@/types/workspace";
 
-export async function saveWorkspace(ws: WorkspaceFileV3): Promise<string | null> {
+export async function saveWorkspace(
+  ws: WorkspaceFileV3,
+  dir?: string | null
+): Promise<string | null> {
+  const fileName = `${ws.name || "workspace"}.omnirift.json`;
+  let defaultPath = fileName;
+
+  if (dir) {
+    // Abrir na pasta do projeto evita que o usuário tenha que procurar onde salvar
+    const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
+    const trimmedDir = dir.replace(/[\\/]+$/, "");
+    defaultPath = trimmedDir ? `${trimmedDir}${sep}${fileName}` : fileName;
+  }
+
   const path = await save({
     title: "Salvar workspace",
-    defaultPath: `${ws.name || "workspace"}.omnirift.json`,
+    defaultPath,
     filters: [{ name: "OmniRift Workspace", extensions: ["json"] }],
   });
   if (!path) return null;

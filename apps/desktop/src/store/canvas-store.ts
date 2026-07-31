@@ -385,6 +385,29 @@ const _spawnTimes: number[] = [];
 const SPAWN_WINDOW_MS = 4000;
 const SPAWN_BURST_MAX = 20;
 
+export const DEFAULT_WORKSPACE_NAME = "workspace";
+
+export function basenameOf(cwd: string | null | undefined): string {
+  if (!cwd) return "";
+  // Remove barras finais (Windows ou Unix) antes de pegar o último segmento
+  const trimmed = cwd.replace(/[\\/]+$/, "");
+  const parts = trimmed.split(/[\\/]/);
+  return parts[parts.length - 1] ?? "";
+}
+
+export function workspaceNameForCwd(
+  atual: string,
+  cwd: string | null | undefined
+): string {
+  // Nome dado pelo usuário é sagrado: só derivamos da pasta se ainda está no default
+  if (atual && atual.trim() !== "" && atual !== DEFAULT_WORKSPACE_NAME) {
+    return atual;
+  }
+  const derived = basenameOf(cwd);
+  // Se não conseguiu derivar nada, mantém o que havia (mesmo que vazio/default)
+  return derived || atual;
+}
+
 export const useCanvasStore = create<CanvasState>()((set, get) => ({
   projects: [FIRST_PROJECT],
   activeProjectId: FIRST_PROJECT.id,
@@ -402,7 +425,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   requestConnectMenu: null,
   proactiveTeamReact:
     typeof localStorage !== "undefined" && localStorage.getItem("omnirift-proactive-team-react") === "1",
-  workspaceName: "workspace",
+  workspaceName: DEFAULT_WORKSPACE_NAME,
   currentCwd: null,
   clipboardHistory: [],
   terminalStatuses: {},
@@ -535,10 +558,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     get().parallels.flatMap((f) => f.nodes.filter((n): n is TerminalNode => n.kind === "terminal")),
 
   // ---- node/edge ops (floor ativo) ----
-  setCurrentCwd: (cwd) =>
+setCurrentCwd: (cwd) =>
     set((s) => ({
       currentCwd: cwd,
       parallels: s.parallels.map((f) => (f.id === s.activeParallelId ? { ...f, cwd } : f)),
+      workspaceName: workspaceNameForCwd(s.workspaceName, cwd),
     })),
   closeFolder: () => {
     // F2/F3: encerrar o projeto fecha os floors dele — kill EXPLÍCITO de PTYs e

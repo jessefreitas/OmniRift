@@ -154,8 +154,14 @@ pub(crate) fn resolve_hook_target(
     registry: &AgentRegistry,
     label: &str,
 ) -> Option<(String, String)> {
-    let session_id = registry.get_session_id(label)?;
-    Some((session_id, label.to_string()))
+    // Aceita label aproximado igual ao resto do MCP; devolve o CANÔNICO pra o hook
+    // gravar o nome real do agente, não o apelido que veio na chamada.
+    let canonico = match registry.resolve_label(label) {
+        crate::mcp::registry::LabelMatch::Found(c) => c,
+        _ => return None,
+    };
+    let session_id = registry.get_session_id(&canonico)?;
+    Some((session_id, canonico))
 }
 
 // ── Auth do control plane (Fix de auditoria #1) ───────────────────────────────
@@ -527,12 +533,18 @@ async fn dispatch_tool(state: Arc<McpState>, tool: &str, args: Value) -> Value {
 // ── send_task: escreve no PTY, captura output até idle ───────────────────────
 
 async fn do_send_task(state: &McpState, label: &str, task: &str) -> anyhow::Result<String> {
-    let session_id = state.agent_registry.get_session_id(label).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Agente '{}' não encontrado. Use list_agents para ver disponíveis.",
-            label
-        )
-    })?;
+    // Mesma resolução tolerante do `resolve` das tools: label aproximado casa, e o
+    // erro lista os candidatos em vez de sugerir que o agente não existe.
+    let session_id = {
+        use crate::mcp::registry::{erro_de_label, LabelMatch};
+        match state.agent_registry.resolve_label(label) {
+            LabelMatch::Found(canonico) => state
+                .agent_registry
+                .get_session_id(&canonico)
+                .ok_or_else(|| anyhow::anyhow!("Agente '{canonico}' sumiu do registro."))?,
+            outro => return Err(anyhow::anyhow!(erro_de_label(label, &outro))),
+        }
+    };
 
     // Assina o stream de estado ANTES de enviar. Detecção VT100 (não line-mode):
     // line-mode trava em TUI — Claude/agy redesenham a tela e nunca "ficam idle".
