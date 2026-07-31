@@ -25,6 +25,7 @@ import { notify } from "@/lib/notify";
 import { useT } from "@/lib/i18n";
 import { useOrchestrationWatchdog } from "@/hooks/useOrchestrationWatchdog";
 import { useReducedUi } from "@/lib/experience-mode";
+import { setPhase } from "@/lib/perf-probe";
 import { WelcomeSlides } from "@/components/WelcomeSlides";
 import { WELCOME_SEEN_KEY, shouldShowWelcome } from "@/lib/welcome-state";
 
@@ -211,7 +212,12 @@ export default function App() {
     };
   }, []);
 
+  // Fase de vida do app, pro watchdog saber SE um bloqueio importa: boot bloqueia por
+  // natureza, intro é animação pesada conhecida, canvas é onde travar é bug.
   const uiReady = !bootIntroOn || introDone;
+  useEffect(() => {
+    setPhase(uiReady ? "canvas" : bootIntroOn ? "intro" : "boot");
+  }, [uiReady, bootIntroOn]);
 
   return (
     <div className="flex h-screen w-screen bg-bg">

@@ -7,6 +7,7 @@
 //
 // Gate de fluidez: limiares e classificação vivem em `canvas-fluency.ts` (testáveis sem GUI).
 
+import { classifyTick, currentPhase, perfContextLine, perfSnapshot } from "@/lib/perf-probe";
 import { invoke } from "@tauri-apps/api/core";
 import {
   FLUENCY,
@@ -131,6 +132,20 @@ export function startMainThreadWatchdog(getContext?: () => string): () => void {
       lastLogAt: lastMainBlockLog,
     });
 
+    // Descarta o que não é congelamento REAL antes de gastar uma linha de log:
+    // janela oculta (timer throttlado) e fase de boot (bloqueia por natureza).
+    const verdict = classifyTick({
+      driftMs: drift,
+      hidden: typeof document !== "undefined" && document.hidden,
+      phase: currentPhase(),
+      warnMs: FLUENCY.BLOCK_WARN_MS,
+    });
+
+    if (verdict.kind !== "block") {
+      expected = now + FLUENCY.TICK_MS;
+      return;
+    }
+
     if (shouldAlert && severity) {
       lastMainBlockLog = now;
 
@@ -142,12 +157,15 @@ export function startMainThreadWatchdog(getContext?: () => string): () => void {
       }
 
       const roundedDrift = Math.round(drift);
+      // A linha de causa (fase, eventos/s, bytes/s, listeners, views) entra junto: sem
+      // ela o log dizia QUE travou e nunca com QUANTA carga.
+      const causa = perfContextLine(perfSnapshot());
       emitFluency({
         kind: "MAIN-BLOCK",
         severity,
         atMs: Date.now(),
         detail: `main thread parada ~${roundedDrift}ms`,
-        context: context || undefined,
+        context: [context, causa].filter(Boolean).join(" | ") || undefined,
       });
     }
 

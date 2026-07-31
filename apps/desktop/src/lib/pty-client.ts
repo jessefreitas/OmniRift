@@ -6,6 +6,7 @@
 // Por que abstrair: se um dia trocarmos Tauri por outra runtime
 // (Electron, web puro), só essa camada muda.
 
+import { countEvent, countListener } from "@/lib/perf-probe";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
@@ -151,11 +152,21 @@ export async function listenPtyOutput(
   sessionId: SessionId,
   handler: (data: string, seq: number | undefined) => void,
 ): Promise<UnlistenFn> {
-  return listen<PtyOutputEvent>("pty://output", (event) => {
+  // Instrumentação (não muda comportamento): cada nó instala o SEU listener global e
+  // filtra na borda, então cada frame de saída é entregue a TODOS os listeners e
+  // descartado por todos menos um. `countEvent` conta a entrega BRUTA — inclusive a
+  // descartada — porque é ela que revela o custo que cresce com o nº de terminais.
+  countListener(1);
+  const unlisten = await listen<PtyOutputEvent>("pty://output", (event) => {
+    countEvent("pty", event.payload.data.length);
     if (event.payload.session_id === sessionId) {
       handler(event.payload.data, event.payload.seq);
     }
   });
+  return () => {
+    countListener(-1);
+    unlisten();
+  };
 }
 
 /** Inscreve um listener para o evento de exit de UMA sessão. */
