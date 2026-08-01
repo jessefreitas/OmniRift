@@ -11,6 +11,7 @@ Config: lê review-config.json (escrito pelo app OmniRift) com a LLM BYOK ativa
 externas — só stdlib.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -18,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 
 DEFAULT_CATEGORIES = [
@@ -334,47 +336,231 @@ def _semgrep_gate(cwd, findings, skipped):
         })
 
 
-def security_gates(cwd):
-    """Estágio 1 espelhado do Rust (mcp/tools.rs): gitleaks + semgrep sobre o working
-    tree do cwd. Devolve (findings, skipped). Nunca levanta — degrada limpo se as
-    ferramentas faltarem/demorarem, pra jamais derrubar o review por infra."""
+_GITLEAKS_MAX_FILES = 40
+
+# _run_tool(cmd, cwd, timeout) -> (rc, stdout, stderr) já existe no script.
+# Mantida a implementação atual; não reproduzida aqui.
+
+
+def _changed_files(cwd, base):
+    """Arquivos alterados (relativos ao cwd) para o escopo do hook.
+    base vazio -> diff contra HEAD. Inclui untracked via status --porcelain.
+    Erro/sem git -> [] (diff vazio: security_gates([], ...) não roda scanner)."""
+    if not cwd or not os.path.isdir(cwd):
+        return []
+    ref = base or "HEAD"
+    try:
+        r1 = subprocess.run(["git", "-C", cwd, "diff", "--name-only", ref],
+                            capture_output=True, text=True, timeout=10)
+        r2 = subprocess.run(["git", "-C", cwd, "status", "--porcelain=v1"],
+                            capture_output=True, text=True, timeout=10)
+    except Exception:
+        return []
+    files = set()
+    for line in r1.stdout.splitlines():
+        if line.strip():
+            files.add(line.strip())
+    for line in r2.stdout.splitlines():
+        if line.strip():
+            # formato porcelain: "XY path" (path pode ter aspas em renames)
+            files.add(line[3:].strip().strip('"'))
+    return sorted(files)
+
+
+def _gitleaks_scoped(cwd, files, findings, skipped):
+    """gitleaks por arquivo quando escopado ao diff.
+    Medido 0,24 s/arquivo; teto aplicado em security_gates(). Achados somados.
+    file do finding volta pra forma relativa que o resto do script espera."""
+    for rel in files:
+        abs_p = os.path.join(cwd, rel)
+        cmd = ["gitleaks", "detect", "--source", abs_p,
+               "--report-format", "json", "--report-path", "-", "--no-banner"]
+        try:
+            rc, out, err = _run_tool(cmd, cwd, 30)
+        except Exception as e:
+            skipped.append(f"security/gitleaks: {rel} falhou ({e})")
+            continue
+        if not out or not out.strip():
+            continue
+        try:
+            data = json.loads(out)
+        except Exception:
+            skipped.append(f"security/gitleaks: {rel} JSON inválido")
+            continue
+        for item in data:
+            rule = (item.get("RuleID") or item.get("rule")
+                    or item.get("rule_id") or "unknown")
+            line = (item.get("StartLine") or item.get("startLine")
+                    or item.get("line") or 0)
+            findings.append({
+                "severity": "CRITICAL",
+                "category": "security",
+                "file": f"{rel}:{line} [{str(rule)[:80]}]",
+                "title": f"possível segredo ({rule})",
+                "suggestion": None,
+            })
+
+
+def _semgrep_scoped(cwd, files, findings, skipped):
+    """semgrep UMA invocação com arquivos como argumentos posicionais (ele
+    aceita lista). Não há teto: uma chamada escopada foi medida em 9,7 s para
+    1-2 arquivos contra 20,3 s na árvore toda — ganho sem cap."""
+    if not files:
+        return
+    cmd = ["semgrep", "scan", "--json", "--quiet"]
+    cmd += [os.path.join(cwd, p) for p in files]
+    try:
+        rc, out, err = _run_tool(cmd, cwd, 90)
+    except Exception as e:
+        skipped.append(f"security/semgrep: escopado falhou ({e})")
+        return
+    if not out or not out.strip():
+        return
+    try:
+        data = json.loads(out)
+    except Exception:
+        skipped.append("security/semgrep: escopado JSON inválido")
+        return
+    sev_map = {"ERROR": "CRITICAL", "WARNING": "WARNING", "INFO": "INFO"}
+    for res in data.get("results", []):
+        path = res.get("path", "")
+        try:
+            rel = os.path.relpath(path, cwd)
+        except Exception:
+            rel = path
+        extra = res.get("extra", {}) or {}
+        sev = sev_map.get((extra.get("severity") or "WARNING").upper(), "WARNING")
+        rule = res.get("check_id", "")
+        start = res.get("start", {}) or {}
+        findings.append({
+            "severity": sev,
+            "category": "security",
+            "file": f"{rel}:{start.get('line', 0)} [{str(rule)[:80]}]",
+            "title": extra.get("message", "semgrep") or "semgrep",
+            "suggestion": None,
+        })
+
+# ── NOVO: cache por estado da árvore ───────────────────────────────────────
+def _cache_dir():
+    return os.path.join(os.path.expanduser("~"), ".omnirift", "review-cache")
+
+
+def tree_fingerprint(cwd):
+    """sha256 de (HEAD + status porcelain). Sem git ou erro -> string vazia;
+    nesse caso o cache é DESLIGADO (nunca servimos resultado sem saber o estado
+    da árvore — um commit novo invalidaria achados já corrigidos)."""
+    try:
+        head = subprocess.run(["git", "-C", cwd, "rev-parse", "HEAD"],
+                              capture_output=True, text=True, timeout=5).stdout.strip()
+        status = subprocess.run(["git", "-C", cwd, "status", "--porcelain=v1"],
+                                capture_output=True, text=True, timeout=5).stdout
+        return hashlib.sha256((head + "\n" + status).encode()).hexdigest()
+    except Exception:
+        return ""
+
+
+def cache_get(cwd, fingerprint, scope_key):
+    """Devolve o payload só se fingerprint bater E TTL <= 900s (15 min).
+    Erro de leitura/JSON -> None (falha-aberto: revisa de novo). fingerprint
+    vazio -> None (cache desligado). scope_key distinto é arquivo distinto,
+    então resultado de diff nunca vira full."""
+    if not fingerprint:
+        return None
+    key = hashlib.sha1(cwd.encode()).hexdigest()
+    path = os.path.join(_cache_dir(), f"{key}-{scope_key}.json")
+    try:
+        with open(path, "r") as f:
+            rec = json.load(f)
+        if rec.get("fingerprint") != fingerprint:
+            return None
+        if time.time() - float(rec.get("at", 0)) > 900:
+            return None
+        return rec.get("payload")
+    except Exception:
+        return None
+
+
+def cache_put(cwd, fingerprint, scope_key, payload):
+    """Best-effort: cria o diretório, grava JSON. Erro de escrita NÃO pode
+    derrubar o review. fingerprint vazio -> no-op (cache desligado)."""
+    if not fingerprint:
+        return
+    try:
+        d = _cache_dir()
+        os.makedirs(d, exist_ok=True)
+        key = hashlib.sha1(cwd.encode()).hexdigest()
+        path = os.path.join(d, f"{key}-{scope_key}.json")
+        with open(path, "w") as f:
+            json.dump({"fingerprint": fingerprint, "at": time.time(),
+                       "payload": payload}, f)
+    except Exception:
+        pass
+
+
+# ── NOVO: estágio de segurança com escopo + cache (fiação do review) ─────────
+def _security_stage(cwd, base, hook_mode):
+    """Devolve (findings, skipped, scope_key).
+    hook_mode=False -> árvore toda (review manual/CI), scope_key='full', sem
+    cache (a varredura completa é o padrão e não muda entre turnos do agente).
+    hook_mode=True  -> diff do turno, scope_key='diff', cache de 15 min por
+    fingerprint. Cache serve só se o estado da árvore for o mesmo."""
+    if not hook_mode:
+        return security_gates(cwd, None), "full"
+
+    scope_key = "diff"
+    fp = tree_fingerprint(cwd)
+    cached = cache_get(cwd, fp, scope_key)
+    if cached is not None:
+        return cached, scope_key
+
+    files = _changed_files(cwd, base)  # [] se diff vazio -> sem scanners
+    res = security_gates(cwd, files)
+    cache_put(cwd, fp, scope_key, res)
+    return res, scope_key
+
+def security_gates(cwd, scope_files=None):
+    """Estágio 1 espelhado do Rust (mcp/tools.rs): gitleaks + semgrep.
+    scope_files=None -> árvore toda (review manual/CI). "Segredo em qualquer
+    lugar é segredo, mesmo em código não tocado pelo diff" — padrão preservado.
+    scope_files=[]   -> diff vazio: devolve ([], []) sem invocar scanner nenhum.
+    scope_files=[..] -> escopa ao diff. gitleaks por arquivo (teto 40); semgrep
+                       numa invocação com lista. Deletados são filtrados (não
+                       existem no disco). Degrada SEMPRE limpo, nunca levanta."""
     findings, skipped = [], []
     if not cwd or not os.path.isdir(cwd):
         return findings, skipped
-    _gitleaks_gate(cwd, findings, skipped)
-    _semgrep_gate(cwd, findings, skipped)
+
+    # Padrão: árvore toda (review manual/CI). Mantém exatamente o comportamento
+    # anterior — a varredura completa existe de propósito.
+    if scope_files is None:
+        _gitleaks_gate(cwd, findings, skipped)
+        _semgrep_gate(cwd, findings, skipped)
+        return findings, skipped
+
+    # Diff vazio: nada a escanear. Sem scanner, sem skipped.
+    if not scope_files:
+        return findings, skipped
+
+    # Filtra arquivos deletados no diff (não há mais no disco pra escanear).
+    files = [p for p in scope_files if os.path.exists(os.path.join(cwd, p))]
+    if not files:
+        return findings, skipped
+
+    # gitleaks: teto de 40 arquivos. Acima disso, cai pra árvore toda e REGISTRA
+    # o motivo em skipped — honestidade sobre o que realmente foi feito.
+    if len(files) > _GITLEAKS_MAX_FILES:
+        skipped.append(
+            f"security: escopo diff grande demais ({len(files)} arquivos > "
+            f"{_GITLEAKS_MAX_FILES}); gitleaks voltou para a árvore toda "
+            f"(68,5 s medidos na árvore completa). semgrep segue escopado."
+        )
+        _gitleaks_gate(cwd, findings, skipped)        # árvore toda
+        _semgrep_scoped(cwd, files, findings, skipped)  # escopado (aceita lista)
+        return findings, skipped
+
+    _gitleaks_scoped(cwd, files, findings, skipped)
+    _semgrep_scoped(cwd, files, findings, skipped)
     return findings, skipped
-
-
-# ── Estágio 1 · gate de error-handling (complementa o de segurança) ─────────────
-#
-# Espelho conceitual do gate de segurança acima, mas para anti-padrões de
-# TRATAMENTO DE ERRO (except vazio, catch vazio, swallow silencioso). Roda o
-# scanner AST portado do marketplace OmniForge (`omnirift-anti-patterns.py`, gate
-# 8) sobre o WORKING TREE do cwd — o mesmo alvo do gate de segurança. CRITICAL do
-# scanner → CRITICAL; WARNING → WARNING; category="error-handling". Degrada SEMPRE
-# limpo: scanner ausente / interpretador ausente / timeout / JSON inválido =
-# registrado em `skipped` (NEUTRAL — não vira finding e não bloqueia o review).
-
-# rule do scanner → frase legível para o campo `title`.
-_EH_RULE_TITLES = {
-    "except-pass": "except vazio (pass/…) engole o erro",
-    "bare-except-swallow": "bare except sem log nem re-raise engole tudo",
-    "empty-catch": "catch vazio engole o erro",
-    "empty-promise-catch": ".catch(() => {}) engole a rejeição",
-    "bare-except-log-only": "bare except só loga (sem re-raise)",
-    "broad-except-log-continue": "except Exception loga e segue (sem re-raise)",
-    "broad-except-swallow": "except amplo engole sem contexto",
-    "catch-log-only": "catch só loga (sem rethrow)",
-    "catch-swallow": "catch engole o erro sem usar/relançar",
-    "promise-catch-log-only": ".catch() só loga (sem rethrow)",
-    "promise-catch-swallow": ".catch() engole a rejeição",
-}
-_EH_SUGGESTION = (
-    "Trate, re-lance (raise/throw) ou registre com contexto; "
-    "ou marque `# anti-pattern: allow <razão>` (`//` em TS/JS)."
-)
-
 
 def _anti_patterns_scanner():
     """Path do scanner, robusto: relativo ao PRÓPRIO local-review.py (não hardcode)."""
@@ -467,7 +653,18 @@ def error_handling_gate(cwd, changed=None):
     if not os.path.isfile(scanner):
         skipped.append("anti-patterns: scanner ausente")
         return findings, skipped
-    cmd = [sys.executable or "python3", scanner, "--json", cwd]
+    # Escopa o scanner aos ARQUIVOS do diff em vez de varrer a árvore e filtrar
+    # depois: medido em 18,4s no repo de 11 GB do usuário, por parada de agente.
+    # O scanner aceita paths posicionais. Sem `changed` (review manual/CI) segue
+    # varrendo tudo — lá o custo é pago uma vez, não a cada turno.
+    alvos = []
+    if changed:
+        alvos = [
+            os.path.join(cwd, rel)
+            for rel in changed
+            if os.path.isfile(os.path.join(cwd, rel))
+        ]
+    cmd = [sys.executable or "python3", scanner, "--json"] + (alvos or [cwd])
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except FileNotFoundError:
@@ -609,7 +806,8 @@ def render(findings, verdict, crit, warn):
     return "\n".join(lines)
 
 
-def review(cwd, config_path, base):
+def review(cwd, config_path, base, hook_mode=False):
+    base = base or detect_base(cwd)
     cfg = load_config(config_path)
     llm = cfg.get("llm")
     policy = pick_policy(cfg, cwd)
@@ -617,7 +815,10 @@ def review(cwd, config_path, base):
     #   • segurança (gitleaks + semgrep) — espelha mcp/tools.rs::run_preflight;
     #   • error-handling (omnirift-anti-patterns.py, gate 8 do marketplace).
     # Ambos degradam limpo (ferramenta/scanner ausente ou timeout → skipped).
-    sec_findings, sec_skipped = security_gates(cwd)
+    # hook_mode escopa ao diff + cacheia por fingerprint: o Stop hook roda a CADA
+    # parada de agente, e a arvore inteira custava 68,5s (gitleaks) + 20,3s (semgrep)
+    # medidos num repo de 11 GB — por turno, e multiplicado por agente que para junto.
+    (sec_findings, sec_skipped), _scope_key = _security_stage(cwd, base, hook_mode)
     # Diff ANTES do gate de error-handling: ele so reporta o que o diff ADICIONOU
     # (divida de estilo). Seguranca continua varrendo a arvore toda de proposito.
     diff = git_diff(cwd, base)
@@ -663,7 +864,7 @@ def run_hook(config_path):
         return 0
     cwd = data.get("cwd") or os.getcwd()
     try:
-        r = review(cwd, config_path, os.environ.get("MAESTRI_REVIEW_BASE", ""))
+        r = review(cwd, config_path, os.environ.get("MAESTRI_REVIEW_BASE", ""), hook_mode=True)
     except Exception as e:
         # erro de infra → não bloqueia (NEUTRAL)
         sys.stderr.write(f"local-review: erro {e}\n")
