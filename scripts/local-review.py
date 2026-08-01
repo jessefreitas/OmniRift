@@ -225,14 +225,17 @@ def _run_tool(cmd, timeout):
         return "failed", str(e)
 
 
-def _gitleaks_gate(cwd, findings, skipped):
+def _gitleaks_gate(cwd, findings, skipped, target=None):
     """gitleaks --no-git (só o working tree), report JSON em arquivo temp. Cada leak =
     1 CRITICAL `security` (arquivo:linha + RuleID). Fallback: exit 1 sem report legível
     = 1 CRITICAL genérico (não perde o gate). Ausente/erro/inconclusivo → skipped."""
     fd, report_path = tempfile.mkstemp(prefix="omnirift-gitleaks-", suffix=".json")
     os.close(fd)
+    # `target` = escopo (um arquivo) no modo hook; None = árvore toda. O RESTO dos
+    # argumentos é idêntico nos dois modos, de propósito: quando o escopado tinha um
+    # comando próprio, ele perdeu --no-git/--redact/--config e passou a falhar calado.
     cmd = [
-        "gitleaks", "detect", "--source", cwd, "--no-git", "--redact",
+        "gitleaks", "detect", "--source", target or cwd, "--no-git", "--redact",
         "--report-format", "json", "--report-path", report_path, "--exit-code", "1",
     ]
     # `.gitleaks.toml` do repo: exclui node_modules/target/dist (1,3 GB de código de
@@ -290,15 +293,18 @@ def _gitleaks_gate(cwd, findings, skipped):
             pass
 
 
-def _semgrep_gate(cwd, findings, skipped):
+def _semgrep_gate(cwd, findings, skipped, targets=None):
     """semgrep p/security-audit + p/secrets (severity ERROR), saída --json. ERROR →
     CRITICAL, senão WARNING; file `arquivo:linha [regra]`. Saída não-JSON (falha de
     rede/download de regras) / ausente / timeout → skipped (NEUTRAL)."""
+    # `targets` = arquivos do diff no modo hook; None = árvore toda. Mesmos rulesets e
+    # mesma severidade nos dois modos — a versão escopada anterior tinha comando próprio
+    # e perdeu p/security-audit, p/secrets e --error.
     cmd = [
         "semgrep", "scan", "--config", "p/security-audit", "--config", "p/secrets",
         "--severity", "ERROR", "--error", "--json", "--quiet", "--metrics=off",
-        "--disable-version-check", cwd,
-    ]
+        "--disable-version-check",
+    ] + (list(targets) if targets else [cwd])
     kind, out = _run_tool(cmd, 120)
     if kind == "missing":
         skipped.append("semgrep: ferramenta ausente")
@@ -338,127 +344,212 @@ def _semgrep_gate(cwd, findings, skipped):
 
 _GITLEAKS_MAX_FILES = 40
 
-# _run_tool(cmd, cwd, timeout) -> (rc, stdout, stderr) já existe no script.
-# Mantida a implementação atual; não reproduzida aqui.
-
 
 def _changed_files(cwd, base):
     """Arquivos alterados (relativos ao cwd) para o escopo do hook.
-    base vazio -> diff contra HEAD. Inclui untracked via status --porcelain.
-    Erro/sem git -> [] (diff vazio: security_gates([], ...) não roda scanner)."""
+    base vazio -> diff contra HEAD. Usa saída NUL-delimited para nomes com espaço,
+    aspas, rename ou newline. Inclui untracked via `git ls-files`.
+
+    Retorna None em erro: falhar ao descobrir o escopo NÃO pode parecer diff vazio;
+    o chamador cai para a árvore inteira nesse caso.
+    """
     if not cwd or not os.path.isdir(cwd):
-        return []
+        return None
     ref = base or "HEAD"
     try:
-        r1 = subprocess.run(["git", "-C", cwd, "diff", "--name-only", ref],
-                            capture_output=True, text=True, timeout=10)
-        r2 = subprocess.run(["git", "-C", cwd, "status", "--porcelain=v1"],
-                            capture_output=True, text=True, timeout=10)
+        changed = subprocess.run(
+            ["git", "-C", cwd, "diff", "--name-only", "-z", ref, "--"],
+            capture_output=True,
+            timeout=10,
+        )
+        untracked = subprocess.run(
+            ["git", "-C", cwd, "ls-files", "--others", "--exclude-standard", "-z"],
+            capture_output=True,
+            timeout=10,
+        )
     except Exception:
-        return []
-    files = set()
-    for line in r1.stdout.splitlines():
-        if line.strip():
-            files.add(line.strip())
-    for line in r2.stdout.splitlines():
-        if line.strip():
-            # formato porcelain: "XY path" (path pode ter aspas em renames)
-            files.add(line[3:].strip().strip('"'))
+        return None
+    if changed.returncode != 0 or untracked.returncode != 0:
+        return None
+
+    files = {
+        os.fsdecode(raw)
+        for output in (changed.stdout, untracked.stdout)
+        for raw in output.split(b"\0")
+        if raw
+    }
     return sorted(files)
 
 
-def _gitleaks_scoped(cwd, files, findings, skipped):
-    """gitleaks por arquivo quando escopado ao diff.
-    Medido 0,24 s/arquivo; teto aplicado em security_gates(). Achados somados.
-    file do finding volta pra forma relativa que o resto do script espera."""
-    for rel in files:
-        abs_p = os.path.join(cwd, rel)
-        cmd = ["gitleaks", "detect", "--source", abs_p,
-               "--report-format", "json", "--report-path", "-", "--no-banner"]
-        try:
-            rc, out, err = _run_tool(cmd, cwd, 30)
-        except Exception as e:
-            skipped.append(f"security/gitleaks: {rel} falhou ({e})")
-            continue
-        if not out or not out.strip():
-            continue
-        try:
-            data = json.loads(out)
-        except Exception:
-            skipped.append(f"security/gitleaks: {rel} JSON inválido")
-            continue
-        for item in data:
-            rule = (item.get("RuleID") or item.get("rule")
-                    or item.get("rule_id") or "unknown")
-            line = (item.get("StartLine") or item.get("startLine")
-                    or item.get("line") or 0)
-            findings.append({
-                "severity": "CRITICAL",
-                "category": "security",
-                "file": f"{rel}:{line} [{str(rule)[:80]}]",
-                "title": f"possível segredo ({rule})",
-                "suggestion": None,
-            })
-
-
-def _semgrep_scoped(cwd, files, findings, skipped):
-    """semgrep UMA invocação com arquivos como argumentos posicionais (ele
-    aceita lista). Não há teto: uma chamada escopada foi medida em 9,7 s para
-    1-2 arquivos contra 20,3 s na árvore toda — ganho sem cap."""
-    if not files:
-        return
-    cmd = ["semgrep", "scan", "--json", "--quiet"]
-    cmd += [os.path.join(cwd, p) for p in files]
-    try:
-        rc, out, err = _run_tool(cmd, cwd, 90)
-    except Exception as e:
-        skipped.append(f"security/semgrep: escopado falhou ({e})")
-        return
-    if not out or not out.strip():
-        return
-    try:
-        data = json.loads(out)
-    except Exception:
-        skipped.append("security/semgrep: escopado JSON inválido")
-        return
-    sev_map = {"ERROR": "CRITICAL", "WARNING": "WARNING", "INFO": "INFO"}
-    for res in data.get("results", []):
-        path = res.get("path", "")
-        try:
-            rel = os.path.relpath(path, cwd)
-        except Exception:
-            rel = path
-        extra = res.get("extra", {}) or {}
-        sev = sev_map.get((extra.get("severity") or "WARNING").upper(), "WARNING")
-        rule = res.get("check_id", "")
-        start = res.get("start", {}) or {}
-        findings.append({
-            "severity": sev,
-            "category": "security",
-            "file": f"{rel}:{start.get('line', 0)} [{str(rule)[:80]}]",
-            "title": extra.get("message", "semgrep") or "semgrep",
-            "suggestion": None,
-        })
-
-# ── NOVO: cache por estado da árvore ───────────────────────────────────────
 def _cache_dir():
     return os.path.join(os.path.expanduser("~"), ".omnirift", "review-cache")
 
 
-def tree_fingerprint(cwd):
-    """sha256 de (HEAD + status porcelain). Sem git ou erro -> string vazia;
-    nesse caso o cache é DESLIGADO (nunca servimos resultado sem saber o estado
-    da árvore — um commit novo invalidaria achados já corrigidos)."""
-    try:
-        head = subprocess.run(["git", "-C", cwd, "rev-parse", "HEAD"],
-                              capture_output=True, text=True, timeout=5).stdout.strip()
-        status = subprocess.run(["git", "-C", cwd, "status", "--porcelain=v1"],
-                                capture_output=True, text=True, timeout=5).stdout
-        return hashlib.sha256((head + "\n" + status).encode()).hexdigest()
-    except Exception:
+SCANNERS_VERSION = "omnirift-local-review-v2"  # invalide cache antigo ao mudar scanner/regras
+
+def _with_singleflight(lock_path, produce, wait_result, timeout_s=120):
+    """
+    Singleflight por arquivo de lock.
+
+    POR QUE: sem isso, três agentes parando juntos erram o mesmo cache ao mesmo
+    tempo e disparam três varreduras idênticas — exatamente o custo que o cache
+    existe pra evitar. Aqui o primeiro que cria o lock é o dono e executa
+    `produce()`; os demais esperam o resultado em vez de duplicar trabalho.
+
+    Regras:
+      - Lock via os.open(..., O_CREAT | O_EXCL). Conseguiu -> dono.
+      - Dono: executa produce(), grava resultado, remove lock, devolve.
+      - Não-dono: laço de espera chamando wait_result() a cada 100 ms até
+        resultado não-None ou estourar timeout_s. Se estourar, executa produce()
+        mesmo assim (melhor duplicar trabalho do que travar um agente pra sempre).
+      - Lock órfão: se o arquivo existir e tiver mtime mais velho que timeout_s,
+        remove e assume a propriedade.
+      - Lock é SEMPRE removido no finally, inclusive se produce() lançar.
+    """
+    poll_interval = 0.1  # 100 ms
+    deadline = time.monotonic() + timeout_s
+
+    while True:
+        # O dono pode ter acabado de publicar o resultado e removido o lock.
+        # Ler ANTES de tentar virar dono evita uma segunda execução nessa janela.
+        result = wait_result()
+        if result is not None:
+            return result
+
+        fd = None
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            # mtime usa relógio de parede; comparar com monotonic tornava todo lock
+            # órfão "jovem" para sempre.
+            try:
+                if time.time() - os.stat(lock_path).st_mtime > timeout_s:
+                    os.unlink(lock_path)
+                    continue
+            except FileNotFoundError:
+                continue
+            except OSError:
+                pass
+
+            if time.monotonic() >= deadline:
+                # Disponibilidade vence depois do teto: executa sem compartilhar.
+                return produce()
+            time.sleep(poll_interval)
+            continue
+        except OSError:
+            # Diretório sem permissão/FS incomum: cache é otimização, não requisito.
+            return produce()
+
+        try:
+            return produce()
+        finally:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            try:
+                os.unlink(lock_path)
+            except OSError:
+                pass
+
+def tree_fingerprint(cwd, base=""):
+    """
+    Fingerprint que inclui CONTEÚDO, não só nomes/estados.
+
+    POR QUE: o furo real era confiar só em `git rev-parse HEAD` + `git status --porcelain=v1`.
+    Sequência que passava despercebida:
+      1. arquivo.ts é modificado -> aparece como ' M';
+      2. hook escaneia e grava cache;
+      3. o agente ADICIONA UM SEGREDO no mesmo arquivo;
+      4. o arquivo continua aparecendo como ' M' (porcelain idêntico);
+      5. fingerprint não muda e o veredito antigo é servido por até 15 minutos,
+         escondendo o segredo recém-introduzido.
+    Agora o hash depende do conteúdo real do working tree e do staged, além do
+    HEAD, dos arquivos untracked (hash do conteúdo, não só do nome), da base do
+    review e da versão dos scanners. Qualquer erro de git -> devolve "" (cache
+    desligado): nunca servimos resultado sem saber o estado real.
+    """
+    def _git_ok(args):
+        # Roda git; devolve (ok, stdout_bytes). Qualquer falha -> ok=False.
+        try:
+            p = subprocess.run(
+                ["git", "-C", cwd] + args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            return (p.returncode == 0, p.stdout)
+        except Exception:
+            return (False, b"")
+
+    h = hashlib.sha256()
+    h.update(SCANNERS_VERSION.encode("utf-8", "replace"))
+    h.update(b"\x00base=")
+    h.update((base or "").encode("utf-8", "replace"))
+
+    if base:
+        ok, out = _git_ok(["rev-parse", f"{base}^{{commit}}"])
+        if not ok:
+            return ""
+        h.update(b"\x00base-oid=")
+        h.update(out)
+
+    # HEAD do repositório.
+    ok, out = _git_ok(["rev-parse", "HEAD"])
+    if not ok:
+        return ""  # sem saber o HEAD, não confiamos no cache.
+    h.update(b"\x00head=")
+    h.update(out)
+
+    # Conteúdo do working tree vs HEAD (não só o estado 'M').
+    # diff --binary captura alterações binárias também; se houver erro, desliga cache.
+    ok, out = _git_ok(["diff", "--no-ext-diff", "--binary", "HEAD", "--"])
+    if not ok:
+        return ""
+    h.update(b"\nwdiff-head-len=")
+    h.update(str(len(out)).encode("ascii", "replace"))
+    h.update(b"\n")
+    h.update(out)
+
+    # Conteúdo staged (index vs HEAD): pode abrigar segredo adicionado em staging.
+    ok, out = _git_ok(["diff", "--no-ext-diff", "--binary", "--cached", "--"])
+    if not ok:
+        return ""
+    h.update(b"\ncdiff-len=")
+    h.update(str(len(out)).encode("ascii", "replace"))
+    h.update(b"\n")
+    h.update(out)
+
+    # Arquivos untracked: precisamos do hash do CONTEÚDO, não só do nome.
+    ok, out = _git_ok(["ls-files", "--others", "--exclude-standard", "-z"])
+    if not ok:
+        return ""
+    untracked = [os.fsdecode(raw) for raw in out.split(b"\0") if raw]
+
+    max_untracked = 200
+    if len(untracked) > max_untracked:
+        # Truncar permitiria que o 201º arquivo mudasse sem invalidar o cache.
         return ""
 
+    for name in untracked:
+        # Normalizamos o nome para o hash; o conteúdo entra em blocos de 64 KB.
+        h.update(b"\nuntracked-name=")
+        h.update(name.encode("utf-8", "replace"))
+        h.update(b"\n")
+        full = os.path.join(cwd, name)
+        try:
+            with open(full, "rb") as f:
+                while True:
+                    chunk = f.read(65536)  # 64 KB
+                    if not chunk:
+                        break
+                    h.update(chunk)
+        except OSError:
+            return ""
+        h.update(b"\n")
 
+    return h.hexdigest()
 def cache_get(cwd, fingerprint, scope_key):
     """Devolve o payload só se fingerprint bater E TTL <= 900s (15 min).
     Erro de leitura/JSON -> None (falha-aberto: revisa de novo). fingerprint
@@ -475,7 +566,15 @@ def cache_get(cwd, fingerprint, scope_key):
             return None
         if time.time() - float(rec.get("at", 0)) > 900:
             return None
-        return rec.get("payload")
+        payload = rec.get("payload")
+        if (
+            isinstance(payload, list)
+            and len(payload) == 2
+            and isinstance(payload[0], list)
+            and isinstance(payload[1], list)
+        ):
+            return payload[0], payload[1]
+        return None
     except Exception:
         return None
 
@@ -485,38 +584,87 @@ def cache_put(cwd, fingerprint, scope_key, payload):
     derrubar o review. fingerprint vazio -> no-op (cache desligado)."""
     if not fingerprint:
         return
+    tmp_path = None
     try:
         d = _cache_dir()
-        os.makedirs(d, exist_ok=True)
+        os.makedirs(d, mode=0o700, exist_ok=True)
         key = hashlib.sha1(cwd.encode()).hexdigest()
         path = os.path.join(d, f"{key}-{scope_key}.json")
-        with open(path, "w") as f:
+        fd, tmp_path = tempfile.mkstemp(prefix=f".{key}-{scope_key}-", dir=d)
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump({"fingerprint": fingerprint, "at": time.time(),
                        "payload": payload}, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+        tmp_path = None
     except Exception:
         pass
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 # ── NOVO: estágio de segurança com escopo + cache (fiação do review) ─────────
 def _security_stage(cwd, base, hook_mode):
-    """Devolve (findings, skipped, scope_key).
-    hook_mode=False -> árvore toda (review manual/CI), scope_key='full', sem
-    cache (a varredura completa é o padrão e não muda entre turnos do agente).
-    hook_mode=True  -> diff do turno, scope_key='diff', cache de 15 min por
-    fingerprint. Cache serve só se o estado da árvore for o mesmo."""
+    """
+    Estágio de segurança: usa fingerprint de conteúdo e singleflight no modo hook.
+
+    POR QUE: o cache por fingerprint só é válido se o fingerprint capturar o
+    conteúdo (ver tree_fingerprint). Além disso, no modo hook vários processos
+    podem bater no mesmo cache ao mesmo tempo; envolvemos escanear+gravar em
+    _with_singleflight, com wait_result sendo uma releitura do cache. O caminho
+    sem cache (fingerprint vazio) NÃO usa lock — sem fingerprint não há o que
+    compartilhar, e travar seria só custo extra.
+    """
     if not hook_mode:
         return security_gates(cwd, None), "full"
 
     scope_key = "diff"
-    fp = tree_fingerprint(cwd)
-    cached = cache_get(cwd, fp, scope_key)
-    if cached is not None:
-        return cached, scope_key
+    fp = tree_fingerprint(cwd, base)
+    if fp:
+        cached = cache_get(cwd, fp, scope_key)
+        if cached is not None:
+            return cached, scope_key
 
-    files = _changed_files(cwd, base)  # [] se diff vazio -> sem scanners
-    res = security_gates(cwd, files)
-    cache_put(cwd, fp, scope_key, res)
-    return res, scope_key
+    files = _changed_files(cwd, base)
+
+    def _produce():
+        if files is None:
+            result = security_gates(cwd, None)
+            result[1].insert(
+                0,
+                "security: escopo do diff indisponível; árvore inteira escaneada",
+            )
+        else:
+            result = security_gates(cwd, files)
+        if fp:
+            cache_put(cwd, fp, scope_key, result)
+        return result
+
+    if not fp:
+        return _produce(), scope_key
+
+    cache_dir = _cache_dir()
+    try:
+        os.makedirs(cache_dir, mode=0o700, exist_ok=True)
+    except OSError:
+        return _produce(), scope_key
+
+    cwd_key = hashlib.sha1(cwd.encode()).hexdigest()
+    lock_path = os.path.join(cache_dir, f"{cwd_key}-{scope_key}-{fp}.lock")
+    result = _with_singleflight(
+        lock_path,
+        produce=_produce,
+        wait_result=lambda: cache_get(cwd, fp, scope_key),
+        timeout_s=120,
+    )
+    return result, scope_key
+
 
 def security_gates(cwd, scope_files=None):
     """Estágio 1 espelhado do Rust (mcp/tools.rs): gitleaks + semgrep.
@@ -554,12 +702,14 @@ def security_gates(cwd, scope_files=None):
             f"{_GITLEAKS_MAX_FILES}); gitleaks voltou para a árvore toda "
             f"(68,5 s medidos na árvore completa). semgrep segue escopado."
         )
-        _gitleaks_gate(cwd, findings, skipped)        # árvore toda
-        _semgrep_scoped(cwd, files, findings, skipped)  # escopado (aceita lista)
+        _gitleaks_gate(cwd, findings, skipped)  # árvore toda
+        _semgrep_gate(cwd, findings, skipped, [os.path.join(cwd, f) for f in files])
         return findings, skipped
 
-    _gitleaks_scoped(cwd, files, findings, skipped)
-    _semgrep_scoped(cwd, files, findings, skipped)
+    # gitleaks não aceita lista: uma invocação por arquivo, com os MESMOS argumentos.
+    for rel in files:
+        _gitleaks_gate(cwd, findings, skipped, os.path.join(cwd, rel))
+    _semgrep_gate(cwd, findings, skipped, [os.path.join(cwd, f) for f in files])
     return findings, skipped
 
 def _anti_patterns_scanner():
@@ -714,7 +864,20 @@ def error_handling_gate(cwd, changed=None):
     return findings, skipped
 
 
-def llm_call(llm, system, prompt):
+def _llm_timeout_seconds(llm, hook_mode=False):
+    """Orçamento da chamada LLM; Stop hook nunca pode herdar 180 s."""
+    key = "hookTimeoutSeconds" if hook_mode else "timeoutSeconds"
+    default = 12.0 if hook_mode else 180.0
+    try:
+        value = float(llm.get(key, default))
+    except (TypeError, ValueError):
+        value = default
+    # O hook participa do ciclo de parada do agente: limite rígido e curto.
+    ceiling = 30.0 if hook_mode else 600.0
+    return max(1.0, min(value, ceiling))
+
+
+def llm_call(llm, system, prompt, timeout_s=180):
     base = (llm.get("baseUrl") or "").rstrip("/")
     provider = llm.get("provider") or "openai"
     key = (llm.get("apiKey") or "").strip()
@@ -739,11 +902,11 @@ def llm_call(llm, system, prompt):
         body = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}], "temperature": 0.1}
         ptr = lambda r: r.get("choices", [{}])[0].get("message", {}).get("content", "")
     req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers=headers)
-    resp = json.loads(urllib.request.urlopen(req, timeout=180).read())
+    resp = json.loads(urllib.request.urlopen(req, timeout=timeout_s).read())
     return ptr(resp)
 
 
-def ai_review(diff_text, llm, policy):
+def ai_review(diff_text, llm, policy, timeout_s=180):
     cats = "\n".join(f"- {k} ({label}, peso {w}{', bloqueante' if b else ''})" for k, label, w, b in DEFAULT_CATEGORIES)
     extra = policy.get("contracts") or ""
     try:
@@ -760,7 +923,7 @@ def ai_review(diff_text, llm, policy):
         "Responda APENAS o array JSON (use [] se não houver).\n\nDIFF:\n" + diff_text[:60000]
     )
     try:
-        text = llm_call(llm, system, prompt)
+        text = llm_call(llm, system, prompt, timeout_s=timeout_s)
     except Exception as e:
         return None, str(e)
     m = re.search(r"\[[\s\S]*\]", text or "")
@@ -820,7 +983,8 @@ def review(cwd, config_path, base, hook_mode=False):
     # medidos num repo de 11 GB — por turno, e multiplicado por agente que para junto.
     (sec_findings, sec_skipped), _scope_key = _security_stage(cwd, base, hook_mode)
     # Diff ANTES do gate de error-handling: ele so reporta o que o diff ADICIONOU
-    # (divida de estilo). Seguranca continua varrendo a arvore toda de proposito.
+    # (divida de estilo). Segurança é completa no review manual/CI e escopada ao
+    # diff no Stop hook; falha ao descobrir o escopo volta para a árvore inteira.
     diff = git_diff(cwd, base)
     eh_findings, eh_skipped = error_handling_gate(cwd, changed_lines(diff))
     det_findings = sec_findings + eh_findings  # gates determinísticos consolidados
@@ -835,7 +999,12 @@ def review(cwd, config_path, base, hook_mode=False):
     findings = preflight(diff, policy)
     llm_err = None
     if llm and (llm.get("model")):
-        ai, llm_err = ai_review(diff, llm, policy)
+        ai, llm_err = ai_review(
+            diff,
+            llm,
+            policy,
+            timeout_s=_llm_timeout_seconds(llm, hook_mode),
+        )
         if ai:
             findings += ai
     findings += pathrule_findings(diff, load_pathrules(cwd))  # regras por path

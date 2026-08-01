@@ -108,6 +108,12 @@ jobs:
       # scripts/quality-baseline.txt. O script existia desde a 0.1.141 e nenhum
       # workflow o chamava — baseline que ninguém roda não é gate, é arquivo.
       # Vem por último: não pode mascarar uma falha de build ou de smoke.
+      # O gate de review escapou de um bug que o desligava por inteiro (assinatura
+      # errada -> scanners viravam "skipped" e o review aprovava sem escanear). Estes
+      # testes usam executáveis FALSOS pra provar que os scanners realmente rodam.
+      - name: Testes do gate de review (scanners falsos)
+        run: python3 scripts/test-local-review.py
+
       - name: Gate de qualidade (não piorar)
         run: bash scripts/quality-baseline.sh
 
