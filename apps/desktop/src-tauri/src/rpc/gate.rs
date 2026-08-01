@@ -245,4 +245,26 @@ mod tests {
             "lib.rs parou de gatear o OmniSwitch — volta a subir servidor com a flag off"
         );
     }
+
+    /// Trava a REGRESSÃO que o gate acima causou: sem device pareado o servidor LAN
+    /// não sobe no boot (certo), mas o PRIMEIRO pareamento depende dele. Se o fluxo
+    /// de pareamento deixar de subir o servidor sob demanda, parear numa instalação
+    /// limpa volta a ser impossível — e a mensagem de erro ("tente em instantes")
+    /// nunca deixa de valer, o que esconde o defeito.
+    #[test]
+    fn pareamento_sobe_o_servidor_sob_demanda() {
+        let mod_rs = include_str!("mod.rs");
+        assert!(
+            mod_rs.contains("pub fn ensure_lan_server"),
+            "rpc/mod.rs perdeu ensure_lan_server — o primeiro pareamento fica sem servidor"
+        );
+        let offer = mod_rs
+            .split("pub fn mobile_pairing_offer")
+            .nth(1)
+            .unwrap_or("");
+        assert!(
+            offer.contains("ensure_lan_server"),
+            "mobile_pairing_offer parou de garantir o servidor — instalação limpa não pareia mais"
+        );
+    }
 }

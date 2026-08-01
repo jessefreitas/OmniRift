@@ -142,6 +142,66 @@ pub fn start_mobile_relay(app: AppHandle) {
 }
 
 // ---------------------------------------------------------------------------
+/// Trava para que duas chamadas concorrentes a `ensure_lan_server` não subam
+/// dois servidores WebSocket simultaneamente. Quem perder a corrida apenas
+/// aguarda o bind da porta.
+static INICIANDO_LAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Garante o servidor de LAN no ar, subindo-o AGORA se preciso.
+///
+/// Chamada pelo fluxo de pareamento: sem device pareado o servidor não sobe no boot
+/// (não abrir porta pra servir ninguém), mas o primeiro pareamento depende dele.
+pub fn ensure_lan_server(app: &AppHandle) -> Result<(), String> {
+    // 1. Pega o estado que já foi registrado em `start_mobile_relay`. Se não
+    //    existir, a arquitetura do app está inconsistente.
+    let relay: Arc<MobileRelay> = tauri::Manager::try_state::<Arc<MobileRelay>>(app)
+        .map(|s| (*s).clone())
+        .ok_or_else(|| "estado MobileRelay não encontrado no app".to_string())?;
+
+    // 2. Já está bindado? Nada a fazer.
+    if relay.port() != 0 {
+        return Ok(());
+    }
+
+    // 3. Apenas uma thread inicia o servidor; as demais apenas esperam.
+    let ganhei_corrida = INICIANDO_LAN
+        .compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+        )
+        .is_ok();
+
+    if ganhei_corrida {
+        // Reaproveita o `MobileRelay` existente. Criar outro state ou chamar
+        // `app.manage` de novo duplicaria a referência e quebraria o registro.
+        let keypair = Arc::new(keypair::load_or_create().map_err(|e| {
+            INICIANDO_LAN.store(false, std::sync::atomic::Ordering::SeqCst);
+            format!("falha ao carregar keypair E2EE: {e}")
+        })?);
+        let registry = Arc::new(build_registry());
+        let devices = Arc::clone(&relay.devices);
+
+        ws::spawn_server(app.clone(), registry, devices, keypair, Arc::clone(&relay));
+    }
+
+    // 4. `spawn_server` é assíncrono: a porta só aparece depois do bind.
+    //    Espera por ela, seja quem subiu o servidor ou quem perdeu a corrida.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while std::time::Instant::now() < deadline {
+        if relay.port() != 0 {
+            INICIANDO_LAN.store(false, std::sync::atomic::Ordering::SeqCst);
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    // Estourou o prazo: garante que a trava não fique presa.
+    INICIANDO_LAN.store(false, std::sync::atomic::Ordering::SeqCst);
+    Err("o servidor de pareamento não subiu a tempo".to_string())
+}
+
 // Comandos Tauri da Área de Conexões — Mobile (wire no lib.rs)
 // ---------------------------------------------------------------------------
 
@@ -157,6 +217,10 @@ pub fn mobile_pairing_offer(
     let relay = app
         .try_state::<Arc<MobileRelay>>()
         .ok_or_else(|| "relay mobile não está ativo nesta sessão".to_string())?;
+    // Sem device pareado o servidor não sobe no boot — e o PRIMEIRO pareamento
+    // depende dele. Sobe agora, sob demanda, senão parear numa instalação limpa
+    // ficava impossível (a mensagem "tente em instantes" nunca deixava de valer).
+    ensure_lan_server(&app)?;
     let port = relay.port();
     if port == 0 {
         return Err("relay mobile ainda não bindou a porta (tente em instantes)".into());
