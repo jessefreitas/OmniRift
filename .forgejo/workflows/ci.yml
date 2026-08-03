@@ -97,6 +97,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Stop hook security/cache regressions
+        run: python3 scripts/test_local_review.py
+
       # typecheck dos workspaces (packages/*) que têm o script.
       - run: npm run typecheck
 

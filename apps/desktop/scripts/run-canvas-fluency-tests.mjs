@@ -1,7 +1,7 @@
 // scripts/run-canvas-fluency-tests.mjs
 //
 // Runner dos testes PUROS do gate de fluidez do canvas (apps/desktop não tem vitest).
-// Bundla src/lib/canvas-fluency.test.ts com esbuild.
+// Bundla os contratos de fluidez + broker de eventos com esbuild.
 // Uso: node scripts/run-canvas-fluency-tests.mjs
 // Sai com código != 0 se algum assert falhar (CI-friendly).
 
@@ -23,30 +23,26 @@ const aliasPlugin = {
   },
 };
 
-const result = await build({
-  entryPoints: [resolve(root, "src/lib/canvas-fluency.test.ts")],
-  bundle: true,
-  write: false,
-  format: "esm",
-  platform: "node",
-  target: "node20",
-  plugins: [aliasPlugin],
-});
-
-const out = resolve(here, ".canvas-fluency-test.bundle.mjs");
-writeFileSync(out, result.outputFiles[0].text);
-
-let failure = null;
-
-try {
-  await import(pathToFileURL(out).href);
-} catch (error) {
-  failure = error;
-} finally {
-  rmSync(out, { force: true });
-}
-
-if (failure) {
-  console.error(failure);
-  process.exit(1);
+const suites = ["canvas-fluency.test.ts", "event-broker.test.ts"];
+for (const suite of suites) {
+  const result = await build({
+    entryPoints: [resolve(root, "src/lib", suite)],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    target: "node20",
+    plugins: [aliasPlugin],
+  });
+  const out = resolve(here, `.${suite.replace(/\.ts$/, "")}.bundle.mjs`);
+  writeFileSync(out, result.outputFiles[0].text);
+  try {
+    await import(pathToFileURL(out).href);
+  } catch (error) {
+    console.error(error);
+    process.exitCode = 1;
+    break;
+  } finally {
+    rmSync(out, { force: true });
+  }
 }

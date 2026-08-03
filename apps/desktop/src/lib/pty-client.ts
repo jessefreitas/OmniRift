@@ -6,9 +6,13 @@
 // Por que abstrair: se um dia trocarmos Tauri por outra runtime
 // (Electron, web puro), só essa camada muda.
 
-import { countEvent, countListener } from "@/lib/perf-probe";
+import { setListenImpl, subscribeBySession } from "@/lib/event-broker";
 import { invoke } from "@tauri-apps/api/core";
+
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+// O broker roteia por sessão com UM listener por canal; aqui damos a ele o listen real.
+setListenImpl(listen);
 import type {
   AgentState,
   AgentStatusEvent,
@@ -152,21 +156,15 @@ export async function listenPtyOutput(
   sessionId: SessionId,
   handler: (data: string, seq: number | undefined) => void,
 ): Promise<UnlistenFn> {
-  // Instrumentação (não muda comportamento): cada nó instala o SEU listener global e
-  // filtra na borda, então cada frame de saída é entregue a TODOS os listeners e
-  // descartado por todos menos um. `countEvent` conta a entrega BRUTA — inclusive a
-  // descartada — porque é ela que revela o custo que cresce com o nº de terminais.
-  countListener(1);
-  const unlisten = await listen<PtyOutputEvent>("pty://output", (event) => {
-    countEvent("pty", event.payload.data.length);
-    if (event.payload.session_id === sessionId) {
-      handler(event.payload.data, event.payload.seq);
-    }
-  });
-  return () => {
-    countListener(-1);
-    unlisten();
-  };
+  // Broker: UM listener global por canal, roteando por sessão. Antes cada nó instalava
+  // o próprio listener e descartava na borda — com 11 terminais, cada frame era entregue
+  // 11 vezes e jogado fora 10.
+  return subscribeBySession<PtyOutputEvent>(
+    "pty://output",
+    sessionId,
+    (p) => p.session_id,
+    (p) => handler(p.data, p.seq),
+  );
 }
 
 /** Inscreve um listener para o evento de exit de UMA sessão. */
@@ -174,11 +172,12 @@ export async function listenPtyExit(
   sessionId: SessionId,
   handler: (code: number | null) => void,
 ): Promise<UnlistenFn> {
-  return listen<PtyExitEvent>("pty://exit", (event) => {
-    if (event.payload.session_id === sessionId) {
-      handler(event.payload.exit_code);
-    }
-  });
+  return subscribeBySession<PtyExitEvent>(
+    "pty://exit",
+    sessionId,
+    (p) => p.session_id,
+    (p) => handler(p.exit_code),
+  );
 }
 
 /** Inscreve um listener de estado de agente (agent://status) de UMA sessão. */
@@ -186,11 +185,12 @@ export async function listenAgentStatus(
   sessionId: SessionId,
   handler: (state: AgentState, message: string | null) => void,
 ): Promise<UnlistenFn> {
-  return listen<AgentStatusEvent>("agent://status", (event) => {
-    if (event.payload.session_id === sessionId) {
-      handler(event.payload.state, event.payload.message);
-    }
-  });
+  return subscribeBySession<AgentStatusEvent>(
+    "agent://status",
+    sessionId,
+    (p) => p.session_id,
+    (p) => handler(p.state, p.message),
+  );
 }
 
 /** Cria um pipe PTY entre dois terminais (source → target).

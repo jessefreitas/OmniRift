@@ -5,7 +5,11 @@
 // request do adapter como evento Tauri. Aqui só filtramos por sessão na borda.
 
 import { invoke } from "@tauri-apps/api/core";
+import { setListenImpl, subscribeBySession } from "@/lib/event-broker";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+// ACP pode ser o primeiro cliente carregado; não dependa de pty-client inicializar o broker.
+setListenImpl(listen);
 
 /** Config BYOK do Hermes passada no spawn: provider de inferência + modelo + key (a key vai só
  *  no spawn; o backend a persiste no keychain e passa vazia nos próximos re-spawns). */
@@ -168,9 +172,8 @@ function onSession<P extends BasePayload>(
   sessionId: string,
   handler: (payload: P) => void,
 ): Promise<UnlistenFn> {
-  return listen<P>(channel, (event) => {
-    if (event.payload?.sessionId === sessionId) handler(event.payload);
-  });
+  // Mesmo broker do PTY: 18 call sites instalavam um listener cada, por sessão.
+  return subscribeBySession<P>(channel, sessionId, (p) => p?.sessionId, handler);
 }
 
 /** session/new respondeu: `info` traz models + modes + capabilities. */

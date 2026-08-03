@@ -22,6 +22,7 @@
 import { emit } from "@tauri-apps/api/event";
 
 import { ptyKill, ptyList, ptySpawn } from "@/lib/pty-client";
+import { countMountedView } from "@/lib/perf-probe";
 import { sessionEnd } from "@/lib/session-client";
 import type { CanvasNode, TerminalNode } from "@/types/canvas";
 import type { PtySpawnConfig, SessionId } from "@/types/pty";
@@ -34,11 +35,13 @@ import type { PtySpawnConfig, SessionId } from "@/types/pty";
 const mountedViews = new Set<SessionId>();
 
 export function registerTerminalView(sessionId: SessionId): void {
+  if (mountedViews.has(sessionId)) return;
   mountedViews.add(sessionId);
+  countMountedView(1);
 }
 
 export function unregisterTerminalView(sessionId: SessionId): void {
-  mountedViews.delete(sessionId);
+  if (mountedViews.delete(sessionId)) countMountedView(-1);
 }
 
 export function hasTerminalView(sessionId: SessionId): boolean {

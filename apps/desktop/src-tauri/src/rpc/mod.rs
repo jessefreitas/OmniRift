@@ -151,7 +151,24 @@ static INICIANDO_LAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 ///
 /// Chamada pelo fluxo de pareamento: sem device pareado o servidor não sobe no boot
 /// (não abrir porta pra servir ninguém), mas o primeiro pareamento depende dele.
-pub fn ensure_lan_server(app: &AppHandle) -> Result<(), String> {
+async fn wait_for_lan_port(
+    relay: &MobileRelay,
+    timeout: std::time::Duration,
+) -> Result<u16, String> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        let port = relay.port();
+        if port != 0 {
+            return Ok(port);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err("o servidor de pareamento não subiu a tempo".to_string());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+pub async fn ensure_lan_server(app: &AppHandle) -> Result<u16, String> {
     // 1. Pega o estado que já foi registrado em `start_mobile_relay`. Se não
     //    existir, a arquitetura do app está inconsistente.
     let relay: Arc<MobileRelay> = tauri::Manager::try_state::<Arc<MobileRelay>>(app)
@@ -160,7 +177,7 @@ pub fn ensure_lan_server(app: &AppHandle) -> Result<(), String> {
 
     // 2. Já está bindado? Nada a fazer.
     if relay.port() != 0 {
-        return Ok(());
+        return Ok(relay.port());
     }
 
     // 3. Apenas uma thread inicia o servidor; as demais apenas esperam.
@@ -188,18 +205,11 @@ pub fn ensure_lan_server(app: &AppHandle) -> Result<(), String> {
 
     // 4. `spawn_server` é assíncrono: a porta só aparece depois do bind.
     //    Espera por ela, seja quem subiu o servidor ou quem perdeu a corrida.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-    while std::time::Instant::now() < deadline {
-        if relay.port() != 0 {
-            INICIANDO_LAN.store(false, std::sync::atomic::Ordering::SeqCst);
-            return Ok(());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-
-    // Estourou o prazo: garante que a trava não fique presa.
+    // Nunca bloqueie a thread do command handler enquanto o accept-loop faz o
+    // bind. Em máquina carregada esse caminho pode esperar até 3 s.
+    let result = wait_for_lan_port(&relay, std::time::Duration::from_secs(3)).await;
     INICIANDO_LAN.store(false, std::sync::atomic::Ordering::SeqCst);
-    Err("o servidor de pareamento não subiu a tempo".to_string())
+    result
 }
 
 // Comandos Tauri da Área de Conexões — Mobile (wire no lib.rs)
@@ -209,7 +219,7 @@ pub fn ensure_lan_server(app: &AppHandle) -> Result<(), String> {
 /// offer `{v:2, endpoint, deviceToken, publicKeyB64}` com o IP de LAN + a porta REAL, e
 /// devolve o deep-link `omnirift://pair?code=...` + o offer estruturado.
 #[tauri::command]
-pub fn mobile_pairing_offer(
+pub async fn mobile_pairing_offer(
     app: AppHandle,
     name: Option<String>,
 ) -> Result<serde_json::Value, String> {
@@ -220,11 +230,7 @@ pub fn mobile_pairing_offer(
     // Sem device pareado o servidor não sobe no boot — e o PRIMEIRO pareamento
     // depende dele. Sobe agora, sob demanda, senão parear numa instalação limpa
     // ficava impossível (a mensagem "tente em instantes" nunca deixava de valer).
-    ensure_lan_server(&app)?;
-    let port = relay.port();
-    if port == 0 {
-        return Err("relay mobile ainda não bindou a porta (tente em instantes)".into());
-    }
+    let port = ensure_lan_server(&app).await?;
     let keypair = keypair::load_or_create().map_err(|e| format!("keypair: {e}"))?;
     let device = relay
         .devices
@@ -349,5 +355,39 @@ mod tests {
                 "'{m}' NUNCA pode ser permitida p/ mobile"
             );
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn espera_bind_sem_bloquear_o_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let devices = Arc::new(devices::DeviceRegistry::open(
+            dir.path().join("devices.json"),
+        ));
+        let relay = Arc::new(MobileRelay::new(devices));
+        let writer = Arc::clone(&relay);
+
+        let publish = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            *writer.resolved_port.lock() = 43123;
+        });
+
+        let port = wait_for_lan_port(&relay, std::time::Duration::from_secs(1))
+            .await
+            .expect("a task concorrente deve conseguir publicar a porta");
+        publish.await.unwrap();
+        assert_eq!(port, 43123);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn espera_bind_tem_timeout_explicito() {
+        let dir = tempfile::tempdir().unwrap();
+        let devices = Arc::new(devices::DeviceRegistry::open(
+            dir.path().join("devices.json"),
+        ));
+        let relay = MobileRelay::new(devices);
+        let err = wait_for_lan_port(&relay, std::time::Duration::from_millis(10))
+            .await
+            .unwrap_err();
+        assert!(err.contains("não subiu a tempo"));
     }
 }

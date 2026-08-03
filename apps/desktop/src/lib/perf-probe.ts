@@ -18,8 +18,8 @@
  * DECISÕES:
  * - Tudo é estado de módulo puro; nada de React/setState aqui.
  * - Sem dependências externas (funciona no front WebKitGTK e em Node para testes).
- * - Os buffers de eventos usam janela deslizante de 1s + teto de entradas,
- *   porque o app fica aberto por horas e não podemos vazar memória.
+ * - Eventos usam 10 buckets fixos de 100ms: zero objetos/splice por frame e
+ *   memória constante, porque a própria medição não pode criar jank.
  * - Contadores nunca ficam negativos (piso em 0), evitando diagnósticos absurdos.
  * - perfSnapshot aceita `now` injetado para testes determinísticos.
  */
@@ -83,29 +83,26 @@ export function classifyTick(args: {
 
 type EventKind = "pty" | "acp";
 
-type EventEntry = {
-  /** timestamp em ms (de performance.now()) */
-  ts: number;
-  /** bytes associados a esse evento */
+type EventBucket = {
+  /** índice monotônico do intervalo de 100ms armazenado neste slot */
+  tick: number;
+  count: number;
   bytes: number;
 };
 
-/**
- * Teto de entradas por tipo de evento.
- *
- * POR QUÊ: mesmo com a janela de 1s, um pico de eventos (por exemplo, durante
- * um cat de arquivo grande) pode encher o buffer instantaneamente. Limitamos a
- * 10.000 entradas por tipo (~poucos MB de objetos leves) e descartamos as mais
- * antigas. Em uso normal de terminal isso nunca é atingido, mas protege contra
- * vazamento em cenários extremos.
- */
-const MAX_ENTRIES_PER_KIND = 10_000;
+const BUCKET_MS = 100;
+const BUCKET_COUNT = 10;
 
-const WINDOW_MS = 1000;
+function makeBuckets(): EventBucket[] {
+  return Array.from(
+    { length: BUCKET_COUNT },
+    () => ({ tick: Number.NEGATIVE_INFINITY, count: 0, bytes: 0 }),
+  );
+}
 
-const eventBuffers: Record<EventKind, EventEntry[]> = {
-  pty: [],
-  acp: [],
+const eventBuckets: Record<EventKind, EventBucket[]> = {
+  pty: makeBuckets(),
+  acp: makeBuckets(),
 };
 
 let listenerCount = 0;
@@ -117,28 +114,12 @@ function perfNow(): number {
   return globalThis.performance.now();
 }
 
-/**
- * Remove entradas fora da janela de 1s e aplica o teto de entradas.
- *
- * POR QUÊ: precisamos purgar em countEvent (para não acumular) e em
- * perfSnapshot (para não reportar dados obsoletos).
- */
-function purgeBuffer(kind: EventKind, now: number): void {
-  const buf = eventBuffers[kind];
+function tickAt(now: number): number {
+  return Math.floor(now / BUCKET_MS);
+}
 
-  // Descarta tudo mais velho que 1s.
-  let firstValid = 0;
-  while (firstValid < buf.length && now - buf[firstValid].ts > WINDOW_MS) {
-    firstValid++;
-  }
-  if (firstValid > 0) {
-    buf.splice(0, firstValid);
-  }
-
-  // Descarta as mais antigas se passou do teto.
-  if (buf.length > MAX_ENTRIES_PER_KIND) {
-    buf.splice(0, buf.length - MAX_ENTRIES_PER_KIND);
-  }
+function slotFor(tick: number): number {
+  return ((tick % BUCKET_COUNT) + BUCKET_COUNT) % BUCKET_COUNT;
 }
 
 /**
@@ -150,9 +131,15 @@ function purgeBuffer(kind: EventKind, now: number): void {
  */
 export function countEvent(kind: "pty" | "acp", bytes: number): void {
   const now = perfNow();
-  const buf = eventBuffers[kind];
-  buf.push({ ts: now, bytes });
-  purgeBuffer(kind, now);
+  const tick = tickAt(now);
+  const bucket = eventBuckets[kind][slotFor(tick)];
+  if (bucket.tick !== tick) {
+    bucket.tick = tick;
+    bucket.count = 0;
+    bucket.bytes = 0;
+  }
+  bucket.count++;
+  bucket.bytes += Number.isFinite(bytes) ? Math.max(0, bytes) : 0;
 }
 
 /**
@@ -195,32 +182,32 @@ export interface PerfSnapshot {
  */
 export function perfSnapshot(now?: number): PerfSnapshot {
   const t = now ?? perfNow();
+  const nowTick = tickAt(t);
 
-  purgeBuffer("pty", t);
-  purgeBuffer("acp", t);
-
-  const ptyBuf = eventBuffers.pty;
-  const acpBuf = eventBuffers.acp;
-
-  let ptyBytes = 0;
-  for (const e of ptyBuf) {
-    ptyBytes += e.bytes;
-  }
-
-  let acpBytes = 0;
-  for (const e of acpBuf) {
-    acpBytes += e.bytes;
-  }
+  const sum = (kind: EventKind): { count: number; bytes: number } => {
+    let count = 0;
+    let bytes = 0;
+    for (const bucket of eventBuckets[kind]) {
+      const age = nowTick - bucket.tick;
+      if (age >= 0 && age < BUCKET_COUNT) {
+        count += bucket.count;
+        bytes += bucket.bytes;
+      }
+    }
+    return { count, bytes };
+  };
+  const pty = sum("pty");
+  const acp = sum("acp");
 
   return {
     phase: currentAppPhase,
     eventsPerSec: {
-      pty: ptyBuf.length,
-      acp: acpBuf.length,
+      pty: pty.count,
+      acp: acp.count,
     },
     bytesPerSec: {
-      pty: ptyBytes,
-      acp: acpBytes,
+      pty: pty.bytes,
+      acp: acp.bytes,
     },
     listeners: listenerCount,
     mountedViews: mountedViewCount,

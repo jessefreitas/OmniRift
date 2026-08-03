@@ -28,6 +28,7 @@ import { kanbanList } from "@/lib/kanban-client";
 import { buildRecitation } from "@/lib/recitation";
 import { scanTextForSecrets } from "@/lib/capability-risk";
 import { trackNodeMount, trackRender } from "@/lib/debug-log";
+import { countMountedView } from "@/lib/perf-probe";
 import { useFloorActive } from "@/lib/floor-activity";
 import { agentsMdInstruction, agentsMdRelPath, agentsMdSlug, ORCHESTRATOR_CONTRACT } from "@/lib/agent-contract";
 import { withFirstValueGreeting } from "@/lib/first-value";
@@ -168,6 +169,10 @@ const ORCHESTRATOR_PROMPT = ORCHESTRATOR_CONTRACT;
 function AgentNodeImpl({ data, selected }: AgentNodeProps) {
   trackRender(`AgentNode:${data.id}`); // P0: detecta loop de render (grava o culpado em disco)
   const floorActive = useFloorActive();
+  useEffect(() => {
+    countMountedView(1);
+    return () => countMountedView(-1);
+  }, []);
   // F3: mount/unmount no viewport — churn excessivo vira alerta (não desliga virtualização).
   // Conta só no floor ativo (é onde onlyRenderVisibleElements remonta). StrictMode em
   // DEV dobra mounts — limiar REMOUNT_LIMIT já deixa folga; prod não tem StrictMode.
