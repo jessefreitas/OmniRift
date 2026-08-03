@@ -12,6 +12,8 @@ import { Crown, ChevronDown, ChevronUp, CornerUpRight, Sparkles, Stethoscope } f
 
 import { useCanvasStore } from "@/store/canvas-store";
 import { setOrchestratorMount } from "@/lib/orchestrator-dock-mount";
+import { useMirrorTerminal } from "@/hooks/useMirrorTerminal";
+import { useFlag } from "@/lib/feature-flags";
 import { StatusDot } from "@/components/StatusDot";
 import { useT } from "@/lib/i18n";
 import { missionRecent, missionVerify } from "@/lib/mission-client";
@@ -83,9 +85,21 @@ export function OrchestratorDock() {
     return null;
   }, [parallels, orchestratorSid]);
 
-  // Publica o alvo de montagem a cada render (idempotente no singleton);
-  // limpa no unmount → o TerminalNode devolve o xterm pro seu floor.
+  // ESPELHO (flag `dock-mirror-terminal`): o dock ganha xterm PRÓPRIO, ligado à mesma
+  // sessão por snapshot + stream. É o pré-requisito escrito no Canvas.tsx pra poder
+  // desmontar floors invisíveis — hoje o dock rouba o elemento DOM de um TerminalNode
+  // montado em OUTRO floor, e desmontar aquele floor esvaziaria o dock.
+  const espelhoLigado = useFlag("dock-mirror-terminal");
+  useMirrorTerminal({
+    sessionId: espelhoLigado ? orchestratorSid : null,
+    containerRef: mountRef,
+    enabled: espelhoLigado,
+  });
+
+  // Modo antigo (flag off): publica o alvo e o TerminalNode reloca o próprio xterm.
+  // Com o espelho ligado NÃO publicamos — senão os dois disputariam o mesmo container.
   useEffect(() => {
+    if (espelhoLigado) return;
     setOrchestratorMount(mountRef.current);
   });
   useEffect(() => () => setOrchestratorMount(null), []);

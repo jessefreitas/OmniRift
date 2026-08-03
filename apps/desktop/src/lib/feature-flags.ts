@@ -192,6 +192,14 @@ export const FLAGS: FlagDef[] = [
     stage: "experimental",
   },
   {
+    key: "dock-mirror-terminal",
+    label: "Dock com terminal próprio (espelho)",
+    description:
+      "O dock do Orquestrador passa a ter o próprio terminal, ligado à mesma sessão por histórico + stream, em vez de roubar o elemento do nó que está em outro andar. É o pré-requisito para os andares invisíveis pararem de consumir memória. Kill-switch: se o dock ficar vazio, sem histórico ou não aceitar teclado, desligue e me avise.",
+    default: false,
+    stage: "experimental",
+  },
+  {
     key: "drag-commit-on-end",
     label: "Arrasto grava no fim do gesto",
     description:
