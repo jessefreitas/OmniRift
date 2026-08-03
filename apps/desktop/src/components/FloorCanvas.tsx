@@ -7,6 +7,8 @@
 // TerminalNode via pty_list+pty_snapshot; kill só explícito no canvas-store).
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFlag } from "@/lib/feature-flags";
+import { DragBuffer } from "@/lib/drag-buffer";
 import { createPortal } from "react-dom";
 import {
   ReactFlow,
@@ -218,8 +220,21 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
     [edges],
   );
 
+  // Arrasto: com a flag ligada, acumula localmente e grava UMA vez no fim do gesto.
+  // Antes cada evento do mouse escrevia no store, que remapeia listas e propaga pro
+  // canvas inteiro — dezenas de vezes por segundo durante todo o arrasto.
+  const dragBufferRef = useRef(new DragBuffer());
+  const commitOnEnd = useFlag("drag-commit-on-end");
+
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      if (commitOnEnd) {
+        const commit = dragBufferRef.current.absorb(changes as never[]);
+        for (const [id, pos] of commit.positions) updateNodePosition(id, pos);
+        for (const [id, size] of commit.sizes) updateNodeSize(id, size);
+        for (const id of commit.removed) removeNode(id);
+        return;
+      }
       for (const change of changes) {
         if (change.type === "position" && change.position) {
           updateNodePosition(change.id, change.position);
@@ -233,7 +248,7 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
         }
       }
     },
-    [updateNodePosition, updateNodeSize, removeNode],
+    [commitOnEnd, updateNodePosition, updateNodeSize, removeNode],
   );
 
   const onEdgesChange = useCallback(
