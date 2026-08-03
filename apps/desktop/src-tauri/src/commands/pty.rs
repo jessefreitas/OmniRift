@@ -176,3 +176,11 @@ mod tests {
         assert_eq!(bounded_snapshot_rows(Some(usize::MAX)), SCROLLBACK_LIMIT);
     }
 }
+
+/// O frontend declara se ALGUÉM está olhando esta sessão. Sem isto o backend emite
+/// pra floors invisíveis: serialização + IPC + trabalho no webview por nada.
+/// Fail-open no backend — sessão nunca declarada continua recebendo.
+#[tauri::command]
+pub fn pty_set_interest(session_id: String, interested: bool) {
+    crate::pty::interest::set_interest(&session_id, interested);
+}

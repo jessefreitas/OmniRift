@@ -272,14 +272,21 @@ impl PtySession {
                     let seq_frame = seq_do_frame(&marcos, ultimo_seq);
                     ultimo_seq = seq_frame;
                     let text = String::from_utf8_lossy(&pending[..cut]).to_string();
-                    let _ = app_for_emit.emit(
-                        "pty://output",
-                        PtyOutputEvent {
-                            session_id: id_for_emit.clone(),
-                            data: text,
-                            seq: seq_frame,
-                        },
-                    );
+                    // Interest gating: floor invisível não tem nó olhando, e mandar o
+                    // frame pra ele é serialização + IPC + trabalho no webview por nada.
+                    // O emulador VT continua alimentado no read_loop, então o snapshot
+                    // fica correto e o nó recupera tudo ao voltar — não se perde saída.
+                    // Fail-open: sessão sem declaração nenhuma continua recebendo.
+                    if crate::pty::interest::should_emit(&id_for_emit) {
+                        let _ = app_for_emit.emit(
+                            "pty://output",
+                            PtyOutputEvent {
+                                session_id: id_for_emit.clone(),
+                                data: text,
+                                seq: seq_frame,
+                            },
+                        );
+                    }
                     pending.drain(..cut); // mantém a cauda incompleta pro próximo frame
                                           // Frame fechado: o próximo começa a contar do zero (e sempre trará
                                           // ao menos um chunk novo, o que garante o seq estritamente maior).

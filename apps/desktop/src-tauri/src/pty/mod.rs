@@ -1,6 +1,7 @@
 pub mod detector;
 pub mod emulator;
 pub mod host;
+pub mod interest;
 pub mod manager;
 pub mod profile;
 pub mod session;

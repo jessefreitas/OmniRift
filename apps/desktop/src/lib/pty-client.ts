@@ -6,13 +6,18 @@
 // Por que abstrair: se um dia trocarmos Tauri por outra runtime
 // (Electron, web puro), só essa camada muda.
 
-import { setListenImpl, subscribeBySession } from "@/lib/event-broker";
+import { setInterestImpl, setListenImpl, subscribeBySession } from "@/lib/event-broker";
 import { invoke } from "@tauri-apps/api/core";
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 // O broker roteia por sessão com UM listener por canal; aqui damos a ele o listen real.
 setListenImpl(listen);
+// O broker sabe quando uma sessão ganha o primeiro inscrito e perde o último; é ele
+// quem avisa o backend, que então para de emitir pra floor que ninguém está vendo.
+setInterestImpl((sessionId, interested) => {
+  void invoke("pty_set_interest", { sessionId, interested }).catch(() => {});
+});
 import type {
   AgentState,
   AgentStatusEvent,

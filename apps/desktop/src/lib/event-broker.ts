@@ -21,6 +21,28 @@ export type ListenImpl = <P>(
 
 let listenImpl: ListenImpl | null = null;
 
+type InterestFn = (sessionId: string, interested: boolean) => void;
+let interestImpl: InterestFn | null = null;
+
+/**
+ * Quem avisa o backend que alguém passou (ou deixou) de olhar uma sessão.
+ *
+ * O broker é o único ponto que sabe isso com precisão: ele vê o primeiro inscrito
+ * chegar e o último sair. Sem esse aviso, o backend emite para floors invisíveis —
+ * serialização + IPC + trabalho no webview por nada.
+ */
+export function setInterestImpl(impl: InterestFn): void {
+  interestImpl = impl;
+}
+
+function avisarInteresse(sessionId: string, interested: boolean): void {
+  try {
+    interestImpl?.(sessionId, interested);
+  } catch {
+    /* best-effort: o backend é fail-open, então falhar aqui só mantém o custo antigo */
+  }
+}
+
 export function setListenImpl(impl: ListenImpl): void {
   if (listenImpl && listenImpl !== impl && channels.size > 0) {
     throw new Error("EventBroker: não é seguro trocar listen com canais ativos");
@@ -156,6 +178,8 @@ function unsubscribe(
   handlers.delete(handler);
   if (handlers.size === 0) {
     state.subs.delete(sessionId);
+    // Ninguém mais olhando: o backend pode parar de emitir esta sessão.
+    avisarInteresse(sessionId, false);
   }
 
   // só mata o listener real quando o canal ficar sem nenhuma sessão ativa
@@ -200,7 +224,9 @@ export async function subscribeBySession<P>(
     sessionId,
     () => new Set<Handler>(),
   );
+  const primeiroDaSessao = handlers.size === 0;
   handlers.add(wrapped);
+  if (primeiroDaSessao) avisarInteresse(sessionId, true);
 
   try {
     await state.ready;
