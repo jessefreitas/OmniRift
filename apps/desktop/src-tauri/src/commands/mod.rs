@@ -20,6 +20,7 @@ pub mod git_secret;
 pub mod github_auth;
 pub mod gitremote;
 pub mod hosts;
+pub mod housekeeping;
 pub mod http;
 pub mod license;
 pub mod llm;

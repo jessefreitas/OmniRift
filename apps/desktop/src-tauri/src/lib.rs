@@ -69,6 +69,7 @@ use commands::git_secret::{git_token_delete, git_token_get, git_token_set};
 use commands::github_auth::{github_device_poll, github_device_start};
 use commands::gitremote::{git_clone, git_list_repos};
 use commands::hosts::{hosts_add, hosts_list, hosts_remove};
+use commands::housekeeping::housekeeping_run;
 use commands::http::http_request;
 use commands::license::{
     license_activate, license_status, license_store_meta, license_stored_key, license_was_beta,
@@ -329,6 +330,20 @@ pub fn run() {
             // técnica do socket RPC). Gerenciado como state pra `agent_mcp_config` escrever
             // o MESMO valor no agent-mcp.json (URL `?token=`); o server exige em /sse e
             // /message. Sem ele qualquer processo local rodava terminal_run. (Auditoria #1.)
+            // Faxina dos artefatos regeráveis (agent-settings/hook/mcp/prompt/cmd) mais
+            // velhos que 7 dias. Todos são reescritos no próximo spawn do agente, então
+            // remover só devolve espaço. Degrada em silêncio: falhar aqui não pode
+            // atrapalhar o boot.
+            {
+                use tauri::Manager;
+                if let Ok(dir) = app.handle().path().app_data_dir() {
+                    let (n, bytes) = crate::commands::housekeeping::limpar_artefatos(&dir, 7);
+                    if n > 0 {
+                        log::info!("faxina: {n} artefato(s) antigos removidos ({bytes} bytes)");
+                    }
+                }
+            }
+
             let mcp_token = crate::rpc::metadata::generate_token();
             app.manage(std::sync::Arc::new(crate::mcp::server::McpAuthToken(
                 mcp_token.clone(),
@@ -621,6 +636,7 @@ pub fn run() {
             sandbox_set_enabled,
             flag_mirror_set,
             flag_mirror_get,
+            housekeeping_run,
             sandbox_status,
             diagnostics_export,
             reveal_path,

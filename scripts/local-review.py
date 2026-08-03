@@ -385,6 +385,12 @@ def _cache_dir():
     return os.path.join(os.path.expanduser("~"), ".omnirift", "review-cache")
 
 
+# Versão DESTE script. O app o grava em disco a partir do binário e só reescreve na
+# abertura — então dá pra rodar dias com uma cópia velha sem perceber. O hook devolve
+# este valor no resultado pra que "por que o hook está lento?" seja UMA linha de log,
+# e não uma investigação.
+REVIEW_SCRIPT_VERSION = "2026-08-03-escopo-diff+cache-conteudo"
+
 SCANNERS_VERSION = "omnirift-local-review-v2"  # invalide cache antigo ao mudar scanner/regras
 
 def _with_singleflight(lock_path, produce, wait_result, timeout_s=120):
@@ -970,6 +976,7 @@ def render(findings, verdict, crit, warn):
 
 
 def review(cwd, config_path, base, hook_mode=False):
+    _t0 = time.time()
     base = base or detect_base(cwd)
     cfg = load_config(config_path)
     llm = cfg.get("llm")
@@ -995,7 +1002,7 @@ def review(cwd, config_path, base, hook_mode=False):
         # "nada a revisar" de antes.
         verdict, crit, warn = decide(det_findings, policy)
         summary = render(det_findings, verdict, crit, warn) if det_findings else "sem diff — nada a revisar"
-        return {"verdict": verdict, "crit": crit, "warn": warn, "findings": det_findings, "summary": summary, "llmError": None, "skipped": det_skipped, "policy": policy}
+        return {"verdict": verdict, "crit": crit, "warn": warn, "findings": det_findings, "summary": summary, "llmError": None, "skipped": det_skipped, "policy": policy, "elapsedMs": int((time.time() - _t0) * 1000), "scriptVersion": REVIEW_SCRIPT_VERSION}
     findings = preflight(diff, policy)
     llm_err = None
     if llm and (llm.get("model")):
@@ -1011,7 +1018,7 @@ def review(cwd, config_path, base, hook_mode=False):
     findings = [f for f in findings if not suppressed(f, load_extra_suppress(cwd))]  # FPs ACK
     findings += det_findings  # gates determinísticos: NÃO passam pela supressão de FP-de-IA
     verdict, crit, warn = decide(findings, policy)
-    return {"verdict": verdict, "crit": crit, "warn": warn, "findings": findings, "summary": render(findings, verdict, crit, warn), "llmError": llm_err, "skipped": det_skipped, "policy": policy}
+    return {"verdict": verdict, "crit": crit, "warn": warn, "findings": findings, "summary": render(findings, verdict, crit, warn), "llmError": llm_err, "skipped": det_skipped, "policy": policy, "elapsedMs": int((time.time() - _t0) * 1000), "scriptVersion": REVIEW_SCRIPT_VERSION}
 
 
 def default_config_path():
@@ -1038,6 +1045,13 @@ def run_hook(config_path):
         # erro de infra → não bloqueia (NEUTRAL)
         sys.stderr.write(f"local-review: erro {e}\n")
         return 0
+    # Marca de versão + tempo no stderr: é o que responde "por que o hook demora?" sem
+    # investigação. O stderr não entra no schema do Stop hook (decision/reason), então
+    # não interfere no protocolo.
+    sys.stderr.write(
+        f"local-review {REVIEW_SCRIPT_VERSION} — {r.get('elapsedMs', '?')}ms"
+        f" | scanners: {'ok' if not r.get('skipped') else ', '.join(r.get('skipped', []))}\n"
+    )
     pol = r.get("policy", {})
     # respeita a policy: desligada ou gate "off" não bloqueiam o agente
     if not pol.get("enabled", True) or pol.get("gate", "warn") == "off":
