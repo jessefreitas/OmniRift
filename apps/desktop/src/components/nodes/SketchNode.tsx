@@ -43,7 +43,15 @@ export function SketchNode({ id, data, selected }: NodeProps<SketchRfNode>) {
       { source: "user", scope: "document" },
     );
     return () => {
-      window.clearTimeout(saveTimer.current);
+      // FLUSH antes de sair: o cleanup só cancelava o timer, então os últimos até
+      // 600ms de desenho iam pro lixo — ao fechar o nó, ao alternar fullscreen e
+      // (agora que floors podem desmontar) ao trocar de andar. `latestRef` já tem
+      // o snapshot mais recente, salvo imediatamente no listener.
+      if (saveTimer.current) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = 0;
+        if (latestRef.current) patchNode(id, { snapshot: latestRef.current });
+      }
       unlisten();
     };
   };

@@ -25,6 +25,9 @@ import { useQuickJump } from "@/hooks/useQuickJump";
 import { useRoutines } from "@/hooks/useRoutines";
 import { useConnectionRouting } from "@/hooks/useConnectionRouting";
 import { useReducedUi } from "@/lib/experience-mode";
+import { useFlag } from "@/lib/feature-flags";
+import { decideMounted } from "@/lib/floor-mount-policy";
+import { useMemo } from "react";
 
 export function Canvas() {
   const reduced = useReducedUi();
@@ -38,10 +41,37 @@ export function Canvas() {
   // roteando a MESMA saída N vezes. Ver comentário no FloorCanvas.
   useConnectionRouting();
 
+  // Desmontagem de andares inativos (flag `floors-unmount-inactive`).
+  // Sem ela, TODO floor de TODO projeto fica montado pra sempre — cada um segurando
+  // ReactFlow, xterms, listeners e observers. Com ela, só o ativo + um cache pequeno.
+  const desmontarInativos = useFlag("floors-unmount-inactive");
+  // A ordem de uso vive no STORE, atualizada no evento de troca de andar. Manter isso
+  // num effect + ref aqui seria setState-em-effect e ref-durante-render — os dois
+  // antipadrões que o lint barra e que a auditoria de performance mapeou.
+  const mru = useCanvasStore((s) => s.floorMru);
+
+  const montados = useMemo(() => {
+    if (!desmontarInativos) return null; // null = comportamento antigo (monta todos)
+    const decisao = decideMounted({
+      all: parallels.map((f) => ({ id: f.id, projectId: f.projectId ?? "" })),
+      activeProjectId,
+      activeFloorId: activeParallelId,
+      // Não precisamos rastrear o que estava montado: quem desmonta é o React, e o
+      // SketchNode já faz flush do desenho no próprio unmount.
+      currentlyMounted: [],
+      mru,
+      // Um andar aquecido além do ativo: voltar pro anterior é o caso comum, e
+      // remontar do zero seria perceptível.
+      keepWarm: 1,
+    });
+    return decisao.mount;
+  }, [desmontarInativos, parallels, activeProjectId, activeParallelId, mru]);
+
   return (
     <div className="absolute inset-0">
       {parallels.map((f) => {
         const visible = f.projectId === activeProjectId && f.id === activeParallelId;
+        if (montados && !montados.has(f.id)) return null;
         return (
           <div
             key={f.id}

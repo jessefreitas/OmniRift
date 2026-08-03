@@ -192,6 +192,14 @@ export const FLAGS: FlagDef[] = [
     stage: "experimental",
   },
   {
+    key: "floors-unmount-inactive",
+    label: "Descarregar andares que você não está vendo",
+    description:
+      "Hoje todo andar de todo projeto fica carregado para sempre, cada um segurando terminais, observadores e o motor do canvas — mesmo invisível. Com isto ligado, fica só o andar atual e o anterior; os outros voltam do zero quando você entra neles (as sessões continuam vivas no backend, nada é perdido). Requer o dock com terminal próprio ligado. Kill-switch: se algo sumir ao trocar de andar, desligue e me avise.",
+    default: false,
+    stage: "experimental",
+  },
+  {
     key: "dock-mirror-terminal",
     label: "Dock com terminal próprio (espelho)",
     description:

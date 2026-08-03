@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { touchMru } from "@/lib/floor-mount-policy";
 import { nanoid } from "nanoid";
 import { emit } from "@tauri-apps/api/event";
 import { acpCancel, acpAgentUnregister, acpGc } from "@/lib/acp-client";
@@ -118,6 +119,8 @@ interface CanvasState {
   }) => void;
   clearConnectMenu: () => void;
   workspaceName: string;
+  /** Andares por ordem de uso (mais recente primeiro) — decide quem fica montado. */
+  floorMru: string[];
   currentCwd: string | null; // espelho do cwd do floor ativo
 
   // project management (canvas isolado por projeto)
@@ -426,6 +429,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
   proactiveTeamReact:
     typeof localStorage !== "undefined" && localStorage.getItem("omnirift-proactive-team-react") === "1",
   workspaceName: DEFAULT_WORKSPACE_NAME,
+  floorMru: [],
   currentCwd: null,
   clipboardHistory: [],
   terminalStatuses: {},
@@ -531,7 +535,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => ({
     set((s) => {
       const f = s.parallels.find((x) => x.id === id);
       if (!f) return s;
-      return { activeParallelId: id, currentCwd: f.cwd };
+      return { activeParallelId: id, currentCwd: f.cwd, floorMru: touchMru(s.floorMru, id) };
     }),
   renameParallel: (id, name) =>
     set((s) => ({ parallels: s.parallels.map((f) => (f.id === id ? { ...f, name } : f)) })),
