@@ -519,15 +519,26 @@ mod tests {
         // 2s (não 300ms): margem robusta contra carga/runner lento — o child precisa
         // iniciar antes do timeout disparar, senão o teste flaka na suíte cheia (era a
         // causa do rust vermelho intermitente no runner do Forgejo). 2s << 30s do sleep.
-        let err = cli_run(
-            script.to_str().unwrap(),
-            "x",
-            Duration::from_millis(2000),
-            None,
-            &[],
-        )
-        .await
-        .unwrap_err();
+        // ETXTBSY: numa suíte paralela, outra thread pode fazer fork enquanto o
+        // descritor de ESCRITA deste script ainda está aberto; o filho o herda e o
+        // exec falha com "Text file busy". Não é defeito do `cli_run` — é corrida do
+        // ambiente de teste. Tenta de novo por alguns instantes antes de desistir.
+        let mut err = String::new();
+        for tentativa in 0..5 {
+            err = cli_run(
+                script.to_str().unwrap(),
+                "x",
+                Duration::from_millis(2000),
+                None,
+                &[],
+            )
+            .await
+            .unwrap_err();
+            if !err.contains("Text file busy") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50 * (tentativa + 1))).await;
+        }
         assert!(err.contains("timeout"), "err: {err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
