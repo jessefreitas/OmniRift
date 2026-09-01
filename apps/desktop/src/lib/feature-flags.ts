@@ -6,15 +6,21 @@
 // e a escolha persiste em localStorage (`omnirift-feature-flags` = Record<key, bool>).
 //
 // Precedência do valor efetivo:
-//   1) override local do usuário (localStorage)  — se existir
-//   2) remoteDefault (rollout do servidor)        — RESERVADO, sempre vazio no MVP
-//   3) default estático do FLAGS
+//   1) override de bench (somente quando o modo bench está ligado)
+//   2) override local do usuário (localStorage)  — se existir
+//   3) remoteDefault (rollout do servidor)        — RESERVADO, sempre vazio no MVP
+//   4) default estático do FLAGS
 //
 // Consumo é OPCIONAL: declarar a flag + o painel já é o MVP. Ligar uma feature a
 // `useFlag(key)` é aditivo e reversível — as flags das features atuais são default:true,
 // então esquecer de consumir NÃO quebra nada.
 
 import { create } from "zustand";
+import {
+  isBenchModeEnabled,
+  parseBenchFlags,
+  resolveFlagValue,
+} from "@/lib/bench-flags";
 import {
   isMirroredFlagKey,
   isSandboxFlagKey,
@@ -247,6 +253,41 @@ const STORAGE_KEY = "omnirift-feature-flags";
 //   setRemoteDefaults(j);   // dispara re-render dos useFlag() via bump do store
 // Por enquanto isto é sempre {} — o sistema é puramente local.
 let remoteDefaults: Record<string, boolean> = {};
+let benchEnabled = false;
+let benchOverrides: Record<string, boolean> = {};
+
+function sameOverrides(
+  left: Record<string, boolean>,
+  right: Record<string, boolean>,
+): boolean {
+  const leftKeys = Object.keys(left);
+  return leftKeys.length === Object.keys(right).length && leftKeys.every((key) => right[key] === left[key]);
+}
+
+/** Aplica o modo externo sem persistir nada nas preferências do usuário. */
+export function applyBenchOverrides(
+  mode: string | undefined | null,
+  flags: string | undefined | null,
+): void {
+  const nextEnabled = isBenchModeEnabled(mode);
+  // Fora do modo bench, nem mesmo conservamos overrides parseados: isso fecha o
+  // caminho para um valor externo influenciar produção por estado residual.
+  const nextOverrides = nextEnabled ? parseBenchFlags(flags) : {};
+  if (nextEnabled === benchEnabled && sameOverrides(nextOverrides, benchOverrides)) return;
+
+  benchEnabled = nextEnabled;
+  benchOverrides = nextOverrides;
+  // O seletor continua devolvendo boolean; o clone apenas notifica assinantes.
+  useFeatureFlagStore.setState((state) => ({ overrides: { ...state.overrides } }));
+}
+
+export function benchOverridesActive(): boolean {
+  return benchEnabled;
+}
+
+export function currentBenchOverrides(): Record<string, boolean> {
+  return benchEnabled ? { ...benchOverrides } : {};
+}
 
 /** Reservado pro fetch remoto futuro — no MVP nada chama isto. */
 export function setRemoteDefaults(map: Record<string, boolean>): void {
@@ -329,8 +370,13 @@ export const useFeatureFlagStore = create<FlagState>((set) => ({
 /** Valor efetivo da flag (override local > rollout remoto > default estático). */
 export function getFlag(key: string): boolean {
   const ov = useFeatureFlagStore.getState().overrides;
-  if (key in ov) return ov[key];
-  return effectiveDefault(key);
+  return resolveFlagValue({
+    key,
+    benchEnabled,
+    benchOverrides,
+    userOverrides: ov,
+    fallback: effectiveDefault(key),
+  });
 }
 export function setFlag(key: string, val: boolean): void {
   useFeatureFlagStore.getState().setFlag(key, val);
@@ -351,5 +397,13 @@ export function isOverridden(key: string): boolean {
 // zustand v5 um seletor que cria referência nova a cada render entra em loop infinito
 // (o app já travou com isso). Aqui o retorno é `boolean`, sempre igual por valor.
 export function useFlag(key: string): boolean {
-  return useFeatureFlagStore((s) => (key in s.overrides ? s.overrides[key] : effectiveDefault(key)));
+  return useFeatureFlagStore((state) =>
+    resolveFlagValue({
+      key,
+      benchEnabled,
+      benchOverrides,
+      userOverrides: state.overrides,
+      fallback: effectiveDefault(key),
+    }),
+  );
 }
