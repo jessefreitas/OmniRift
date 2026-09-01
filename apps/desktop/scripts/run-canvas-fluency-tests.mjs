@@ -23,7 +23,7 @@ const aliasPlugin = {
   },
 };
 
-const suites = ["canvas-fluency.test.ts", "event-broker.test.ts", "drag-buffer.test.ts", "floor-mount-policy.test.ts"];
+const suites = ["canvas-fluency.test.ts", "canvas-score.test.ts", "event-broker.test.ts", "drag-buffer.test.ts", "floor-mount-policy.test.ts"];
 for (const suite of suites) {
   const result = await build({
     entryPoints: [resolve(root, "src/lib", suite)],
