@@ -15,6 +15,10 @@ import {
   benchSummaryLine,
   planDragGesture,
 } from "@/lib/bench-load";
+import {
+  formatStoreWritesLine,
+  type StoreWriteCounts,
+} from "@/lib/store-writes";
 
 export interface BenchDeps {
   log: (line: string) => void;
@@ -24,6 +28,12 @@ export interface BenchDeps {
   dragNode: (id: string, path: { x: number; y: number }[]) => Promise<void> | void;
   sleep: (ms: number) => Promise<void>;
   startTicker: (intervalMs: number, tick: () => void) => () => void; // devolve stop
+  /** Opcionais para preservar consumidores antigos e manter o estado fora do orquestrador. */
+  storeWriteSnapshot?: () => StoreWriteCounts;
+  storeWritesSince?: (
+    before: StoreWriteCounts,
+    after: StoreWriteCounts,
+  ) => StoreWriteCounts;
 }
 
 export interface BenchConfig {
@@ -75,6 +85,14 @@ export async function runCanvasBench(
     const targetCount = Math.min(nodeIds.length, DEFAULT_SUBSET_COUNT);
     const targetIds = nodeIds.slice(0, targetCount);
 
+    // As funcoes sao capturadas antes do gesto para que a medicao continue
+    // opcional e o harness nao conheca nem importe o estado global do contador.
+    const snapshotStoreWrites = deps.storeWriteSnapshot;
+    const calculateStoreWritesSince = deps.storeWritesSince;
+    const storeWritesBefore =
+      snapshotStoreWrites && calculateStoreWritesSince
+        ? snapshotStoreWrites()
+        : null;
     const before = deps.readPositions(targetIds);
 
     for (const id of targetIds) {
@@ -91,6 +109,10 @@ export async function runCanvasBench(
     }
 
     const after = deps.readPositions(targetIds);
+    const storeWritesAfter =
+      storeWritesBefore !== null && snapshotStoreWrites
+        ? snapshotStoreWrites()
+        : null;
 
     // 5. Valida movimentação e emite linha de resumo
     const { moved, stuck } = assertNodesMoved(before, after, targetIds);
@@ -114,6 +136,18 @@ export async function runCanvasBench(
         stopTicker = null;
       }
       return "aborted";
+    }
+
+    // Trabalho direto so vira metrica depois de validar o gesto. Uma rodada
+    // descartada nao pode contaminar o comparativo OFF/ON com um numero valido.
+    if (
+      storeWritesBefore !== null &&
+      storeWritesAfter !== null &&
+      calculateStoreWritesSince
+    ) {
+      const counts = calculateStoreWritesSince(storeWritesBefore, storeWritesAfter);
+      const writesIso = new Date(deps.now()).toISOString();
+      deps.log(formatStoreWritesLine(writesIso, targetIds.length, counts));
     }
 
     // 6. Emite MEASURE_END_TAG e encerra com sucesso

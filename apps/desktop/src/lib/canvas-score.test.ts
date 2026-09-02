@@ -20,6 +20,7 @@ import {
   windowBalanceWarning,
   type RunMetrics,
 } from "./canvas-score";
+import { BENCH_WRITES_TAG } from "./store-writes";
 
 let pass = 0;
 let fail = 0;
@@ -55,6 +56,10 @@ function fluencyLine(alert: FluencyAlert, iso: string): string {
   return formatFluencyLogLine(alert, iso);
 }
 
+function storeWritesLine(iso: string, total: number): string {
+  return `[${iso}] [${BENCH_WRITES_TAG}] gestures=5 position=${total} size=0 remove=0 total=${total}`;
+}
+
 /** Janela de 5s com ticks suficientes (10 esperados @ 500ms, 10 observados). */
 const T0 = "2026-07-25T12:00:00.000Z";
 const T_END = "2026-07-25T12:00:05.000Z";
@@ -84,6 +89,7 @@ function okMetrics(overrides: Partial<RunMetrics> = {}): RunMetrics {
     mainBlocks: 0,
     renderLoops: 0,
     remountChurns: 0,
+    storeWrites: null,
     windowMs: 60_000,
     mainBlocksPerMin: 0,
     renderLoopsPerMin: 0,
@@ -255,6 +261,7 @@ function okMetrics(overrides: Partial<RunMetrics> = {}): RunMetrics {
       mainBlocks: 0,
       renderLoops: 0,
       remountChurns: 0,
+      storeWrites: null,
       windowMs: 0,
       mainBlocksPerMin: null,
       renderLoopsPerMin: null,
@@ -268,6 +275,73 @@ function okMetrics(overrides: Partial<RunMetrics> = {}): RunMetrics {
   const v = verdict(off, onBad);
   eq(v.kind, "dados-insuficientes", "T8: insufficient-data nunca vira melhora");
   assert(v.kind !== "melhora", "T8: anti-falso — não aprovar sem medir");
+}
+
+// ── T-I: parseia o total de trabalho direto dentro da janela ────────────────
+{
+  const r = scoreRun(validRunBase([storeWritesLine("2026-07-25T12:00:04.000Z", 123)]));
+
+  eq(r.storeWrites, 123, "T-I: extrai total de BENCH-WRITES");
+}
+
+// ── T-J: ausência da linha significa não medido, nunca zero ─────────────────
+{
+  const r = scoreRun(validRunBase());
+
+  eq(r.storeWrites, null, "T-J: linha ausente produz storeWrites null");
+  assert(r.storeWrites !== 0, "T-J: ausência de BENCH-WRITES NÃO é zero");
+}
+
+// ── T-K: linha fora da janela não contamina a rodada ────────────────────────
+{
+  const log = [
+    storeWritesLine("2026-07-25T11:59:59.000Z", 999),
+    validRunBase(),
+    storeWritesLine("2026-07-25T12:00:06.000Z", 888),
+  ].join("\n");
+  const r = scoreRun(log);
+
+  eq(r.storeWrites, null, "T-K: BENCH-WRITES fora da janela é ignorada");
+}
+
+// ── T-L: se houver repetição, a última evidência da janela prevalece ────────
+{
+  const r = scoreRun(
+    validRunBase([
+      storeWritesLine("2026-07-25T12:00:03.000Z", 120),
+      storeWritesLine("2026-07-25T12:00:04.000Z", 3),
+    ]),
+  );
+
+  eq(r.storeWrites, 3, "T-L: duas BENCH-WRITES usam a última linha");
+}
+
+// ── T-M: veredito compara trabalho direto OFF/ON ────────────────────────────
+{
+  const off = [okMetrics({ storeWrites: 120 })];
+  const on = [okMetrics({ storeWrites: 3 })];
+  const v = verdict(off, on, { metric: "storeWrites" });
+
+  eq(v.kind, "melhora", "T-M: OFF=120 contra ON=3 detecta melhora");
+}
+
+// ── T-N: null ou campo legado ausente invalidam o veredito ──────────────────
+{
+  const measured = okMetrics({ storeWrites: 120 });
+  const missing = okMetrics({ storeWrites: null });
+  const legacy = { ...okMetrics({ storeWrites: 3 }) } as Record<string, unknown>;
+  delete legacy.storeWrites;
+
+  eq(
+    verdict([measured], [missing], { metric: "storeWrites" }).kind,
+    "dados-insuficientes",
+    "T-N: storeWrites null produz dados-insuficientes",
+  );
+  eq(
+    verdict([measured], [legacy as unknown as RunMetrics], { metric: "storeWrites" }).kind,
+    "dados-insuficientes",
+    "T-N: storeWrites undefined de versão antiga produz dados-insuficientes",
+  );
 }
 
 // ── T9: medOff === 0 && medOn === 0 → inconclusivo ─────────────────────────
@@ -488,6 +562,7 @@ function okMetrics(overrides: Partial<RunMetrics> = {}): RunMetrics {
   eq(r.mainBlocksPerMin, null, "T-C: MAIN-BLOCK/min ausente");
   eq(r.renderLoopsPerMin, null, "T-C: RENDER-LOOP/min ausente");
   eq(r.remountChurnsPerMin, null, "T-C: REMOUNT-CHURN/min ausente");
+  eq(r.storeWrites, null, "T-C: rodada insuficiente não fabrica escritas zero");
 }
 
 // ── T-D: viés real — OFF 27 ticks vs ON 14 ticks ───────────────────────────

@@ -9,6 +9,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFlag } from "@/lib/feature-flags";
 import { DragBuffer } from "@/lib/drag-buffer";
+import { countStoreWrite } from "@/lib/store-writes";
 import { createPortal } from "react-dom";
 import {
   ReactFlow,
@@ -228,22 +229,36 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      // Medição de trabalho direto: contabiliza as escritas reais no store nos dois caminhos.
+      // DURO: incremento de inteiro puro sem alocação nem log por evento para não criar jank.
       if (commitOnEnd) {
         const commit = dragBufferRef.current.absorb(changes as never[]);
-        for (const [id, pos] of commit.positions) updateNodePosition(id, pos);
-        for (const [id, size] of commit.sizes) updateNodeSize(id, size);
-        for (const id of commit.removed) removeNode(id);
+        for (const [id, pos] of commit.positions) {
+          countStoreWrite("position");
+          updateNodePosition(id, pos);
+        }
+        for (const [id, size] of commit.sizes) {
+          countStoreWrite("size");
+          updateNodeSize(id, size);
+        }
+        for (const id of commit.removed) {
+          countStoreWrite("remove");
+          removeNode(id);
+        }
         return;
       }
       for (const change of changes) {
         if (change.type === "position" && change.position) {
+          countStoreWrite("position");
           updateNodePosition(change.id, change.position);
         } else if (change.type === "dimensions" && change.dimensions) {
+          countStoreWrite("size");
           updateNodeSize(change.id, {
             width: change.dimensions.width,
             height: change.dimensions.height,
           });
         } else if (change.type === "remove") {
+          countStoreWrite("remove");
           removeNode(change.id);
         }
       }

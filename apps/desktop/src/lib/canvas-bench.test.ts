@@ -15,6 +15,7 @@ import {
   type BenchConfig,
   type BenchDeps,
 } from "./canvas-bench";
+import type { StoreWriteCounts } from "./store-writes";
 
 let pass = 0;
 let fail = 0;
@@ -43,6 +44,7 @@ function createFakeDeps(opts?: {
   shouldMove?: boolean;
   failIn?: "loadNodes" | "readPositions" | "dragNode" | "startTicker";
   initialPositions?: Map<string, { x: number; y: number }>;
+  storeWriteSnapshots?: [StoreWriteCounts, StoreWriteCounts];
 }) {
   const logs: string[] = [];
   let nowMs = 1753444800000; // 2025-07-25T12:00:00.000Z
@@ -116,6 +118,22 @@ function createFakeDeps(opts?: {
     },
   };
 
+  if (opts?.storeWriteSnapshots) {
+    const [beforeWrites, afterWrites] = opts.storeWriteSnapshots;
+    let snapshotCalls = 0;
+    deps.storeWriteSnapshot = () => {
+      const snapshot = snapshotCalls === 0 ? beforeWrites : afterWrites;
+      snapshotCalls++;
+      return snapshot;
+    };
+    deps.storeWritesSince = (before, after) => {
+      const position = Math.max(0, after.position - before.position);
+      const size = Math.max(0, after.size - before.size);
+      const remove = Math.max(0, after.remove - before.remove);
+      return { position, size, remove, total: position + size + remove };
+    };
+  }
+
   return {
     deps,
     logs,
@@ -129,6 +147,11 @@ function createFakeDeps(opts?: {
     getPositions: () => positions,
   };
 }
+
+const WRITE_SNAPSHOTS: [StoreWriteCounts, StoreWriteCounts] = [
+  { position: 10, size: 2, remove: 1, total: 13 },
+  { position: 40, size: 4, remove: 2, total: 46 },
+];
 
 // ── T1: mode:false => 'skipped', array de log VAZIO, loadNodes NUNCA chamado ──
 {
@@ -227,6 +250,53 @@ function createFakeDeps(opts?: {
   assert(beginIdx !== -1, "T6: MEASURE_BEGIN_TAG emitido");
   assert(firstTickIdx !== -1, "T6: MEASURE_TICK_TAG emitido");
   assert(beginIdx < firstTickIdx, "T6: BEGIN vem estritamente antes do primeiro TICK");
+}
+
+// ── T7: trabalho direto é emitido antes do fim da janela ────────────────────
+{
+  const fake = createFakeDeps({ storeWriteSnapshots: WRITE_SNAPSHOTS });
+  const cfg: BenchConfig = { mode: true, flags: "drag-commit-on-end=1", nodes: 3, dragSteps: 10 };
+  const res = await runCanvasBench(cfg, fake.deps);
+
+  eq(res, "done", "T7: caminho feliz com medição de escritas conclui");
+  const writesIdx = fake.logs.findIndex((line) => line.includes("[📐 BENCH-WRITES]"));
+  const endIdx = fake.logs.findIndex((line) => line.includes(MEASURE_END_TAG));
+  assert(writesIdx !== -1, "T7: emite BENCH-WRITES");
+  assert(writesIdx < endIdx, "T7: BENCH-WRITES vem antes de MEASURE-END");
+  assert(
+    fake.logs[writesIdx]?.includes("gestures=3 position=30 size=2 remove=1 total=33") === true,
+    "T7: linha contém o delta de trabalho e a quantidade de gestos",
+  );
+}
+
+// ── T8: deps antigas continuam válidas e não fabricam métrica ───────────────
+{
+  const fake = createFakeDeps();
+  const cfg: BenchConfig = { mode: true, flags: "drag-commit-on-end=1", nodes: 3, dragSteps: 10 };
+  const res = await runCanvasBench(cfg, fake.deps);
+
+  eq(res, "done", "T8: sem deps de escritas o bench continua idêntico");
+  assert(
+    !fake.logs.some((line) => line.includes("[📐 BENCH-WRITES]")),
+    "T8: sem deps não emite BENCH-WRITES",
+  );
+  assert(
+    fake.logs.some((line) => line.includes(MEASURE_END_TAG)),
+    "T8: sem deps ainda emite MEASURE-END",
+  );
+}
+
+// ── T9: rodada descartada não publica trabalho como se fosse métrica válida ─
+{
+  const fake = createFakeDeps({ shouldMove: false, storeWriteSnapshots: WRITE_SNAPSHOTS });
+  const cfg: BenchConfig = { mode: true, flags: "drag-commit-on-end=1", nodes: 3, dragSteps: 10 };
+  const res = await runCanvasBench(cfg, fake.deps);
+
+  eq(res, "aborted", "T9: gesto sem movimento é descartado");
+  assert(
+    !fake.logs.some((line) => line.includes("[📐 BENCH-WRITES]")),
+    "T9: gesto abortado não emite BENCH-WRITES",
+  );
 }
 
 console.log(`\ncanvas-bench: ${pass} passed, ${fail} failed`);

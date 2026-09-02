@@ -4,6 +4,7 @@
 // Sem React/Tauri/I/O: roda em Node no gate de fluidez.
 
 import { FLUENCY, FLUENCY_LOG_TAGS } from "@/lib/canvas-fluency";
+import { BENCH_WRITES_TAG } from "@/lib/store-writes";
 
 export const MEASURE_BEGIN_TAG = "📐 MEASURE-BEGIN";
 export const MEASURE_TICK_TAG = "📐 MEASURE-TICK";
@@ -17,6 +18,8 @@ export interface RunMetrics {
   mainBlocks: number;
   renderLoops: number;
   remountChurns: number;
+  /** Trabalho direto medido; null significa que a rodada nao coletou essa metrica. */
+  storeWrites: number | null;
   /** Duração real da janela [BEGIN, END] em ms — sem isso as contagens não são comparáveis. */
   windowMs: number;
   /** Contagens normalizadas por minuto de janela. null quando windowMs <= 0. */
@@ -43,10 +46,12 @@ type PrimaryMetric =
   | "remountChurns"
   | "mainBlocksPerMin"
   | "renderLoopsPerMin"
-  | "remountChurnsPerMin";
+  | "remountChurnsPerMin"
+  | "storeWrites";
 
 const ISO_PREFIX = /^\[([^\]]+)\]/;
 const DRIFT_MS = /~(\d+)ms/;
+const STORE_WRITES_TOTAL = /\btotal=(\d+)\b/;
 
 /** Heartbeat mínimo — abaixo disso a medição não provou que rodou (R3). */
 const TICK_COVERAGE_MIN = 0.8;
@@ -102,6 +107,7 @@ function insufficient(
     mainBlocks: 0,
     renderLoops: 0,
     remountChurns: 0,
+    storeWrites: null,
     windowMs: 0,
     mainBlocksPerMin: null,
     renderLoopsPerMin: null,
@@ -140,6 +146,7 @@ export function scoreRun(logText: string, opts?: { tickMs?: number }): RunMetric
   let mainBlocks = 0;
   let renderLoops = 0;
   let remountChurns = 0;
+  let storeWrites: number | null = null;
   const driftsMs: number[] = [];
 
   for (const line of lines) {
@@ -149,6 +156,17 @@ export function scoreRun(logText: string, opts?: { tickMs?: number }): RunMetric
 
     if (line.includes(`[${MEASURE_TICK_TAG}]`)) {
       ticksObserved++;
+      continue;
+    }
+
+    if (line.includes(`[${BENCH_WRITES_TAG}]`)) {
+      const totalMatch = STORE_WRITES_TOTAL.exec(line);
+      if (totalMatch) {
+        const total = Number.parseInt(totalMatch[1], 10);
+        // Percorrer na ordem do log faz a ultima linha valida da janela vencer,
+        // igual ao criterio de rodada mais recente usado pelos marcadores.
+        if (!Number.isNaN(total)) storeWrites = total;
+      }
       continue;
     }
 
@@ -188,6 +206,7 @@ export function scoreRun(logText: string, opts?: { tickMs?: number }): RunMetric
     mainBlocks,
     renderLoops,
     remountChurns,
+    storeWrites,
     windowMs: durationMs,
     mainBlocksPerMin: perMinuteFactor === null ? null : mainBlocks * perMinuteFactor,
     renderLoopsPerMin: perMinuteFactor === null ? null : renderLoops * perMinuteFactor,
@@ -285,7 +304,7 @@ export function verdict(
   const offValues = off.map((r) => r[metric]);
   const onValues = on.map((r) => r[metric]);
   // `undefined` tambem entra aqui, nao so `null`: uma rodada gravada por uma versao
-  // ANTERIOR do coletor nao tem o campo de taxa, e deixar isso passar produz NaN
+  // ANTERIOR do coletor pode nao ter a metrica escolhida, e deixar isso passar produz NaN
   // silencioso no veredito — foi exatamente o que aconteceu numa medicao real em
   // que metade das rodadas veio do binario velho.
   if ([...offValues, ...onValues].some((value) => value === null || value === undefined)) {
@@ -293,7 +312,7 @@ export function verdict(
       kind: "dados-insuficientes",
       deltaRel: null,
       detail: appendWindowWarning(
-        `${metric}: medianas indisponíveis — pelo menos uma rodada tem métrica null`,
+        `${metric}: medianas indisponíveis — pelo menos uma rodada não tem a métrica`,
         warning,
       ),
     };

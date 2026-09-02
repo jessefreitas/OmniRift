@@ -7,6 +7,7 @@ import { BootIntroArmor } from "@/components/BootIntroArmor";
 import { applyBenchOverrides, getFlag, useFlag } from "@/lib/feature-flags";
 import { makeSyntheticNodes } from "@/lib/bench-load";
 import { runCanvasBench, type BenchConfig } from "@/lib/canvas-bench";
+import { storeWriteSnapshot, storeWritesSince } from "@/lib/store-writes";
 import { Sidebar } from "@/components/Sidebar";
 import { ProjectTabs } from "@/components/ProjectTabs";
 import { ResourceChip } from "@/components/ResourceChip";
@@ -253,6 +254,11 @@ export default function App() {
         await runCanvasBench(cfg, {
           log: logToDisk,
           now: () => Date.now(),
+          // Métrica de TRABALHO: quantas escritas no store o gesto provocou.
+          // É o que a flag drag-commit-on-end ataca de fato — contagem
+          // determinística, imune a máquina quente e a duração de janela.
+          storeWriteSnapshot,
+          storeWritesSince,
           loadNodes: (count) => {
             const nodes = makeSyntheticNodes(count);
             useCanvasStore.getState().importCommunityNodes(nodes, []);
