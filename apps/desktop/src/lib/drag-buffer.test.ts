@@ -151,4 +151,71 @@ let passed = 0;
   passed++;
 }
 
+// ── DIAGNÓSTICO da anomalia medida em 2026-09-02 ────────────────────────────
+// Medindo escritas no store por gesto com 500 nós (K=4), o lado OFF ficou estável
+// em 243 escritas nas 4 rodadas, mas o lado ON deu 508, 8, 8, 8. Uma flag que
+// existe para REDUZIR escritas não pode produzir um caso PIOR que o baseline.
+//
+// Estes testes documentam o comportamento REAL do absorb — sem alterá-lo. O ponto
+// é que o buffer só segura quando `dragging === true`; QUALQUER outro valor cai no
+// else e commita na hora. Com `dragging` ausente, a flag degrada SILENCIOSAMENTE
+// para o comportamento de quando ela está desligada.
+
+// `dragging: undefined` NÃO é segurado — commita igual ao caminho sem flag.
+{
+  const buffer = new DragBuffer();
+  const c = buffer.absorb([{ id: "n1", type: "position", position: { x: 5, y: 5 } }]);
+  assert.equal(
+    c.positions.size,
+    1,
+    "dragging ausente commita de imediato: o buffer degrada para o comportamento da flag OFF",
+  );
+  passed++;
+}
+
+// `dragging: false` commita — fim de gesto legítimo, comportamento correto.
+{
+  const buffer = new DragBuffer();
+  const c = buffer.absorb([
+    { id: "n1", type: "position", position: { x: 5, y: 5 }, dragging: false },
+  ]);
+  assert.equal(c.positions.size, 1);
+  passed++;
+}
+
+// O CONTRATO que a flag promete: N eventos de arrasto + 1 de término = 1 escrita.
+{
+  const buffer = new DragBuffer();
+  let escritas = 0;
+  for (let i = 0; i < 10; i++) {
+    escritas += buffer.absorb([
+      { id: "n1", type: "position", position: { x: i, y: i }, dragging: true },
+    ]).positions.size;
+  }
+  escritas += buffer.absorb([
+    { id: "n1", type: "position", position: { x: 10, y: 10 }, dragging: false },
+  ]).positions.size;
+  assert.equal(escritas, 1, "10 eventos de arrasto + 1 de término devem virar 1 escrita");
+  passed++;
+}
+
+// A DEGRADAÇÃO, com número: os mesmos 10 eventos sem a fase informada viram 10
+// escritas — exatamente o que a flag existe para evitar. É a explicação candidata
+// para a rodada de 508.
+{
+  const buffer = new DragBuffer();
+  let escritas = 0;
+  for (let i = 0; i < 10; i++) {
+    escritas += buffer.absorb([
+      { id: "n1", type: "position", position: { x: i, y: i } },
+    ]).positions.size;
+  }
+  assert.equal(
+    escritas,
+    10,
+    "sem `dragging`, 10 eventos viram 10 escritas — idêntico ao caminho sem flag",
+  );
+  passed++;
+}
+
 console.log(`${passed} testes passaram em drag-buffer.test.ts`);
