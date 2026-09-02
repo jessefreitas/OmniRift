@@ -44,6 +44,7 @@ use commands::acp::{
     hermes_list_models,
 };
 use commands::agent_docs::{agent_docs_status, agent_docs_sync, discover_roles, subagent_write};
+use commands::bench::bench_config;
 use commands::browser::browser_shot;
 use commands::clis::{cli_install, cli_uninstall, cli_validate, clis_list};
 use commands::code::{
@@ -739,6 +740,7 @@ pub fn run() {
             mission_handoff_read,
             mission_handoff_consume,
             orchestration_doctor,
+            bench_config,
         ])
         .build(tauri::generate_context!())
         .expect("erro fatal construindo OmniRift")

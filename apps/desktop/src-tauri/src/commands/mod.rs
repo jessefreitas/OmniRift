@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod agent_docs;
+pub mod bench;
 pub mod browser;
 pub mod clis;
 pub mod code;
