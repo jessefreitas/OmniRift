@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { Canvas } from "@/components/Canvas";
 import { BootIntro } from "@/components/BootIntro";
 import { BootIntroArmor } from "@/components/BootIntroArmor";
-import { getFlag, useFlag } from "@/lib/feature-flags";
+import { applyBenchOverrides, getFlag, useFlag } from "@/lib/feature-flags";
+import { makeSyntheticNodes } from "@/lib/bench-load";
+import { runCanvasBench, type BenchConfig } from "@/lib/canvas-bench";
 import { Sidebar } from "@/components/Sidebar";
 import { ProjectTabs } from "@/components/ProjectTabs";
 import { ResourceChip } from "@/components/ResourceChip";
@@ -18,7 +21,7 @@ import { syncSandboxFlag } from "@/lib/sandbox-flag-sync";
 import { acpGc } from "@/lib/acp-client";
 import { initPtyGlobalSink } from "@/lib/pty-global-sink";
 import { useCanvasStore } from "@/store/canvas-store";
-import { startMainThreadWatchdog } from "@/lib/debug-log";
+import { logToDisk, startMainThreadWatchdog } from "@/lib/debug-log";
 import { markBootUiReady, whenBootUiReady } from "@/lib/boot-ui-ready";
 import { mcpServersImportGlobal } from "@/lib/mcp-servers-client";
 import { notify } from "@/lib/notify";
@@ -218,6 +221,184 @@ export default function App() {
   useEffect(() => {
     setPhase(uiReady ? "canvas" : bootIntroOn ? "intro" : "boot");
   }, [uiReady, bootIntroOn]);
+
+  // Harness de benchmark de fluidez/jank do canvas:
+  // Se OMNIRIFT_BENCH_MODE=1 estiver ativo, aplica overrides de flags e executa o bench.
+  useEffect(() => {
+    let disposed = false;
+    (async () => {
+      try {
+        const raw = await invoke<{
+          mode: boolean;
+          flags: string;
+          nodes: number;
+          drag_steps?: number;
+          dragSteps?: number;
+        }>("bench_config").catch(() => null);
+
+        if (disposed || !raw || !raw.mode) return;
+
+        const cfg: BenchConfig = {
+          mode: raw.mode,
+          flags: raw.flags,
+          nodes: raw.nodes,
+          dragSteps: raw.dragSteps ?? raw.drag_steps ?? 30,
+        };
+
+        applyBenchOverrides("1", cfg.flags);
+
+        await whenBootUiReady();
+        if (disposed) return;
+
+        await runCanvasBench(cfg, {
+          log: logToDisk,
+          now: () => Date.now(),
+          loadNodes: (count) => {
+            const nodes = makeSyntheticNodes(count);
+            useCanvasStore.getState().importCommunityNodes(nodes, []);
+            return nodes.map((n) => n.id);
+          },
+          readPositions: (ids) => {
+            const s = useCanvasStore.getState();
+            const active = s.parallels.find((p) => p.id === s.activeParallelId);
+            const map = new Map<string, { x: number; y: number }>();
+            if (active) {
+              const idSet = new Set(ids);
+              for (const n of active.nodes) {
+                if (idSet.has(n.id)) {
+                  map.set(n.id, { ...n.position });
+                }
+              }
+            }
+            return map;
+          },
+          dragNode: async (id, path) => {
+            let el =
+              document.querySelector<HTMLElement>(`[data-id="${id}"] .node-drag-handle`) ??
+              document.querySelector<HTMLElement>(`[data-id="${id}"]`);
+            if (!el) {
+              for (let attempt = 0; attempt < 10; attempt++) {
+                await new Promise((r) => setTimeout(r, 50));
+                el =
+                  document.querySelector<HTMLElement>(`[data-id="${id}"] .node-drag-handle`) ??
+                  document.querySelector<HTMLElement>(`[data-id="${id}"]`);
+                if (el) break;
+              }
+            }
+            if (!el) {
+              logToDisk(`[BENCH-LOAD] elemento do nó ${id} não foi encontrado`);
+              return;
+            }
+            if (path.length === 0) return;
+
+            const rect = el.getBoundingClientRect();
+            let currentX = rect.left + rect.width / 2;
+            let currentY = rect.top + rect.height / 2;
+
+            // O React Flow usa d3-drag, que inicia o gesto por mousedown; pointerdown
+            // permanece porque outros handlers do app podem depender dele.
+            el.dispatchEvent(
+              new PointerEvent("pointerdown", {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX: currentX,
+                clientY: currentY,
+                pointerId: 1,
+                isPrimary: true,
+                button: 0,
+                buttons: 1,
+              }),
+            );
+            el.dispatchEvent(
+              new MouseEvent("mousedown", {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX: currentX,
+                clientY: currentY,
+                button: 0,
+                buttons: 1,
+              }),
+            );
+
+            for (let i = 0; i < path.length; i++) {
+              const pt = path[i];
+              const prev = i === 0 ? path[0] : path[i - 1];
+              currentX += pt.x - prev.x;
+              currentY += pt.y - prev.y;
+
+              const moveEvt = new PointerEvent("pointermove", {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX: currentX,
+                clientY: currentY,
+                pointerId: 1,
+                isPrimary: true,
+                button: 0,
+                buttons: 1,
+              });
+              el.dispatchEvent(moveEvt);
+              window.dispatchEvent(moveEvt);
+
+              // Após o mousedown, d3-drag escuta mousemove na window, não no elemento.
+              window.dispatchEvent(
+                new MouseEvent("mousemove", {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  clientX: currentX,
+                  clientY: currentY,
+                  button: 0,
+                  buttons: 1,
+                }),
+              );
+              await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            }
+
+            const upEvt = new PointerEvent("pointerup", {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              clientX: currentX,
+              clientY: currentY,
+              pointerId: 1,
+              isPrimary: true,
+              button: 0,
+              buttons: 0,
+            });
+            el.dispatchEvent(upEvt);
+            window.dispatchEvent(upEvt);
+            // d3-drag também encerra o gesto pelo mouseup registrado na window.
+            window.dispatchEvent(
+              new MouseEvent("mouseup", {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX: currentX,
+                clientY: currentY,
+                button: 0,
+                buttons: 0,
+              }),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 16));
+          },
+          sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+          startTicker: (intervalMs, tick) => {
+            const handle = window.setInterval(tick, intervalMs);
+            return () => window.clearInterval(handle);
+          },
+        });
+      } catch (err) {
+        // Envolve em try/catch para nunca derrubar o app (requisito smoke-boot / CI)
+        console.error("Canvas bench error:", err);
+      }
+    })();
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   return (
     <div className="flex h-screen w-screen bg-bg">

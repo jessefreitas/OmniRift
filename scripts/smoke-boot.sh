@@ -90,17 +90,21 @@ launch_app() {
   # o smoke colide com uma instância aberta do app na máquina do dev.
   mkdir -p "$SMOKE_HOME/runtime" && chmod 700 "$SMOKE_HOME/runtime"
   if command -v xvfb-run >/dev/null 2>&1; then
-    env HOME="$SMOKE_HOME" \
+    env -u WAYLAND_DISPLAY HOME="$SMOKE_HOME" \
         XDG_RUNTIME_DIR="$SMOKE_HOME/runtime" \
         LIBGL_ALWAYS_SOFTWARE=1 \
         WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+        GDK_BACKEND=x11 \
+        XDG_SESSION_TYPE=x11 \
         xvfb-run -a "$bin" &
     APP_PID=$!
   elif [[ -n "${DISPLAY:-}" ]]; then
-    env HOME="$SMOKE_HOME" \
+    env -u WAYLAND_DISPLAY HOME="$SMOKE_HOME" \
         XDG_RUNTIME_DIR="$SMOKE_HOME/runtime" \
         LIBGL_ALWAYS_SOFTWARE=1 \
         WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+        GDK_BACKEND=x11 \
+        XDG_SESSION_TYPE=x11 \
         "$bin" &
     APP_PID=$!
   else
