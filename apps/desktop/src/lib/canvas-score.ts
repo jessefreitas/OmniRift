@@ -17,6 +17,12 @@ export interface RunMetrics {
   mainBlocks: number;
   renderLoops: number;
   remountChurns: number;
+  /** Duração real da janela [BEGIN, END] em ms — sem isso as contagens não são comparáveis. */
+  windowMs: number;
+  /** Contagens normalizadas por minuto de janela. null quando windowMs <= 0. */
+  mainBlocksPerMin: number | null;
+  renderLoopsPerMin: number | null;
+  remountChurnsPerMin: number | null;
   ticksObserved: number;
   ticksExpected: number;
   driftsMs: number[];
@@ -31,7 +37,13 @@ export interface Verdict {
   detail: string;
 }
 
-type PrimaryMetric = "mainBlocks" | "renderLoops" | "remountChurns";
+type PrimaryMetric =
+  | "mainBlocks"
+  | "renderLoops"
+  | "remountChurns"
+  | "mainBlocksPerMin"
+  | "renderLoopsPerMin"
+  | "remountChurnsPerMin";
 
 const ISO_PREFIX = /^\[([^\]]+)\]/;
 const DRIFT_MS = /~(\d+)ms/;
@@ -90,6 +102,10 @@ function insufficient(
     mainBlocks: 0,
     renderLoops: 0,
     remountChurns: 0,
+    windowMs: 0,
+    mainBlocksPerMin: null,
+    renderLoopsPerMin: null,
+    remountChurnsPerMin: null,
     ticksObserved: 0,
     ticksExpected: 0,
     driftsMs: [],
@@ -163,11 +179,19 @@ export function scoreRun(logText: string, opts?: { tickMs?: number }): RunMetric
 
   driftsMs.sort((a, b) => a - b);
 
+  // O bench real produziu OFF com 27 ticks e ON com 14 ticks. Normalizar pela
+  // janela evita atribuir à flag um ganho causado apenas por menor exposição.
+  const perMinuteFactor = durationMs > 0 ? 60_000 / durationMs : null;
+
   return {
     status: "ok",
     mainBlocks,
     renderLoops,
     remountChurns,
+    windowMs: durationMs,
+    mainBlocksPerMin: perMinuteFactor === null ? null : mainBlocks * perMinuteFactor,
+    renderLoopsPerMin: perMinuteFactor === null ? null : renderLoops * perMinuteFactor,
+    remountChurnsPerMin: perMinuteFactor === null ? null : remountChurns * perMinuteFactor,
     ticksObserved,
     ticksExpected,
     driftsMs,
@@ -195,21 +219,54 @@ export function percentile(xs: number[], p: number): number | null {
   return sorted[lower] + (sorted[upper] - sorted[lower]) * (idx - lower);
 }
 
+/** Alerta quando as janelas dos dois lados são desiguais a ponto de contaminar a comparação. */
+export function windowBalanceWarning(
+  off: RunMetrics[],
+  on: RunMetrics[],
+  toleranceRel = 0.25,
+): string | null {
+  if (off.length === 0 || on.length === 0) return null;
+
+  // Rodada de uma versao anterior do coletor nao tem `windowMs`; a mediana de
+  // `undefined` vira NaN e o aviso sai ilegivel em vez de alertar. Sem o campo em
+  // algum lado, nao ha o que comparar.
+  if (off.some((r) => typeof r.windowMs !== "number") || on.some((r) => typeof r.windowMs !== "number")) {
+    return "Aviso: rodadas sem duração de janela registrada — comparação não auditável.";
+  }
+  const medOff = median(off.map((r) => r.windowMs));
+  const medOn = median(on.map((r) => r.windowMs));
+  const scale = Math.max(Math.abs(medOff), Math.abs(medOn));
+  const differenceRel = scale === 0 ? 0 : Math.abs(medOn - medOff) / scale;
+
+  if (differenceRel <= toleranceRel) return null;
+  return `Aviso: janelas desiguais — mediana OFF=${medOff}ms e ON=${medOn}ms (${(
+    differenceRel * 100
+  ).toFixed(1)}% de diferença relativa).`;
+}
+
+function appendWindowWarning(detail: string, warning: string | null): string {
+  return warning === null ? detail : `${detail} ${warning}`;
+}
+
 /** Compara N rodadas com a flag OFF contra N rodadas com a flag ON. */
 export function verdict(
   off: RunMetrics[],
   on: RunMetrics[],
   opts?: { metric?: PrimaryMetric; minDeltaRel?: number },
 ): Verdict {
-  const metric = opts?.metric ?? "mainBlocks";
+  const metric = opts?.metric ?? "mainBlocksPerMin";
   const minDeltaRel = opts?.minDeltaRel ?? 0.15;
+  const warning = windowBalanceWarning(off, on);
 
   // R5: qualquer lado vazio ou rodada inválida → não comparar
   if (off.length === 0 || on.length === 0) {
     return {
       kind: "dados-insuficientes",
       deltaRel: null,
-      detail: "lado OFF ou ON sem rodadas",
+      detail: appendWindowWarning(
+        `${metric}: medianas indisponíveis — lado OFF ou ON sem rodadas`,
+        warning,
+      ),
     };
   }
 
@@ -218,12 +275,34 @@ export function verdict(
     return {
       kind: "dados-insuficientes",
       deltaRel: null,
-      detail: "pelo menos uma rodada sem medição válida",
+      detail: appendWindowWarning(
+        `${metric}: medianas indisponíveis — pelo menos uma rodada sem medição válida`,
+        warning,
+      ),
     };
   }
 
-  const medOff = median(off.map((r) => r[metric]));
-  const medOn = median(on.map((r) => r[metric]));
+  const offValues = off.map((r) => r[metric]);
+  const onValues = on.map((r) => r[metric]);
+  // `undefined` tambem entra aqui, nao so `null`: uma rodada gravada por uma versao
+  // ANTERIOR do coletor nao tem o campo de taxa, e deixar isso passar produz NaN
+  // silencioso no veredito — foi exatamente o que aconteceu numa medicao real em
+  // que metade das rodadas veio do binario velho.
+  if ([...offValues, ...onValues].some((value) => value === null || value === undefined)) {
+    return {
+      kind: "dados-insuficientes",
+      deltaRel: null,
+      detail: appendWindowWarning(
+        `${metric}: medianas indisponíveis — pelo menos uma rodada tem métrica null`,
+        warning,
+      ),
+    };
+  }
+
+  const numericOff = offValues.filter((value): value is number => value !== null);
+  const numericOn = onValues.filter((value): value is number => value !== null);
+  const medOff = median(numericOff);
+  const medOn = median(numericOn);
 
   // R6: baseline zero exige tratamento explícito
   if (medOff === 0) {
@@ -231,13 +310,19 @@ export function verdict(
       return {
         kind: "inconclusivo",
         deltaRel: null,
-        detail: `mediana ${metric} = 0 em ambos os lados — nada a medir`,
+        detail: appendWindowWarning(
+          `${metric}: mediana OFF=0 e ON=0 — nada a medir`,
+          warning,
+        ),
       };
     }
     return {
       kind: "piora",
       deltaRel: null,
-      detail: `mediana OFF = 0, ON = ${medOn} — qualquer trabalho extra é piora`,
+      detail: appendWindowWarning(
+        `${metric}: mediana OFF=0 e ON=${medOn} — qualquer trabalho extra é piora`,
+        warning,
+      ),
     };
   }
 
@@ -249,19 +334,28 @@ export function verdict(
     return {
       kind: "melhora",
       deltaRel,
-      detail: `${metric}: mediana OFF=${medOff} ON=${medOn} (${pct}%)`,
+      detail: appendWindowWarning(
+        `${metric}: mediana OFF=${medOff} ON=${medOn} (${pct}%)`,
+        warning,
+      ),
     };
   }
   if (deltaRel >= minDeltaRel) {
     return {
       kind: "piora",
       deltaRel,
-      detail: `${metric}: mediana OFF=${medOff} ON=${medOn} (+${pct}%)`,
+      detail: appendWindowWarning(
+        `${metric}: mediana OFF=${medOff} ON=${medOn} (+${pct}%)`,
+        warning,
+      ),
     };
   }
   return {
     kind: "inconclusivo",
     deltaRel,
-    detail: `${metric}: mediana OFF=${medOff} ON=${medOn} (${pct}%, abaixo de ±${minDeltaRel * 100}%)`,
+    detail: appendWindowWarning(
+      `${metric}: mediana OFF=${medOff} ON=${medOn} (${pct}%, abaixo de ±${minDeltaRel * 100}%)`,
+      warning,
+    ),
   };
 }

@@ -285,20 +285,38 @@ export default function App() {
                 if (el) break;
               }
             }
-            if (!el || path.length === 0) return;
+            if (!el) {
+              logToDisk(`[BENCH-LOAD] elemento do nó ${id} não foi encontrado`);
+              return;
+            }
+            if (path.length === 0) return;
 
             const rect = el.getBoundingClientRect();
             let currentX = rect.left + rect.width / 2;
             let currentY = rect.top + rect.height / 2;
 
+            // O React Flow usa d3-drag, que inicia o gesto por mousedown; pointerdown
+            // permanece porque outros handlers do app podem depender dele.
             el.dispatchEvent(
               new PointerEvent("pointerdown", {
                 bubbles: true,
                 cancelable: true,
+                view: window,
                 clientX: currentX,
                 clientY: currentY,
                 pointerId: 1,
                 isPrimary: true,
+                button: 0,
+                buttons: 1,
+              }),
+            );
+            el.dispatchEvent(
+              new MouseEvent("mousedown", {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX: currentX,
+                clientY: currentY,
                 button: 0,
                 buttons: 1,
               }),
@@ -313,6 +331,7 @@ export default function App() {
               const moveEvt = new PointerEvent("pointermove", {
                 bubbles: true,
                 cancelable: true,
+                view: window,
                 clientX: currentX,
                 clientY: currentY,
                 pointerId: 1,
@@ -322,12 +341,26 @@ export default function App() {
               });
               el.dispatchEvent(moveEvt);
               window.dispatchEvent(moveEvt);
-              await new Promise((resolve) => setTimeout(resolve, 8));
+
+              // Após o mousedown, d3-drag escuta mousemove na window, não no elemento.
+              window.dispatchEvent(
+                new MouseEvent("mousemove", {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  clientX: currentX,
+                  clientY: currentY,
+                  button: 0,
+                  buttons: 1,
+                }),
+              );
+              await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
             }
 
             const upEvt = new PointerEvent("pointerup", {
               bubbles: true,
               cancelable: true,
+              view: window,
               clientX: currentX,
               clientY: currentY,
               pointerId: 1,
@@ -337,6 +370,18 @@ export default function App() {
             });
             el.dispatchEvent(upEvt);
             window.dispatchEvent(upEvt);
+            // d3-drag também encerra o gesto pelo mouseup registrado na window.
+            window.dispatchEvent(
+              new MouseEvent("mouseup", {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX: currentX,
+                clientY: currentY,
+                button: 0,
+                buttons: 0,
+              }),
+            );
             await new Promise((resolve) => setTimeout(resolve, 16));
           },
           sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

@@ -188,7 +188,17 @@ EOF
     const fs = require("node:fs");
     const [basePath, offPath, worsePath, betterPath] = process.argv.slice(1);
     const base = JSON.parse(fs.readFileSync(basePath, "utf8"));
-    const runs = (counts) => counts.map((mainBlocks) => ({ ...base, mainBlocks }));
+    // A metrica primaria do veredito e a TAXA (mainBlocksPerMin), nao a contagem:
+    // janelas de duracao diferente tornam contagem absoluta incomparavel. As fixtures
+    // precisam variar a taxa junto, senao o self-test compara um campo que o veredito
+    // nem olha — e foi assim que ele flagrou "detector em pane" ao trocar o default.
+    const runs = (counts) =>
+      counts.map((mainBlocks) => ({
+        ...base,
+        mainBlocks,
+        windowMs: 60000,
+        mainBlocksPerMin: mainBlocks,
+      }));
     fs.writeFileSync(offPath, JSON.stringify(runs([10, 10, 10])));
     fs.writeFileSync(worsePath, JSON.stringify(runs([20, 20, 20])));
     fs.writeFileSync(betterPath, JSON.stringify(runs([2, 2, 2])));
@@ -221,9 +231,9 @@ EOF
     const base = JSON.parse(fs.readFileSync(basePath, "utf8"));
     // Uma unica rodada invalida do lado ON tem que contaminar o veredito inteiro.
     fs.writeFileSync(outPath, JSON.stringify([
-      { ...base, mainBlocks: 2 },
-      { ...base, status: "insufficient-data", reason: "sem-marcador-de-fim" },
-      { ...base, mainBlocks: 2 },
+      { ...base, mainBlocks: 2, windowMs: 60000, mainBlocksPerMin: 2 },
+      { ...base, status: "insufficient-data", reason: "sem-marcador-de-fim", windowMs: 0, mainBlocksPerMin: null },
+      { ...base, mainBlocks: 2, windowMs: 60000, mainBlocksPerMin: 2 },
     ]));
   ' "$complete_score" "$insuf_json"
 
@@ -248,20 +258,24 @@ launch_app() {
   chmod 700 "$BENCH_HOME/runtime"
 
   if command -v xvfb-run >/dev/null 2>&1; then
-    env HOME="$BENCH_HOME" \
+    env -u WAYLAND_DISPLAY HOME="$BENCH_HOME" \
         XDG_RUNTIME_DIR="$BENCH_HOME/runtime" \
         LIBGL_ALWAYS_SOFTWARE=1 \
         WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+        GDK_BACKEND=x11 \
+        XDG_SESSION_TYPE=x11 \
         OMNIRIFT_BENCH_MODE=1 \
         OMNIRIFT_BENCH_FLAGS="drag-commit-on-end=$flag_value" \
         OMNIRIFT_BENCH_NODES="$BENCH_NODES" \
         xvfb-run -a "$bin" &
     APP_PID=$!
   elif [[ -n "${DISPLAY:-}" ]]; then
-    env HOME="$BENCH_HOME" \
+    env -u WAYLAND_DISPLAY HOME="$BENCH_HOME" \
         XDG_RUNTIME_DIR="$BENCH_HOME/runtime" \
         LIBGL_ALWAYS_SOFTWARE=1 \
         WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+        GDK_BACKEND=x11 \
+        XDG_SESSION_TYPE=x11 \
         OMNIRIFT_BENCH_MODE=1 \
         OMNIRIFT_BENCH_FLAGS="drag-commit-on-end=$flag_value" \
         OMNIRIFT_BENCH_NODES="$BENCH_NODES" \
