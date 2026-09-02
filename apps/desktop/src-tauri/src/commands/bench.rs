@@ -126,7 +126,9 @@ mod tests {
 
     #[test]
     fn test_bench_mode_falsy_and_invalid_values() {
-        for falsy in ["0", "false", "off", "FALSE", "Off", "2", "-1", "sim", "yes", "bench"] {
+        for falsy in [
+            "0", "false", "off", "FALSE", "Off", "2", "-1", "sim", "yes", "bench",
+        ] {
             assert!(
                 !parse_bench_mode(Some(falsy)),
                 "esperava mode=false para '{falsy}'"
