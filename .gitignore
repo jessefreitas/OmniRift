@@ -28,6 +28,7 @@ Thumbs.db
 
 # Claude Code (logs de runtime de hooks)
 .claude/*.log
+.claude/*.local.json
 # Agents em .claude/agents/ são versionados de propósito (config compartilhada do time).
 
 # Serena (cache de estrutura de código por projeto — gerado pelos agentes)

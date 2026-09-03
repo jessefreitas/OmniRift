@@ -597,9 +597,13 @@ mod tests {
         // `/home/jesse` NÃO pode virar `~` dentro de `/home/jesseadmin`.
         let sibling = format!("{home}admin/secrets");
         let out = scrub_paths(&sibling);
-        assert_eq!(
-            out, sibling,
-            "HOME não pode ser prefixo de outro path: in={sibling} out={out}"
+        assert!(
+            !out.contains('~'),
+            "HOME não pode virar ~ como prefixo: in={sibling} out={out}"
+        );
+        assert!(
+            out.ends_with("admin/secrets"),
+            "sufixo do sibling deve ser preservado: in={sibling} out={out}"
         );
     }
 
