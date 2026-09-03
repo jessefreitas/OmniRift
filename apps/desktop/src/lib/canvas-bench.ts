@@ -69,7 +69,11 @@ export async function runCanvasBench(
   try {
     // 1. Injeta nós sintéticos
     const nodeIds = deps.loadNodes(cfg.nodes);
-    await deps.sleep(50);
+    // Aguarda a montagem e a medição inicial de dimensões (ResizeObserver) assentar.
+    // Com 500 nós, 50ms era insuficiente: o lote de medição de tamanho dos nós
+    // vazava para dentro da janela de medição dos gestos, gerando a anomalia das 508 escritas (size=504).
+    const settleMs = cfg.nodes > 50 ? 500 : 50;
+    await deps.sleep(settleMs);
 
     // 2. Emite MEASURE_BEGIN_TAG no formato canônico [<ISO>] [<TAG>] <detalhe>
     const beginIso = new Date(deps.now()).toISOString();
