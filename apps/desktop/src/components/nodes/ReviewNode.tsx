@@ -14,7 +14,7 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { GitPullRequestArrow, Check, X, Bot } from "lucide-react";
 
 import { useCanvasStore } from "@/store/canvas-store";
-import { DiffLines } from "@/components/DiffViewerModal";
+import { DiffLines } from "@/components/DiffLines";
 import { ptyWrite } from "@/lib/pty-client";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
