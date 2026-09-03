@@ -18,6 +18,7 @@ apps/desktop/src-tauri/WixTools/
 # IDE
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 
