@@ -326,6 +326,7 @@ run_one() {
   local status
   status=$(json_field "$metric_file" status)
   echo "métricas $side/$repetition: $(tr -d '\n' < "$metric_file")"
+  grep -F '📐 BENCH-WRITES' "$logfile" 2>/dev/null || true
   if [[ "$status" == "insufficient-data" ]]; then
     local reason
     reason=$(json_field "$metric_file" reason)
