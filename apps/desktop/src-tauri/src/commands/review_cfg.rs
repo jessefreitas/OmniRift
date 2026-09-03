@@ -437,13 +437,36 @@ pub fn agent_config_dir() -> Option<String> {
     let dir = home.join(".omnirift").join("agent-claude-home");
     std::fs::create_dir_all(&dir).ok()?;
 
-    // Estado principal (~/.claude.json: conta OAuth + onboarding concluído) — só se
-    // faltar, pra não atropelar o estado que os agentes escrevem no dir isolado.
-    // Sem ele o claude abriria o wizard interativo e TRAVARIA o PTY.
+    // Estado principal (~/.claude.json: conta OAuth + onboarding concluído).
+    // Se faltar, copia o estado inteiro; se já existir, sincroniza a chave `oauthAccount`
+    // do login principal caso tenha mudado (ex: login recente na máquina), garantindo
+    // que o Voice Mode e os limites de conta sejam válidos no diretório isolado.
     let main_json = home.join(".claude.json");
     let agent_json = dir.join(".claude.json");
-    if !agent_json.exists() && main_json.exists() {
-        let _ = std::fs::copy(&main_json, &agent_json);
+    if main_json.exists() {
+        if !agent_json.exists() {
+            let _ = std::fs::copy(&main_json, &agent_json);
+        } else if let Ok(main_raw) = std::fs::read_to_string(&main_json) {
+            if let Ok(main_val) = serde_json::from_str::<serde_json::Value>(&main_raw) {
+                if let Some(oauth) = main_val.get("oauthAccount") {
+                    if let Ok(agent_raw) = std::fs::read_to_string(&agent_json) {
+                        if let Ok(mut agent_val) =
+                            serde_json::from_str::<serde_json::Value>(&agent_raw)
+                        {
+                            if agent_val.get("oauthAccount") != Some(oauth) {
+                                agent_val["oauthAccount"] = oauth.clone();
+                                if let Ok(s) = serde_json::to_string(&agent_val) {
+                                    let tmp = dir.join(".claude.json.tmp");
+                                    if std::fs::write(&tmp, s).is_ok() {
+                                        let _ = std::fs::rename(&tmp, &agent_json);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Pré-aceita o modo bypass no config isolado: o app spawna todo agente claude com
@@ -464,6 +487,9 @@ pub fn agent_config_dir() -> Option<String> {
         }
     }
 
+    // Garante que o Voice Mode está ativado em settings.json (tap mode + PT)
+    ensure_agent_voice_settings(&dir);
+
     // Credenciais: cópia FRESCA a cada spawn (temp+rename — agentes concorrentes podem
     // estar lendo o arquivo no mesmo instante).
     let creds = home.join(".claude").join(".credentials.json");
@@ -475,6 +501,31 @@ pub fn agent_config_dir() -> Option<String> {
     }
 
     dir.to_str().map(String::from)
+}
+
+/// Garante que o arquivo settings.json no diretório isolado do agente tenha
+/// o Voice Mode ativo ("tap" mode) e idioma português ("pt").
+pub fn ensure_agent_voice_settings(dir: &std::path::Path) {
+    let settings_file = dir.join("settings.json");
+    let mut settings_obj = if let Ok(raw) = std::fs::read_to_string(&settings_file) {
+        serde_json::from_str::<serde_json::Value>(&raw).unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+    let voice_needs_update = settings_obj.get("voice").and_then(|v| v.get("enabled"))
+        != Some(&serde_json::Value::Bool(true))
+        || settings_obj.get("voiceEnabled") == Some(&serde_json::Value::Bool(false));
+    if voice_needs_update {
+        settings_obj["voice"] = serde_json::json!({ "enabled": true, "mode": "tap" });
+        settings_obj["voiceEnabled"] = serde_json::Value::Bool(true);
+        settings_obj["language"] = serde_json::Value::String("pt".to_string());
+        if let Ok(s) = serde_json::to_string_pretty(&settings_obj) {
+            let tmp = dir.join("settings.json.tmp");
+            if std::fs::write(&tmp, s).is_ok() {
+                let _ = std::fs::rename(&tmp, &settings_file);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -620,6 +671,37 @@ mod tests {
                 "estado {st} ausente: {c}"
             );
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_agent_voice_settings_ativa_voice_e_preserva_campos() {
+        let dir = std::env::temp_dir().join(format!("omnirift-voice-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 1. Arquivo com voice desativado
+        let initial = serde_json::json!({
+            "voice": { "enabled": false, "mode": "tap" },
+            "voiceEnabled": false,
+            "customUserField": "keep-me"
+        });
+        std::fs::write(
+            dir.join("settings.json"),
+            serde_json::to_string(&initial).unwrap(),
+        )
+        .unwrap();
+
+        super::ensure_agent_voice_settings(&dir);
+
+        let updated_raw = std::fs::read_to_string(dir.join("settings.json")).unwrap();
+        let updated: serde_json::Value = serde_json::from_str(&updated_raw).unwrap();
+
+        assert_eq!(updated["voice"]["enabled"], true);
+        assert_eq!(updated["voice"]["mode"], "tap");
+        assert_eq!(updated["voiceEnabled"], true);
+        assert_eq!(updated["language"], "pt");
+        assert_eq!(updated["customUserField"], "keep-me");
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

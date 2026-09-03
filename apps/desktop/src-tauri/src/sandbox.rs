@@ -114,7 +114,21 @@ pub fn build_bwrap_argv(program: &str, args: &[String], workspace: Option<&str>)
                 argv.push(String::from("--tmpfs"));
                 argv.push(format!("{}/{}", home, secret));
             }
+        }
+    }
 
+    // Diretório de runtime do usuário (PulseAudio, PipeWire, sockets D-Bus e display).
+    // Essencial para gravação de áudio (arecord/sox no voice mode do Claude Code).
+    if let Ok(runtime_dir) = env::var("XDG_RUNTIME_DIR") {
+        if !runtime_dir.is_empty() {
+            argv.push(String::from("--bind-try"));
+            argv.push(runtime_dir.clone());
+            argv.push(runtime_dir);
+        }
+    }
+
+    if let Ok(home) = env::var("HOME") {
+        if !home.is_empty() {
             // ~/.claude é caso especial: guarda a credencial JUNTO com
             // settings.json e mcp.json que o agente precisa pra subir, então
             // tmpfs no diretório inteiro mataria a auth e o MCP de todo

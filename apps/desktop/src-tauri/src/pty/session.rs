@@ -848,6 +848,28 @@ fn build_command(
     // pro claude e pro Chromium do Playwright (que o agente dirige) pode quebrá-los.
     cmd.env("LD_PRELOAD", "");
     cmd.env("GTK_MODULES", "");
+
+    // Sessão local: remove variáveis que simulam ambiente remoto e bloqueiam voice mode.
+    // O Claude Code detecta SSH_CONNECTION/SSH_CLIENT/SSH_TTY e desativa gravação de voz.
+    if !host.is_remote() {
+        cmd.env_remove("SSH_CLIENT");
+        cmd.env_remove("SSH_CONNECTION");
+        cmd.env_remove("SSH_TTY");
+        cmd.env_remove("CLAUDE_CODE_REMOTE");
+        cmd.env_remove("CLAUDE_CODE_REMOTE_SESSION_ID");
+
+        // Assegura caminho de áudio do usuário (PipeWire / PulseAudio) no Linux
+        #[cfg(target_os = "linux")]
+        {
+            if std::env::var("XDG_RUNTIME_DIR").is_err() {
+                let uid = unsafe { libc::getuid() };
+                let run_user = format!("/run/user/{uid}");
+                if std::path::Path::new(&run_user).is_dir() {
+                    cmd.env("XDG_RUNTIME_DIR", &run_user);
+                }
+            }
+        }
+    }
     cmd
 }
 
