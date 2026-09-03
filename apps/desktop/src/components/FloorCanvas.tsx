@@ -9,7 +9,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFlag } from "@/lib/feature-flags";
 import { DragBuffer } from "@/lib/drag-buffer";
-import { countStoreWrite } from "@/lib/store-writes";
+import { countStoreWrite, countDragChange, type DragPhase } from "@/lib/store-writes";
 import { createPortal } from "react-dom";
 import {
   ReactFlow,
@@ -232,6 +232,21 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
       // Medição de trabalho direto: contabiliza as escritas reais no store nos dois caminhos.
       // DURO: incremento de inteiro puro sem alocação nem log por evento para não criar jank.
       if (commitOnEnd) {
+        // Diagnóstico da anomalia (508 vs 243 escritas no store por gesto):
+        // Com 500 nós o DragBuffer deu [508, 8, 8, 8]. Conta cada change de posição pela
+        // fase ("dragging" | "settled" | "unknown") antes do absorb para desempate entre
+        // degradação silenciosa por campo ausente (unknown) vs rajada de eventos do WebKit.
+        for (const change of changes) {
+          if (change.type === "position") {
+            const phase: DragPhase =
+              change.dragging === true
+                ? "dragging"
+                : change.dragging === false
+                  ? "settled"
+                  : "unknown";
+            countDragChange(phase);
+          }
+        }
         const commit = dragBufferRef.current.absorb(changes as never[]);
         for (const [id, pos] of commit.positions) {
           countStoreWrite("position");
@@ -248,9 +263,20 @@ function FloorCanvasImpl({ floorId, active }: { floorId: string; active: boolean
         return;
       }
       for (const change of changes) {
-        if (change.type === "position" && change.position) {
-          countStoreWrite("position");
-          updateNodePosition(change.id, change.position);
+        if (change.type === "position") {
+          // Diagnóstico da anomalia 508 vs 243 no caminho direto:
+          // Conta a fase antes da escrita direta no store, sem alterar a ordem nem lógica.
+          const phase: DragPhase =
+            change.dragging === true
+              ? "dragging"
+              : change.dragging === false
+                ? "settled"
+                : "unknown";
+          countDragChange(phase);
+          if (change.position) {
+            countStoreWrite("position");
+            updateNodePosition(change.id, change.position);
+          }
         } else if (change.type === "dimensions" && change.dimensions) {
           countStoreWrite("size");
           updateNodeSize(change.id, {
