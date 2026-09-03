@@ -422,6 +422,25 @@ pub(crate) fn rename_column_if_legacy(conn: &Connection, table: &str, old: &str,
     }
 }
 
+/// Aplica PRAGMAs de alta performance no SQLite:
+/// - WAL mode (Write-Ahead Logging): leituras e escritas concorrentes sem travar a thread da UI
+/// - synchronous = NORMAL: 100% crash-safe em WAL, 10x-50x mais rápido em SSDs
+/// - busy_timeout = 5000: aguarda 5s em caso de contenção de lock em vez de retornar erro imediato
+/// - cache_size = -20000: aloca 20MB de page cache em RAM
+/// - temp_store = MEMORY: tabelas temporárias e ordenações em RAM
+fn apply_performance_pragmas(conn: &Connection, is_memory: bool) -> Result<()> {
+    if !is_memory {
+        let _ = conn.execute_batch("PRAGMA journal_mode = WAL;");
+        let _ = conn.execute_batch("PRAGMA synchronous = NORMAL;");
+    }
+    conn.execute_batch(
+        "PRAGMA busy_timeout = 5000;
+         PRAGMA cache_size = -20000;
+         PRAGMA temp_store = MEMORY;",
+    )?;
+    Ok(())
+}
+
 impl Db {
     /// Abre (ou cria) `dir/omnirift.db` e garante o schema.
     ///
@@ -443,6 +462,7 @@ impl Db {
         }
 
         let conn = Connection::open(&new_db).context("abrir omnirift.db")?;
+        apply_performance_pragmas(&conn, false)?;
         conn.execute_batch(SCHEMA)?;
         migrate(&conn);
         Ok(Self(Mutex::new(conn)))
@@ -451,6 +471,7 @@ impl Db {
     /// Abre um DB em memória — fallback quando o app data dir não está disponível.
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
+        apply_performance_pragmas(&conn, true)?;
         conn.execute_batch(SCHEMA)?;
         migrate(&conn);
         Ok(Self(Mutex::new(conn)))
@@ -2115,5 +2136,39 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|r| r.id != b));
         db.snippet_delete(9999).unwrap();
+    }
+
+    #[test]
+    fn sqlite_performance_pragmas_aplicados_com_sucesso() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("omnirift-perf-db-{}", std::process::id()));
+        let db = Db::open(&temp_dir).unwrap();
+
+        db.with_conn(|conn| {
+            let journal_mode: String = conn
+                .query_row("PRAGMA journal_mode;", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(journal_mode.to_lowercase(), "wal");
+
+            let synchronous: i32 = conn
+                .query_row("PRAGMA synchronous;", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(synchronous, 1); // 1 = NORMAL
+
+            let busy_timeout: i32 = conn
+                .query_row("PRAGMA busy_timeout;", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(busy_timeout, 5000);
+
+            let temp_store: i32 = conn
+                .query_row("PRAGMA temp_store;", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(temp_store, 2); // 2 = MEMORY
+
+            Ok(())
+        })
+        .unwrap();
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
