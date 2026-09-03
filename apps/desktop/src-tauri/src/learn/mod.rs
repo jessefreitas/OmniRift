@@ -137,6 +137,12 @@ fn max_fenced_code_lines(resp: &str) -> usize {
     max
 }
 
+pub mod profile;
+pub mod tracks;
+
+pub use profile::LearnProfile;
+pub use tracks::{builtin_tracks, LearnExercise, LearnTrack};
+
 /// Comando Tauri: monta o system-prompt Socrático canônico. O front (lib/learn.ts)
 /// invoca ISTO em vez de interpolar o prompt no TS — o mesmo texto que os testes
 /// anti-vazamento do backend cobrem. Puro; nunca falha.
@@ -152,6 +158,34 @@ pub fn learn_socratic_prompt(language: String, hint_level: u8, statement: String
 pub fn learn_check_leak(resp: String, hint_level: u8, markers: Vec<String>) -> bool {
     let refs: Vec<&str> = markers.iter().map(String::as_str).collect();
     response_leaks_solution(&resp, hint_level, &refs)
+}
+
+/// Comando Tauri: lista as trilhas de aprendizado embutidas no OmniRift (Fase 9 A2).
+#[tauri::command]
+pub fn learn_tracks_list() -> Vec<LearnTrack> {
+    builtin_tracks()
+}
+
+/// Comando Tauri: recupera o progresso do estudante via MemoryProvider ativo.
+#[tauri::command]
+pub async fn learn_profile_get(
+    memory_registry: tauri::State<'_, std::sync::Arc<crate::memory::MemoryRegistry>>,
+) -> Result<LearnProfile, String> {
+    let provider = memory_registry.active_provider();
+    Ok(profile::get_profile(&*provider).await)
+}
+
+/// Comando Tauri: salva o progresso do estudante via MemoryProvider ativo.
+#[tauri::command]
+pub async fn learn_profile_save(
+    memory_registry: tauri::State<'_, std::sync::Arc<crate::memory::MemoryRegistry>>,
+    profile: LearnProfile,
+) -> Result<(), String> {
+    let provider = memory_registry.active_provider();
+    profile::save_profile(&*provider, &profile)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(test)]

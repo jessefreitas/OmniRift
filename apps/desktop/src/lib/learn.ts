@@ -13,7 +13,12 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import { MAX_HINT_LEVEL, type LearnExercise } from "@/lib/learn-exercises";
+import {
+  MAX_HINT_LEVEL,
+  LEARN_TRACKS,
+  type LearnExercise,
+  type LearnTrack,
+} from "@/lib/learn-exercises";
 
 export interface LearnMessage {
   role: "user" | "tutor" | "system";
@@ -134,3 +139,40 @@ export async function explainCheckFailure(
   );
   return guardLeak(resp, ex, hintLevel);
 }
+
+export interface LearnProfile {
+  trackId: string;
+  exIdx: number;
+  completed: Record<string, string[]>;
+}
+
+/** Carrega as trilhas de aprendizado compiladas no Rust (com fallback ao catálogo estático). */
+export async function listLearnTracks(): Promise<LearnTrack[]> {
+  try {
+    const tracks = await invoke<LearnTrack[]>("learn_tracks_list");
+    if (tracks && tracks.length > 0) return tracks;
+  } catch {
+    /* fallback */
+  }
+  return LEARN_TRACKS;
+}
+
+/** Recupera o perfil do aluno persistido no MemoryProvider (com fallback). */
+export async function getLearnProfile(): Promise<LearnProfile | null> {
+  try {
+    return await invoke<LearnProfile>("learn_profile_get");
+  } catch {
+    return null;
+  }
+}
+
+/** Salva o progresso do aluno duravelmente no MemoryProvider. */
+export async function saveLearnProfile(profile: LearnProfile): Promise<boolean> {
+  try {
+    await invoke<void>("learn_profile_save", { profile });
+    return true;
+  } catch {
+    return false;
+  }
+}
+

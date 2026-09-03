@@ -160,7 +160,10 @@ use health::db::{db_scan_repo, health_analyze_db};
 use health::db_live::{db_introspect, health_analyze_db_live};
 use health::scan::project_scan;
 use health::HealthCache;
-use learn::{learn_check_leak, learn_socratic_prompt};
+use learn::{
+    learn_check_leak, learn_profile_get, learn_profile_save, learn_socratic_prompt,
+    learn_tracks_list,
+};
 use mcp::{mcp_router, serena_health, AgentRegistry, ClaimsRegistry, MCP_PORT};
 use pty::PtyManager;
 use turbo::commands::{run_check, turbo_list, turbo_start, turbo_status, turbo_stop};
@@ -620,6 +623,9 @@ pub fn run() {
             learn_ask_grounded,
             learn_socratic_prompt,
             learn_check_leak,
+            learn_tracks_list,
+            learn_profile_get,
+            learn_profile_save,
             review_config_write,
             review_config_path,
             agent_settings_config,

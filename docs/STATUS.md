@@ -44,7 +44,7 @@ Exemplos reais desta auditoria:
 | rpc-mutations (06-25) | ✅ DONE | `rpc/methods.rs` (`agent.spawn/send/kill`) + CLI + `orchestration-client.ts` (attach) |
 | terminal-backend-owned (06-25) | ✅ DONE | `pty/emulator.rs` (`TermEmulator` s/ alacritty_terminal) + `pty_snapshot` + `useTerminalSession.ts` |
 | windows-named-pipe (06-25) | ✅ DONE | `rpc/socket.rs` (`#[cfg(windows)]` named-pipe) — não buildável no Linux (por design) |
-| omnipartner-aprender (06-28) | 🔶 PARTIAL | Núcleo socrático (`learn/mod.rs` + `CompanionModal`) OK. **Faltam módulos MVP** (draft). |
+| omnipartner-aprender (06-28) | ✅ DONE | Núcleo socrático e anti-vazamento em `learn/mod.rs` + `learn/tracks.rs` (trilhas embutidas sh/py/js/html) + `learn/profile.rs` (progresso durável via `MemoryProvider`) + grounding Context7 (`learn_ask_grounded`) + Kanban integration em `CompanionModal.tsx`. |
 | controle-remoto-4g-relay (06-29) | 🔶 PARTIAL | Fase 1 túnel DONE (`relay-worker` DO + `relay_client.rs`). **Fase 2 Push/FCM ausente.** |
 | acp-agent-layer (06-30) | ✅ DONE | `acp/mod.rs` (1526 linhas, AcpManager) + `commands/acp.rs` + `acp-client.ts` + `AgentNode.tsx` |
 | acp-hermes-integration (06-30) | ✅ DONE | `acp/mod.rs` adapter hermes (uvx) + `hermes_provider_env` (Nível 1) |
@@ -68,8 +68,7 @@ Exemplos reais desta auditoria:
 ## Pendências reais (o que está em aberto)
 
 ### 🔶 PARCIAIS acionáveis
-1. **omnipartner-aprender** — núcleo socrático wired, mas faltam `learn/tracks.rs`/`session.rs`/`profile.rs` + persistência do perfil via `MemoryProvider`. Spec ainda é "draft". (= roadmap R2 Aprender A2–A4.)
-2. **controle-remoto-4g-relay** — Fase 1 (túnel) DONE; **Fase 2 Push/FCM não-iniciada** (sem FCM no relay-worker, sem sinal `Blocked`). (= roadmap R3 Mobile.)
+1. **controle-remoto-4g-relay** — Fase 1 (túnel) DONE; **Fase 2 Push/FCM não-iniciada** (sem FCM no relay-worker, sem sinal `Blocked`). (= roadmap R3 Mobile.)
 
 ### ⏳ DESIGN-ONLY não-iniciados (backlog real)
 1. **jornada-onboarding-produto** — feature inteira não construída (7 missões, sandbox, spotlight overlay, watcher, testes).

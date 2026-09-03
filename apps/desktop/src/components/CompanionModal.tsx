@@ -14,8 +14,16 @@ import { ArrowRight, CheckCircle2, GraduationCap, Lightbulb, RefreshCw, Send, Sp
 import { runCheck } from "@/lib/acp-client";
 import { analyzeCanvas } from "@/lib/companion";
 import { useT } from "@/lib/i18n";
-import { askHint, askTutor, explainCheckFailure, type LearnMessage } from "@/lib/learn";
-import { LEARN_TRACKS, MAX_HINT_LEVEL } from "@/lib/learn-exercises";
+import {
+  askHint,
+  askTutor,
+  explainCheckFailure,
+  getLearnProfile,
+  listLearnTracks,
+  saveLearnProfile,
+  type LearnMessage,
+} from "@/lib/learn";
+import { LEARN_TRACKS, MAX_HINT_LEVEL, type LearnTrack } from "@/lib/learn-exercises";
 import { kanbanCardCreate } from "@/lib/kanban-client";
 import { useCanvasStore } from "@/store/canvas-store";
 
@@ -54,11 +62,16 @@ function loadCompleted(trackId: string): Set<string> {
   }
 }
 
-function saveCompleted(trackId: string, ids: Set<string>): void {
+function saveCompleted(trackId: string, ids: Set<string>, exIdx = 0): void {
   try {
     const all = JSON.parse(localStorage.getItem(LEARN_COMPLETED_LS) ?? "{}") as Record<string, string[]>;
     all[trackId] = [...ids];
     localStorage.setItem(LEARN_COMPLETED_LS, JSON.stringify(all));
+    void saveLearnProfile({
+      trackId,
+      exIdx,
+      completed: all,
+    });
   } catch {
     /* localStorage off */
   }
@@ -86,15 +99,41 @@ export function CompanionModal({ onClose }: Props) {
   }
 
   // ── modo Aprender (A0+) ─────────────────────────────────────────────────────
-  // Trilha (linguagem) + exercício atual, persistidos em localStorage.
+  // Trilha (linguagem) + exercício atual, persistidos em MemoryProvider (e localStorage).
+  const [tracks, setTracks] = useState<LearnTrack[]>(LEARN_TRACKS);
+  useEffect(() => {
+    void listLearnTracks().then((list) => {
+      if (list && list.length > 0) setTracks(list);
+    });
+  }, []);
+
   const [trackId, setTrackId] = useState<string>(loadSavedTrackId);
   const [exIdx, setExIdx] = useState<number>(loadSavedExIdx);
   // A4 — exercícios já registrados como card no Kanban nesta sessão (por id), pra não duplicar.
   const cardedRef = useRef<Set<string>>(new Set());
   // A2 — exercícios concluídos da trilha ATUAL (durável). Recarrega ao trocar de trilha.
   const [completed, setCompleted] = useState<Set<string>>(() => loadCompleted(trackId));
-  useEffect(() => setCompleted(loadCompleted(trackId)), [trackId]);
-  const track = LEARN_TRACKS.find((tr) => tr.id === trackId) ?? LEARN_TRACKS[0];
+
+  // Restaura progresso do MemoryProvider (durável)
+  useEffect(() => {
+    void getLearnProfile().then((prof) => {
+      if (prof) {
+        if (prof.trackId) {
+          setTrackId(prof.trackId);
+          localStorage.setItem(LEARN_TRACK_LS, prof.trackId);
+        }
+        if (typeof prof.exIdx === "number") {
+          setExIdx(prof.exIdx);
+          localStorage.setItem(LEARN_EX_IDX_LS, String(prof.exIdx));
+        }
+        if (prof.completed && prof.trackId && prof.completed[prof.trackId]) {
+          setCompleted(new Set(prof.completed[prof.trackId]));
+        }
+      }
+    });
+  }, []);
+
+  const track = tracks.find((tr) => tr.id === trackId) ?? tracks[0] ?? LEARN_TRACKS[0];
   const ex = track.exercises[Math.min(exIdx, track.exercises.length - 1)];
   const hasNextEx = exIdx < track.exercises.length - 1;
   const [msgs, setMsgs] = useState<LearnMessage[]>([]);
@@ -116,10 +155,12 @@ export function CompanionModal({ onClose }: Props) {
   function selectTrack(id: string) {
     if (id === trackId || busy) return;
     setTrackId(id);
+    setCompleted(loadCompleted(id));
     setExIdx(0);
     resetLearnSession();
     localStorage.setItem(LEARN_TRACK_LS, id);
     localStorage.setItem(LEARN_EX_IDX_LS, "0");
+    saveCompleted(id, loadCompleted(id), 0);
   }
 
   function nextExercise() {
@@ -128,6 +169,7 @@ export function CompanionModal({ onClose }: Props) {
     setExIdx(next);
     resetLearnSession();
     localStorage.setItem(LEARN_EX_IDX_LS, String(next));
+    saveCompleted(trackId, completed, next);
   }
 
   /** A2 — pula pra um exercício arbitrário da trilha (clique na barra de progresso). */
@@ -190,7 +232,7 @@ export function CompanionModal({ onClose }: Props) {
         // A2 — marca o exercício como concluído (durável entre sessões).
         setCompleted((prev) => {
           const next = new Set(prev).add(ex.id);
-          saveCompleted(trackId, next);
+          saveCompleted(trackId, next, exIdx);
           return next;
         });
         // A4 — registra a conquista no Kanban do projeto (col "done"), 1x por exercício.
@@ -286,7 +328,7 @@ export function CompanionModal({ onClose }: Props) {
           <div className="flex-1 flex flex-col min-h-0">
             {/* seletor de trilha (linguagem) + posição na progressão */}
             <div className="flex items-center gap-1 px-4 py-1.5 border-b border-border shrink-0 overflow-x-auto">
-              {LEARN_TRACKS.map((tr) => (
+              {tracks.map((tr) => (
                 <button
                   key={tr.id}
                   onClick={() => selectTrack(tr.id)}
