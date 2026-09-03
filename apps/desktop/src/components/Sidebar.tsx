@@ -82,9 +82,6 @@ import { injectWhenPtyReady } from "@/lib/inject-when-pty-ready";
 import { EditorOpenButton } from "@/components/EditorOpenButton";
 import { EditableLabel } from "@/components/EditableLabel";
 import { UpdaterButton } from "@/components/UpdaterButton";
-import { TrajectoryEvalModal } from "@/components/TrajectoryEvalModal";
-import { SubagentEditModal } from "@/components/SubagentEditModal";
-import { PromptModal } from "@/components/PromptModal";
 import { usageScan, fmtUsd } from "@/lib/usage-client";
 import { whenBootUiReady } from "@/lib/boot-ui-ready";
 import { omnifsStatus, type OmniFsStatus } from "@/lib/omnifs-client";
@@ -156,6 +153,9 @@ const OrchestrationDoctorPanel = lazy(() =>
 );
 const TurboPanel = lazy(() => import("@/components/turbo/TurboPanel").then((m) => ({ default: m.TurboPanel })));
 const CodeMetricsPanel = lazy(() => import("@/components/CodeMetricsPanel").then((m) => ({ default: m.CodeMetricsPanel })));
+const TrajectoryEvalModal = lazy(() => import("@/components/TrajectoryEvalModal").then((m) => ({ default: m.TrajectoryEvalModal })));
+const SubagentEditModal = lazy(() => import("@/components/SubagentEditModal").then((m) => ({ default: m.SubagentEditModal })));
+const PromptModal = lazy(() => import("@/components/PromptModal").then((m) => ({ default: m.PromptModal })));
 import { ToolsSection } from "@/components/sidebar/ToolsSection";
 import { SpecsSection } from "@/components/sidebar/SpecsSection";
 import { RolesSection } from "@/components/sidebar/RolesSection";
@@ -912,12 +912,24 @@ export function Sidebar() {
   // docs ao vivo) uma vez — injetado via --mcp-config nos agentes claude.
   useEffect(() => {
     agentMcpConfig().then(setMcpConfigPath).catch(() => {});
-    void clisList().then(setCatalogClis).catch(() => {});
+    const run = () => void clisList().then(setCatalogClis).catch(() => {});
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(run, { timeout: 4000 });
+      return () => window.cancelIdleCallback(id);
+    } else {
+      const id = window.setTimeout(run, 2000);
+      return () => window.clearTimeout(id);
+    }
   }, []);
 
   // Recarrega o catálogo quando o modal de CLIs fecha (pega o que foi instalado lá).
+  const clisModalOpenedRef = useRef(false);
   useEffect(() => {
-    if (!showClis) void clisList().then(setCatalogClis).catch(() => {});
+    if (showClis) {
+      clisModalOpenedRef.current = true;
+    } else if (clisModalOpenedRef.current) {
+      void clisList().then(setCatalogClis).catch(() => {});
+    }
   }, [showClis]);
 
   // Lista specs/plans do projeto (default + raízes extras do usuário).
@@ -2863,7 +2875,6 @@ export function Sidebar() {
       {showTurbo && <TurboPanel seedGoal={turboSeed} onClose={() => { setShowTurbo(false); setTurboSeed(undefined); }} />}
       {showAppearance && <AppearanceModal onClose={() => setShowAppearance(false)} />}
       {showUsage && <UsageModal onClose={() => setShowUsage(false)} activeProject={currentCwd} />}
-      </Suspense>
       {newDocKind && (
         <PromptModal
           title={newDocKind === "plan" ? tr("sidebar.newDocPlanPrompt", "Nome do plano:") : tr("sidebar.newDocSpecPrompt", "Nome da spec:")}
@@ -2872,6 +2883,7 @@ export function Sidebar() {
           onCancel={() => setNewDocKind(null)}
         />
       )}
+      </Suspense>
       {/* Handle de arrasto na borda direita — alarga/estreita a barra (persiste). */}
       <div
         onMouseDown={startResize}

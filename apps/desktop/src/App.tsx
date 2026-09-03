@@ -81,20 +81,35 @@ export default function App() {
   // Depois do boot-intro (não disputa IPC com db_load no cold start).
   useEffect(() => {
     let cancelled = false;
+    let idleId: number | undefined;
     void whenBootUiReady().then(() => {
       if (cancelled) return;
-      mcpServersImportGlobal()
-        .then((n) => {
-          if (cancelled || n <= 0) return;
-          void notify(
-            tr("mcpServers.globalImportNotice1", "Os agentes não herdam mais os MCPs globais do Claude. ")
-              + n
-              + tr("mcpServers.globalImportNotice2", " server(s) foram adicionados DESLIGADOS em Ferramentas → MCP Servers — ligue só o que quiser."),
-          );
-        })
-        .catch(() => {});
+      const run = () => {
+        if (cancelled) return;
+        mcpServersImportGlobal()
+          .then((n) => {
+            if (cancelled || n <= 0) return;
+            void notify(
+              tr("mcpServers.globalImportNotice1", "Os agentes não herdam mais os MCPs globais do Claude. ")
+                + n
+                + tr("mcpServers.globalImportNotice2", " server(s) foram adicionados DESLIGADOS em Ferramentas → MCP Servers — ligue só o que quiser."),
+            );
+          })
+          .catch(() => {});
+      };
+      if (typeof window.requestIdleCallback === "function") {
+        idleId = window.requestIdleCallback(run, { timeout: 3000 });
+      } else {
+        idleId = window.setTimeout(run, 1500);
+      }
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (idleId !== undefined) {
+        if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idleId);
+        else window.clearTimeout(idleId);
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -220,7 +235,11 @@ export default function App() {
   // natureza, intro é animação pesada conhecida, canvas é onde travar é bug.
   const uiReady = !bootIntroOn || introDone;
   useEffect(() => {
-    setPhase(uiReady ? "canvas" : bootIntroOn ? "intro" : "boot");
+    if (uiReady) {
+      const id = window.setTimeout(() => setPhase("canvas"), 500);
+      return () => window.clearTimeout(id);
+    }
+    setPhase(bootIntroOn ? "intro" : "boot");
   }, [uiReady, bootIntroOn]);
 
   // Harness de benchmark de fluidez/jank do canvas:

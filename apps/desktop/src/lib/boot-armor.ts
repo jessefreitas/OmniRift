@@ -329,9 +329,12 @@ export function runArmorScene(cv: HTMLCanvasElement): ArmorScene {
       const e = 1 - it.p;
       if (it.p > 0.97) settled++;
       const br = Math.sin(t * 1.2 + it.ph) * 3 * it.p;
-      const gl = 6 + e * 16;
-      ctx!.shadowColor = SH;
-      ctx!.shadowBlur = gl;
+      if (e > 0.1) {
+        ctx!.shadowColor = SH;
+        ctx!.shadowBlur = Math.min(4, e * 6);
+      } else {
+        ctx!.shadowBlur = 0;
+      }
       ctx!.strokeStyle = ARMC;
       ctx!.lineJoin = "round";
       ctx!.lineCap = "round";

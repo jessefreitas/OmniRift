@@ -39,19 +39,23 @@ pub struct InstallProgress {
 
 /// Lista o catálogo de CLIs suportados com estado de instalação e versão.
 #[tauri::command]
-pub fn clis_list() -> Vec<CliInfo> {
-    CATALOG
-        .iter()
-        .map(|entry| {
-            let installed = is_binary_on_path(entry.binary);
-            let version = if installed {
-                detect_version(entry.binary)
-            } else {
-                None
-            };
-            entry.to_info(installed, version)
-        })
-        .collect()
+pub async fn clis_list() -> Vec<CliInfo> {
+    tokio::task::spawn_blocking(|| {
+        CATALOG
+            .iter()
+            .map(|entry| {
+                let installed = is_binary_on_path(entry.binary);
+                let version = if installed {
+                    detect_version(entry.binary)
+                } else {
+                    None
+                };
+                entry.to_info(installed, version)
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// Instala um CLI pelo id. Emite eventos `cli-install-progress` em cada estágio.

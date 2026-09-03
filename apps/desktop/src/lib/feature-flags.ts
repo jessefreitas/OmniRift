@@ -226,7 +226,7 @@ export const FLAGS: FlagDef[] = [
     label: "Intro FRIDAY (boot animado)",
     description:
       "Uma intro estilo assistente de voz sci-fi (esfera FRIDAY em Canvas 2D) na abertura do app: som de boot sintetizado + voz TTS + a sequência de inicialização REAL (provedores, sessões, snapshots) acendendo linha a linha. Fica na tela até você clicar/teclar pra entrar. Personalizável. Kill-switch: desligue pra abrir direto no canvas. (MVP default:true pra teste — vira false no release.)",
-    default: true,
+    default: false,
     stage: "experimental",
   },
   {
