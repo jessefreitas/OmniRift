@@ -63,14 +63,13 @@ Exemplos reais desta auditoria:
 | orquestracao (07-09) | ✅ DONE | tools `agent_status/ask/tell` + `mcp/marker.rs` (núcleo camada 4; 5/6/7 futuras) |
 | hook-library (07-10) | ⏳ DESIGN-ONLY | **Nada implementado** (sem catálogo frontend nem `CustomHook` no Rust). |
 | grok-patterns-acp-sandbox-secrets (07-16) | ✅ DONE | ACP id-correlation (`next_rpc_id`+`pending` map); path-scrub `$HOME`→`~`/`<user>` no `redactor`; flag `sandbox-workspace` no painel + `sandbox_set_enabled` (UI∨env). Incrementos futuros da spec (reconexão ACP, seccomp) = roadmap. |
-| canvas-fluency-gate (07-25) | 🔶 PARTIAL | Detector+wiring ✅ (`canvas-fluency.ts`, watchdog/`trackNodeMount`, `FluencyChip`, `npm run gate:canvas-fluency` = unit+wiring). **Falta** benchmark/smoke de jank real no WebKitGTK empacotado (auditoria PERF-141). F3 intacta. |
+| canvas-fluency-gate (07-25) | ✅ DONE | Detector+wiring (`canvas-fluency.ts`, watchdog/`trackNodeMount`, `FluencyChip`). Harness determinístico `scripts/canvas-jank-bench.sh` + telemetria de store-writes por fase e desempate empírico de `DragBuffer` (97% de redução de escritas de posição com 500 nós). |
 
 ## Pendências reais (o que está em aberto)
 
 ### 🔶 PARCIAIS acionáveis
 1. **omnipartner-aprender** — núcleo socrático wired, mas faltam `learn/tracks.rs`/`session.rs`/`profile.rs` + persistência do perfil via `MemoryProvider`. Spec ainda é "draft". (= roadmap R2 Aprender A2–A4.)
 2. **controle-remoto-4g-relay** — Fase 1 (túnel) DONE; **Fase 2 Push/FCM não-iniciada** (sem FCM no relay-worker, sem sinal `Blocked`). (= roadmap R3 Mobile.)
-3. **canvas-fluency-gate** — instrumentação+gate unit/wiring DONE; falta smoke/benchmark de jank no app empacotado (WebKitGTK).
 
 ### ⏳ DESIGN-ONLY não-iniciados (backlog real)
 1. **jornada-onboarding-produto** — feature inteira não construída (7 missões, sandbox, spotlight overlay, watcher, testes).
@@ -85,5 +84,5 @@ Exemplos reais desta auditoria:
 
 ## Fora do escopo das specs (roadmap, não backlog-dívida)
 - Fases futuras **por design**: Constructor Fase 2/3, orquestracao camadas 5/6/7, omniswitch Fase 2, hermes-wizard keychain Fase 3. Não são "em aberto pendente" — são incrementos planejados.
-- **VOICE MODE / paridade Claude Code embutido** (backlog feature #4, memórias blackboard #119/#121/#122): não tem spec formal ainda. Diagnóstico pronto; fix de 3 frentes (Tauri capabilities de mic + PATH `arecord`/SoX no spawn + auth Claude.ai no config-dir isolado).
+- **VOICE MODE / paridade Claude Code embutido**: ✅ DONE (strip de envs SSH/remote em sessões locais PTY, garantia de `XDG_RUNTIME_DIR` + bind no sandbox `bwrap` para PipeWire/PulseAudio/ALSA `arecord`, e sincronização de `oauthAccount` + ativação automática de `voice` tap mode PT no `settings.json` isolado).
 - **Acentos/cedilha (dead-key/CompositionEvent no WebKitGTK)**: tratado — terminal (`ime-dedup` no forwarder PTY) + `SafeInput`/`SafeTextarea` (gate de composição + paste). Chat ACP/Goal/Loop do AgentNode migrados. Residual: inputs crus pontuais (números/checkbox/JSON schema) fora do caminho de prosa PT. RC manual: digitar `começar`/`ção` no terminal e no input do AgentNode (WebKitGTK+IBus). Sem spec.
